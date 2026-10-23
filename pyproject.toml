@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "inklow"
+version = "0.1.0"
+description = "Local-first predictive typing across macOS, Windows, and Linux"
+requires-python = ">=3.11"
+dependencies = [
+  "PySide6>=6.8,<7",
+  "platformdirs>=4,<5",
+  "pyobjc-framework-ApplicationServices>=11; sys_platform == 'darwin'",
+  "pyobjc-framework-Quartz>=11; sys_platform == 'darwin'",
+  "pyobjc-framework-Cocoa>=11; sys_platform == 'darwin'",
+  "comtypes>=1.4; sys_platform == 'win32'",
+  "python-xlib>=0.33; sys_platform == 'linux'",
+]
+
+[project.optional-dependencies]
+local = ["llama-cpp-python==0.3.36"]
+dev = ["pytest>=8,<10", "pytest-qt>=4.4,<5"]
+
+[project.scripts]
+inklow = "inklow.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/inklow"]
