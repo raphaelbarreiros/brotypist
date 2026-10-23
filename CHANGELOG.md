@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.3.0 — 2026-10-24
+
+- Replace the editor with a menu-first agent: native AppKit preferences/overlays on macOS, native-themed Qt tray/preferences on Windows/Linux. Remove obsolete editor and in-process UI worker APIs; omit Qt from the Mac dependency/bundle.
+- Add eleven native preference panes, explicit setup/permission links, compact General settings with expandable model management, configurable physical-key shortcuts, per-app/domain rules, custom-instruction Save/Revert, battery controls, and actual accepted-writing statistics.
+- Move inference into a lazy, bounded stdio worker. Release the process after idle, pause, model change, and quit; preserve newest work during a same-model cold load. Document cold-load latency instead of promising instant predictions.
+- Add opt-in OS-keychain-backed AES-GCM history, bounded vocabulary personalization, explicit deletion, and optional clipboard/scoped-window OCR context. Keep default recording/context off and disclose app recording overrides.
+- Add offline Unicode 17 emoji/emoticon choices, skin/gender variants, contextual selected-word synonyms and alternative continuations. Improve utility prompts using actual failing/working local-model samples; do not invent dictionary fallbacks.
+- Revalidate Windows UIA focus/protection before selection replacement, respect app/domain Tab precedence without disabling non-Tab shortcuts, preserve emoji precedence over pause alternatives, and fix macOS zero-length AX range row geometry using adjacent observed glyph bounds.
+- Preserve REA-authenticated native reference evidence privately where preferences could contain personal text; publish sanitized records and real synthetic native UI/typing screenshots. Extend frozen-runtime verification to the actual isolated worker protocol.
+
 ## 0.2.0 — 2026-10-23
 
 - Preload/warm up inference outside the UI thread, use available GPU offload, stream completed words, cancel obsolete work, and reuse matching typed-through suggestions. Keep snapshot/privacy guards on every update and acceptance.

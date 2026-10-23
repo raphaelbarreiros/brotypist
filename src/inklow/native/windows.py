@@ -12,9 +12,11 @@ from ctypes import wintypes as W
 from contextlib import contextmanager
 import os
 import threading
+from dataclasses import replace
 
 from ..core import Snapshot
-from .base import BridgeBase, Shortcut, utf16_to_index
+from .base import BridgeBase, Shortcut, utf16_to_index, index_to_utf16
+from ..shortcuts import windows_key
 
 
 class GUITHREADINFO(C.Structure):
@@ -64,7 +66,8 @@ class WindowsBridge(BridgeBase):
         self._set_status(
             "Windows UI Automation ready. Supports native Edit and writable UIA TextPattern controls "
             "with observable selection/composition. Password/read-only or incomplete providers are excluded. "
-            "Run target apps at the same privilege level; modern app compatibility depends on their UIA provider."
+            "Run target apps at the same privilege level; modern app compatibility depends on their UIA provider. "
+            "Browser URLs are not observable through documented window metadata; domain rules cannot apply here."
         )
 
     def _configure_api(self) -> None:
@@ -157,6 +160,22 @@ class WindowsBridge(BridgeBase):
             return None
         return info, int(pid.value)
 
+    def foreground(self) -> dict:
+        with self._lock:
+            try:
+                window = self.user.GetForegroundWindow()
+                pid = W.DWORD()
+                self.user.GetWindowThreadProcessId(window, C.byref(pid))
+                if pid.value == os.getpid():
+                    return super().foreground()
+                app = self._process_name(int(pid.value)) if pid.value else None
+                # Windows has no generic documented browser-window URL
+                # property. Never read address-bar ValuePattern or page text.
+                return {"app_id": app or "", "name": (app or "").replace("\\", "/").rsplit("/", 1)[-1],
+                        "domain": "", "browser": self._is_browser(app or ""), "domain_observable": False}
+            except Exception:
+                return super().foreground()
+
     def _capture(self, automation):
         if self._stopped.is_set():
             return None
@@ -166,7 +185,7 @@ class WindowsBridge(BridgeBase):
         info, pid = focus
         hwnd = info.hwndFocus
         app = self._process_name(pid)
-        if app is None or self._excluded(app):
+        if app is None or not self._allowed(app):
             return None
         element = automation.GetFocusedElement()
         # IsPassword is queried before any text range/value. Modern controls may
@@ -212,7 +231,8 @@ class WindowsBridge(BridgeBase):
             if self.user.ClientToScreen(hwnd, C.byref(point)):
                 rect = (float(point.x), float(point.y), float(max(1, info.rcCaret.right - info.rcCaret.left)),
                         float(info.rcCaret.bottom - info.rcCaret.top))
-        return Snapshot(app, f"{pid}:{int(hwnd)}", text, caret, selection_end - caret, rect), hwnd
+        return Snapshot(app, f"{pid}:{int(hwnd)}", text, caret, selection_end - caret, rect,
+                        multiline=bool(style & 0x0004)), hwnd
 
     def _capture_uia(self, element, pid: int, app: str):
         # TextEditPattern is required to establish that no IME composition is
@@ -235,17 +255,21 @@ class WindowsBridge(BridgeBase):
             if selection.Length != 1:
                 return None
             selected = selection.GetElement(0)
-            if selected.CompareEndpoints(0, selected, 1) != 0:
-                return None
+            # Both endpoints are captured explicitly for selected-text synonyms.
             # Prefix ranges avoid guessing whether Character units are UTF-16,
             # graphemes, or Unicode scalar values in this particular provider.
             prefix_range = document.Clone()
             prefix_range.MoveEndpointByRange(1, selected, 0)
             prefix = prefix_range.GetText(1_000_001)
+            through_selection = document.Clone()
+            through_selection.MoveEndpointByRange(1, selected, 1)
+            selected_prefix = through_selection.GetText(1_000_001)
             text = document.GetText(1_000_001)
-            if len(text) > 1_000_000 or not text.startswith(prefix):
+            if (len(text) > 1_000_000 or not text.startswith(prefix)
+                    or not text.startswith(selected_prefix) or len(selected_prefix) < len(prefix)):
                 return None
             caret = len(prefix)
+            selection_length = len(selected_prefix) - caret
             rect = None
             bounds = selected.GetBoundingRectangles()
             if len(bounds) != 4:
@@ -263,7 +287,7 @@ class WindowsBridge(BridgeBase):
             if not runtime_id:
                 return None
             field_id = f"{pid}:uia:" + ":".join(str(part) for part in runtime_id)
-            return Snapshot(app, field_id, text, caret, 0, rect), None
+            return Snapshot(app, field_id, text, caret, selection_length, rect), None
         except Exception:
             # Missing TextEdit/Text/selection/read-only capability fails closed,
             # never a synthetic empty snapshot or a whole-document write.
@@ -297,6 +321,14 @@ class WindowsBridge(BridgeBase):
             except Exception:
                 return None
 
+    @staticmethod
+    def _uia_focus_matches(automation, snapshot: Snapshot) -> bool:
+        focused = automation.GetFocusedElement()
+        if focused is None or focused.CurrentIsPassword or not focused.CurrentHasKeyboardFocus:
+            return False
+        identity = f"{int(focused.CurrentProcessId)}:uia:" + ":".join(str(part) for part in focused.GetRuntimeId())
+        return identity == snapshot.field_id
+
     def insert(self, snapshot: Snapshot, text: str) -> bool:
         if not text or "\x00" in text or snapshot.protected or snapshot.selection_length:
             return False
@@ -311,11 +343,39 @@ class WindowsBridge(BridgeBase):
                         # TRUE preserves the control's native undo history.
                         self._message(current[1], 0x00C2, 1, C.addressof(buffer))  # EM_REPLACESEL
                         return True
-                    focused = automation.GetFocusedElement()
-                    if focused is None or focused.CurrentIsPassword or not focused.CurrentHasKeyboardFocus:
+                    if not self._uia_focus_matches(automation, snapshot):
                         return False
-                    identity = f"{int(focused.CurrentProcessId)}:uia:" + ":".join(str(part) for part in focused.GetRuntimeId())
-                    if identity != snapshot.field_id:
+                    return self._send_unicode(text)
+            except Exception:
+                return False
+
+    def replace_range(self, snapshot: Snapshot, start: int, length: int, text: str) -> bool:
+        if not self._valid_replacement(snapshot, start, length, text):
+            return False
+        with self._lock:
+            try:
+                with self._automation() as automation:
+                    current = self._capture(automation)
+                    if current is None or current[0].key != snapshot.key:
+                        return False
+                    hwnd = current[1]
+                    if hwnd is not None:
+                        location = index_to_utf16(snapshot.text, start)
+                        end = index_to_utf16(snapshot.text, start + length)
+                        self._message(hwnd, 0x00B1, location, end)  # EM_SETSEL
+                        selected = self._capture(automation)
+                        if selected is None or selected[0].key != replace(
+                                snapshot, caret=start, selection_length=length).key:
+                            return False
+                        buffer = C.create_unicode_buffer(text)
+                        self._message(hwnd, 0x00C2, 1, C.addressof(buffer))
+                        return True
+                    # Provider character units differ: no guessed range movement.
+                    # Exact existing selection can be replaced by Unicode input.
+                    if (start, length) != (snapshot.caret, snapshot.selection_length):
+                        self._set_status("This UIA provider cannot safely select an arbitrary Unicode range. Existing selected-text synonyms may work; emoji suffix replacement requires a native Edit control.")
+                        return False
+                    if not self._uia_focus_matches(automation, snapshot):
                         return False
                     return self._send_unicode(text)
             except Exception:
@@ -335,13 +395,14 @@ class WindowsBridge(BridgeBase):
         def hook(code, message, pointer):
             if code >= 0 and message in (0x0100, 0x0104):  # WM_KEYDOWN, WM_SYSKEYDOWN
                 event = C.cast(pointer, C.POINTER(KBDLLHOOKSTRUCT)).contents
-                # Ignore injected input and modified navigation (except Shift+Tab).
-                modifiers = any(u.GetAsyncKeyState(key) & 0x8000 for key in (0x11, 0x12, 0x5B, 0x5C))
-                if not modifiers and not event.flags & 0x10:
-                    shift = bool(u.GetAsyncKeyState(0x10) & 0x8000)
-                    action = ("all" if shift else "word") if event.vkCode == 0x09 else None
-                    if event.vkCode == 0x1B and not shift:
-                        action = "dismiss"
+                if (u.GetAsyncKeyState(0xA5) & 0x8000 and u.GetAsyncKeyState(0x11) & 0x8000):
+                    return u.CallNextHookEx(None, code, message, pointer)  # AltGr text, not Ctrl+Alt.
+                if not event.flags & 0x10:  # Never intercept injected insertion.
+                    modifiers = tuple(name for name, keys in (
+                        ("Ctrl", (0x11,)), ("Alt", (0x12,)), ("Shift", (0x10,)), ("Super", (0x5B, 0x5C)))
+                        if any(u.GetAsyncKeyState(key) & 0x8000 for key in keys))
+                    action = self._key_action(windows_key(event.vkCode, event.scanCode),
+                                              modifiers, platform="windows")
                     if action and self._dispatch(action):
                         return 1
             return u.CallNextHookEx(None, code, message, pointer)

@@ -39,8 +39,8 @@ jobs:
         run: inklow model download --preset tiny
       - name: Exercise real local inference
         run: python -c "from dataclasses import replace; from inklow.config import load_config; from inklow.providers import create_provider; p = create_provider(replace(load_config(), acceleration='cpu')); p.prepare(); print(p.complete('Thank you for your', '')); p.close()"
-      - name: Launch the real desktop offscreen
-        run: python -c "from dataclasses import replace; from PySide6.QtCore import QTimer; from PySide6.QtWidgets import QApplication; from inklow.config import load_config; from inklow.desktop import launch; app = QApplication([]); QTimer.singleShot(3000, app.quit); code = launch(replace(load_config(), acceleration='cpu', global_enabled=False), no_tray=True); print('Desktop launch smoke finished', code); raise SystemExit(code)"
+      - name: Launch real native settings utility
+        run: python tools/smoke_desktop.py
       - name: Build installable wheel
         run: python -m pip wheel --no-deps . --wheel-dir dist
       - name: Build native desktop application
@@ -57,4 +57,5 @@ jobs:
             test-results.xml
             dist/*.whl
             dist/Inklow-*.tar.gz
+            worker-smoke.json
           retention-days: 14

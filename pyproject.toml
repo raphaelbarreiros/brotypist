@@ -4,15 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "inklow"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local-first predictive typing across macOS, Windows, and Linux"
 requires-python = ">=3.11"
 dependencies = [
-  "PySide6>=6.8,<7",
+  "PySide6>=6.8,<7; sys_platform != 'darwin'",
   "platformdirs>=4,<5",
   "pyobjc-framework-ApplicationServices>=11; sys_platform == 'darwin'",
   "pyobjc-framework-Quartz>=11; sys_platform == 'darwin'",
   "pyobjc-framework-Cocoa>=11; sys_platform == 'darwin'",
+  "pyobjc-framework-Vision>=11; sys_platform == 'darwin'",
+  "pyobjc-framework-ScreenCaptureKit>=11; sys_platform == 'darwin'",
+  "keyring>=25.5,<26",
+  "cryptography>=44,<47",
   "comtypes>=1.4; sys_platform == 'win32'",
   "python-xlib>=0.33; sys_platform == 'linux'",
 ]

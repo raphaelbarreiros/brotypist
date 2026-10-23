@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import os
 import threading
+import dataclasses
 
 from ..core import Snapshot
-from .base import BridgeBase, Shortcut, utf16_to_index
+from .base import BridgeBase, Shortcut, utf16_to_index, index_to_utf16
+from ..shortcuts import mac_key_name
 
 
 class MacBridge(BridgeBase):
@@ -14,9 +16,10 @@ class MacBridge(BridgeBase):
         import ApplicationServices as AX
         import Quartz
         import CoreFoundation as CF
-        from AppKit import NSWorkspace, NSAccessibilityRoleDescription
+        from AppKit import NSWorkspace, NSAccessibilityRoleDescription, NSEvent
         self.ax, self.q, self.cf = AX, Quartz, CF
         self._workspace = NSWorkspace.sharedWorkspace()
+        self._event_type = NSEvent
         self._secure_description = NSAccessibilityRoleDescription("AXTextField", "AXSecureTextField")
         self._tap = None
         self._runloop = None
@@ -53,10 +56,7 @@ class MacBridge(BridgeBase):
         error, result = self.ax.AXUIElementIsAttributeSettable(element, name, None)
         return not error and bool(result)
 
-    def _focused(self):
-        # Resolve the foreground process through NSWorkspace. System-wide AX
-        # AXFocusedApplication can return kAXErrorCannotComplete even while the
-        # foreground app's own AXFocusedUIElement is accessible.
+    def _foreground(self):
         app_info = self._workspace.frontmostApplication()
         if app_info is None:
             return None
@@ -66,7 +66,38 @@ class MacBridge(BridgeBase):
         executable_url = app_info.executableURL()
         executable = str(executable_url.path()) if executable_url else ""
         app_id = str(app_info.bundleIdentifier() or executable)
-        if not app_id or self._excluded(app_id, executable):
+        domain = ""
+        # AXDocument is native window metadata, not an editable address-bar
+        # value, AppleScript, page DOM, or a title guessed to be a URL.
+        browser = self._is_browser(app_id, executable)
+        if browser and self.ax.AXIsProcessTrusted():
+            app = self.ax.AXUIElementCreateApplication(pid)
+            window = self._attribute(app, "AXFocusedWindow")
+            document = self._attribute(window, "AXDocument") if window is not None else None
+            if document is not None and hasattr(document, "absoluteString"):
+                document = str(document.absoluteString())
+            domain = self._domain(document)
+        return pid, executable, {"app_id": app_id, "name": str(app_info.localizedName() or app_id),
+                                 "domain": domain, "browser": browser, "domain_observable": bool(domain)}
+
+    def foreground(self) -> dict:
+        with self._lock:
+            try:
+                result = self._foreground()
+                return result[2] if result else super().foreground()
+            except Exception:
+                return super().foreground()
+
+    def _focused(self):
+        # Resolve the foreground process through NSWorkspace. System-wide AX
+        # AXFocusedApplication can return kAXErrorCannotComplete even while the
+        # foreground app's own AXFocusedUIElement is accessible.
+        result = self._foreground()
+        if result is None:
+            return None
+        pid, executable, metadata = result
+        app_id = metadata["app_id"]
+        if pid == os.getpid() or not app_id or not self._allowed(app_id, metadata["domain"], executable):
             return None
         app = self.ax.AXUIElementCreateApplication(pid)
         field = self._attribute(app, "AXFocusedUIElement")
@@ -90,7 +121,7 @@ class MacBridge(BridgeBase):
             return None
         if not (self._settable(field, "AXSelectedText") or self._settable(field, "AXValue")):
             return None
-        return field, pid, app_id
+        return field, pid, app_id, metadata["domain"]
 
     def _capture(self):
         if self._stopped.is_set() or not self.ax.AXIsProcessTrusted():
@@ -98,7 +129,7 @@ class MacBridge(BridgeBase):
         focused = self._focused()
         if focused is None:
             return None
-        field, pid, app_id = focused
+        field, pid, app_id, domain = focused
         marked_range = self._attribute(field, "AXMarkedTextRange")
         if marked_range is not None:
             valid, marked = self.ax.AXValueGetValue(marked_range, self.ax.kAXValueCFRangeType, None)
@@ -116,18 +147,41 @@ class MacBridge(BridgeBase):
             return None
         caret = utf16_to_index(text, location)
         end = utf16_to_index(text, location + length)
-        rect = None
-        bounds_range = self.ax.AXValueCreate(self.ax.kAXValueCFRangeType, (location, 0))
-        error, bounds = self.ax.AXUIElementCopyParameterizedAttributeValue(
-            field, "AXBoundsForRange", bounds_range, None
-        )
-        if not error and bounds is not None:
-            valid, bounds = self.ax.AXValueGetValue(bounds, self.ax.kAXValueCGRectType, None)
-            if valid and bounds[1][1] > 0:
-                rect = (float(bounds[0][0]), float(bounds[0][1]), max(1.0, float(bounds[1][0])), float(bounds[1][1]))
+        rect = self._caret_bounds(field, text, caret, location)
         # CFEqual/hash on AXUIElement retains identity across fresh AX references.
         field_id = f"{pid}:{hash(field)}"
-        return Snapshot(app_id, field_id, text, caret, end - caret, rect), field
+        return Snapshot(app_id, field_id, text, caret, end - caret, rect,
+                        domain=domain, multiline=self._attribute(field, "AXRole") == "AXTextArea"), field
+
+    def _range_bounds(self, field, location, length):
+        value = self.ax.AXValueCreate(self.ax.kAXValueCFRangeType, (location, length))
+        error, bounds = self.ax.AXUIElementCopyParameterizedAttributeValue(field, "AXBoundsForRange", value, None)
+        if error or bounds is None:
+            return None
+        valid, bounds = self.ax.AXValueGetValue(bounds, self.ax.kAXValueCGRectType, None)
+        if not valid or bounds[1][1] <= 0:
+            return None
+        return (float(bounds[0][0]), float(bounds[0][1]), float(bounds[1][0]), float(bounds[1][1]))
+
+    def _caret_bounds(self, field, text, caret, location):
+        bounds = self._range_bounds(field, location, 0)
+        if bounds is None:
+            return None
+        # NSTextView on macOS 27 reports a zero-length range one line above
+        # its actual insertion point. Keep that range's exact x, but use an
+        # adjacent real glyph's observed row when the metrics agree.
+        if caret < len(text) and text[caret] not in "\r\n":
+            glyph_length = 2 if ord(text[caret]) > 0xFFFF else 1
+            glyph = self._range_bounds(field, location, glyph_length)
+        elif caret and text[caret - 1] not in "\r\n":
+            glyph_length = 2 if ord(text[caret - 1]) > 0xFFFF else 1
+            glyph = self._range_bounds(field, location - glyph_length, glyph_length)
+        else:
+            return None  # No reliable glyph row on an empty line.
+        if (glyph is not None and abs(glyph[3] - bounds[3]) <= 1
+                and abs(glyph[1] - bounds[1]) <= bounds[3] + 1):
+            bounds = (bounds[0], glyph[1], bounds[2], bounds[3])
+        return bounds[0], bounds[1], max(1.0, bounds[2]), bounds[3]
 
     def capture(self) -> Snapshot | None:
         with self._lock:
@@ -180,6 +234,37 @@ class MacBridge(BridgeBase):
             except Exception:
                 return False
 
+    def replace_range(self, snapshot: Snapshot, start: int, length: int, text: str) -> bool:
+        if not self._valid_replacement(snapshot, start, length, text):
+            return False
+        with self._lock:
+            try:
+                current = self._capture()
+                if current is None or current[0].key != snapshot.key:
+                    return False
+                field = current[1]
+                if not self._settable(field, "AXSelectedText"):
+                    self._set_status("This control does not expose safe AXSelectedText replacement. Ordinary completion insertion may still work.")
+                    return False
+                if (start, length) != (snapshot.caret, snapshot.selection_length):
+                    if not self._settable(field, "AXSelectedTextRange"):
+                        self._set_status("This control does not expose a writable AXSelectedTextRange; emoji suffix replacement is unavailable.")
+                        return False
+                    location = index_to_utf16(snapshot.text, start)
+                    units = index_to_utf16(snapshot.text, start + length) - location
+                    native_range = self.ax.AXValueCreate(self.ax.kAXValueCFRangeType, (location, units))
+                    if self.ax.AXUIElementSetAttributeValue(field, "AXSelectedTextRange", native_range):
+                        return False
+                    selected = self._capture()
+                    if selected is None:
+                        return False
+                    expected = dataclasses.replace(snapshot, caret=start, selection_length=length)
+                    if selected[0].key != expected.key:
+                        return False
+                return self.ax.AXUIElementSetAttributeValue(field, "AXSelectedText", text) == 0
+            except Exception:
+                return False
+
     def start_shortcuts(self, callback: Shortcut) -> None:
         super().start_shortcuts(callback)
         with self._lock:
@@ -189,9 +274,10 @@ class MacBridge(BridgeBase):
             self._thread.start()
 
     def _event_loop(self) -> None:
+        import objc
         q, cf = self.q, self.cf
 
-        def event_callback(proxy, event_type, event, refcon):
+        def dispatch_event(proxy, event_type, event, refcon):
             if event_type == q.kCGEventTapDisabledByTimeout:
                 self.set_shortcuts_enabled(False)
                 self._set_status("macOS timed out the keyboard tap. Pause/resume global typing to re-enable it.")
@@ -208,16 +294,31 @@ class MacBridge(BridgeBase):
             if event_type != q.kCGEventKeyDown:
                 return event
             flags = q.CGEventGetFlags(event)
-            forbidden = q.kCGEventFlagMaskCommand | q.kCGEventFlagMaskControl | q.kCGEventFlagMaskAlternate | q.kCGEventFlagMaskSecondaryFn
-            if flags & forbidden:
+            if q.CGEventGetIntegerValueField(event, q.kCGEventSourceUnixProcessID) == os.getpid():
                 return event
             code = q.CGEventGetIntegerValueField(event, q.kCGKeyboardEventKeycode)
-            action = None
-            if code == 48:
-                action = "all" if flags & q.kCGEventFlagMaskShift else "word"
-            elif code == 53 and not flags & q.kCGEventFlagMaskShift:
-                action = "dismiss"
-            return None if action and self._dispatch(action) else event
+            key = mac_key_name(code)
+            if flags & q.kCGEventFlagMaskSecondaryFn and not (len(key) > 1 and key.startswith("F")):
+                return event
+            if len(key) == 1 and key.isalpha():
+                native_event = self._event_type.eventWithCGEvent_(event)
+                character = str(native_event.charactersIgnoringModifiers() or "")
+                if len(character) == 1 and character.isascii() and character.isalpha():
+                    key = character.upper()
+            modifiers = tuple(name for name, mask in (
+                ("Ctrl", q.kCGEventFlagMaskControl), ("Alt", q.kCGEventFlagMaskAlternate),
+                ("Shift", q.kCGEventFlagMaskShift), ("Super", q.kCGEventFlagMaskCommand))
+                if flags & mask)
+            action = self._key_action(key, modifiers, platform="macos")
+            if action == "bypass" and self._dispatch(action):
+                q.CGEventSetFlags(event, flags & ~q.kCGEventFlagMaskAlternate)
+                return event
+            return None if action and action != "bypass" and self._dispatch(action) else event
+
+        def event_callback(proxy, event_type, event, refcon):
+            # Quartz runs outside AppKit's main-loop autorelease pools.
+            with objc.autorelease_pool():
+                return dispatch_event(proxy, event_type, event, refcon)
 
         self._event_callback = event_callback  # Retain the C callback bridge.
         try:

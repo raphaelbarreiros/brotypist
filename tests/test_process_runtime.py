@@ -1,0 +1,195 @@
+"""Exercise actual anonymous-pipe workers against a synthetic loopback model peer."""
+from dataclasses import replace
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+import os
+import queue
+import subprocess
+import sys
+import threading
+import time
+
+import pytest
+
+from inklow.config import Config
+from inklow.process_client import ProcessClient, worker_command
+
+
+def until(predicate, timeout=5):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        value = predicate()
+        if value:
+            return value
+        time.sleep(0.01)
+    raise AssertionError("Expected worker transition did not arrive")
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        body = json.loads(self.rfile.read(length))
+        self.server.requests.put(body)
+        try:
+            self.send_response(200)
+            self.end_headers()
+            prefix = body.get("prompt", "")
+            self.wfile.write(json.dumps({"response": " first words "}).encode() + b"\n")
+            self.wfile.flush()
+            if prefix == "blocked synthetic draft":
+                self.server.release.wait(5)
+            self.wfile.write(json.dumps({"response": "completed", "done": True, "done_reason": "stop"}).encode() + b"\n")
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+
+@pytest.fixture
+def peer():
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    server.requests = queue.Queue()
+    server.release = threading.Event()
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield server
+    server.release.set()
+    server.shutdown()
+    server.server_close()
+
+
+@pytest.fixture
+def worker(peer, tmp_path, monkeypatch):
+    monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
+    client = ProcessClient()
+    config = replace(Config(), backend="ollama", endpoint=f"http://127.0.0.1:{peer.server_port}", model="synthetic", idle_release_seconds=1)
+    yield client, config
+    client.close()
+
+
+def final(client, identifier):
+    seen = []
+    def receive():
+        events = client.poll()
+        seen.extend(events)
+        assert not any(event.get("type") == "error" for event in events), events
+        return next((event for event in events if event.get("id") == identifier and event.get("type") == "result" and event.get("final")), None)
+    result = until(receive)
+    return result, seen
+
+
+def test_worker_starts_only_on_request_and_really_exits_on_idle(worker, peer):
+    client, config = worker
+    assert client.status()["worker_pid"] is None
+    identifier = client.submit(config, "synthetic ordinary draft", "")
+    result, _ = final(client, identifier)
+    assert result["text"] == " first words completed"
+    pid = client.status()["worker_pid"]
+    assert pid is not None and pid != os.getpid()
+    assert peer.requests.get(timeout=2)["keep_alive"] == 0
+    until(lambda: client.status()["worker_pid"] is None)
+    if os.name == "posix":
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+
+
+def test_stuck_old_stream_is_killed_and_only_latest_pending_request_survives(worker, peer):
+    client, config = worker
+    old = client.submit(config, "blocked synthetic draft", "")
+    until(lambda: any(event.get("type") == "result" for event in client.poll()))
+    old_pid = client.status()["worker_pid"]
+    middle = client.submit(config, "never submitted middle", "")
+    latest = client.submit(config, "newest synthetic draft", "")
+    result, events = final(client, latest)
+    assert result["text"] == " first words completed"
+    assert all(event.get("id") not in {old, middle} for event in events)
+    assert client.status()["worker_pid"] != old_pid
+    prompts = [peer.requests.get(timeout=2)["prompt"] for _ in range(2)]
+    assert prompts == ["blocked synthetic draft", "newest synthetic draft"]
+    peer.release.set()
+
+
+def test_keep_ready_retains_worker_until_explicit_release_and_model_switch_replaces_it(worker):
+    client, config = worker
+    config = replace(config, idle_release_seconds=0)
+    first = client.submit(config, "first synthetic draft", "")
+    final(client, first)
+    pid = client.status()["worker_pid"]
+    time.sleep(1.2)
+    assert client.status()["worker_pid"] == pid
+    second = client.submit(replace(config, model="other-synthetic"), "second synthetic draft", "")
+    final(client, second)
+    assert client.status()["worker_pid"] != pid
+    client.release()
+    until(lambda: client.status()["worker_pid"] is None)
+
+
+def test_same_model_cancellations_during_cold_prepare_keep_one_worker_and_latest_request(monkeypatch, tmp_path):
+    # The actual worker protocol runs in a real child, but the expensive native
+    # initializer is a deterministic slow fixture rather than a downloaded model.
+    bootstrap = '''
+import time
+import os
+import inklow.providers as providers
+from inklow.process_worker import main
+class SlowProvider:
+    loads = 0
+    def prepare(self):
+        type(self).loads += 1
+        print("synthetic private model diagnostic", flush=True)
+        os.write(2, b"synthetic private native diagnostic\\n")
+        time.sleep(1.0)
+    def stream(self, prefix, suffix, cancel, **kwargs):
+        if not cancel.is_set():
+            yield " prepared " + str(type(self).loads) + " " + prefix
+    def close(self):
+        pass
+providers.create_provider = lambda config: SlowProvider()
+raise SystemExit(main())
+'''
+    monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
+    monkeypatch.setattr("inklow.process_client.worker_command", lambda: [sys.executable, "-u", "-c", bootstrap])
+    client = ProcessClient()
+    config = replace(Config(), idle_release_seconds=0)
+    try:
+        client.submit(config, "old", "")
+        until(lambda: any(event.get("type") == "loading" for event in client.poll()))
+        pid = client.status()["worker_pid"]
+        for prefix in ("middle one", "middle two", "newest"):
+            client.cancel()
+            newest = client.submit(config, prefix, "")
+            time.sleep(0.15)
+            assert client.status()["worker_pid"] == pid
+        result, events = final(client, newest)
+        assert result["text"] == " prepared 1 newest"
+        assert client.status()["worker_pid"] == pid
+        assert all(event.get("id") == newest for event in events)
+        client.release()
+        until(lambda: client.status()["worker_pid"] is None)
+        client.submit(config, "explicit pause during initialization", "")
+        until(lambda: any(event.get("type") == "loading" for event in client.poll()))
+        client.release()
+        until(lambda: client.status()["worker_pid"] is None, timeout=1)
+    finally:
+        client.close()
+
+
+def test_headless_runtime_import_cannot_load_qt_or_llama():
+    code = "import sys; import inklow.runtime; assert not any(x.startswith(('PySide6', 'llama_cpp')) for x in sys.modules)"
+    completed = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=5)
+    assert completed.returncode == 0, completed.stderr.decode()
+
+
+def test_frozen_windows_uses_console_companion_for_real_pipes(monkeypatch, tmp_path):
+    executable = tmp_path / "Inklow.exe"
+    console = tmp_path / "Inklow-cli.exe"
+    console.touch()
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "executable", str(executable))
+    assert worker_command() == [str(console), "_worker"]
+    console.unlink()
+    with pytest.raises(RuntimeError, match="companion"):
+        worker_command()

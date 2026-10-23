@@ -6,20 +6,24 @@ import sys
 ROOT = Path(SPECPATH)
 ASSETS = ROOT / "src" / "inklow" / "assets"
 VERSION = runpy.run_path(str(ROOT / "src" / "inklow" / "__init__.py"))["__version__"]
+native_excludes = ["PySide6"] if sys.platform == "darwin" else []
+keyring_backend = ("keyring.backends.macOS" if sys.platform == "darwin" else
+                   "keyring.backends.Windows" if sys.platform == "win32" else
+                   "keyring.backends.SecretService")
 
 analysis = Analysis(
     [str(ROOT / "packaging" / "launcher.py")],
     pathex=[str(ROOT / "src")],
     binaries=[],
     datas=[(str(ASSETS), "inklow/assets")],
-    hiddenimports=["llama_cpp"],
+    hiddenimports=["llama_cpp", keyring_backend],
     hookspath=[str(ROOT / "packaging" / "hooks")],
     hooksconfig={},
     runtime_hooks=[],
     # Neither tests/build tooling nor optional model-server stacks belong in the
     # resident application. User settings and model caches are never inputs.
     excludes=["pytest", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets",
-              "PySide6.QtQml", "PySide6.QtQuick", "llama_cpp.server"],
+              "PySide6.QtQml", "PySide6.QtQuick", "llama_cpp.server"] + native_excludes,
     noarchive=False,
     optimize=0,
 )
@@ -82,8 +86,7 @@ if sys.platform == "darwin":
             "NSHighResolutionCapable": True,
             "NSAppleScriptEnabled": False,
             "NSHumanReadableCopyright": "Inklow — independent, local-first predictive typing",
-            # A regular app keeps its Dock/Command-Tab recovery path; the tray
-            # provides resident behavior without making the editor unreachable.
-            "LSUIElement": False,
+            # A resident typing assistant has settings, not a document window.
+            "LSUIElement": True,
         },
     )

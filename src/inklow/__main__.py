@@ -1,4 +1,4 @@
-"""Desktop launcher, local continuation CLI, and verified model management."""
+"""Menu utility launcher, local continuation CLI, and verified model management."""
 from __future__ import annotations
 
 import argparse
@@ -14,14 +14,22 @@ from . import __version__
 from .models import DEFAULT_PRESET, PRESETS, download_model, get_preset, is_installed
 
 
-
+_PANES = ("setup", "general", "context", "personalization", "emoji", "shortcuts",
+          "battery", "appSettings", "labs", "statistics", "about")
 def main(argv: list[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments == ["_worker"]:
+        from .process_worker import main as worker_main
+        return worker_main()
     parser = argparse.ArgumentParser(prog="inklow", description="Local-first predictive typing")
     parser.add_argument("--model-path", help="Use a GGUF model for this launch without changing settings")
     parser.add_argument("--version", action="version", version=f"Inklow {__version__}")
     parser.add_argument("--background", action="store_true", help="Start in the menu bar/system tray when available")
-    parser.add_argument("--no-tray", action="store_true", help="Run as a foreground application without a tray icon")
-    parser.add_argument("--editor-only", action="store_true", help="Disable system-wide typing for this launch only")
+    parser.add_argument("--no-tray", action="store_true", help="Open recoverable settings without a tray icon")
+    parser.add_argument("--paused", action="store_true", help="Start with global suggestions paused for this launch")
+    parser.add_argument("--settings", action="store_true", help="Open Settings instead of remaining in the menu bar")
+    parser.add_argument("--pane", choices=_PANES, help="Open a specific settings pane")
+    parser.add_argument("--prompt-style", choices=["continuation", "writing"], help="Override the GGUF prompt profile")
     parser.add_argument("--acceleration", choices=["auto", "cpu"], help="Override local model acceleration for this launch")
     commands = parser.add_subparsers(dest="command")
     commands.add_parser("doctor", help="Show native integration and local model readiness")
@@ -30,12 +38,16 @@ def main(argv: list[str] | None = None) -> int:
     model.add_argument("action", choices=["list", "download"])
     model.add_argument("--preset", choices=[preset.id for preset in PRESETS], default=DEFAULT_PRESET)
     model.add_argument("--no-select", action="store_true", help="Download without changing the selected model")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     try:
         config = load_config()
         if args.model_path:
-            config = replace(config, backend="gguf", model_path=args.model_path)
-        if args.editor_only:
+            known = next((p for p in PRESETS if p.filename == Path(args.model_path).name), None)
+            config = replace(config, backend="gguf", model_path=args.model_path,
+                             prompt_style=known.prompt_style if known else "continuation")
+        if args.prompt_style:
+            config = replace(config, prompt_style=args.prompt_style)
+        if args.paused:
             config = replace(config, global_enabled=False)
         if args.acceleration:
             config = replace(config, acceleration=args.acceleration)
@@ -56,10 +68,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "doctor":
             from .native import create_bridge
             bridge = create_bridge()
+            bridge.configure(config)
             try:
                 print(json.dumps({"platform": platform.system(), "python": platform.python_version(),
                                   "settings": str(config_path()), "backend": config.backend,
                                   "version": __version__, "acceleration": config.acceleration,
+                                  "shell": "AppKit" if sys.platform == "darwin" else "Qt menu utility",
+                                  "idle_release_seconds": config.idle_release_seconds,
                                   "model_file_exists": Path(config.model_path).expanduser().is_file() if config.model_path else False,
                                   "native": bridge.status(), "global_enabled": config.global_enabled}, indent=2))
             finally:
@@ -76,9 +91,11 @@ def main(argv: list[str] | None = None) -> int:
                 provider.close()
             return 0
         from .desktop import launch
-        return launch(config, background=args.background, no_tray=args.no_tray)
+        return launch(config, background=args.background, no_tray=args.no_tray,
+                      pane=args.pane or ("general" if args.settings else None))
     except (ValueError, RuntimeError, OSError) as error:
-        print(f"Inklow: {error}", file=sys.stderr)
+        if sys.stderr is not None:
+            print(f"Inklow: {error}", file=sys.stderr)
         return 1
 
 

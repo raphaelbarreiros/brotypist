@@ -105,9 +105,10 @@ def test_failed_promotion_restores_previous_build(tmp_path, monkeypatch):
     assert not (bundle.parent / "previous-build").exists()
 
 
-@pytest.mark.parametrize("private_name", ["private.gguf", "weights.safetensors", "settings.json", ".env"])
+@pytest.mark.parametrize("private_name", ["private.gguf", "weights.safetensors", "settings.json", ".env",
+                                          "history.sqlite3", "statistics.db", "history.enc"])
 def test_private_payload_is_rejected_but_native_libraries_are_allowed(tmp_path, private_name):
-    # R2/S5: preserve inference code, never ship model weights or settings.
+    # Native code may ship, but weights, settings and personal stores may not.
     library = tmp_path / "llama_cpp" / "lib" / "libggml-metal.dylib"
     library.parent.mkdir(parents=True)
     library.write_bytes(b"native library payload")

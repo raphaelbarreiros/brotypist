@@ -1,0 +1,10 @@
+{
+  "isolated_profile_and_empty_model_cache": true,
+  "recommended_preset_visible": true,
+  "uninstalled_preset_opens_model_management": true,
+  "pending_preset_preserved": true,
+  "download_available_without_activation": true,
+  "no_download_clicked": true,
+  "quit_method": "native menu",
+  "exit_code": 0
+}

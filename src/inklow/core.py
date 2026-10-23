@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import re
+import unicodedata
 from threading import RLock
 
 
@@ -15,6 +16,8 @@ class Snapshot:
     selection_length: int = 0
     caret_rect: tuple[float, float, float, float] | None = None
     protected: bool = False
+    domain: str = ""
+    multiline: bool = True
 
     @property
     def prefix(self) -> str:
@@ -25,9 +28,17 @@ class Snapshot:
         return self.text[self.caret:]
 
     @property
+    def selected_text(self) -> str:
+        return self.text[self.caret:self.caret + self.selection_length]
+
+    @property
+    def selection_suffix(self) -> str:
+        return self.text[self.caret + self.selection_length:]
+
+    @property
     def key(self) -> tuple:
         return (self.app_id, self.field_id, self.text, self.caret,
-                self.selection_length, self.protected)
+                self.selection_length, self.protected, self.domain, self.multiline)
 
     def eligible(self, min_chars: int = 8) -> bool:
         return (not self.protected and self.selection_length == 0
@@ -35,11 +46,35 @@ class Snapshot:
                 and len(self.prefix.strip()) >= min_chars)
 
 
-def take_word(suggestion: str) -> tuple[str, str]:
-    """Preserve spacing and punctuation; accept one whitespace-delimited word."""
+def _accept_end(suggestion: str, end: int, trailing_space: bool,
+                trailing_punctuation: bool) -> int:
+    if not trailing_space:
+        while end > 0 and suggestion[end - 1].isspace():
+            end -= 1
+    if not trailing_punctuation:
+        # Withheld punctuation stays visible. A punctuation-only remainder must
+        # be acceptible on the next press, otherwise the user could never finish.
+        token_end = end
+        while token_end > 0 and suggestion[token_end - 1].isspace():
+            token_end -= 1
+        punctuation_start = token_end
+        while punctuation_start > 0 and unicodedata.category(suggestion[punctuation_start - 1]).startswith("P"):
+            punctuation_start -= 1
+        if punctuation_start < token_end and punctuation_start and suggestion[:punctuation_start].strip():
+            end = punctuation_start
+    return end
+
+
+def take_word(suggestion: str, trailing_space: bool = True,
+              trailing_punctuation: bool = True) -> tuple[str, str]:
+    """Accept a word; optional trailing material remains in the candidate."""
     match = re.match(r"\s*\S+\s*", suggestion)
     end = match.end() if match else len(suggestion)
-    return suggestion[:end], suggestion[end:]
+    end = _accept_end(suggestion, end, trailing_space, trailing_punctuation)
+    remainder = suggestion[end:]
+    if not trailing_space and not remainder.strip():
+        remainder = ""
+    return suggestion[:end], remainder
 
 
 class SuggestionState:
@@ -71,6 +106,8 @@ class SuggestionState:
             if (previous is None or not self.text or not current.eligible(1)
                     or current.app_id != previous.app_id
                     or current.field_id != previous.field_id
+                    or current.domain != previous.domain
+                    or current.multiline != previous.multiline
                     or current.caret <= previous.caret):
                 return False
             inserted = current.text[previous.caret:current.caret]
@@ -82,15 +119,25 @@ class SuggestionState:
             self.generation += 1
             return True
 
-    def accept(self, current: Snapshot, full: bool = False) -> str:
+    def accept(self, current: Snapshot, full: bool = False, trailing_space: bool = True,
+               trailing_punctuation: bool = True) -> str:
         with self._lock:
             if (self.snapshot is None or current.key != self.snapshot.key
                     or not current.eligible(1)):
                 self.invalidate()
                 return ""
-            accepted, remainder = (self.text, "") if full else take_word(self.text)
+            if full:
+                end = _accept_end(self.text, len(self.text), trailing_space, trailing_punctuation)
+                accepted, remainder = self.text[:end], self.text[end:]
+            else:
+                accepted, remainder = take_word(self.text, trailing_space, trailing_punctuation)
+            if not trailing_space and not remainder.strip():
+                remainder = ""
             if not accepted:
                 return ""
+            if (trailing_space and not full and not remainder and not current.suffix
+                    and not accepted[-1].isspace() and any(char.isalnum() for char in accepted)):
+                accepted += " "
             self.generation += 1
             self.text = remainder
             self.snapshot = replace(

@@ -2,74 +2,84 @@
 
 # Inklow
 
-Local-first predictive typing for macOS, Windows, and Linux. An independent implementation inspired by [redacted reference]'s documented behavior—not a port or copy of its proprietary code.
+Local-first predictive typing for macOS, Windows, and Linux. An independent implementation of a [redacted reference]-like menu-agent experience—not copied proprietary code, models, or assets.
 
-![Inklow editor with a streamed local suggestion](evidence/upgrade-editor.png)
+![Native Inklow preferences](evidence/menu-first-general.png)
+
+## What changed in 0.3
+
+**No editor.** Inklow lives in the menu bar/system tray and suggests directly in supported applications. macOS uses native AppKit/PyObjC controls and nonactivating caret overlays; no Qt runtime is installed or bundled on macOS. Windows/Linux use native-themed Qt tray/settings surfaces with the same headless controller.
+
+Preferences have Setup, General, Context, Personalization, Emoji, Shortcuts, Battery, App Settings, Labs, Statistics, and About panes. Closing preferences leaves the agent running; Quit stops hooks and its inference worker. If a tray cannot be created, preferences remain accessible as a fallback.
+
+Models load **lazily in a separate process**. The process is terminated after 60 seconds idle by default, or on pause, model change, and quit. This releases model allocations, at the cost of a cold load on the next request. There is no idle preload or editor document in the resident process. A separately managed local inference server has its own lifecycle; Inklow cannot unload that server's model.
 
 ## Run
-On this Mac, open `/Applications/Inklow.app`. A native bundle includes the Python/Qt runtime and application icon; it does not include model weights. Existing settings are preserved. **Models… → Balanced → Use installed model** upgrades an existing Tiny installation; downloads/selections are explicit.
 
+Native build output: `dist/Inklow.app` on macOS; `dist/Inklow/Inklow.exe` on Windows; `dist/Inklow/launch-inklow` on Linux. Native bundles include the runtime and original app/tray icons, **not weights or user data**. Existing saved preferences are preserved. A running older editor must be quit normally, with unsaved writing saved, before replacing its installed bundle.
 
-Python 3.11+ is required; Python 3.12 is recommended. The desktop uses PySide6. Local GGUF inference uses llama-cpp-python, which may need a C/C++ toolchain (Xcode Command Line Tools, Visual Studio C++ Build Tools, or gcc/clang).
-
-With [uv](https://docs.astral.sh/uv/):
+Python 3.11+ is required; Python 3.12 is recommended. With [uv](https://docs.astral.sh/uv/):
 
 ```sh
 git clone git@github.com:renan-brasilio/inklow.git
 cd inklow
 uv sync --python 3.12 --extra local
 uv run inklow model download
-uv run inklow
+uv run inklow --settings
 ```
 
-`model download` now explicitly downloads the recommended **Qwen2.5-1.5B-Instruct Q4_K_M** writing model (1,117,320,736 bytes). It verifies SHA-256 against an immutable revision, stores weights outside the checkout, and selects guided draft-prefill prompting. `model download --preset tiny` retains the 101 MB English starter for constrained machines. **Models…** provides the same download, cancellation, installed-model selection, and custom GGUF selection in the app. The guided model handles English/Portuguese short drafts better in our samples; partial words and difficult contexts still fail. No quality guarantee.
+For ordinary Python, create/activate a virtual environment, then `python -m pip install -e ".[local]"`. Windows PowerShell uses the same application commands. GGUF may require Xcode Command Line Tools, Visual Studio C++ Build Tools, or gcc/clang.
 
-On Windows, the same `uv` commands work in PowerShell after cloning. For a standard Python installation instead of uv:
+`model download` explicitly downloads the recommended **Qwen2.5-1.5B-Instruct Q4_K_M** writing model (1,117,320,736 bytes), validates SHA-256 against an immutable revision, and selects guided draft-prefill prompting. `model download --preset tiny` selects the 101 MB English starter. **General → Manage Models…** provides download/cancel, installed-preset selection, custom GGUF selection, CPU/automatic acceleration, and prompt format. Nothing downloads just because preferences open.
 
-```sh
-python -m venv .venv
-# Activate .venv using your shell's normal command.
-python -m pip install -e ".[local]"
-inklow model download
-inklow
-```
+The guided model supports short multilingual draft continuations; output quality varies. It is not [redacted reference]'s model. GPU offload depends on the installed llama.cpp build (Metal on this Apple Silicon build); CPU is the portable fallback. Streaming, newest-request cancellation, and typed-through reuse avoid waiting for a full prediction unnecessarily.
 
-GGUF inference automatically uses GPU offload when the installed llama.cpp build supports it (Metal on this Apple Silicon build). Settings can force CPU; other systems remain portable with CPU inference. Models preload/warm up off the UI thread. Predictions stream completed words, cancel obsolete work, and reuse matching typed-through suggestions. New settings default to 200 ms debounce and 24 tokens; existing preferences are not overwritten. CPU-only/GPU support depends on the native llama.cpp build, not merely the operating system.
+Ollama (`/api/generate`, raw) and OpenAI-compatible (`/v1/completions`) local servers are also supported. Use a literal loopback URL such as `http://127.0.0.1:11434` or `http://[::1]:8080`. Remote hosts, DNS names, URL credentials, proxies, and inference redirects are refused. Guided writing is specifically a Qwen2.5 ChatML profile, not a universal chat template. Server backends do not require the `local` extra.
 
-Ollama (`/api/generate`, raw) and OpenAI-compatible (`/v1/completions`) local servers remain supported. Direct continuation is appropriate for custom base models; **Guided writing** is specifically a Qwen2.5 ChatML draft-prefill profile, not a generic chat template. Use a literal loopback URL such as `http://127.0.0.1:11434` or `http://[::1]:8080`. DNS names, remote hosts, credentials in URLs, proxy routing, and inference redirects are refused. Server backends do not require the `local` extra.
+## Typing and menu controls
 
-## Use
+- **Tab:** accept the next word. Trailing space and punctuation are configurable.
+- **Physical key above Tab:** accept the whole suggestion. macOS distinguishes ANSI and ISO geometry; an unrecognized geometry is left unassigned instead of hijacking another key. Shortcuts are editable.
+- **Control + key above Tab:** request a completion immediately.
+- **Escape:** dismiss and briefly pause by default; configurable app-disable/pass-through behavior. With no suggestion, normal keys pass through.
+- **Option+Tab on macOS:** dismiss and pass a normal Tab to the target. OS Alt+Tab remains system-owned on Windows/Linux.
+- Type `:smile` or a supported emoticon for an offline Unicode emoji chooser; numbered keys/click accept explicitly. Skin tone and gender preferences are separate.
+- Select a word/short phrase for contextual synonyms, or enable alternative continuations in Labs. These use the local inference model and bounded structured results; model quality is not guaranteed.
+- Menu: enable/disable globally, temporary current-app toggle, timed pause, settings panes, actual accepted-writing statistics, diagnostics/permission shortcuts, About, and Quit.
 
-- Pause after typing to see a prediction. Ghost text is painted, not inserted into the document.
-- **Tab:** accept the next word, preserving spacing and punctuation.
-- **Shift+Tab:** accept the whole suggestion. This intentionally differs from [redacted reference]'s layout-dependent key-above-Tab shortcut.
-- **Escape:** dismiss and pause predictions for three seconds.
-- Modified navigation keys are not intercepted globally; with no suggestion, normal keys pass through.
-- Menu-bar/system-tray **Suggest in Other Applications**, or the Settings checkbox, enables opt-in system-wide mode. Leave Inklow running and switch to a supported writing app.
-- Pause predictions or exclude an app without changing the inference backend.
+New profiles enable global typing; password managers and terminals are excluded by default. **Enable completions by default** controls per-app inheritance, separately from the global master switch. App/domain rules can override completions, Tab acceptance, custom instructions, and recording. Temporary app toggles last for this process only. Website rules use exact native-observable hosts, never a guessed window title.
 
-The menu-bar/system-tray icon provides Show/Hide Editor, Pause/Resume, timed pauses (5/15/60 minutes), global-mode control, Models, Settings and Exclusions, Diagnostics and Permissions, About, and explicit Quit. Closing the window hides it and preserves its in-memory document when a usable tray and “Keep running” are enabled. `--no-tray` keeps a normal window; `--background` requires a usable tray and otherwise shows the window so the app remains recoverable.
+Launch-at-login is explicit and per-user, not a privileged service. Isolated `INKLOW_HOME` profiles cannot change login integration. Only Inklow-owned entries are removed when disabling it.
 
-**File → New/Open/Save/Save As** supports UTF-8 documents with atomic explicit saves and unsaved-change confirmation on replacement/quit. No autosave or document history is recorded. Hidden unsaved text survives only while the process runs; save important writing.
+## Context, personalization, privacy
 
-## Platform support and boundaries
+- Clipboard and screenshot context are **off by default**. Clipboard text is read only for eligible requests after opt-in. Screen context is macOS-only, uses ScreenCaptureKit/Vision local OCR of the eligible target's window, revalidates focus/protection before capture, and never writes images to disk. OS Screen Recording permission is required; no grant is automated.
+- Custom instructions are ordinary settings text, not an encrypted secret store. Draft edits require explicit Save/Revert. Do not put credentials in instructions.
+- Writing history is **off by default**. Enabling it requires AES-GCM encryption and a supported OS credential-store backend (macOS Keychain, Windows Credential Manager, Linux Secret Service/KWallet). There is no plaintext fallback. The encryption key is not stored beside the database.
+- The recording switch is an inherited default, **not a kill switch for explicit app overrides**. An app set to record continues recording with the default off. Unaccepted typing requires a separate opt-in. History deletion and aggregate-statistics deletion are independent.
+- Personalization uses relevant vocabulary from opted-in encrypted history; it does not train/fine-tune the model. No iCloud/cloud synchronization, account, subscription, automatic telemetry, or cloud inference is implemented.
+- Aggregate local statistics count confirmed native insertions, not generated suggestions; they contain counts/application identifiers, not drafts. Statistics are independently disableable/deletable. Estimated time saved is a heuristic, not measured productivity.
+- Native exclusions, secure/read-only checks, IME metadata, exact snapshot identity, and focus/caret revalidation guard capture and insertion. Target providers still determine what protection/composition metadata is observable. No accessibility API provides a cross-app atomic focus transaction.
+- Model downloads are the only built-in public network operation and require explicit action. A local HTTP inference server remains trusted software: its own logging/network behavior is outside Inklow's control. OS swap/crash collection is also outside these guarantees.
 
-| Platform | Built-in editor | System-wide integration | Verification |
-| --- | --- | --- | --- |
-| macOS | Qt editor with local inference | AX text/caret capture; direct selected-text insertion or guarded Quartz Unicode input; conditional acceptance keys | Real editor smoke and full model → native NSTextView → overlay → Tab → insertion smoke exercised on Apple Silicon |
-| Windows | Same Qt editor and prediction engine | UI Automation; native Edit insertion via `EM_REPLACESEL`; observable modern UIA Text/TextEdit providers via Unicode `SendInput` | Hosted safety tests, real inference, offscreen desktop launch, and wheel packaging passed; interactive global integration remains unverified |
-| Linux/X11 | Same Qt editor and prediction engine | AT-SPI Text/EditableText and replayable X11 key grabs | Hosted safety tests, real inference, offscreen desktop launch, and wheel packaging passed; interactive global integration remains unverified |
-| Linux/Wayland | Same Qt editor and prediction engine | Explicitly unavailable, including XWayland; no privileged keylogging workaround | Global-mode refusal is implemented; not a claim of system-wide Wayland support |
+## Platform boundaries
 
-System-wide compatibility depends on the target app exposing editability, protection, selection, and caret bounds. Unsupported controls are skipped. Some Qt/macOS fields allow safe insertion but expose no caret bounds; they are not offered global predictions. Password/read-only fields and excluded apps are checked before reading values. macOS/Linux IME safety depends on composition metadata exposed by the target provider; hidden composition cannot be reliably detected. Windows modern controls require observable TextEditPattern composition state and may therefore be skipped. Elevated Windows apps require matching integrity privileges; Inklow does not bypass UIPI. These APIs do not provide an atomic cross-app transaction: focus can change between validation and insertion, so do not enable global predictions in sensitive apps.
+| Platform | Settings/agent | Global integration and limits |
+| --- | --- | --- |
+| macOS | Native AppKit, menu bar, no Qt | AX capture and guarded selected-text/Quartz insertion; native inline ghost/chooser; scoped-window OCR. Real isolated native interaction proof is documented below. |
+| Windows | Qt tray and preferences | UIA capture; native Edit insertion and atomic replacement. Observable modern UIA controls support guarded insertion/existing-selection replacement; typed-suffix emoji replacement requires native Edit. Interactive Windows desktops remain unverified here. |
+| Linux/X11 | Qt tray and preferences | AT-SPI Text/EditableText and X11 interception. Continuations/alternative insertions supported; emoji/emoticon conversion and selected-word synonyms disabled because AT-SPI lacks atomic replacement. Interactive Linux desktops remain unverified here. |
+| Linux/Wayland | Preferences/tray where available | Global typing unavailable, including XWayland; no privileged interception workaround or fallback editor. |
+
+Windows/Linux have no native browser URL observation or screenshot context in this implementation. Stored website deny rules fail closed for recognized browsers without an observable URL; website history exclusions suppress recording there. Elevated Windows targets require matching integrity privileges; Inklow does not bypass UIPI. Fields without reliable caret bounds/editability/composition metadata are skipped.
 
 ### macOS permissions
 
-Enable Accessibility and Input Monitoring for **Inklow.app** (or the Python/terminal host when running from source) in System Settings → Privacy & Security. A source-run permission grant need not cover the newly bundled application. No permission dialogs are clicked automatically. Diagnostics reports capability/setup information. Password managers and terminals are excluded by default. There is no automatic login-item installation or background service.
+Enable Accessibility and Input Monitoring for **Inklow.app**, or the Python/terminal host for source execution, in System Settings → Privacy & Security. Source permissions need not cover a newly bundled app. Setup displays status and opens the appropriate OS pane; it does not click permission grants. Screen Recording is optional and only needed for opted-in screen context.
 
-### Linux native prerequisites
+### Linux prerequisites
 
-The editor does not require AT-SPI, but Qt needs native runtime libraries even in offscreen mode. On a minimal Debian/Ubuntu installation, install `libegl1`, `libgl1`, `libopengl0`, and `libxkbcommon0`. For system-wide X11 integration, also install `python3-pyatspi`, `python3-gi`, `at-spi2-core`, `python3-venv`, and your compiler toolchain. Use the **distribution Python**, since managed uv Python installations do not see distro GI bindings:
+Qt needs native runtime libraries, including in offscreen CI. Debian/Ubuntu: `libegl1 libgl1 libopengl0 libxkbcommon0`. X11 integration also needs `python3-pyatspi python3-gi at-spi2-core python3-venv` and compiler tools. Use the distribution Python to see GI bindings:
 
 ```sh
 /usr/bin/python3 -m venv --system-site-packages .venv
@@ -77,42 +87,34 @@ The editor does not require AT-SPI, but Qt needs native runtime libraries even i
 .venv/bin/inklow
 ```
 
-Run in the logged-in desktop user's X11/D-Bus session with accessibility enabled. Some Qt target apps need `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1` before launch. Missing prerequisites produce explicit diagnostics rather than simulated integration.
+Run in the logged-in user's X11/D-Bus session with accessibility enabled. Some Qt targets require `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1` before launch. Missing capabilities produce explicit diagnostics, not simulated integration.
 
-## Privacy
+## Evidence and implementation
 
-- No typing history, analytics, personal training corpus, cloud inference, or clipboard replacement.
-- Typed context lives in process memory and, for server backends, in the local server's memory. A local server is trusted software: Inklow cannot control that server's own logging or network behavior.
-- Settings, explicitly downloaded models, and documents you explicitly open/save are persisted. There is no automatic document persistence. OS swap/crash collection is outside this guarantee.
-- Exclusions are applied in native adapters before text access. Secure fields are refused using OS accessibility metadata; correctness still depends on the target application's accessibility provider.
-- Every inference result is tied to a generation and exact field/text/caret snapshot. Acceptance rechecks the current snapshot to reject stale results.
-- Model downloads are the only built-in public network operation and happen only on explicit CLI or Models-dialog download actions.
+- [REA [redacted reference] analysis, native settings observations, and limits](evidence/[redacted reference].md)
+- [Sanitized process-scoped native reference evidence](evidence/[redacted reference]-menu-reference.json)
+- [Observed Inklow verification and platform limits](evidence/VERIFICATION.md)
+- [Real native preferences interaction receipt](evidence/menu-first-native-ui.json)
+- [Historical 0.2 latency/model samples](evidence/UPGRADE-0.2.md)—not a benchmark of 0.3
 
-## Evidence and architecture
+Shared code: `runtime.py` (headless controller), `core.py` (snapshot/acceptance), `process_client.py`/`process_worker.py` (isolated worker protocol/lifecycle), `providers.py`/`writing.py` (local inference), `storage.py` (encrypted history/aggregate statistics), `features.py` (Unicode lookup/structured utilities), `config.py`, `models.py`, and `native/`. `desktop.py` dispatches to `appkit_ui.py` or `qt_ui.py`; `system.py` owns explicit OS integration; `instance.py` prevents duplicate hooks per profile. The removed editor/window-worker APIs are not retained as compatibility shims.
 
-- [[redacted reference] analysis and REA evidence references](evidence/[redacted reference].md)
-- [Raw exported REA bundle](evidence/[redacted reference]-rea.json)
-- [Observed Inklow verification and limitations](evidence/VERIFICATION.md)
-- [0.2 upgrade: latency, model-quality samples, resident UI and packaging evidence](evidence/UPGRADE-0.2.md)
-
-Shared modules: `core.py` (snapshot/generation/acceptance/typed-through reuse), `providers.py` (streaming GGUF/local HTTP), `writing.py` (versioned guided prompt), `models.py` (verified acquisition), `config.py` (settings), `ui_worker.py` (preload/cancellation/newest pending), `ui_editor.py` (non-mutating painting), `desktop.py` (controller/settings), `ui_shell.py` (menus/tray/document lifecycle), `ui_models.py` (model management), `resources.py` (identity/assets), and `native/` (OS capture/input). OS imports are lazy; missing native capabilities do not break the editor.
-
-## Development
+## Development and packaging
 
 ```sh
 uv sync --extra dev --extra local --extra build
 uv run pytest -q
 uv run inklow doctor
+uv run python tools/smoke_desktop.py
 uv build
 uv run python tools/build_app.py
+uv run python tools/smoke_bundle.py
 ```
 
-GitHub Actions runs safety regressions, syntax checks, diagnostics, checksum-verified Tiny acquisition, real CPU inference, an offscreen desktop launch, wheel builds, and native PyInstaller application builds with frozen-runtime inference on macOS, Windows, and Ubuntu. Native archives are uploaded as workflow artifacts. Mac output is `dist/Inklow.app`; Windows is `dist/Inklow/Inklow.exe` with console sibling `Inklow-cli.exe`; Linux is `dist/Inklow/Inklow` with a relocatable launcher and desktop integration script. Build with the target OS/Python/llama.cpp architecture. Models/settings are never included. `--replace` only replaces a marked Inklow build and publishes with rollback; macOS final resource signatures are checked. The local Mac bundle is ad-hoc signed, not Apple-notarized. No Windows Authenticode signing is configured.
+GitHub Actions defines macOS/Windows/Ubuntu safety checks, actual source settings launch, verified Tiny acquisition, local CPU inference, wheel and native application builds, and frozen CLI plus isolated-worker inference. Workflow definitions are not proof that the current revision has passed; see the verification report for observed runs. Windows includes a console sibling `Inklow-cli.exe`; Linux includes relocatable desktop integration. Build on each target OS/architecture. macOS builds are ad-hoc signed, not notarized. `--replace` only replaces a marked Inklow build and retains rollback during publication. Bundles reject model weights, settings, databases, and encrypted-history payloads.
 
-Current implementation `dd37002e96137e662c60765a8529c17d683387ea`: [40023107453 — macOS, Windows and Ubuntu passed](https://github.com/renan-brasilio/inklow/actions/runs/40023107453), including native application builds and packaged local inference. [Machine-readable receipt](evidence/upgrade-ci-run.json). Green CI is not proof of interactive Windows/Linux system-wide integration. Earlier 0.1 evidence remains in [ci-run.json](evidence/ci-run.json).
+## Attribution
 
-## Model attribution
 Recommended model: [Qwen/Qwen2.5-1.5B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF), Apache-2.0, revision `91cad51170dc346986eccefdc2dd33a9da36ead9`, file `qwen2.5-1.5b-instruct-q4_k_m.gguf`, SHA-256 `6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e`.
 
-
-Starter model: [ggml-org/SmolLM2-135M-GGUF](https://huggingface.co/ggml-org/SmolLM2-135M-GGUF), based on [HuggingFaceTB/SmolLM2-135M](https://huggingface.co/HuggingFaceTB/SmolLM2-135M), Apache-2.0. GGUF revision `1076b85d135017971845b19b8d07df1479155988`; file SHA-256 `e3131339bf4e8065265593d4fd8f7bb7ff2d3abff1edb5618aa1197b89cad9f5`. Weights are not committed or bundled with Inklow. PySide6/Qt and other dependencies retain their respective licenses; this private repository does not relicense them.
+Starter: [ggml-org/SmolLM2-135M-GGUF](https://huggingface.co/ggml-org/SmolLM2-135M-GGUF), Apache-2.0, revision `1076b85d135017971845b19b8d07df1479155988`, SHA-256 `e3131339bf4e8065265593d4fd8f7bb7ff2d3abff1edb5618aa1197b89cad9f5`. No weights are committed/bundled. The offline catalogue contains 3,944 fully qualified Unicode 17 emoji sequences with the Unicode License V3 embedded. Dependencies retain their respective licenses.

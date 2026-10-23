@@ -1,84 +1,79 @@
 > Historical record: Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations.
 
-# Observed verification — 0.1.0 — 2026-10-23
+# Observed verification — 0.3.0 — 2026-10-24
 
-Historical first-version evidence. For current latency, model and resident-app verification, see [the 0.2 upgrade report](UPGRADE-0.2.md).
+Environment: macOS 27.2 arm64, Apple M1 Pro, CPython 3.12.14, PyObjC 12.2.2, llama-cpp-python 0.3.36. Independent Qwen2.5-1.5B-Instruct Q4_K_M weights, not [redacted reference]'s model. All writing in screenshots/tests is synthetic. No personal document or actual password was read.
 
-Environment: macOS arm64, CPython 3.12.14, PySide6 installed by uv, llama-cpp-python 0.3.36. Real SmolLM2-135M Q4_K_M weights, pinned revision and SHA-256 verified by `inklow model download`. No cloud API, mocked LLM, or proprietary [redacted reference] model was used.
+## Actual native settings, not an editor mockup
 
-## Local model execution
+Source AppKit and the **built PyInstaller application** were launched with disposable `INKLOW_HOME` profiles. The source smoke also verified that neither `llama_cpp` nor PySide6 was imported while native preferences were idle. Qt is absent from the Mac dependency/bundle path.
 
-`printf 'The capital of France is' | .venv/bin/inklow complete` executed real inference and produced ` the capital of France.` This repetitive answer is evidence of execution, not evidence of factual quality.
+Real process-scoped accessibility interactions exercised all eleven panes, persisted a General switch, saved/reverted custom instructions, recorded a native Control+F6 shortcut and restored Tab, created/deleted a synthetic app rule, expanded model management and selected an installed model, closed preferences while the agent remained alive, and quit through the native menu with exit code 0.
 
-A warm provider produced:
+Receipts: [source preferences](menu-first-native-ui.json), [frozen preferences](menu-first-frozen-ui.json), [first-install model selection](menu-first-new-install.json). The empty-cache scenario preserved an uninstalled preset across opening model management and exposed an enabled Download action without activating missing weights or downloading anything.
 
-| Typed prefix | Actual continuation | Elapsed seconds |
-| --- | --- | --- |
-| Thank you for your | ` interest in the` | 0.368 |
-| I look forward to hearing | ` from you."` | 0.020 |
-| The capital of France is | ` the capital of France.` | 0.069 |
+Visual proof: [General](menu-first-general.png), [Context](menu-first-context.png), [Personalization](menu-first-personalization.png), [Emoji](menu-first-emoji.png), [Shortcuts](menu-first-shortcuts.png), [Battery](menu-first-battery.png), [App Settings](menu-first-appSettings.png), [Labs](menu-first-labs.png), [Statistics](menu-first-statistics.png), [Setup](menu-first-setup.png), [About](menu-first-about.png), [expanded model management](menu-first-model-management.png). These are real native controls, not an HTML design. The preferences screenshots were refreshed from the frozen app.
 
-These are three local samples, including one cold model initialization—not a benchmark or quality guarantee.
+## Complete real global-typing path
 
-## Actual desktop surface
+A separate real AppKit `NSTextView`/`NSSecureTextField` process supplied disposable targets. The production controller, AX capture, Quartz interception, isolated inference worker, and native overlay ran together. A test-only PID guard restricted capture to that synthetic process; native insertion and the actual model were not mocked. No other application was eligible.
 
-A disposable Qt driver launched `InklowWindow` on the real macOS Qt backend, typed a synthetic prompt, waited for real worker inference, and sent acceptance/dismissal/input-method events.
+Observed:
 
-Observed passing outcomes:
+1. Model absent at initial agent status; real inference started only for the eligible target.
+2. English continuation ` your feedback.` appeared as native inline ghost text while the target retained focus and its document remained unchanged.
+3. A real Tab inserted exactly ` your `; the physical ISO above-Tab key accepted the remaining `feedback.`. Final text: `Thank you for taking the time to review the proposal. I look forward to your feedback.`
+4. A new Portuguese prefix reused the same inference process and produced ` visita.`.
+5. Focusing the secure field hid the overlay; inactivity terminated the model child. The test used a three-second timeout; the shipped default is sixty seconds.
+6. Offline `That is :smile` offered a numbered emoji chooser; actual number-key acceptance produced `That is 😄` without loading a model for emoji lookup.
+7. Selecting `excellent` produced actual local-model choices `superior`, `outstanding`, `great`, `remarkable`, `distinguished`. Number-key acceptance changed only the selection: `The result is superior.`
+8. Pause released the inference worker and hid the overlay. Confirmed-insertion statistics were three completions, three words, twenty-four characters; generated-but-unaccepted Portuguese output was not counted.
+9. Agent quit exited 0. The disposable target was then closed.
 
-- Model suggestion ` interest in the` after `Thank you for your`.
-- Document unchanged while ghost text was visible.
-- Tab inserted exactly ` interest `; Shift+Tab accepted the remainder.
-- Undo reverted each accepted insertion independently.
-- Escape cleared the suggestion and started the three-second pause.
-- An IME preedit event suppressed predictions; committed Unicode text remained correct.
-- Settings rejected a remote inference URL without saving it.
-- Worker/model resources shut down cleanly.
+Receipt: [native typing, timing, memory, statistics](menu-first-typing-smoke.json). Actual surfaces: [inline completion](menu-first-inline-typing.png), [emoji chooser](menu-first-emoji-typing.png), [synonyms](menu-first-synonyms-typing.png).
 
-Actual window capture: [inklow-editor.png](inklow-editor.png). Screenshots contain only synthetic test text.
+### Geometry and quality defects found by the smoke
 
-The initial driver starved Python worker execution by repeatedly using `QTest.qWait`; stack diagnostics showed imports waiting in the inference thread. Replacing that test-driver wait with a short GIL-releasing sleep while pumping Qt events resolved the harness issue; no production workaround was added.
+The first inline capture revealed a real macOS 27 `NSTextView` accessibility defect: `AXBoundsForRange(location, 0)` reported a row one line above the native insertion point. A nonempty adjacent glyph range gave the correct row. The adapter now preserves exact zero-range x while using compatible observed glyph-row metrics; it does not apply a guessed constant offset. Empty lines without a reliable glyph row are skipped. A native `firstRectForCharacterRange` comparison and corrected screenshot verified alignment. Supplementary UTF-16 glyph ranges have regression coverage.
 
-## Native API and keyboard smoke
+The original utility prompt returned `[]` for an ordinary adjective and sometimes suggested changes to the sentence prefix rather than the selection. A separate real-model diagnostic reproduced this. Explicit selection-replacement framing and a generic example corrected the sampled cases. [Raw bounded quality samples](menu-first-quality-samples.json). These samples establish the observed improvement, not semantic correctness for arbitrary writing. No canned/dictionary synonym fallback is shipped.
 
-A separate disposable Qt process supplied real editable and password fields. The production macOS bridge performed cross-process accessibility capture and native insertion.
+### Bounded latency and memory samples
 
-Observed passing outcomes:
+| Observation | Seconds |
+| --- | ---: |
+| Cold first English suggestion, including source-app startup/focus harness | 2.050 |
+| First suggestion for a new Portuguese prefix with the same model worker | 0.537 |
 
-- Supplementary Unicode caret converted correctly: 25 Python codepoints versus 26 UTF-16 units.
-- Accepted text inserted into the original field without replacing its existing content.
-- Reusing the old snapshot refused insertion.
-- Password field refused, including Qt's secure-role-description variant with no AXSubrole.
-- Noncollapsed selection was not overwritten.
-- Real Quartz Tab interception invoked accepted insertion.
+These are one observation each, different prefixes, not a controlled benchmark or a speed comparison with [redacted reference]. The warm measurement includes the 200 ms debounce and native polling/UI delivery. Worker release trades lower idle allocations for another cold load.
 
-## Complete system-wide path
+Memory came from the operating system's `proc_pid_rusage(..., RUSAGE_INFO_V4, ...)`, using a small helper compiled against the installed macOS SDK. RSS was independently sampled with `ps`.
 
-A separate disposable **AppKit NSTextView** process was used to verify the entire production controller path, not merely the adapter:
+| State | Agent physical footprint, MiB | Worker physical footprint, MiB | Worker RSS, MiB |
+| --- | ---: | ---: | ---: |
+| Active model after acceptance | 62.2 | 246.9 | 1331.4 |
+| Idle after worker exit | 62.7 | No process | No process |
 
-1. Inklow ran with global mode enabled in memory only.
-2. The native target became the foreground app with `Thank you for your` in its field.
-3. Production polling, debounce, and real model inference produced ` interest in the`.
-4. The nonfocusable overlay became visible while the target retained foreground focus.
-5. A real Quartz Tab event inserted exactly ` interest ` into that target field.
-6. Native status reported `macOS AX and Quartz ready`.
+RSS includes resident mapped/shared/file-backed pages and is **not** physical footprint. These are source-agent measurements; they are not an apples-to-apples memory comparison against the older editor or [redacted reference]. Worker-process disappearance is the direct proof of releasing its allocations. System/GPU accounting and file caches remain OS-managed.
 
-Actual overlay capture: [inklow-global-overlay.png](inklow-global-overlay.png).
+## Context and privacy checks
 
-Integration testing found and corrected: system-wide AXFocusedApplication failure despite per-app AX access; tuple-based PyObjC AXValue results; Qt's missing AXSelectedText setter; password state supplied only via localized AXRoleDescription; NSTextView's optional AXEnabled attribute; and delayed tap-disable notifications overriding newer enable state. Fields lacking real caret bounds remain unsupported for global predictions rather than being assigned invented geometry.
+A separate source smoke exercised ScreenCaptureKit/Vision OCR against only the disposable target window. The returned text included the synthetic proposal draft. No image was persisted, and screen context remains opt-in. The smoke identified a PyObjC/macOS Vision initializer issue with a bridged Python options dictionary; using the documented nullable options argument succeeded. This is one native target/OS result, not universal OCR coverage.
 
-The desktop and global scenarios must run serially because they both need foreground focus. A parallel attempt caused focus interference and was discarded, not counted as passing evidence.
+AES-GCM storage tests use deterministic test keys and exercise encryption, unavailable secure-store failure, deletion, retention policy, vocabulary, and aggregate counts without touching personal Keychain entries. They do not prove that a user's OS secret store is unlocked/configured. Native secure/read-only/composition/domain checks and stale-insertion boundaries have deterministic regression coverage. Independent code review found and prompted fixes for Windows UIA final focus revalidation, emoji/alternatives precedence, Tab policy precedence, portable shortcut recording, and inaccurate history/emoji disclosures.
 
-## Automated and cross-platform limits
+## Build, frozen inference, and automated checks
 
-The deterministic suite exercises stale generations, wrong-field acceptance, protected/selected text, Unicode acceptance, endpoint privacy, invalid settings, and prediction sanitization. Final local run: **29 passed in 0.04 seconds**, module compilation succeeded, and `uv build` produced both `inklow-0.1.0.tar.gz` and `inklow-0.1.0-py3-none-any.whl`. `inklow doctor` confirmed the local model exists and persisted global mode remains off. Workflow YAML parsed successfully. A generated-tab regression failed before correction and passed after tabs were normalized to spaces, preventing accepted text from navigating to another form field.
+Local final suite: **220 passed, 1 skipped, 10.16 seconds**. The skip is the Qt-only module on macOS, where Qt is intentionally absent. Regression checks include selected short phrases and decomposed Unicode. The Mac application built successfully, rejected private/model payloads, and passed final resource-signature verification.
 
-Windows and Linux implementations were reviewed as source, not exercised on interactive desktops here. The GitHub Actions matrix checks installation, safety tests, module syntax, diagnostics, checksum-verified model acquisition, real local inference, and wheel packaging across all three OSes; it does not establish keyboard/accessibility compatibility. Wayland system-wide integration is intentionally unavailable and documented, not represented as complete.
+The actual frozen CLI generated ` message.`. The actual frozen `_worker` protocol streamed ` cooperation.`, processed stop, and exited 0. These outputs prove real inference and IPC, not writing quality. Receipt: [frozen CLI/worker](menu-first-frozen-worker.json). Direct source/settings and frozen settings checks above are separate from unit tests.
 
-Linux insertion length was checked against the [canonical AT-SPI contract](https://docs.gtk.org/atspi2/method.EditableText.insert_text.html): the insertion position is a character offset, but the length is a UTF-8 byte count. The adapter uses `len(text.encode("utf-8"))` to avoid truncating non-ASCII suggestions. This is documentation-backed API verification, not a live Linux desktop result.
+The GitHub Actions matrix defines Windows/macOS/Ubuntu installation, tests, actual source settings launch, verified Tiny download, CPU inference, wheel/native packaging, and frozen CLI/worker smoke. Current-run results are recorded separately when observed; earlier green runs in [upgrade-ci-run.json](upgrade-ci-run.json) apply to 0.2, not this revision.
 
-Hosted run [40012515758](https://github.com/renan-brasilio/inklow/actions/runs/40012515758) passed macOS and Windows installation, all safety regressions, real local inference, and wheel packaging. Ubuntu stopped before tests because Qt import required missing `libEGL.so.1`. CI now installs the documented native Qt runtime packages and launches the real desktop offscreen on all OSes. The same offscreen launch command completed locally with exit code 0. The unused pytest-qt plugin was removed; runtime checks remain in place rather than suppressing Qt import errors.
+Interactive Windows/Linux accessibility and keyboard compatibility have not been exercised here. Linux has no atomic rewrite operation, so selected-text synonyms and emoji/emoticon rewriting are disabled rather than risking destructive partial edits. Wayland global typing is unavailable. Windows/Linux URL/screen-context limitations are explicit in the README. Passing headless CI is not proof of interactive compatibility.
 
-Final repaired run [40014680596](https://github.com/renan-brasilio/inklow/actions/runs/40014680596) completed **successfully on macOS, Windows, and Ubuntu**, testing implementation commit `58eea8964fc7fbf9139b1e4a19bb347e0e54b80a`. Each job passed all **29 tests with zero failures/errors/skips**, verified the model, exercised real inference, launched the actual desktop offscreen, built the wheel, and uploaded artifacts. All three artifacts were downloaded; each contains its JUnit report and `dist/inklow-0.1.0-py3-none-any.whl`. The JUnit suite counts were inspected. [Machine-readable CI receipt](ci-run.json).
+## Reference evidence and limits
 
-Disposable smoke drivers were removed after verification. No user document, actual password, or personal typing history was used. These observations are bounded by the stated fields/providers and do not establish universal app compatibility.
+[REA [redacted reference] report]([redacted reference].md), [sanitized native observations]([redacted reference]-menu-reference.json). [redacted reference]'s settings were observed directly, but no live accepted [redacted reference] prediction, exact prompt, performance comparison, or network-privacy audit was established. The implementation is independent and does not claim proprietary feature/model equivalence.
+
+Historical 0.2 evidence remains in [UPGRADE-0.2.md](UPGRADE-0.2.md); older CI and image artifacts remain historical, not descriptions of the removed editor's current availability.

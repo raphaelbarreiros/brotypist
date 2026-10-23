@@ -83,8 +83,8 @@ def prepare_linux(bundle: Path, destination: Path) -> None:
 
 def reject_private_payload(bundle: Path) -> None:
     """Fail closed if a wheel or custom hook unexpectedly supplies private data."""
-    forbidden = {".gguf", ".ggml", ".safetensors", ".pt", ".pth"}
-    settings = {"settings.json", "config.json", "secrets.yaml", ".env"}
+    forbidden = {".gguf", ".ggml", ".safetensors", ".pt", ".pth", ".db", ".sqlite", ".sqlite3"}
+    settings = {"settings.json", "config.json", "secrets.yaml", ".env", "history.enc"}
     for path in bundle.rglob("*"):
         if path.is_file() and (path.suffix.lower() in forbidden or path.name.lower() in settings):
             raise RuntimeError(f"Refusing a model/settings payload in the application: {path.relative_to(bundle)}")

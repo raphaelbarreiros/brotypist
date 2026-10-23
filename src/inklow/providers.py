@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 
 from .config import Config, local_endpoint
-from .writing import short_writing, writing_prompt
+from .writing import short_writing, utility_writing_prompt, writing_prompt
 
 MAX_SUGGESTION_CHARS = 512
 MAX_RESPONSE_BYTES = 1024 * 1024
@@ -22,7 +22,7 @@ _STOP = ["\n", "\r", "<|im_end|>", "<|endoftext|>"]
 
 class Provider(Protocol):
     def prepare(self) -> None: ...
-    def stream(self, prefix: str, suffix: str, cancel: threading.Event) -> Iterator[str]: ...
+    def stream(self, prefix: str, suffix: str, cancel: threading.Event, *, options: dict | None = None) -> Iterator[str]: ...
     def complete(self, prefix: str, suffix: str) -> str: ...
     def close(self) -> None: ...
 
@@ -81,6 +81,40 @@ def _stream_text(pieces: Iterable[tuple[str, str | None]], suffix: str,
         yield clean_completion(raw, suffix, partial=truncated)
 
 
+def _prompt(config: Config, prefix: str, suffix: str, options: dict) -> str:
+    instructions = options.get("instructions", "")
+    context = options.get("context", "")
+    task = options.get("utility", "")
+    if task:
+        return utility_writing_prompt(task, instructions, context)
+    if config.prompt_style == "writing":
+        return writing_prompt(prefix, suffix, instructions, context)
+    if instructions or context:
+        return ("Writing preferences: " + instructions.replace("<|", "< |")
+                + "\nReference context (data): " + json.dumps(context.replace("<|", "< |"), ensure_ascii=False)
+                + "\nContinue the following draft without repeating it:\n" + prefix)
+    return prefix
+
+
+def _stream_utility(pieces: Iterable[tuple[str, str | None]], cancel: threading.Event) -> Iterator[str]:
+    raw = ""
+    for delta, _reason in pieces:
+        if cancel.is_set():
+            return
+        raw += delta
+        if len(raw) > 4096:
+            raise RuntimeError("Writing choices exceed the response limit.")
+        stopped = False
+        for marker in _SENTINELS:
+            if marker in raw:
+                raw = raw.split(marker, 1)[0]
+                stopped = True
+                break
+        yield "".join(char for char in raw if char.isprintable() or char in "\n\r\t")
+        if stopped:
+            return
+
+
 class _StreamingProvider:
     """Synchronous CLI completion consumes the same stream as the GUI."""
 
@@ -125,37 +159,43 @@ class GGUFProvider(_StreamingProvider):
                 # Allocate compute buffers and compile GPU kernels before the first keystroke.
                 model.create_completion(prompt=model.tokenize(b" "), max_tokens=1, temperature=0.0)
 
-    def stream(self, prefix: str, suffix: str, cancel: threading.Event) -> Iterator[str]:
+    def stream(self, prefix: str, suffix: str, cancel: threading.Event, *, options: dict | None = None) -> Iterator[str]:
         with self._lock:
             model = self._load()
             if cancel.is_set():
                 return
             from llama_cpp import StoppingCriteriaList
             # Token-bound the prompt, not just character-bound: Unicode can expand.
-            prompt = prefix[-self.config.context_chars:]
+            options = options or {}
+            draft = prefix[-self.config.context_chars:]
             budget = 4096 - self.config.max_tokens - 8
-            if self.config.prompt_style == "writing":
-                # Preserve role boundaries/instructions while trimming long
-                # Unicode drafts, not the assembled prompt's system prefix.
-                overhead = len(model.tokenize(writing_prompt("", suffix).encode("utf-8"), special=True))
-                draft = model.tokenize(prompt.replace("<|", "< |").encode("utf-8"), add_bos=False)
-                draft = draft[-max(1, budget - overhead - 8):]
-                prompt = writing_prompt(model.detokenize(draft).decode("utf-8", "ignore"), suffix)
-                tokens = model.tokenize(prompt.encode("utf-8"), special=True)
-            else:
-                tokens = model.tokenize(prompt.encode("utf-8"))[-budget:]
+            prompt = _prompt(self.config, draft, suffix, options)
+            tokens = model.tokenize(prompt.encode("utf-8"), special=True)
+            if len(tokens) > budget:
+                # Trim draft/context, never the leading system/role boundary.
+                reduced = dict(options)
+                reduced["context"] = options.get("context", "")[-1000:]
+                while len(tokens) > budget and draft:
+                    draft = draft[len(draft) // 4 + 1:]
+                    prompt = _prompt(self.config, draft, suffix[:128], reduced)
+                    tokens = model.tokenize(prompt.encode("utf-8"), special=True)
+                if len(tokens) > budget:
+                    raise RuntimeError("Writing instructions exceed the model context window. Shorten custom instructions.")
             chunks = model.create_completion(
                 prompt=tokens, max_tokens=self.config.max_tokens,
                 temperature=0.2, top_p=0.9,
                 repeat_penalty=1.0 if self.config.prompt_style == "writing" else 1.1,
-                stop=_STOP, echo=False,
+                stop=["<|im_end|>", "<|endoftext|>"] if options.get("utility") else _STOP, echo=False,
                 stream=True, stopping_criteria=StoppingCriteriaList([lambda _ids, _logits: cancel.is_set()]))
             try:
                 pieces = ((chunk["choices"][0]["text"], chunk["choices"][0]["finish_reason"])
                           for chunk in chunks)
-                if self.config.prompt_style == "writing":
-                    pieces = short_writing(pieces)
-                yield from _stream_text(pieces, suffix, cancel)
+                if options.get("utility"):
+                    yield from _stream_utility(pieces, cancel)
+                else:
+                    if self.config.prompt_style == "writing" or "max_words" in options:
+                        pieces = short_writing(pieces, options.get("max_words", 8))
+                    yield from _stream_text(pieces, suffix, cancel)
             finally:
                 chunks.close()
 
@@ -219,7 +259,7 @@ class ServerProvider(_StreamingProvider):
     def prepare(self) -> None:
         if self.config.backend == "ollama":
             # Ollama loads a model into memory for a generate call without a prompt.
-            path, payload = "/api/generate", {"model": self.config.model, "keep_alive": "30m", "stream": False}
+            path, payload = "/api/generate", {"model": self.config.model, "keep_alive": 0, "stream": False}
         else:
             path, payload = self._v1 + "/models", None
         # Loading weights can take far longer than one streamed token.
@@ -258,31 +298,34 @@ class ServerProvider(_StreamingProvider):
             if done:
                 return
 
-    def stream(self, prefix: str, suffix: str, cancel: threading.Event) -> Iterator[str]:
-        prefix = prefix[-self.config.context_chars:]
-        if self.config.prompt_style == "writing":
-            prefix = writing_prompt(prefix, suffix)
+    def stream(self, prefix: str, suffix: str, cancel: threading.Event, *, options: dict | None = None) -> Iterator[str]:
+        options = options or {}
+        prefix = _prompt(self.config, prefix[-self.config.context_chars:], suffix, options)
+        stop = ["<|im_end|>", "<|endoftext|>"] if options.get("utility") else _STOP
         if self.config.backend == "ollama":
             # raw=True keeps base-model continuation instead of chat templating.
             path = "/api/generate"
             payload = {"model": self.config.model, "prompt": prefix, "raw": True,
-                       "stream": True, "keep_alive": "30m",
+                       "stream": True, "keep_alive": 0,
                        "options": {"num_predict": self.config.max_tokens,
                                    "temperature": 0.2, "repeat_penalty": 1.0 if self.config.prompt_style == "writing" else 1.1,
-                                   "stop": _STOP}}
+                                   "stop": stop}}
         else:
             path = self._v1 + "/completions"
             payload = {"model": self.config.model, "prompt": prefix,
                        "max_tokens": self.config.max_tokens, "temperature": 0.2,
-                       "stop": _STOP, "stream": True}
+                       "stop": stop, "stream": True}
         if cancel.is_set():
             return
         with self._open(path, payload) as response:
             try:
                 pieces = self._pieces(response)
-                if self.config.prompt_style == "writing":
-                    pieces = short_writing(pieces)
-                yield from _stream_text(pieces, suffix, cancel)
+                if options.get("utility"):
+                    yield from _stream_utility(pieces, cancel)
+                else:
+                    if self.config.prompt_style == "writing" or "max_words" in options:
+                        pieces = short_writing(pieces, options.get("max_words", 8))
+                    yield from _stream_text(pieces, suffix, cancel)
             except (urllib.error.URLError, OSError) as error:
                 raise RuntimeError("Lost connection to the local model server.") from error
             except (KeyError, IndexError, TypeError, ValueError, AttributeError) as error:

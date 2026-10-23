@@ -1,0 +1,28 @@
+{
+  "model": "Qwen2.5-1.5B-Instruct Q4_K_M",
+  "backend": "actual local llama.cpp with Metal on Apple M1 Pro",
+  "max_tokens": 128,
+  "not_a_benchmark_or_quality_guarantee": true,
+  "observation": "The first native synonym smoke produced an empty JSON array for an ordinary adjective. A separate real-model diagnostic reproduced empty arrays. Explicit replacement framing and a generic few-shot example corrected these sampled cases; no canned synonyms are supplied by the application.",
+  "samples": [
+    {
+      "before": "The result is ", "selected": "excellent", "after": ".", "custom_instructions": "",
+      "old_prompt_output": "[]",
+      "revised_prompt_output": "[\"superior\", \"outstanding\", \"distinguished\", \"remarkable\", \"top-notch\"]",
+      "revised_elapsed_seconds": 0.8646109999972396
+    },
+    {
+      "before": "A ", "selected": "useful", "after": " update", "custom_instructions": "",
+      "old_prompt_output": "```json\n[]\n```",
+      "revised_prompt_output": "[\"valuable\", \"helpful\", \"beneficial\", \"desirable\", \"profitable\"]",
+      "revised_elapsed_seconds": 0.3646314580109902
+    },
+    {
+      "before": "The result is ", "selected": "excellent", "after": ".",
+      "custom_instructions": "Continue naturally and concisely in the same language. Do not repeat the existing text.",
+      "old_prompt_output": "[\"The outcome is \", \"The result is \", \"The product is \", \"The achievement is \", \"The success is \"]",
+      "revised_prompt_output": "[\"superior\", \"outstanding\", \"top-notch\", \"distinguished\", \"remarkable\"]",
+      "revised_elapsed_seconds": 0.4207671250333078
+    }
+  ]
+}

@@ -21,11 +21,11 @@ class LinuxBridge(BridgeBase):
         if os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland" or os.environ.get("WAYLAND_DISPLAY"):
             self._set_status(
                 "Global typing is unavailable under Wayland, including XWayland applications. "
-                "Use Inklow's built-in editor, or sign in to an X11 desktop session."
+                "Sign in to an X11 desktop session to enable global typing."
             )
             return
         if not os.environ.get("DISPLAY"):
-            self._set_status("No X11 DISPLAY is available. Start Inklow in an X11 desktop session; otherwise use the built-in editor.")
+            self._set_status("No X11 DISPLAY is available. Start Inklow in an X11 desktop session.")
             return
         try:
             import pyatspi
@@ -61,9 +61,10 @@ class LinuxBridge(BridgeBase):
             "Linux AT-SPI/X11 ready. Supports focused editable Entry/Text controls exposing Text and EditableText. "
             "Enable toolkit accessibility (GTK: GTK_MODULES=gail:atk-bridge where required; Qt: QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1) "
             "before starting target apps. Password fields are excluded."
+            " Browser URLs are not observable through documented window metadata; domain rules cannot apply here."
         )
 
-    def _application_identity(self, app):
+    def _application_identity(self, app, include_disabled: bool = False):
         pid = int(app.get_process_id())
         if pid <= 0 or pid == os.getpid():
             return None
@@ -72,11 +73,11 @@ class LinuxBridge(BridgeBase):
             executable = os.readlink(f"/proc/{pid}/exe")
         except OSError:
             executable = ""
-        if not (name or executable) or self._excluded(name, executable):
+        if not (name or executable) or (not include_disabled and not self._allowed(executable or name, "", name, executable)):
             return None
         return pid, executable or name
 
-    def _focused(self):
+    def _focused(self, include_disabled: bool = False):
         a = self.atspi
         desktop = self._desktop
         desktop.clearCache()
@@ -87,7 +88,7 @@ class LinuxBridge(BridgeBase):
                 if app is None:
                     continue
                 app.clearCache()
-                identity = self._application_identity(app)
+                identity = self._application_identity(app, include_disabled)
                 if identity is None:
                     continue
                 # The active top-level ancestor prevents stale focused states in
@@ -113,6 +114,22 @@ class LinuxBridge(BridgeBase):
             except Exception:
                 continue
         return None
+
+    def foreground(self) -> dict:
+        with self._lock:
+            try:
+                if not self._available:
+                    return super().foreground()
+                focused = self._focused(include_disabled=True)
+                if focused is None:
+                    return super().foreground()
+                _, _, (_, app_id) = focused
+                # There is no generic browser-window URL property in AT-SPI.
+                # Editable address bars and page DOM are not metadata sources.
+                return {"app_id": app_id, "name": app_id.rsplit("/", 1)[-1], "domain": "",
+                        "browser": self._is_browser(app_id), "domain_observable": False}
+            except Exception:
+                return super().foreground()
 
     def _capture(self):
         if not self._available or self._stopped.is_set():
@@ -148,14 +165,14 @@ class LinuxBridge(BridgeBase):
         if selections:
             if selections != 1:
                 return None
-            start, end = text_iface.getSelection(0)
+            start, end = (int(offset) for offset in text_iface.getSelection(0))
+            caret = min(start, end)
             selection_length = abs(end - start)
-            if selection_length:
-                return None
         text = text_iface.getText(0, -1)
         # AT-SPI uses Unicode character offsets, not UTF-16. A provider using
         # different units is unsupported, rather than guessed or silently sliced.
-        if not isinstance(text, str) or len(text) != count or not 0 <= caret <= count:
+        if (not isinstance(text, str) or len(text) != count or not 0 <= caret <= count
+                or not 0 <= selection_length <= count - caret):
             return None
         rect = None
         try:
@@ -166,7 +183,8 @@ class LinuxBridge(BridgeBase):
             pass
         object_path = getattr(element, "path", None)
         field_id = f"{pid}:{object_path if object_path else hash(element)}"
-        return Snapshot(app_id, field_id, text, caret, selection_length, rect), editable, text_iface
+        return Snapshot(app_id, field_id, text, caret, selection_length, rect,
+                        multiline=state.contains(a.STATE_MULTI_LINE)), editable, text_iface
 
     def capture(self) -> Snapshot | None:
         with self._lock:
@@ -197,6 +215,30 @@ class LinuxBridge(BridgeBase):
             except Exception:
                 return False
 
+    def replace_range(self, snapshot: Snapshot, start: int, length: int, text: str) -> bool:
+        if not self._valid_replacement(snapshot, start, length, text):
+            return False
+        with self._lock:
+            try:
+                current = self._capture()
+                if current is None or current[0].key != snapshot.key:
+                    return False
+                if length == 0 and start == snapshot.caret and snapshot.selection_length == 0:
+                    return self.insert(snapshot, text)
+                # EditableText only offers delete-then-insert, which can lose
+                # original text if insertion fails. No destructive fallback.
+                self._set_status(
+                    "This AT-SPI control cannot safely replace a selection or emoji suffix: "
+                    "atomic range replacement is unavailable. Ordinary completion insertion remains supported."
+                )
+                return False
+            except Exception:
+                return False
+
+    def configure(self, config) -> None:
+        super().configure(config)
+        self._wake()
+
     def start_shortcuts(self, callback: Shortcut) -> None:
         super().start_shortcuts(callback)
         with self._lock:
@@ -219,26 +261,48 @@ class LinuxBridge(BridgeBase):
     def _event_loop(self) -> None:
         X, XK = self.x, self.xk
         connection = None
-        grabbed = False
+        grabbed: list[tuple[int, int]] = []
         try:
             connection = self._display_type()
             root = connection.screen().root
-            tab = connection.keysym_to_keycode(XK.string_to_keysym("Tab"))
-            escape = connection.keysym_to_keycode(XK.string_to_keysym("Escape"))
-            if not tab or not escape:
-                raise RuntimeError("X11 keymap has no Tab/Escape keys")
+            modifier_masks = {"Ctrl": X.ControlMask, "Alt": X.Mod1Mask,
+                              "Shift": X.ShiftMask, "Super": X.Mod4Mask}
             num_key = connection.keysym_to_keycode(XK.string_to_keysym("Num_Lock"))
             num_mask = 0
             for index, keys in enumerate(connection.get_modifier_mapping()):
                 if num_key and num_key in keys:
                     num_mask |= 1 << index
             locks = {0, X.LockMask, num_mask, X.LockMask | num_mask}
-            shortcuts = [(tab, modifier | lock) for modifier in (0, X.ShiftMask) for lock in locks]
-            shortcuts += [(escape, lock) for lock in locks]
+            active_bindings = None
             while not self._stopped.is_set():
                 with self._lock:
                     enabled = self._enabled
+                    bindings = tuple(self._shortcuts.values())
+                if grabbed and (not enabled or bindings != active_bindings):
+                    for code, modifiers in grabbed:
+                        root.ungrab_key(code, modifiers)
+                    connection.ungrab_keyboard(X.CurrentTime)
+                    connection.flush()
+                    grabbed = []
                 if enabled and not grabbed:
+                    key_names = {}
+                    shortcuts = set()
+                    for binding in (*bindings, "Escape", *(str(number) for number in range(1, 10))):
+                        if not binding:
+                            continue
+                        parts = binding.split("+")
+                        key = parts[-1]
+                        if key == "Tab" and "Alt" in parts[:-1]:
+                            continue
+                        code = 49 if key == "AboveTab" else connection.keysym_to_keycode(
+                            XK.string_to_keysym({"Space": "space", "Return": "Return"}.get(key, key)))
+                        if not code:
+                            continue
+                        key_names[code] = key
+                        modifier = 0
+                        for name in parts[:-1]:
+                            modifier |= modifier_masks[name]
+                        shortcuts.update((code, modifier | lock) for lock in locks)
                     errors = []
                     for code, modifiers in shortcuts:
                         root.grab_key(code, modifiers, False, X.GrabModeAsync, X.GrabModeSync,
@@ -251,26 +315,20 @@ class LinuxBridge(BridgeBase):
                         super().set_shortcuts_enabled(False)
                         self._set_status(
                             "An X11 shortcut is already owned by another application. Global interception is disabled. "
-                            "Release conflicting Tab/Shift+Tab/Escape bindings, then pause/resume global typing."
+                            "Release conflicting configured bindings, then pause/resume global typing."
                         )
                     else:
-                        grabbed = True
-                elif not enabled and grabbed:
-                    for code, modifiers in shortcuts:
-                        root.ungrab_key(code, modifiers)
-                    connection.ungrab_keyboard(X.CurrentTime)
-                    connection.flush()
-                    grabbed = False
+                        grabbed = list(shortcuts)
+                        active_bindings = bindings
                 while connection.pending_events():
                     event = connection.next_event()
                     if event.type != X.KeyPress:
                         continue
-                    action = None
-                    modifiers = event.state & ~(X.LockMask | num_mask)
-                    if event.detail == tab and modifiers in (0, X.ShiftMask):
-                        action = "all" if modifiers & X.ShiftMask else "word"
-                    elif event.detail == escape and not modifiers:
-                        action = "dismiss"
+                    state = event.state & ~(X.LockMask | num_mask)
+                    modifiers = tuple(name for name, mask in modifier_masks.items() if state & mask)
+                    known_mask = X.ControlMask | X.Mod1Mask | X.ShiftMask | X.Mod4Mask
+                    action = (self._key_action(key_names.get(event.detail, ""), modifiers, platform="linux")
+                              if not state & ~known_mask else None)
                     if action and self._dispatch(action):
                         connection.allow_events(X.AsyncKeyboard, event.time)
                         connection.ungrab_keyboard(event.time)
@@ -288,7 +346,7 @@ class LinuxBridge(BridgeBase):
         except Exception as exc:
             self._set_status(
                 f"X11 keyboard grabs unavailable ({type(exc).__name__}). Check DISPLAY/Xauthority and conflicting shortcuts; "
-                "Wayland is unsupported. Use the built-in editor until corrected."
+                "Wayland is unsupported."
             )
         finally:
             if connection is not None:

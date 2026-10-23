@@ -1,0 +1,66 @@
+{
+  "version": "0.3.0",
+  "real_native_target": true,
+  "real_local_model": "Qwen2.5-1.5B-Instruct-Q4_K_M",
+  "cold_first_suggestion_seconds": 2.05,
+  "suggestion": " your",
+  "tab_inserted": " your ",
+  "full_acceptance_result": "Thank you for taking the time to review the proposal. I look forward to your feedback.",
+  "inline_native_overlay": "NSView",
+  "secure_field_hides_suggestion": true,
+  "idle_worker_exited": true,
+  "idle_parent_rss_bytes": 115998720,
+  "active_memory": {
+    "parent_rss_bytes": 115392512,
+    "worker_rss_bytes": 1396113408,
+    "parent_os_memory": {
+      "resident_bytes": 115408896,
+      "physical_footprint_bytes": 65258528
+    },
+    "worker_os_memory": {
+      "resident_bytes": 1396113408,
+      "physical_footprint_bytes": 258852616
+    }
+  },
+  "emoji_result": "That is 😄",
+  "synonyms": [
+    "superior",
+    "outstanding",
+    "great",
+    "remarkable",
+    "distinguished"
+  ],
+  "synonym_result": "The result is superior.",
+  "pause_releases_worker": true,
+  "statistics": {
+    "totals": {
+      "completions": 3,
+      "words": 3,
+      "characters": 24
+    },
+    "rows": [
+      {
+        "label": "2026-10-24",
+        "completions": 3,
+        "words": 3,
+        "characters": 24
+      }
+    ],
+    "today": {
+      "completions": 3,
+      "words": 3,
+      "characters": 24
+    },
+    "estimated_seconds": 5
+  },
+  "platform": "macOS arm64",
+  "rss_is_not_physical_footprint": true,
+  "warm_first_suggestion_seconds": 0.537,
+  "warm_prefix": "Muito obrigado pela sua",
+  "warm_suggestion": " visita.",
+  "idle_os_memory": {
+    "resident_bytes": 115998720,
+    "physical_footprint_bytes": 65717256
+  },
+  "native_app_exit_code": 0
+}
