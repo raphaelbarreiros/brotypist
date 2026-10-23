@@ -51,8 +51,8 @@ The built-in writing area is a scratch surface held in memory. It is **not a doc
 | Platform | Built-in editor | System-wide integration | Verification |
 | --- | --- | --- | --- |
 | macOS | Qt editor with local inference | AX text/caret capture; direct selected-text insertion or guarded Quartz Unicode input; conditional acceptance keys | Real editor smoke and full model → native NSTextView → overlay → Tab → insertion smoke exercised on Apple Silicon |
-| Windows | Same Qt editor and prediction engine | UI Automation; native Edit insertion via `EM_REPLACESEL`; observable modern UIA Text/TextEdit providers via Unicode `SendInput` | Implementation present; interactive Windows verification not performed locally |
-| Linux/X11 | Same Qt editor and prediction engine | AT-SPI Text/EditableText and replayable X11 key grabs | Implementation present; interactive Linux verification not performed locally |
+| Windows | Same Qt editor and prediction engine | UI Automation; native Edit insertion via `EM_REPLACESEL`; observable modern UIA Text/TextEdit providers via Unicode `SendInput` | Hosted safety tests, real inference, offscreen desktop launch, and wheel packaging passed; interactive global integration remains unverified |
+| Linux/X11 | Same Qt editor and prediction engine | AT-SPI Text/EditableText and replayable X11 key grabs | Hosted safety tests, real inference, offscreen desktop launch, and wheel packaging passed; interactive global integration remains unverified |
 | Linux/Wayland | Same Qt editor and prediction engine | Explicitly unavailable, including XWayland; no privileged keylogging workaround | Global-mode refusal is implemented; not a claim of system-wide Wayland support |
 
 System-wide compatibility depends on the target app exposing editability, protection, selection, and caret bounds. Unsupported controls are skipped. Some Qt/macOS fields allow safe insertion but expose no caret bounds; they are not offered global predictions. Password/read-only fields and excluded apps are checked before reading values. macOS/Linux IME safety depends on composition metadata exposed by the target provider; hidden composition cannot be reliably detected. Windows modern controls require observable TextEditPattern composition state and may therefore be skipped. Elevated Windows apps require matching integrity privileges; Inklow does not bypass UIPI. These APIs do not provide an atomic cross-app transaction: focus can change between validation and insertion, so do not enable global predictions in sensitive apps.
@@ -100,6 +100,8 @@ uv build
 ```
 
 GitHub Actions runs deterministic safety regressions, syntax checks, capability diagnostics, checksum-verified model acquisition, real local inference, an actual offscreen desktop launch, and wheel builds on macOS, Windows, and Ubuntu. Green CI alone is **not** proof of interactive OS integration. No fake prediction backend is shipped.
+
+Verified run: [40014680596 — all three OS jobs passed](https://github.com/renan-brasilio/inklow/actions/runs/40014680596), implementation commit `58eea8964fc7fbf9139b1e4a19bb347e0e54b80a`. Machine-readable receipt: [evidence/ci-run.json](evidence/ci-run.json).
 
 ## Model attribution
 

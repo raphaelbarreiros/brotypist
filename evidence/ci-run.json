@@ -1,0 +1,51 @@
+{
+  "repository": "renan-brasilio/inklow",
+  "run_id": 40014680596,
+  "url": "https://github.com/renan-brasilio/inklow/actions/runs/40014680596",
+  "head_sha": "58eea8964fc7fbf9139b1e4a19bb347e0e54b80a",
+  "conclusion": "success",
+  "verified_operations": [
+    "dependency installation",
+    "module compilation",
+    "deterministic safety regressions",
+    "native capability diagnostics",
+    "SHA-256 verified model download",
+    "real local GGUF inference",
+    "actual offscreen desktop launch",
+    "wheel build and artifact upload"
+  ],
+  "jobs": [
+    {
+      "platform": "ubuntu-latest",
+      "job_id": 120623577930,
+      "conclusion": "success",
+      "tests": 29,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "platform": "windows-latest",
+      "job_id": 120623578135,
+      "conclusion": "success",
+      "tests": 29,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "platform": "macos-latest",
+      "job_id": 120623578348,
+      "conclusion": "success",
+      "tests": 29,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "artifact_validation": "Downloaded all three artifacts; each contains test-results.xml and dist/inklow-0.1.0-py3-none-any.whl. Read each JUnit suite's counts.",
+  "limitations": [
+    "Offscreen startup is not interactive Windows/Linux accessibility or keyboard verification.",
+    "System-wide Linux Wayland mode is unavailable by design."
+  ]
+}
