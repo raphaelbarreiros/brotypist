@@ -28,21 +28,27 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libopengl0 libxkbcommon0
       - name: Install desktop, local inference, and test dependencies
-        run: python -m pip install -e ".[dev,local]"
+        run: python -m pip install -e ".[dev,local,build]"
       - name: Check syntax on every platform module
         run: python -m compileall -q src
       - name: Run deterministic safety regressions
         run: python -m pytest -q --junitxml=test-results.xml
       - name: Report native capabilities
         run: inklow doctor
-      - name: Acquire checksum-verified starter model
-        run: inklow model download
+      - name: Acquire checksum-verified lightweight CI model
+        run: inklow model download --preset tiny
       - name: Exercise real local inference
-        run: python -c "from inklow.config import load_config; from inklow.providers import create_provider; p = create_provider(load_config()); print(p.complete('Thank you for your', '')); p.close()"
+        run: python -c "from dataclasses import replace; from inklow.config import load_config; from inklow.providers import create_provider; p = create_provider(replace(load_config(), acceleration='cpu')); p.prepare(); print(p.complete('Thank you for your', '')); p.close()"
       - name: Launch the real desktop offscreen
-        run: python -c "from PySide6.QtCore import QTimer; from PySide6.QtWidgets import QApplication; from inklow.config import load_config; from inklow.desktop import launch; app = QApplication([]); QTimer.singleShot(1000, app.closeAllWindows); code = launch(load_config()); print('Desktop launch smoke finished', code); raise SystemExit(code)"
+        run: python -c "from dataclasses import replace; from PySide6.QtCore import QTimer; from PySide6.QtWidgets import QApplication; from inklow.config import load_config; from inklow.desktop import launch; app = QApplication([]); QTimer.singleShot(3000, app.quit); code = launch(replace(load_config(), acceleration='cpu', global_enabled=False), no_tray=True); print('Desktop launch smoke finished', code); raise SystemExit(code)"
       - name: Build installable wheel
         run: python -m pip wheel --no-deps . --wheel-dir dist
+      - name: Build native desktop application
+        run: python tools/build_app.py
+      - name: Exercise packaged local inference
+        run: python tools/smoke_bundle.py
+      - name: Archive native application preserving bundle symlinks
+        run: python -c "import pathlib,sys,tarfile; root=pathlib.Path('dist'); name='Inklow.app' if sys.platform=='darwin' else 'Inklow'; archive=root/('Inklow-'+sys.platform+'.tar.gz'); bundle=tarfile.open(archive,'w:gz'); bundle.add(root/name,arcname=name); bundle.close()"
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
@@ -50,4 +56,5 @@ jobs:
           path: |
             test-results.xml
             dist/*.whl
+            dist/Inklow-*.tar.gz
           retention-days: 14

@@ -1,0 +1,37 @@
+{
+  "background_preload_ready": true,
+  "first_visible_ms": 459.7,
+  "visible_suggestion": " you",
+  "actual_tray_visible": true,
+  "icon_sizes": [
+    16,
+    24,
+    32,
+    48,
+    64,
+    128,
+    256,
+    512,
+    1024
+  ],
+  "accepted_streamed_word": " you",
+  "pause_resume_shared_actions": true,
+  "timed_pause_resume": true,
+  "close_hides_and_reopen_preserves_unsaved_document": true,
+  "model_manager_installed_selection_available": true,
+  "menu_actions": [
+    "Hide Editor",
+    "Pause Predictions",
+    "Pause Temporarily",
+    "Suggest in Other Applications",
+    "",
+    "&Models…",
+    "&Settings and Exclusions…",
+    "Diagnostics and Permissions…",
+    "About Inklow",
+    "",
+    "&Quit Inklow"
+  ],
+  "explicit_file_save": true,
+  "quit_stops_worker_and_tray": true
+}

@@ -64,6 +64,24 @@ class SuggestionState:
             self.text = text
             return True
 
+    def advance(self, current: Snapshot) -> bool:
+        """Consume only an exact, safe insertion matching the shown suggestion."""
+        with self._lock:
+            previous = self.snapshot
+            if (previous is None or not self.text or not current.eligible(1)
+                    or current.app_id != previous.app_id
+                    or current.field_id != previous.field_id
+                    or current.caret <= previous.caret):
+                return False
+            inserted = current.text[previous.caret:current.caret]
+            if (not self.text.startswith(inserted)
+                    or current.text != previous.prefix + inserted + previous.suffix):
+                return False
+            self.text = self.text[len(inserted):]
+            self.snapshot = current
+            self.generation += 1
+            return True
+
     def accept(self, current: Snapshot, full: bool = False) -> str:
         with self._lock:
             if (self.snapshot is None or current.key != self.snapshot.key
@@ -71,6 +89,9 @@ class SuggestionState:
                 self.invalidate()
                 return ""
             accepted, remainder = (self.text, "") if full else take_word(self.text)
+            if not accepted:
+                return ""
+            self.generation += 1
             self.text = remainder
             self.snapshot = replace(
                 current, text=current.prefix + accepted + current.suffix,

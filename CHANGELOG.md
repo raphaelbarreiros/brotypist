@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.2.0 — 2026-10-23
+
+- Preload/warm up inference outside the UI thread, use available GPU offload, stream completed words, cancel obsolete work, and reuse matching typed-through suggestions. Keep snapshot/privacy guards on every update and acceptance.
+- Recommend a checksum-pinned Qwen2.5 1.5B guided writing model instead of the 135M English starter; add a cancellable model manager, installed-model selection, explicit CPU/auto acceleration, and direct/guided prompt profiles.
+- Add original application and active/paused tray icons, native menus, timed pause, Show/Hide, global-mode control, settings/exclusions, diagnostics, About, and explicit guarded Quit.
+- Support resident close-to-tray with no-tray fallback, UTF-8 Open/Save/Save As with atomic writes, and unsaved-change protection. Keep a new untouched editor clean and allow final visible-window closure after workers stop, so native Quit completes safely.
+- Build native macOS/Windows/Linux applications with bundled runtime and icons, separate Windows console CLI, and Linux desktop integration. Exclude models/settings; protect replacement with an ownership marker and rollback; finalize macOS signatures after adding resources.
+- Extend three-OS CI to native builds and frozen-runtime real inference. Preserve synthetic English/Portuguese outputs, measured latency, actual resident UI screenshots, and explicit model-quality limitations.
+
 ## 0.1.0 — 2026-10-23
 
 - Add an independent cross-platform Qt predictive-writing editor with real local inference, word/full acceptance, dismissal, undo, and IME/focus safeguards.

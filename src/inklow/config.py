@@ -18,12 +18,15 @@ class Config:
     model_path: str = ""
     endpoint: str = "http://127.0.0.1:11434"
     model: str = "qwen3:0.6b"
-    debounce_ms: int = 400
+    debounce_ms: int = 200
     min_chars: int = 8
-    max_tokens: int = 32
+    max_tokens: int = 24
     context_chars: int = 2000
     enabled: bool = True
     global_enabled: bool = False
+    acceleration: str = "auto"
+    keep_running: bool = True
+    prompt_style: str = "continuation"
     excluded_apps: tuple[str, ...] = (
         "terminal", "iterm", "powershell", "cmd.exe", "windowsterminal",
         "konsole", "gnome-terminal", "kitty", "wezterm", "alacritty",
@@ -33,12 +36,16 @@ class Config:
     def validate(self) -> None:
         if self.backend not in {"gguf", "ollama", "openai"}:
             raise ValueError("Backend must be gguf, ollama, or openai.")
+        if not isinstance(self.acceleration, str) or self.acceleration not in {"auto", "cpu"}:
+            raise ValueError("Acceleration must be auto or cpu.")
+        if not isinstance(self.prompt_style, str) or self.prompt_style not in {"continuation", "writing"}:
+            raise ValueError("Suggestion style must be continuation or writing.")
         for name, low, high in (("debounce_ms", 100, 5000), ("min_chars", 1, 1000),
                                 ("max_tokens", 1, 128), ("context_chars", 64, 8000)):
             value = getattr(self, name)
             if type(value) is not int or not low <= value <= high:
                 raise ValueError(f"{name} must be an integer between {low} and {high}.")
-        for name in ("enabled", "global_enabled"):
+        for name in ("enabled", "global_enabled", "keep_running"):
             if type(getattr(self, name)) is not bool:
                 raise ValueError(f"{name} must be a boolean.")
         for name in ("model_path", "endpoint", "model"):

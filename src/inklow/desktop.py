@@ -7,7 +7,7 @@ from threading import RLock
 import time
 
 from PySide6.QtCore import QSignalBlocker, QTimer, Qt, Signal, Slot
-from PySide6.QtGui import QAction, QColor, QKeySequence, QPalette
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
@@ -16,7 +16,10 @@ from PySide6.QtWidgets import (
 
 from .config import Config, config_path, save_config
 from .core import Snapshot, SuggestionState
+from .models import get_preset
 from .ui_editor import INK, SuggestionOverlay, WritingEditor
+from .ui_shell import DesktopShell
+from .resources import configure_identity
 from .ui_worker import InferenceWorker, PredictionRequest
 
 
@@ -29,7 +32,7 @@ def _plain_label(text: str = "", parent=None) -> QLabel:
 
 def _provider_key(config: Config) -> tuple:
     return (config.backend, config.model_path, config.endpoint, config.model,
-            config.max_tokens, config.context_chars)
+            config.max_tokens, config.context_chars, config.acceleration, config.prompt_style)
 
 
 class SettingsDialog(QDialog):
@@ -41,7 +44,7 @@ class SettingsDialog(QDialog):
         self.saved_config: Config | None = None
         layout = QVBoxLayout(self)
         layout.setSpacing(14)
-        intro = _plain_label("Choose where predictions run. Writing is never saved or sent to an external server.")
+        intro = _plain_label("Choose where predictions run. Writing stays local and is saved only when you choose Save.")
         layout.addWidget(intro)
         form = QFormLayout()
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
@@ -63,6 +66,16 @@ class SettingsDialog(QDialog):
         model_layout.addWidget(browse)
         self._model_row = model_row
         form.addRow("GGUF model", model_row)
+        self.acceleration = QComboBox()
+        self.acceleration.addItem("Automatic — use supported GPU acceleration", "auto")
+        self.acceleration.addItem("CPU only", "cpu")
+        self.acceleration.setCurrentIndex(max(0, self.acceleration.findData(config.acceleration)))
+        form.addRow("Local model acceleration", self.acceleration)
+        self.prompt_style = QComboBox()
+        self.prompt_style.addItem("Direct continuation — custom base models", "continuation")
+        self.prompt_style.addItem("Guided writing — Qwen2.5 instruction models", "writing")
+        self.prompt_style.setCurrentIndex(max(0, self.prompt_style.findData(config.prompt_style)))
+        form.addRow("Suggestion style", self.prompt_style)
         self.endpoint = QLineEdit(config.endpoint)
         self.endpoint.setPlaceholderText("http://127.0.0.1:11434")
         form.addRow("Local server URL", self.endpoint)
@@ -89,6 +102,9 @@ class SettingsDialog(QDialog):
         self.global_enabled = QCheckBox("Also suggest in supported applications")
         self.global_enabled.setChecked(config.global_enabled)
         form.addRow(self.global_enabled)
+        self.keep_running = QCheckBox("Keep Inklow running in the menu bar / system tray when closing the editor")
+        self.keep_running.setChecked(config.keep_running)
+        form.addRow(self.keep_running)
         self.exclusions = QPlainTextEdit()
         self.exclusions.setAccessibleName("Excluded application identifiers, one per line")
         self.exclusions.setPlainText("\n".join(config.excluded_apps))
@@ -101,7 +117,7 @@ class SettingsDialog(QDialog):
             "System-wide mode requires Accessibility permission on macOS, supported UI Automation controls on Windows, "
             "or AT-SPI on Linux/X11. Wayland supports this editor only. Password fields and unknown controls are skipped. "
             "Keep terminals and password managers excluded."))
-        path_label = _plain_label(f"Only these settings are saved: {config_path()}")
+        path_label = _plain_label(f"Settings location: {config_path()}\nDocuments are never autosaved.")
         path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(path_label)
         self.error = _plain_label()
@@ -123,10 +139,11 @@ class SettingsDialog(QDialog):
     def _backend_changed(self, *args) -> None:
         local_file = self.backend.currentData() == "gguf"
         self._model_row.setEnabled(local_file)
+        self.acceleration.setEnabled(local_file)
         self.endpoint.setEnabled(not local_file)
         self.model.setEnabled(not local_file)
         self.backend_hint.setText(
-            "Use a base text-completion model, not a chat-only model. The first prediction loads it and may take several seconds."
+            "Choose Balanced in Models for guided writing. Custom base models should use Direct continuation. Models are prepared in the background and kept ready."
             if local_file else
             "Start your local server and load its model first. Use a literal loopback address (127.0.0.1 or ::1), not localhost or a remote host."
         )
@@ -139,6 +156,8 @@ class SettingsDialog(QDialog):
             debounce_ms=self.debounce.value(), min_chars=self.minimum.value(),
             max_tokens=self.tokens.value(), enabled=self.enabled.isChecked(),
             global_enabled=self.global_enabled.isChecked(),
+            acceleration=self.acceleration.currentData(), keep_running=self.keep_running.isChecked(),
+            prompt_style=self.prompt_style.currentData(),
             excluded_apps=tuple(dict.fromkeys(line.strip() for line in self.exclusions.toPlainText().splitlines() if line.strip())),
         )
         try:
@@ -152,11 +171,11 @@ class SettingsDialog(QDialog):
         self.accept()
 
 
-class InklowWindow(QMainWindow):
+class InklowWindow(DesktopShell, QMainWindow):
     # Keyboard hooks may emit these, but never inspect or change a Qt widget.
     native_action = Signal()
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, no_tray: bool = False):
         super().__init__()
         # Use one explicit light palette; mixing a light writing surface with
         # native dark-mode button text makes the controls unreadable.
@@ -198,11 +217,12 @@ class InklowWindow(QMainWindow):
         self._busy_generation: int | None = None
         self._overlay = SuggestionOverlay()
         self._build_ui()
+        self._build_shell(no_tray)
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self._request_prediction)
         self._poll = QTimer(self)
-        self._poll.setInterval(150)
+        self._poll.setInterval(100)
         self._poll.timeout.connect(self._poll_global)
         self._pause_timer = QTimer(self)
         self._pause_timer.setSingleShot(True)
@@ -213,6 +233,7 @@ class InklowWindow(QMainWindow):
         self._worker.finished.connect(self._on_worker_finished)
         self.native_action.connect(self._on_native_action, Qt.ConnectionType.QueuedConnection)
         QApplication.instance().applicationStateChanged.connect(self._application_state_changed)
+        QApplication.instance().aboutToQuit.connect(self.shutdown_on_quit)
         self.editor.activity.connect(self._editor_activity)
         self.editor.focus_changed.connect(self._editor_focus)
         self.editor.composition_changed.connect(self._editor_composition)
@@ -250,6 +271,9 @@ class InklowWindow(QMainWindow):
         self.enabled_toggle.setToolTip("Pause or resume predictions without changing your document")
         self.enabled_toggle.toggled.connect(self._toggle_predictions)
         header.addWidget(self.enabled_toggle)
+        self.models_button = QPushButton("Models…")
+        self.models_button.clicked.connect(self.open_models)
+        header.addWidget(self.models_button)
         self.settings_button = QPushButton("Settings…")
         self.settings_button.clicked.connect(self.open_settings)
         header.addWidget(self.settings_button)
@@ -258,6 +282,9 @@ class InklowWindow(QMainWindow):
         self.notice.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.notice.setStyleSheet("color: #31577F; padding: 2px 0;")
         layout.addWidget(self.notice)
+        self.model_notice = _plain_label("Tiny model: limited quality — choose Balanced in Models.")
+        self.model_notice.setStyleSheet("color: #805310;")
+        layout.addWidget(self.model_notice)
         document_row = QHBoxLayout()
         document_row.addStretch(1)
         self.editor = WritingEditor()
@@ -275,29 +302,6 @@ class InklowWindow(QMainWindow):
         self.word_count = QLabel("0 words")
         self.status.addWidget(self.status_text, 1)
         self.status.addPermanentWidget(self.word_count)
-        file_menu = self.menuBar().addMenu("&File")
-        close_action = QAction("&Close", self)
-        close_action.setShortcut(QKeySequence.StandardKey.Close)
-        close_action.triggered.connect(self.close)
-        file_menu.addAction(close_action)
-        edit_menu = self.menuBar().addMenu("&Edit")
-        for label, shortcut, callback in (
-            ("&Undo", QKeySequence.StandardKey.Undo, self.editor.undo),
-            ("&Redo", QKeySequence.StandardKey.Redo, self.editor.redo),
-            ("Cu&t", QKeySequence.StandardKey.Cut, self.editor.cut),
-            ("&Copy", QKeySequence.StandardKey.Copy, self.editor.copy),
-            ("&Paste", QKeySequence.StandardKey.Paste, self.editor.paste),
-            ("Select &all", QKeySequence.StandardKey.SelectAll, self.editor.selectAll),
-        ):
-            action = QAction(label, self)
-            action.setShortcut(shortcut)
-            action.triggered.connect(callback)
-            edit_menu.addAction(action)
-        settings_action = QAction("&Settings…", self)
-        settings_action.setShortcut(QKeySequence.StandardKey.Preferences)
-        settings_action.triggered.connect(self.open_settings)
-        edit_menu.addSeparator()
-        edit_menu.addAction(settings_action)
 
     def _editor_is_active(self) -> bool:
         return self.isActiveWindow() and self.editor.hasFocus() and not self.editor.composing
@@ -321,7 +325,7 @@ class InklowWindow(QMainWindow):
 
     def _invalidate(self, clear_candidate: bool = True) -> None:
         self._debounce.stop()
-        self._worker.clear_pending()
+        self._worker.cancel_prediction()
         with self._lock:
             self._state.invalidate()
             self._hook_active = False
@@ -343,6 +347,21 @@ class InklowWindow(QMainWindow):
                 self._candidate = snapshot
             self._render_suggestion()
             return
+        if snapshot is not None and channel == self._channel and self._can_predict():
+            with self._lock:
+                advanced = self._state.advance(snapshot)
+                if advanced:
+                    self._candidate = snapshot
+                    self._busy_generation = None
+                    has_remainder = bool(self._state.text)
+            if advanced:
+                self._debounce.stop()
+                self._worker.cancel_prediction()
+                self._render_suggestion()
+                if not has_remainder and snapshot.eligible(self.config.min_chars):
+                    self._debounce.start(self.config.debounce_ms)
+                self._refresh_status()
+                return
         self._invalidate()
         with self._lock:
             self._candidate = snapshot
@@ -424,8 +443,8 @@ class InklowWindow(QMainWindow):
             self._debounce.start(self.config.debounce_ms)
         self._refresh_status()
 
-    @Slot(object, str, str)
-    def _on_result(self, request: PredictionRequest, text: str, error: str) -> None:
+    @Slot(object, str, str, bool)
+    def _on_result(self, request: PredictionRequest, text: str, error: str, final: bool) -> None:
         with self._lock:
             fresh = (not self._closing and request.revision == self._revision
                      and request.generation == self._state.generation
@@ -438,7 +457,8 @@ class InklowWindow(QMainWindow):
             self._refresh_status()
             return
         with self._lock:
-            self._busy_generation = None
+            if final or error:
+                self._busy_generation = None
             if error:
                 self._provider_error = error
                 self._state.invalidate()
@@ -480,6 +500,9 @@ class InklowWindow(QMainWindow):
         if not accepted:
             self._invalidate()
             return False
+        self._debounce.stop()
+        self._worker.cancel_prediction()
+        self._busy_generation = None
         self._accepting = True
         try:
             cursor = self.editor.textCursor()
@@ -549,6 +572,9 @@ class InklowWindow(QMainWindow):
     def _on_native_action(self) -> None:
         if self._closing:
             return
+        self._debounce.stop()
+        self._worker.cancel_prediction()
+        self._busy_generation = None
         self._overlay.hide()
         if time.monotonic() < self._paused_until:
             self._invalidate()
@@ -615,7 +641,9 @@ class InklowWindow(QMainWindow):
 
     @Slot()
     def _poll_global(self) -> None:
-        if self._closing or self._settings_open or self.isActiveWindow():
+        if not self.isVisible() and not self._tray_usable() and not self._closing:
+            self.show_editor()
+        if self._closing or self._settings_open or QApplication.activeWindow() is not None:
             return
         if not self.config.enabled or not self.config.global_enabled or self._bridge is None:
             if self._channel == "global":
@@ -676,6 +704,10 @@ class InklowWindow(QMainWindow):
         self._refresh_status()
 
     def _refresh_status(self) -> None:
+        self._sync_shell()
+        self.model_notice.setVisible(
+            self.config.backend == "gguf"
+            and get_preset("tiny").filename.casefold() in self.config.model_path.casefold())
         if self._closing:
             self.status_text.setText("Finishing the current local request and releasing the model…")
             return
@@ -684,7 +716,7 @@ class InklowWindow(QMainWindow):
             self.status_text.setText("Paused")
             return
         if self.config.backend == "gguf" and not self.config.model_path.strip():
-            self.notice.setText("Choose a base-model GGUF file in Settings, or connect to a local Ollama / completion server. No model is bundled.")
+            self.notice.setText("Open Models to download a recommended writing model or choose your own GGUF. You can also connect to a local server in Settings.")
             self.status_text.setText("Model setup needed")
             return
         if self._provider_error:
@@ -702,18 +734,18 @@ class InklowWindow(QMainWindow):
             else:
                 self.notice.setText("System-wide mode is unavailable. The built-in editor still works.")
         else:
-            self.notice.setText("Your document is held in memory only. Copy anything you want to keep before closing.")
+            self.notice.setText("Your document stays in memory until you choose File → Save. No autosave or writing history.")
         with self._lock:
             busy = self._busy_generation == self._state.generation
             has_text = bool(self._state.text)
         if time.monotonic() < self._paused_until:
-            message = "Suggestions dismissed for 3 seconds"
+            message = f"Predictions paused — {max(1, int(self._paused_until - time.monotonic()))} seconds remaining"
         elif self.editor.composing:
             message = "Composing text — suggestions wait for the input method"
         elif not self._ready:
             message = "Preparing the local prediction engine…"
         elif busy:
-            message = "Thinking locally… First use may take several seconds."
+            message = "Generating locally…"
         elif has_text:
             message = "Suggestion ready"
         else:
@@ -729,26 +761,39 @@ class InklowWindow(QMainWindow):
         self._poll.stop()
         self._pause_timer.stop()
         self._stop_bridge()
+        if self._tray is not None:
+            self._tray.hide()
+        if self._models_dialog is not None:
+            self._models_dialog.cancel_download()
         self._overlay.close()
         self._worker.request_stop()
         self.editor.setReadOnly(True)
         self.enabled_toggle.setEnabled(False)
         self.settings_button.setEnabled(False)
+        self.models_button.setEnabled(False)
+        for action in self.actions.values():
+            action.setEnabled(False)
         self._refresh_status()
 
     def closeEvent(self, event) -> None:
-        self._begin_shutdown()
-        if self._worker.isRunning():
-            # Keep processing Qt events while an uncancellable local inference
-            # finishes. Never terminate a thread inside llama.cpp/native code.
+        if self._closing:
+            # QApplication.quit() closes visible windows before exiting.
+            # Reject only while native resources are still in use.
+            if self._shutdown_complete():
+                event.accept()
+            else:
+                event.ignore()
+            return
+        if self.config.keep_running and self._tray_usable():
+            self.hide()
             event.ignore()
-        else:
-            event.accept()
+            return
+        event.ignore()
+        self.request_quit()
 
     @Slot()
     def _on_worker_finished(self) -> None:
-        if self._closing:
-            self.close()
+        self._finish_shutdown()
 
     @Slot()
     def shutdown_on_quit(self) -> None:
@@ -756,14 +801,15 @@ class InklowWindow(QMainWindow):
         # aboutToQuit is the final OS/session-exit path, after event processing
         # ends. Join before Qt destroys the worker and its signal receivers.
         self._worker.wait()
+        if self._models_dialog is not None:
+            self._models_dialog.wait_for_download()
 
 
-def launch(config: Config) -> int:
+def launch(config: Config, *, background: bool = False, no_tray: bool = False) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName("Inklow")
-    app.setOrganizationName("Inklow")
-    window = InklowWindow(config)
-    app.aboutToQuit.connect(window.shutdown_on_quit)
-    window.show()
-    window.editor.setFocus()
+    configure_identity(app)
+    window = InklowWindow(config, no_tray=no_tray)
+    if not background or not window._tray_usable():
+        window.show()
+        window.editor.setFocus()
     return app.exec()

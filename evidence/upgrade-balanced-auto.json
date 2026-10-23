@@ -1,0 +1,332 @@
+{
+  "preset": "balanced",
+  "sha256": "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
+  "acceleration": "auto",
+  "max_tokens": 24,
+  "debounce_ms": 200,
+  "prompt_style": "writing",
+  "limitations": "Synthetic observational samples; no human-calibrated quality score. Timing excludes typing/debounce and includes neither a claim of universal latency nor a factuality guarantee.",
+  "cases": [
+    {
+      "case": "email-en",
+      "run": 1,
+      "prefix": "Thank you for your",
+      "suffix": "",
+      "suggestion": " time.",
+      "first_usable_ms": 179.05,
+      "total_ms": 179.07,
+      "stream_updates": 1
+    },
+    {
+      "case": "reply-en",
+      "run": 1,
+      "prefix": "I look forward to hearing",
+      "suffix": "",
+      "suggestion": " from you soon.",
+      "first_usable_ms": 48.73,
+      "total_ms": 69.68,
+      "stream_updates": 3
+    },
+    {
+      "case": "meeting-en",
+      "run": 1,
+      "prefix": "Could we schedule a meeting for",
+      "suffix": "",
+      "suggestion": " next week?",
+      "first_usable_ms": 57.9,
+      "total_ms": 68.69,
+      "stream_updates": 2
+    },
+    {
+      "case": "handoff-en",
+      "run": 1,
+      "prefix": "The report is attached. Please let me know if",
+      "suffix": "",
+      "suggestion": " you need any further assistance.",
+      "first_usable_ms": 61.31,
+      "total_ms": 114.95,
+      "stream_updates": 5
+    },
+    {
+      "case": "context-en",
+      "run": 1,
+      "prefix": "We need to finish the project before Friday. The next step is to",
+      "suffix": "",
+      "suggestion": " finalize the design.",
+      "first_usable_ms": 65.46,
+      "total_ms": 92.9,
+      "stream_updates": 3
+    },
+    {
+      "case": "partial-en",
+      "run": 1,
+      "prefix": "I would appreciate your feed",
+      "suffix": "",
+      "suggestion": " back.",
+      "first_usable_ms": 47.7,
+      "total_ms": 47.71,
+      "stream_updates": 1
+    },
+    {
+      "case": "suffix-en",
+      "run": 1,
+      "prefix": "I look forward to",
+      "suffix": " tomorrow.",
+      "suggestion": " seeing you",
+      "first_usable_ms": 63.44,
+      "total_ms": 92.2,
+      "stream_updates": 3
+    },
+    {
+      "case": "fact-en",
+      "run": 1,
+      "prefix": "The capital of France is",
+      "suffix": "",
+      "suggestion": " Paris.",
+      "first_usable_ms": 64.08,
+      "total_ms": 64.09,
+      "stream_updates": 1
+    },
+    {
+      "case": "email-pt",
+      "run": 1,
+      "prefix": "Muito obrigado pela sua",
+      "suffix": "",
+      "suggestion": " visita.",
+      "first_usable_ms": 52.07,
+      "total_ms": 52.09,
+      "stream_updates": 1
+    },
+    {
+      "case": "reply-pt",
+      "run": 1,
+      "prefix": "Fico no aguardo da sua",
+      "suffix": "",
+      "suggestion": " resposta.",
+      "first_usable_ms": 59.23,
+      "total_ms": 59.24,
+      "stream_updates": 1
+    },
+    {
+      "case": "meeting-pt",
+      "run": 1,
+      "prefix": "Podemos marcar uma reunião para",
+      "suffix": "",
+      "suggestion": " amanhã?",
+      "first_usable_ms": 86.84,
+      "total_ms": 86.86,
+      "stream_updates": 1
+    },
+    {
+      "case": "handoff-pt",
+      "run": 1,
+      "prefix": "O relatório está em anexo. Por favor, me avise se",
+      "suffix": "",
+      "suggestion": " precisar de mais informações.",
+      "first_usable_ms": 77.23,
+      "total_ms": 112.3,
+      "stream_updates": 4
+    },
+    {
+      "case": "context-pt",
+      "run": 1,
+      "prefix": "Precisamos terminar o projeto até sexta-feira. O próximo passo é",
+      "suffix": "",
+      "suggestion": "",
+      "first_usable_ms": null,
+      "total_ms": 48.28,
+      "stream_updates": 1
+    },
+    {
+      "case": "partial-pt",
+      "run": 1,
+      "prefix": "Gostaria de agradecer pela aten",
+      "suffix": "",
+      "suggestion": "ção.",
+      "first_usable_ms": 62.34,
+      "total_ms": 62.35,
+      "stream_updates": 1
+    },
+    {
+      "case": "suffix-pt",
+      "run": 1,
+      "prefix": "Espero conversar com você",
+      "suffix": " amanhã.",
+      "suggestion": "",
+      "first_usable_ms": null,
+      "total_ms": 90.37,
+      "stream_updates": 1
+    },
+    {
+      "case": "accent-pt",
+      "run": 1,
+      "prefix": "A colaboração entre as equipes é importante porque",
+      "suffix": "",
+      "suggestion": " cada um tem suas próprias habilidades.",
+      "first_usable_ms": 60.98,
+      "total_ms": 148.79,
+      "stream_updates": 6
+    },
+    {
+      "case": "email-en",
+      "run": 2,
+      "prefix": "Thank you for your",
+      "suffix": "",
+      "suggestion": " time.",
+      "first_usable_ms": 45.97,
+      "total_ms": 45.99,
+      "stream_updates": 1
+    },
+    {
+      "case": "reply-en",
+      "run": 2,
+      "prefix": "I look forward to hearing",
+      "suffix": "",
+      "suggestion": " from you soon.",
+      "first_usable_ms": 49.07,
+      "total_ms": 75.66,
+      "stream_updates": 3
+    },
+    {
+      "case": "meeting-en",
+      "run": 2,
+      "prefix": "Could we schedule a meeting for",
+      "suffix": "",
+      "suggestion": " next week?",
+      "first_usable_ms": 56.89,
+      "total_ms": 70.94,
+      "stream_updates": 2
+    },
+    {
+      "case": "handoff-en",
+      "run": 2,
+      "prefix": "The report is attached. Please let me know if",
+      "suffix": "",
+      "suggestion": " you need any further assistance.",
+      "first_usable_ms": 67.11,
+      "total_ms": 124.08,
+      "stream_updates": 5
+    },
+    {
+      "case": "context-en",
+      "run": 2,
+      "prefix": "We need to finish the project before Friday. The next step is to",
+      "suffix": "",
+      "suggestion": " finalize the design.",
+      "first_usable_ms": 65.13,
+      "total_ms": 93.48,
+      "stream_updates": 3
+    },
+    {
+      "case": "partial-en",
+      "run": 2,
+      "prefix": "I would appreciate your feed",
+      "suffix": "",
+      "suggestion": " back.",
+      "first_usable_ms": 44.91,
+      "total_ms": 44.93,
+      "stream_updates": 1
+    },
+    {
+      "case": "suffix-en",
+      "run": 2,
+      "prefix": "I look forward to",
+      "suffix": " tomorrow.",
+      "suggestion": " hearing from you soon.",
+      "first_usable_ms": 62.93,
+      "total_ms": 98.13,
+      "stream_updates": 4
+    },
+    {
+      "case": "fact-en",
+      "run": 2,
+      "prefix": "The capital of France is",
+      "suffix": "",
+      "suggestion": " Paris.",
+      "first_usable_ms": 70.22,
+      "total_ms": 70.23,
+      "stream_updates": 1
+    },
+    {
+      "case": "email-pt",
+      "run": 2,
+      "prefix": "Muito obrigado pela sua",
+      "suffix": "",
+      "suggestion": " visita.",
+      "first_usable_ms": 49.89,
+      "total_ms": 49.9,
+      "stream_updates": 1
+    },
+    {
+      "case": "reply-pt",
+      "run": 2,
+      "prefix": "Fico no aguardo da sua",
+      "suffix": "",
+      "suggestion": " resposta.",
+      "first_usable_ms": 59.1,
+      "total_ms": 59.11,
+      "stream_updates": 1
+    },
+    {
+      "case": "meeting-pt",
+      "run": 2,
+      "prefix": "Podemos marcar uma reunião para",
+      "suffix": "",
+      "suggestion": " amanhã?",
+      "first_usable_ms": 89.09,
+      "total_ms": 89.1,
+      "stream_updates": 1
+    },
+    {
+      "case": "handoff-pt",
+      "run": 2,
+      "prefix": "O relatório está em anexo. Por favor, me avise se",
+      "suffix": "",
+      "suggestion": " precisar de mais informações.",
+      "first_usable_ms": 75.66,
+      "total_ms": 111.5,
+      "stream_updates": 4
+    },
+    {
+      "case": "context-pt",
+      "run": 2,
+      "prefix": "Precisamos terminar o projeto até sexta-feira. O próximo passo é",
+      "suffix": "",
+      "suggestion": "",
+      "first_usable_ms": null,
+      "total_ms": 49.31,
+      "stream_updates": 1
+    },
+    {
+      "case": "partial-pt",
+      "run": 2,
+      "prefix": "Gostaria de agradecer pela aten",
+      "suffix": "",
+      "suggestion": "ção.",
+      "first_usable_ms": 62.67,
+      "total_ms": 62.69,
+      "stream_updates": 1
+    },
+    {
+      "case": "suffix-pt",
+      "run": 2,
+      "prefix": "Espero conversar com você",
+      "suffix": " amanhã.",
+      "suggestion": "",
+      "first_usable_ms": null,
+      "total_ms": 93.44,
+      "stream_updates": 1
+    },
+    {
+      "case": "accent-pt",
+      "run": 2,
+      "prefix": "A colaboração entre as equipes é importante porque",
+      "suffix": "",
+      "suggestion": " isso pode resultar em um produto melhor.",
+      "first_usable_ms": 68.7,
+      "total_ms": 169.11,
+      "stream_updates": 7
+    }
+  ],
+  "prepare_ms": 429.93
+}

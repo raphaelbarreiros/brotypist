@@ -1,6 +1,8 @@
 > Historical record: Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations.
 
-# Observed verification — 2026-10-23
+# Observed verification — 0.1.0 — 2026-10-23
+
+Historical first-version evidence. For current latency, model and resident-app verification, see [the 0.2 upgrade report](UPGRADE-0.2.md).
 
 Environment: macOS arm64, CPython 3.12.14, PySide6 installed by uv, llama-cpp-python 0.3.36. Real SmolLM2-135M Q4_K_M weights, pinned revision and SHA-256 verified by `inklow model download`. No cloud API, mocked LLM, or proprietary [redacted reference] model was used.
 

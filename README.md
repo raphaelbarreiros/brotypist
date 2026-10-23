@@ -4,9 +4,11 @@
 
 Local-first predictive typing for macOS, Windows, and Linux. An independent implementation inspired by [redacted reference]'s documented behavior—not a port or copy of its proprietary code.
 
-![Inklow editor with a real local-model suggestion](evidence/inklow-editor.png)
+![Inklow editor with a streamed local suggestion](evidence/upgrade-editor.png)
 
 ## Run
+On this Mac, open `/Applications/Inklow.app`. A native bundle includes the Python/Qt runtime and application icon; it does not include model weights. Existing settings are preserved. **Models… → Balanced → Use installed model** upgrades an existing Tiny installation; downloads/selections are explicit.
+
 
 Python 3.11+ is required; Python 3.12 is recommended. The desktop uses PySide6. Local GGUF inference uses llama-cpp-python, which may need a C/C++ toolchain (Xcode Command Line Tools, Visual Studio C++ Build Tools, or gcc/clang).
 
@@ -20,7 +22,7 @@ uv run inklow model download
 uv run inklow
 ```
 
-`model download` explicitly downloads a 101,016,128-byte SmolLM2-135M Q4_K_M base model from an immutable Hugging Face revision, verifies its SHA-256, stores it outside the checkout, and saves its path in settings. It is an English, low-memory starter model—not a quality benchmark. Choose a larger **base/continuation GGUF model** in Settings for better suggestions or other languages. Chat-only/thinking models are generally poor raw autocompleters.
+`model download` now explicitly downloads the recommended **Qwen2.5-1.5B-Instruct Q4_K_M** writing model (1,117,320,736 bytes). It verifies SHA-256 against an immutable revision, stores weights outside the checkout, and selects guided draft-prefill prompting. `model download --preset tiny` retains the 101 MB English starter for constrained machines. **Models…** provides the same download, cancellation, installed-model selection, and custom GGUF selection in the app. The guided model handles English/Portuguese short drafts better in our samples; partial words and difficult contexts still fail. No quality guarantee.
 
 On Windows, the same `uv` commands work in PowerShell after cloning. For a standard Python installation instead of uv:
 
@@ -32,7 +34,9 @@ inklow model download
 inklow
 ```
 
-The default GGUF backend is CPU-based for portability. A custom accelerated llama.cpp/Ollama server can be selected in Settings. Ollama uses `/api/generate` with raw continuation; the OpenAI-compatible backend uses `/v1/completions`, not chat completion. Use a literal loopback URL such as `http://127.0.0.1:11434` or `http://[::1]:8080`. DNS names, remote hosts, credentials in URLs, proxy routing, and inference redirects are refused. Server backends do not require the `local` extra.
+GGUF inference automatically uses GPU offload when the installed llama.cpp build supports it (Metal on this Apple Silicon build). Settings can force CPU; other systems remain portable with CPU inference. Models preload/warm up off the UI thread. Predictions stream completed words, cancel obsolete work, and reuse matching typed-through suggestions. New settings default to 200 ms debounce and 24 tokens; existing preferences are not overwritten. CPU-only/GPU support depends on the native llama.cpp build, not merely the operating system.
+
+Ollama (`/api/generate`, raw) and OpenAI-compatible (`/v1/completions`) local servers remain supported. Direct continuation is appropriate for custom base models; **Guided writing** is specifically a Qwen2.5 ChatML draft-prefill profile, not a generic chat template. Use a literal loopback URL such as `http://127.0.0.1:11434` or `http://[::1]:8080`. DNS names, remote hosts, credentials in URLs, proxy routing, and inference redirects are refused. Server backends do not require the `local` extra.
 
 ## Use
 
@@ -41,10 +45,12 @@ The default GGUF backend is CPU-based for portability. A custom accelerated llam
 - **Shift+Tab:** accept the whole suggestion. This intentionally differs from [redacted reference]'s layout-dependent key-above-Tab shortcut.
 - **Escape:** dismiss and pause predictions for three seconds.
 - Modified navigation keys are not intercepted globally; with no suggestion, normal keys pass through.
-- Settings → **Also suggest in supported applications** enables opt-in system-wide mode. Leave Inklow running and switch to a supported writing app.
+- Menu-bar/system-tray **Suggest in Other Applications**, or the Settings checkbox, enables opt-in system-wide mode. Leave Inklow running and switch to a supported writing app.
 - Pause predictions or exclude an app without changing the inference backend.
 
-The built-in writing area is a scratch surface held in memory. It is **not a document editor with autosave**: copy anything you want to keep before closing. No document history is recorded.
+The menu-bar/system-tray icon provides Show/Hide Editor, Pause/Resume, timed pauses (5/15/60 minutes), global-mode control, Models, Settings and Exclusions, Diagnostics and Permissions, About, and explicit Quit. Closing the window hides it and preserves its in-memory document when a usable tray and “Keep running” are enabled. `--no-tray` keeps a normal window; `--background` requires a usable tray and otherwise shows the window so the app remains recoverable.
+
+**File → New/Open/Save/Save As** supports UTF-8 documents with atomic explicit saves and unsaved-change confirmation on replacement/quit. No autosave or document history is recorded. Hidden unsaved text survives only while the process runs; save important writing.
 
 ## Platform support and boundaries
 
@@ -59,7 +65,7 @@ System-wide compatibility depends on the target app exposing editability, protec
 
 ### macOS permissions
 
-Enable Accessibility and Input Monitoring for Inklow's Python/terminal host in System Settings → Privacy & Security. No permission dialogs are clicked automatically. `uv run inklow doctor` reports capability/setup information. Password managers and terminals are excluded by default. The app must continue running for global suggestions; there is no login-item installation or background service.
+Enable Accessibility and Input Monitoring for **Inklow.app** (or the Python/terminal host when running from source) in System Settings → Privacy & Security. A source-run permission grant need not cover the newly bundled application. No permission dialogs are clicked automatically. Diagnostics reports capability/setup information. Password managers and terminals are excluded by default. There is no automatic login-item installation or background service.
 
 ### Linux native prerequisites
 
@@ -77,32 +83,36 @@ Run in the logged-in desktop user's X11/D-Bus session with accessibility enabled
 
 - No typing history, analytics, personal training corpus, cloud inference, or clipboard replacement.
 - Typed context lives in process memory and, for server backends, in the local server's memory. A local server is trusted software: Inklow cannot control that server's own logging or network behavior.
-- Only settings and explicitly downloaded models are stored. OS swap/crash collection is outside this guarantee.
+- Settings, explicitly downloaded models, and documents you explicitly open/save are persisted. There is no automatic document persistence. OS swap/crash collection is outside this guarantee.
 - Exclusions are applied in native adapters before text access. Secure fields are refused using OS accessibility metadata; correctness still depends on the target application's accessibility provider.
 - Every inference result is tied to a generation and exact field/text/caret snapshot. Acceptance rechecks the current snapshot to reject stale results.
-- Model downloads are the only built-in public network operation and happen only on the explicit download command.
+- Model downloads are the only built-in public network operation and happen only on explicit CLI or Models-dialog download actions.
 
 ## Evidence and architecture
 
 - [[redacted reference] analysis and REA evidence references](evidence/[redacted reference].md)
 - [Raw exported REA bundle](evidence/[redacted reference]-rea.json)
 - [Observed Inklow verification and limitations](evidence/VERIFICATION.md)
+- [0.2 upgrade: latency, model-quality samples, resident UI and packaging evidence](evidence/UPGRADE-0.2.md)
 
-Shared modules: `core.py` (snapshot/generation/acceptance), `providers.py` (GGUF and local HTTP inference), `config.py` (validated settings), `ui_worker.py` (one running inference plus newest pending), `ui_editor.py` (non-mutating painting), `desktop.py` (settings/controller), and `native/` (OS-specific capture/input). OS imports are lazy; missing native capabilities do not break the editor.
+Shared modules: `core.py` (snapshot/generation/acceptance/typed-through reuse), `providers.py` (streaming GGUF/local HTTP), `writing.py` (versioned guided prompt), `models.py` (verified acquisition), `config.py` (settings), `ui_worker.py` (preload/cancellation/newest pending), `ui_editor.py` (non-mutating painting), `desktop.py` (controller/settings), `ui_shell.py` (menus/tray/document lifecycle), `ui_models.py` (model management), `resources.py` (identity/assets), and `native/` (OS capture/input). OS imports are lazy; missing native capabilities do not break the editor.
 
 ## Development
 
 ```sh
-uv sync --extra dev --extra local
+uv sync --extra dev --extra local --extra build
 uv run pytest -q
 uv run inklow doctor
 uv build
+uv run python tools/build_app.py
 ```
 
-GitHub Actions runs deterministic safety regressions, syntax checks, capability diagnostics, checksum-verified model acquisition, real local inference, an actual offscreen desktop launch, and wheel builds on macOS, Windows, and Ubuntu. Green CI alone is **not** proof of interactive OS integration. No fake prediction backend is shipped.
+GitHub Actions runs safety regressions, syntax checks, diagnostics, checksum-verified Tiny acquisition, real CPU inference, an offscreen desktop launch, wheel builds, and native PyInstaller application builds with frozen-runtime inference on macOS, Windows, and Ubuntu. Native archives are uploaded as workflow artifacts. Mac output is `dist/Inklow.app`; Windows is `dist/Inklow/Inklow.exe` with console sibling `Inklow-cli.exe`; Linux is `dist/Inklow/Inklow` with a relocatable launcher and desktop integration script. Build with the target OS/Python/llama.cpp architecture. Models/settings are never included. `--replace` only replaces a marked Inklow build and publishes with rollback; macOS final resource signatures are checked. The local Mac bundle is ad-hoc signed, not Apple-notarized. No Windows Authenticode signing is configured.
 
-Verified run: [40014680596 — all three OS jobs passed](https://github.com/renan-brasilio/inklow/actions/runs/40014680596), implementation commit `58eea8964fc7fbf9139b1e4a19bb347e0e54b80a`. Machine-readable receipt: [evidence/ci-run.json](evidence/ci-run.json).
+Earlier 0.1 verification: [40014680596 — three OS jobs passed](https://github.com/renan-brasilio/inklow/actions/runs/40014680596), implementation `58eea8964fc7fbf9139b1e4a19bb347e0e54b80a`; receipt [evidence/ci-run.json](evidence/ci-run.json). See the upgrade evidence for current verification. Green CI is not proof of interactive Windows/Linux system-wide integration.
 
 ## Model attribution
+Recommended model: [Qwen/Qwen2.5-1.5B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF), Apache-2.0, revision `91cad51170dc346986eccefdc2dd33a9da36ead9`, file `qwen2.5-1.5b-instruct-q4_k_m.gguf`, SHA-256 `6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e`.
+
 
 Starter model: [ggml-org/SmolLM2-135M-GGUF](https://huggingface.co/ggml-org/SmolLM2-135M-GGUF), based on [HuggingFaceTB/SmolLM2-135M](https://huggingface.co/HuggingFaceTB/SmolLM2-135M), Apache-2.0. GGUF revision `1076b85d135017971845b19b8d07df1479155988`; file SHA-256 `e3131339bf4e8065265593d4fd8f7bb7ff2d3abff1edb5618aa1197b89cad9f5`. Weights are not committed or bundled with Inklow. PySide6/Qt and other dependencies retain their respective licenses; this private repository does not relicense them.

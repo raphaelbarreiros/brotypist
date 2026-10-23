@@ -1,0 +1,331 @@
+{
+  "preset": "balanced",
+  "sha256": "8b5d946a169e62dd49444be8858c8a7f06067573de990b2bc19380d3a260b5fa",
+  "acceleration": "auto",
+  "max_tokens": 24,
+  "debounce_ms": 200,
+  "limitations": "Synthetic observational samples; no human-calibrated quality score. Timing excludes typing/debounce and includes neither a claim of universal latency nor a factuality guarantee.",
+  "cases": [
+    {
+      "case": "email-en",
+      "run": 1,
+      "prefix": "Thank you for your",
+      "suffix": "",
+      "suggestion": " interest in the 2017-18 academic year. We are pleased to offer a variety of programs",
+      "first_usable_ms": 130.92,
+      "total_ms": 440.64,
+      "stream_updates": 16
+    },
+    {
+      "case": "reply-en",
+      "run": 1,
+      "prefix": "I look forward to hearing",
+      "suffix": "",
+      "suggestion": " from you. 请帮我分析一下这句话的语法结构",
+      "first_usable_ms": 124.25,
+      "total_ms": 281.24,
+      "stream_updates": 3
+    },
+    {
+      "case": "meeting-en",
+      "run": 1,
+      "prefix": "Could we schedule a meeting for",
+      "suffix": "",
+      "suggestion": " the next week to discuss our progress on this project?  Certainly! I can help you schedule a meeting for the",
+      "first_usable_ms": 113.15,
+      "total_ms": 403.17,
+      "stream_updates": 21
+    },
+    {
+      "case": "handoff-en",
+      "run": 1,
+      "prefix": "The report is attached. Please let me know if",
+      "suffix": "",
+      "suggestion": " you have any questions. Thanks! ",
+      "first_usable_ms": 185.47,
+      "total_ms": 270.44,
+      "stream_updates": 6
+    },
+    {
+      "case": "context-en",
+      "run": 1,
+      "prefix": "We need to finish the project before Friday. The next step is to",
+      "suffix": "",
+      "suggestion": " ______ the project.",
+      "first_usable_ms": 60.84,
+      "total_ms": 86.36,
+      "stream_updates": 3
+    },
+    {
+      "case": "partial-en",
+      "run": 1,
+      "prefix": "I would appreciate your feed",
+      "suffix": "",
+      "suggestion": " back on the following question. I am trying to understand how a 2D array is stored in memory.",
+      "first_usable_ms": 41.98,
+      "total_ms": 363.34,
+      "stream_updates": 18
+    },
+    {
+      "case": "suffix-en",
+      "run": 1,
+      "prefix": "I look forward to",
+      "suffix": " tomorrow.",
+      "suggestion": " the day when I can be a part of this great movement. The idea is to get people out into nature and",
+      "first_usable_ms": 78.6,
+      "total_ms": 404.2,
+      "stream_updates": 22
+    },
+    {
+      "case": "fact-en",
+      "run": 1,
+      "prefix": "The capital of France is",
+      "suffix": "",
+      "suggestion": " Paris. The capital of the United States is Washington, D.C.",
+      "first_usable_ms": 59.23,
+      "total_ms": 242.97,
+      "stream_updates": 10
+    },
+    {
+      "case": "email-pt",
+      "run": 1,
+      "prefix": "Muito obrigado pela sua",
+      "suffix": "",
+      "suggestion": " ajuda. Obrigado pela sua atenção e dedicação ao meu problema, estou muito grato por seu",
+      "first_usable_ms": 95.25,
+      "total_ms": 353.59,
+      "stream_updates": 16
+    },
+    {
+      "case": "reply-pt",
+      "run": 1,
+      "prefix": "Fico no aguardo da sua",
+      "suffix": "",
+      "suggestion": " chegada, mas a sua saída é um fato que não pode ser evitado. Ainda",
+      "first_usable_ms": 77.96,
+      "total_ms": 346.02,
+      "stream_updates": 15
+    },
+    {
+      "case": "meeting-pt",
+      "run": 1,
+      "prefix": "Podemos marcar uma reunião para",
+      "suffix": "",
+      "suggestion": " amanhã, mas não podemos marcar uma reunião para hoje. Qual é a razão pela qual",
+      "first_usable_ms": 146.46,
+      "total_ms": 409.11,
+      "stream_updates": 16
+    },
+    {
+      "case": "handoff-pt",
+      "run": 1,
+      "prefix": "O relatório está em anexo. Por favor, me avise se",
+      "suffix": "",
+      "suggestion": " houver alguma correção necessária. Obrigada! Claro, estou aqui para ajudar com",
+      "first_usable_ms": 69.2,
+      "total_ms": 332.91,
+      "stream_updates": 12
+    },
+    {
+      "case": "context-pt",
+      "run": 1,
+      "prefix": "Precisamos terminar o projeto até sexta-feira. O próximo passo é",
+      "suffix": "",
+      "suggestion": " a criação de um sistema que permita o gerenciamento das tarefas. O objetivo é criar uma",
+      "first_usable_ms": 58.71,
+      "total_ms": 396.04,
+      "stream_updates": 17
+    },
+    {
+      "case": "partial-pt",
+      "run": 1,
+      "prefix": "Gostaria de agradecer pela aten",
+      "suffix": "",
+      "suggestion": "ção e pelo apoio que vocês me deram durante a pandemia. Agradeço muito pela sua",
+      "first_usable_ms": 57.84,
+      "total_ms": 346.28,
+      "stream_updates": 16
+    },
+    {
+      "case": "suffix-pt",
+      "run": 1,
+      "prefix": "Espero conversar com você",
+      "suffix": " amanhã.",
+      "suggestion": "s mais tarde, quando estivermos em casa.翻译 Espero conversar com vocês mais tarde, quando",
+      "first_usable_ms": 54.65,
+      "total_ms": 327.27,
+      "stream_updates": 15
+    },
+    {
+      "case": "accent-pt",
+      "run": 1,
+      "prefix": "A colaboração entre as equipes é importante porque",
+      "suffix": "",
+      "suggestion": " as pessoas não são mais do que um conjunto de habilidades, e a colaboração entre essas habilidades é",
+      "first_usable_ms": 56.49,
+      "total_ms": 350.3,
+      "stream_updates": 19
+    },
+    {
+      "case": "email-en",
+      "run": 2,
+      "prefix": "Thank you for your",
+      "suffix": "",
+      "suggestion": " interest in the 2019-2020 academic year. We are excited to offer a new",
+      "first_usable_ms": 40.18,
+      "total_ms": 324.3,
+      "stream_updates": 14
+    },
+    {
+      "case": "reply-en",
+      "run": 2,
+      "prefix": "I look forward to hearing",
+      "suffix": "",
+      "suggestion": " from you.这句话有语法错误吗",
+      "first_usable_ms": 42.29,
+      "total_ms": 125.96,
+      "stream_updates": 2
+    },
+    {
+      "case": "meeting-en",
+      "run": 2,
+      "prefix": "Could we schedule a meeting for",
+      "suffix": "",
+      "suggestion": " the next week to discuss our project, and what specific topics should we cover?",
+      "first_usable_ms": 50.56,
+      "total_ms": 225.94,
+      "stream_updates": 14
+    },
+    {
+      "case": "handoff-en",
+      "run": 2,
+      "prefix": "The report is attached. Please let me know if",
+      "suffix": "",
+      "suggestion": " you have any questions. Thanks!",
+      "first_usable_ms": 56.7,
+      "total_ms": 120.26,
+      "stream_updates": 5
+    },
+    {
+      "case": "context-en",
+      "run": 2,
+      "prefix": "We need to finish the project before Friday. The next step is to",
+      "suffix": "",
+      "suggestion": " ________.",
+      "first_usable_ms": 75.17,
+      "total_ms": 75.18,
+      "stream_updates": 1
+    },
+    {
+      "case": "partial-en",
+      "run": 2,
+      "prefix": "I would appreciate your feed",
+      "suffix": "",
+      "suggestion": " back on my solution to this problem. I am not sure if it is correct or not.",
+      "first_usable_ms": 51.48,
+      "total_ms": 298.66,
+      "stream_updates": 17
+    },
+    {
+      "case": "suffix-en",
+      "run": 2,
+      "prefix": "I look forward to",
+      "suffix": " tomorrow.",
+      "suggestion": " seeing you again, but I am not sure if we will be able to meet in person. If that is",
+      "first_usable_ms": 39.74,
+      "total_ms": 317.52,
+      "stream_updates": 20
+    },
+    {
+      "case": "fact-en",
+      "run": 2,
+      "prefix": "The capital of France is",
+      "suffix": "",
+      "suggestion": " Paris. The capital of Spain is Madrid. Which city has more people living in it, and how can we determine",
+      "first_usable_ms": 54.48,
+      "total_ms": 759.23,
+      "stream_updates": 21
+    },
+    {
+      "case": "email-pt",
+      "run": 2,
+      "prefix": "Muito obrigado pela sua",
+      "suffix": "",
+      "suggestion": " ajuda. Agradeço muito a sua atenção e dedicação em ajudar-me com o meu problema.",
+      "first_usable_ms": 188.27,
+      "total_ms": 838.44,
+      "stream_updates": 14
+    },
+    {
+      "case": "reply-pt",
+      "run": 2,
+      "prefix": "Fico no aguardo da sua",
+      "suffix": "",
+      "suggestion": " chegada, mas o seu retorno é um evento que merece a nossa atenção. Afinal de contas,",
+      "first_usable_ms": 402.52,
+      "total_ms": 1347.16,
+      "stream_updates": 17
+    },
+    {
+      "case": "meeting-pt",
+      "run": 2,
+      "prefix": "Podemos marcar uma reunião para",
+      "suffix": "",
+      "suggestion": " amanhã?翻译成中文",
+      "first_usable_ms": 196.57,
+      "total_ms": 196.59,
+      "stream_updates": 1
+    },
+    {
+      "case": "handoff-pt",
+      "run": 2,
+      "prefix": "O relatório está em anexo. Por favor, me avise se",
+      "suffix": "",
+      "suggestion": " houver alguma correção necessária. Obrigado.",
+      "first_usable_ms": 78.61,
+      "total_ms": 296.34,
+      "stream_updates": 5
+    },
+    {
+      "case": "context-pt",
+      "run": 2,
+      "prefix": "Precisamos terminar o projeto até sexta-feira. O próximo passo é",
+      "suffix": "",
+      "suggestion": " a criação de um sistema para o gerenciamento do estoque. Como podemos organizar esse processo? Além",
+      "first_usable_ms": 68.46,
+      "total_ms": 388.74,
+      "stream_updates": 17
+    },
+    {
+      "case": "partial-pt",
+      "run": 2,
+      "prefix": "Gostaria de agradecer pela aten",
+      "suffix": "",
+      "suggestion": "çao e disponibilidade para a minha questao, mas gostaria de saber se o mesmo ocorre com outros",
+      "first_usable_ms": 70.64,
+      "total_ms": 346.47,
+      "stream_updates": 18
+    },
+    {
+      "case": "suffix-pt",
+      "run": 2,
+      "prefix": "Espero conversar com você",
+      "suffix": " amanhã.",
+      "suggestion": "s sobre o tema da",
+      "first_usable_ms": 54.71,
+      "total_ms": 107.02,
+      "stream_updates": 5
+    },
+    {
+      "case": "accent-pt",
+      "run": 2,
+      "prefix": "A colaboração entre as equipes é importante porque",
+      "suffix": "",
+      "suggestion": " as pessoas têm diferentes perspectivas e experiências, o que pode resultar em uma melhor compreensão",
+      "first_usable_ms": 59.07,
+      "total_ms": 355.9,
+      "stream_updates": 16
+    }
+  ],
+  "prepare_ms": 1147.25
+}
