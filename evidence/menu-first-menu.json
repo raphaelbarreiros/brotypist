@@ -1,0 +1,8 @@
+{
+  "real_installed_status_menu": true,
+  "native_timed_pause_action": true,
+  "resume_state_visible": true,
+  "default_app_capture_disabled": true,
+  "quit_method": "native menu",
+  "exit_code": 0
+}

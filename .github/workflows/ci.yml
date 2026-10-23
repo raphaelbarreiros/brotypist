@@ -40,6 +40,7 @@ jobs:
       - name: Exercise real local inference
         run: python -c "from dataclasses import replace; from inklow.config import load_config; from inklow.providers import create_provider; p = create_provider(replace(load_config(), acceleration='cpu')); p.prepare(); print(p.complete('Thank you for your', '')); p.close()"
       - name: Launch real native settings utility
+        timeout-minutes: 1
         run: python tools/smoke_desktop.py
       - name: Build installable wheel
         run: python -m pip wheel --no-deps . --wheel-dir dist

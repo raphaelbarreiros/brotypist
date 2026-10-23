@@ -7,6 +7,29 @@ import sys
 import tempfile
 
 
+def run_qt_smoke(config) -> int:
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication
+    from inklow.qt_ui import launch
+    app = QApplication([])
+
+    def finish():
+        shell = getattr(app, "_inklow_menu_agent", None)
+        if shell is None or shell.settings is None or not shell.settings.isVisible():
+            print("Portable settings did not become visible", file=sys.stderr, flush=True)
+            os._exit(2)
+        if shell.settings._changes():
+            print("Untouched portable settings unexpectedly became dirty", file=sys.stderr, flush=True)
+            os._exit(3)
+        print("Portable settings visible; quitting through the application action", flush=True)
+        # QApplication.quit() closes the no-tray window through its intentional
+        # confirmation guard. Use the same clean Quit path as the actual menu.
+        shell.quit()
+
+    QTimer.singleShot(2000, finish)
+    return launch(config, no_tray=True, pane="general")
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="inklow-settings-smoke-") as root:
         os.environ["INKLOW_HOME"] = root
@@ -31,11 +54,7 @@ def main() -> int:
             stopper = FinishSmoke.alloc().init()
             timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(2.0, stopper, "finish:", None, False)
             return launch(config, no_tray=True, pane="general")
-        from PySide6.QtCore import QTimer
-        from PySide6.QtWidgets import QApplication
-        app = QApplication([])
-        QTimer.singleShot(2000, app.quit)
-        return launch(config, no_tray=True, pane="general")
+        return run_qt_smoke(config)
 
 
 if __name__ == "__main__":

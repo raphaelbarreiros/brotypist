@@ -12,6 +12,8 @@ Real process-scoped accessibility interactions exercised all eleven panes, persi
 
 Receipts: [source preferences](menu-first-native-ui.json), [frozen preferences](menu-first-frozen-ui.json), [first-install model selection](menu-first-new-install.json). The empty-cache scenario preserved an uninstalled preset across opening model management and exposed an enabled Download action without activating missing weights or downloading anything.
 
+The installed status-menu button was also opened through its native accessibility action. Its real five-minute Pause submenu action changed the visible entry to Resume Inklow; native Quit exited 0. [Menu screenshot](menu-first-menu.png) and [interaction receipt](menu-first-menu.json). macOS returned `kAXErrorCannotComplete` for the opening AXPress even though the menu actually opened, so the smoke verified the resulting menu state rather than treating that return code as proof of failure.
+
 Visual proof: [General](menu-first-general.png), [Context](menu-first-context.png), [Personalization](menu-first-personalization.png), [Emoji](menu-first-emoji.png), [Shortcuts](menu-first-shortcuts.png), [Battery](menu-first-battery.png), [App Settings](menu-first-appSettings.png), [Labs](menu-first-labs.png), [Statistics](menu-first-statistics.png), [Setup](menu-first-setup.png), [About](menu-first-about.png), [expanded model management](menu-first-model-management.png). These are real native controls, not an HTML design. The preferences screenshots were refreshed from the frozen app.
 
 ## Complete real global-typing path
@@ -83,3 +85,9 @@ Historical 0.2 evidence remains in [UPGRADE-0.2.md](UPGRADE-0.2.md); older CI an
 The verified bundle was copied to `/Applications/Inklow 0.3.app` and passed `codesign --verify --deep --strict`. Its executable SHA-256 matches the verified `dist` executable: `883cacf98f0736881b868c8871717e1e5be8ca75c8ed01cc90cf19f2ca8dae93`. The **installed copy** repeated all eleven native preference-pane/control/close/quit interactions using a disposable paused profile and exited 0: [installed UI receipt](menu-first-installed-ui.json).
 
 Normal Quit of the original `/Applications/Inklow.app` exposed its unsaved-writing protection. Quit was cancelled; document values were never read, and that running app/bundle was not replaced. Save and quit the original editor before normal use of the new build; the two versions share their application identity and default settings. [Safe installation receipt](menu-first-installed-app.json).
+
+## Portable settings correction
+
+The first hosted run passed the complete Mac pipeline but found a real Windows/Linux launch failure: a shortcut-controls dictionary shadowed the dynamically dispatched `_shortcuts` pane builder. The field was renamed and its consumers migrated. A separate actual Qt offscreen launch then constructed all eleven panes and saved a real preference using an isolated profile: [portable smoke](menu-first-portable-smoke.json). This local Qt check ran in a temporary dependency overlay on macOS, not an interactive Linux/Windows desktop, and did not add Qt back to the Mac app.
+
+The next hosted run passed both portable regression suites and direct inference but waited in the no-tray quit-confirmation dialog: the smoke used `QApplication.quit()` instead of the application's guarded Quit action. The smoke now checks that untouched settings are clean and calls the real menu-agent Quit path. That actual Qt event loop exited 0 in 2.70 seconds in the local dependency overlay; the close-confirmation safeguard was not disabled. The hosted GUI smoke step is bounded to one minute.
