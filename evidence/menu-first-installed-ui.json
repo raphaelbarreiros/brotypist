@@ -1,0 +1,27 @@
+{
+  "version": "0.3.0",
+  "isolated_profile": true,
+  "settings_panes": [
+    "general",
+    "context",
+    "personalization",
+    "emoji",
+    "shortcuts",
+    "battery",
+    "appSettings",
+    "labs",
+    "statistics",
+    "setup",
+    "about"
+  ],
+  "real_preference_toggle_persisted": true,
+  "expanded_model_management_and_installed_selection": true,
+  "instructions_explicit_save_and_revert": true,
+  "real_native_shortcut_recording": true,
+  "app_rule_created": true,
+  "app_rule_deleted": true,
+  "closing_settings_keeps_menu_agent_alive": true,
+  "native_quit_method": "native menu",
+  "native_quit_exit_code": 0,
+  "runtime": "frozen bundle"
+}

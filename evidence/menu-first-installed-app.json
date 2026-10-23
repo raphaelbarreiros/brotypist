@@ -1,0 +1,18 @@
+{
+  "version": "0.3.0",
+  "application": "com.inklow.Inklow",
+  "installed_path": "/Applications/Inklow 0.3.app",
+  "executable_sha256": "883cacf98f0736881b868c8871717e1e5be8ca75c8ed01cc90cf19f2ca8dae93",
+  "matches_verified_dist_executable": true,
+  "codesign_deep_strict_verification_exit_code": 0,
+  "actual_installed_ui_receipt": "menu-first-installed-ui.json",
+  "installed_ui_used_disposable_paused_profile": true,
+  "normal_user_profile_not_rewritten_by_smoke": true,
+  "original_application_path": "/Applications/Inklow.app",
+  "original_native_quit_requested": true,
+  "original_unsaved_protection_prompt_observed": true,
+  "quit_cancelled_to_preserve_unsaved_writing": true,
+  "original_application_left_running_and_not_replaced": true,
+  "document_values_read": false,
+  "activation_note": "Save and quit the original editor before normal use of the new app. Both installed versions currently share the application identity and default settings location; do not run both for typing. The verification copy was launched directly with an isolated paused profile and quit normally."
+}

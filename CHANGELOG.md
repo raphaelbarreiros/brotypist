@@ -11,6 +11,7 @@
 - Add offline Unicode 17 emoji/emoticon choices, skin/gender variants, contextual selected-word synonyms and alternative continuations. Improve utility prompts using actual failing/working local-model samples; do not invent dictionary fallbacks.
 - Revalidate Windows UIA focus/protection before selection replacement, respect app/domain Tab precedence without disabling non-Tab shortcuts, preserve emoji precedence over pause alternatives, and fix macOS zero-length AX range row geometry using adjacent observed glyph bounds.
 - Preserve REA-authenticated native reference evidence privately where preferences could contain personal text; publish sanitized records and real synthetic native UI/typing screenshots. Extend frozen-runtime verification to the actual isolated worker protocol.
+- Fix a portable-settings field/method name collision found by Windows/Linux CI; exercise the actual Qt preferences and saved settings in an isolated offscreen smoke before retrying hosted verification.
 
 ## 0.2.0 — 2026-10-23
 

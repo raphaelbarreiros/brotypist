@@ -18,6 +18,8 @@ Models load **lazily in a separate process**. The process is terminated after 60
 
 Native build output: `dist/Inklow.app` on macOS; `dist/Inklow/Inklow.exe` on Windows; `dist/Inklow/launch-inklow` on Linux. Native bundles include the runtime and original app/tray icons, **not weights or user data**. Existing saved preferences are preserved. A running older editor must be quit normally, with unsaved writing saved, before replacing its installed bundle.
 
+On the development Mac, the verified build is installed at **`/Applications/Inklow 0.3.app`**. The original `/Applications/Inklow.app` was deliberately not replaced: normal Quit exposed unsaved writing, so Quit was cancelled. Save and quit that old editor before launching the new app normally. Do not run both for typing; the versions share the application identity/default preferences. [Installation and protection receipt](evidence/menu-first-installed-app.json).
+
 Python 3.11+ is required; Python 3.12 is recommended. With [uv](https://docs.astral.sh/uv/):
 
 ```sh

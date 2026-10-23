@@ -368,7 +368,7 @@ class SettingsWindow(QDialog):
         self._bindings: dict[str, tuple] = {}
         self._baseline: dict = {}
         self._rules: dict[str, dict] = {}
-        self._shortcuts: dict[str, ShortcutRecorder] = {}
+        self.shortcut_controls: dict[str, ShortcutRecorder] = {}
         self._loading = False
         self._closing = False
         self.model_manager: ModelManager | None = None
@@ -575,7 +575,7 @@ class SettingsWindow(QDialog):
                 recorder.setToolTip("Selected-text rewriting is unavailable on Linux because AT-SPI has no atomic replacement operation.")
             recorder.changed.connect(self._changed)
             recorder.recording_changed.connect(lambda recording: self.controller.bridge.set_shortcuts_enabled(not recording))
-            self._shortcuts[action] = recorder
+            self.shortcut_controls[action] = recorder
             form.addRow(title, recorder)
         form.addRow(_label("Click a shortcut, then press its real key combination. The physical key above Tab works across keyboard layouts. Escape cancels recording; Backspace clears an assignment. Operating-system and desktop-reserved shortcuts remain system-owned and may not be available to Inklow."))
         form = self._group(layout, "Acceptance and Escape")
@@ -715,7 +715,7 @@ class SettingsWindow(QDialog):
 
     def _changes(self) -> dict:
         changes = {field: read() for field, (_control, read, _write) in self._bindings.items() if read() != self._baseline.get(field)}
-        shortcuts = {name: recorder.value() for name, recorder in self._shortcuts.items()}
+        shortcuts = {name: recorder.value() for name, recorder in self.shortcut_controls.items()}
         if shortcuts != self._baseline.get("shortcuts"):
             changes["shortcuts"] = merge_mapping_edits(self.controller.config.shortcuts, self._baseline["shortcuts"], shortcuts)
         if self._rules != self._baseline.get("app_rules"):
@@ -738,7 +738,7 @@ class SettingsWindow(QDialog):
             self._baseline[field] = value
             write(value)
         self._baseline["shortcuts"] = deepcopy(config.shortcuts)
-        for name, recorder in self._shortcuts.items():
+        for name, recorder in self.shortcut_controls.items():
             recorder.set_value(config.shortcuts.get(name, ""))
         self._rules = deepcopy(config.app_rules)
         self._baseline["app_rules"] = deepcopy(self._rules)
@@ -911,9 +911,9 @@ class SettingsWindow(QDialog):
                 self._baseline[field] = current
         latest_shortcuts = self.controller.config.shortcuts
         if latest_shortcuts != self._baseline["shortcuts"]:
-            draft_shortcuts = {name: recorder.value() for name, recorder in self._shortcuts.items()}
+            draft_shortcuts = {name: recorder.value() for name, recorder in self.shortcut_controls.items()}
             rebased = merge_mapping_edits(latest_shortcuts, self._baseline["shortcuts"], draft_shortcuts)
-            for name, recorder in self._shortcuts.items():
+            for name, recorder in self.shortcut_controls.items():
                 recorder.set_value(rebased.get(name, ""))
             self._baseline["shortcuts"] = deepcopy(latest_shortcuts)
         latest_rules = self.controller.config.app_rules

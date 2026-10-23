@@ -1,0 +1,9 @@
+{
+  "actual_Qt_settings_launch": true,
+  "panes": ["Setup", "General", "Context", "Personalization", "Emoji", "Shortcuts", "Battery", "App Settings", "Labs", "Statistics", "About"],
+  "real_preference_saved": true,
+  "profile": "disposable paused INKLOW_HOME",
+  "dependency": "PySide6 6.12.0 in uv --no-sync --with overlay; not installed into Mac app dependencies",
+  "platform_note": "Qt offscreen on macOS; not interactive Windows/Linux proof",
+  "fixed_failure": "A shortcut-controls dictionary shadowed the dynamically dispatched _shortcuts pane builder. Renaming the controls field restores construction of every preferences pane. Windows/Linux CI originally exposed this failure; the real portable GUI smoke passed after correction."
+}

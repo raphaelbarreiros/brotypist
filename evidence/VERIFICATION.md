@@ -77,3 +77,9 @@ Interactive Windows/Linux accessibility and keyboard compatibility have not been
 [REA [redacted reference] report]([redacted reference].md), [sanitized native observations]([redacted reference]-menu-reference.json). [redacted reference]'s settings were observed directly, but no live accepted [redacted reference] prediction, exact prompt, performance comparison, or network-privacy audit was established. The implementation is independent and does not claim proprietary feature/model equivalence.
 
 Historical 0.2 evidence remains in [UPGRADE-0.2.md](UPGRADE-0.2.md); older CI and image artifacts remain historical, not descriptions of the removed editor's current availability.
+
+## Installed application and document protection
+
+The verified bundle was copied to `/Applications/Inklow 0.3.app` and passed `codesign --verify --deep --strict`. Its executable SHA-256 matches the verified `dist` executable: `883cacf98f0736881b868c8871717e1e5be8ca75c8ed01cc90cf19f2ca8dae93`. The **installed copy** repeated all eleven native preference-pane/control/close/quit interactions using a disposable paused profile and exited 0: [installed UI receipt](menu-first-installed-ui.json).
+
+Normal Quit of the original `/Applications/Inklow.app` exposed its unsaved-writing protection. Quit was cancelled; document values were never read, and that running app/bundle was not replaced. Save and quit the original editor before normal use of the new build; the two versions share their application identity and default settings. [Safe installation receipt](menu-first-installed-app.json).

@@ -269,7 +269,7 @@ def test_recording_existing_global_chord_cannot_toggle_typing(shell, finish):
     shell.controller = Controller(config, bridge)
     shell.controller.start()
     shell.show_settings("Shortcuts")
-    recorder = shell.settings._shortcuts["toggle"]
+    recorder = shell.settings.shortcut_controls["toggle"]
     recorder._begin()
     action = bridge._key_action("F8", ("Ctrl", "Alt"))
     assert action == "toggle"
