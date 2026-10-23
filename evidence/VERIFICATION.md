@@ -73,4 +73,6 @@ The deterministic suite exercises stale generations, wrong-field acceptance, pro
 
 Windows and Linux implementations were reviewed as source, not exercised on interactive desktops here. The GitHub Actions matrix checks installation, safety tests, module syntax, diagnostics, checksum-verified model acquisition, real local inference, and wheel packaging across all three OSes; it does not establish keyboard/accessibility compatibility. Wayland system-wide integration is intentionally unavailable and documented, not represented as complete.
 
+Linux insertion length was checked against the [canonical AT-SPI contract](https://docs.gtk.org/atspi2/method.EditableText.insert_text.html): the insertion position is a character offset, but the length is a UTF-8 byte count. The adapter uses `len(text.encode("utf-8"))` to avoid truncating non-ASCII suggestions. This is documentation-backed API verification, not a live Linux desktop result.
+
 Disposable smoke drivers were removed after verification. No user document, actual password, or personal typing history was used. These observations are bounded by the stated fields/providers and do not establish universal app compatibility.

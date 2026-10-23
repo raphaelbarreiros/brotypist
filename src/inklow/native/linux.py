@@ -184,7 +184,8 @@ class LinuxBridge(BridgeBase):
                 current = self._capture()
                 if current is None or current[0].key != snapshot.key:
                     return False
-                if not current[1].insertText(snapshot.caret, text, len(text)):
+                # AT-SPI positions are characters, but insertion length is UTF-8 bytes.
+                if not current[1].insertText(snapshot.caret, text, len(text.encode("utf-8"))):
                     return False
                 # Insertion succeeded; caret placement is best-effort because
                 # returning False now could cause a caller to insert twice.
