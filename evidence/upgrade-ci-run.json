@@ -1,0 +1,27 @@
+{
+  "run_id": 40023107453,
+  "url": "https://github.com/renan-brasilio/inklow/actions/runs/40023107453",
+  "head_sha": "dd37002e96137e662c60765a8529c17d683387ea",
+  "status": "completed",
+  "conclusion": "success",
+  "source": "gh run view 40023107453 --json headSha,status,conclusion,url,jobs",
+  "jobs": [
+    {"name": "verify (macos-latest)", "conclusion": "success", "started_at": "2026-10-23T20:57:00Z", "completed_at": "2026-10-23T20:59:21Z"},
+    {"name": "verify (ubuntu-latest)", "conclusion": "success", "started_at": "2026-10-23T20:56:54Z", "completed_at": "2026-10-23T20:58:57Z"},
+    {"name": "verify (windows-latest)", "conclusion": "success", "started_at": "2026-10-23T20:56:54Z", "completed_at": "2026-10-23T21:00:09Z"}
+  ],
+  "steps_observed_successful_on_each_os": [
+    "Check syntax on every platform module",
+    "Run deterministic safety regressions",
+    "Report native capabilities",
+    "Acquire checksum-verified lightweight CI model",
+    "Exercise real local inference",
+    "Launch the real desktop offscreen",
+    "Build installable wheel",
+    "Build native desktop application",
+    "Exercise packaged local inference",
+    "Archive native application preserving bundle symlinks",
+    "Run actions/upload-artifact@v7"
+  ],
+  "limitations": "CI proves native packaging and actual packaged local inference, not interactive Windows/Linux system-tray or global-input compatibility. The lightweight model used in CI is Tiny, not the recommended 1.5B model. Detailed check annotations were unavailable to the CLI token (403); job and step status reads succeeded."
+}
