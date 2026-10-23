@@ -34,3 +34,7 @@ def test_invalid_settings_cannot_enable_unbounded_or_unsafe_operation(changes):
 def test_prediction_sanitization_preserves_leading_space_and_existing_suffix():
     assert clean_completion(" tomorrow.\x00<|im_end|>ignored", ".") == " tomorrow"
     assert clean_completion(" café\nnew paragraph", "") == " café"
+
+
+def test_generated_tabs_cannot_navigate_to_another_field():
+    assert clean_completion(" café\tamanhã", "") == " café amanhã"

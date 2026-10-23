@@ -21,7 +21,9 @@ def clean_completion(text: str, suffix: str) -> str:
     for sentinel in ("<|", "</s>", "[INST]"):
         text = text.split(sentinel, 1)[0]
     text = text.split("\n", 1)[0].split("\r", 1)[0]
-    text = "".join(char for char in text if char == "\t" or char.isprintable())[:512]
+    # A generated tab must not navigate a form before the remaining text lands.
+    text = text.replace("\t", " ")
+    text = "".join(char for char in text if char.isprintable())[:512]
     # Avoid reproducing the text already to the right of the caret.
     if suffix:
         for length in range(min(len(text), len(suffix)), 0, -1):

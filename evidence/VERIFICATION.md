@@ -69,7 +69,7 @@ The desktop and global scenarios must run serially because they both need foregr
 
 ## Automated and cross-platform limits
 
-The deterministic suite exercises stale generations, wrong-field acceptance, protected/selected text, Unicode acceptance, endpoint privacy, invalid settings, and prediction sanitization. Final local run: **28 passed in 0.05 seconds**, module compilation succeeded, and `uv build` produced both `inklow-0.1.0.tar.gz` and `inklow-0.1.0-py3-none-any.whl`. `inklow doctor` confirmed the local model exists and persisted global mode remains off. Workflow YAML parsed successfully.
+The deterministic suite exercises stale generations, wrong-field acceptance, protected/selected text, Unicode acceptance, endpoint privacy, invalid settings, and prediction sanitization. Final local run: **29 passed in 0.04 seconds**, module compilation succeeded, and `uv build` produced both `inklow-0.1.0.tar.gz` and `inklow-0.1.0-py3-none-any.whl`. `inklow doctor` confirmed the local model exists and persisted global mode remains off. Workflow YAML parsed successfully. A generated-tab regression failed before correction and passed after tabs were normalized to spaces, preventing accepted text from navigating to another form field.
 
 Windows and Linux implementations were reviewed as source, not exercised on interactive desktops here. The GitHub Actions matrix checks installation, safety tests, module syntax, diagnostics, checksum-verified model acquisition, real local inference, and wheel packaging across all three OSes; it does not establish keyboard/accessibility compatibility. Wayland system-wide integration is intentionally unavailable and documented, not represented as complete.
 
