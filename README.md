@@ -115,6 +115,8 @@ uv run python tools/smoke_bundle.py
 
 GitHub Actions defines macOS/Windows/Ubuntu safety checks, actual source settings launch, verified Tiny acquisition, local CPU inference, wheel and native application builds, and frozen CLI plus isolated-worker inference. Workflow definitions are not proof that the current revision has passed; see the verification report for observed runs. Windows includes a console sibling `Inklow-cli.exe`; Linux includes relocatable desktop integration. Build on each target OS/architecture. macOS builds are ad-hoc signed, not notarized. `--replace` only replaces a marked Inklow build and retains rollback during publication. Bundles reject model weights, settings, databases, and encrypted-history payloads.
 
+Windows/Linux x86 CI builds the inference backend from source with `GGML_NATIVE=OFF` and an explicit **AVX2/FMA/F16C** target instead of reusing a cached host-native wheel. These x86 artifacts require those CPU features. For another CPU/architecture, build the backend for that target before packaging; `build_app.py` bundles the installed native backend and cannot make an incompatible library portable. Upstream [build/reinstall guidance](https://github.com/abetlen/llama-cpp-python#installation) and [CPU build options](https://github.com/ggml-org/llama.cpp/blob/master/ggml/src/CMakeLists.txt).
+
 ## Attribution
 
 Recommended model: [Qwen/Qwen2.5-1.5B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF), Apache-2.0, revision `91cad51170dc346986eccefdc2dd33a9da36ead9`, file `qwen2.5-1.5b-instruct-q4_k_m.gguf`, SHA-256 `6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e`.

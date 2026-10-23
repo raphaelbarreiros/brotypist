@@ -27,6 +27,12 @@ jobs:
       - name: Install Linux Qt runtime libraries
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libopengl0 libxkbcommon0
+      - name: Build portable x86 inference backend
+        if: runner.os != 'macOS'
+        env:
+          CMAKE_ARGS: -DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON
+          CMAKE_BUILD_PARALLEL_LEVEL: 2
+        run: python -m pip install --no-cache-dir --no-binary=llama-cpp-python --no-deps llama-cpp-python==0.3.36
       - name: Install desktop, local inference, and test dependencies
         run: python -m pip install -e ".[dev,local,build]"
       - name: Check syntax on every platform module
@@ -38,7 +44,7 @@ jobs:
       - name: Acquire checksum-verified lightweight CI model
         run: inklow model download --preset tiny
       - name: Exercise real local inference
-        run: python -c "from dataclasses import replace; from inklow.config import load_config; from inklow.providers import create_provider; p = create_provider(replace(load_config(), acceleration='cpu')); p.prepare(); print(p.complete('Thank you for your', '')); p.close()"
+        run: python tools/smoke_bundle.py --source-worker
       - name: Launch real native settings utility
         timeout-minutes: 1
         run: python tools/smoke_desktop.py

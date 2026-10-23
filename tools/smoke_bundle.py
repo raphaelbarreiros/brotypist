@@ -1,6 +1,7 @@
 """Exercise real local inference inside the frozen CLI and its isolated worker."""
 from __future__ import annotations
 
+import argparse
 from dataclasses import asdict
 import json
 import os
@@ -15,15 +16,16 @@ import unicodedata
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def worker_completion(executable: Path, environment: dict) -> dict:
+def worker_completion(command: list[str], environment: dict) -> dict:
     from inklow.config import load_config
     from dataclasses import replace
     config = replace(load_config(), acceleration="cpu", global_enabled=False)
     process = subprocess.Popen(
-        [str(executable), "_worker"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, text=True, encoding="utf-8", env=environment,
         creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
     )
+    print(f"Started actual worker pid={process.pid}", flush=True)
     responses = queue.Queue()
     def read_responses():
         try:
@@ -37,7 +39,7 @@ def worker_completion(executable: Path, environment: dict) -> dict:
         finally:
             responses.put(None)
     threading.Thread(target=read_responses, daemon=True).start()
-    final_text, updates = "", 0
+    final_text, updates, last_phase = "", 0, "startup"
     started = time.monotonic()
     try:
         process.stdin.write(json.dumps({
@@ -46,13 +48,20 @@ def worker_completion(executable: Path, environment: dict) -> dict:
         }) + "\n")
         process.stdin.flush()
         while True:
-            event = responses.get(timeout=max(.1, 120 - (time.monotonic() - started)))
+            try:
+                event = responses.get(timeout=max(.1, 120 - (time.monotonic() - started)))
+            except queue.Empty as error:
+                raise RuntimeError(f"Worker protocol timed out in {last_phase}; exit={process.poll()}") from error
             if event is None:
                 raise RuntimeError("Frozen worker exited before completing the request")
             if isinstance(event, Exception):
                 raise event
             if event.get("id") != 1:
                 raise RuntimeError("Frozen worker returned a mismatched request")
+            phase = event.get("type", "unknown")
+            if phase != last_phase:
+                print(f"Worker phase: {phase}", flush=True)
+                last_phase = phase
             if event["type"] == "error":
                 raise RuntimeError(event.get("message", "Frozen inference failed"))
             if event["type"] == "result":
@@ -82,6 +91,14 @@ def worker_completion(executable: Path, environment: dict) -> dict:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source-worker", action="store_true", help="Exercise the actual source worker before freezing")
+    args = parser.parse_args()
+    environment = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+    if args.source_worker:
+        receipt = worker_completion([sys.executable, "-m", "inklow", "_worker"], environment)
+        print(json.dumps(receipt, ensure_ascii=False, indent=2))
+        return 0
     if sys.platform == "darwin":
         executable = ROOT / "dist/Inklow.app/Contents/MacOS/Inklow"
     elif sys.platform == "win32":
@@ -99,7 +116,7 @@ def main() -> int:
     if not any(c.isalnum() for c in result.stdout):
         raise RuntimeError("Frozen CLI did not produce a continuation")
     receipt = {"executable": str(executable), "cli_exit_code": result.returncode,
-               "cli_suggestion": result.stdout, **worker_completion(executable, environment)}
+               "cli_suggestion": result.stdout, **worker_completion([str(executable), "_worker"], environment)}
     (ROOT / "worker-smoke.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(receipt, ensure_ascii=False, indent=2))
     return 0
