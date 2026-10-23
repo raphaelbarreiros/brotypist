@@ -63,7 +63,7 @@ Enable Accessibility and Input Monitoring for Inklow's Python/terminal host in S
 
 ### Linux native prerequisites
 
-The editor does not require AT-SPI. For system-wide X11 integration on Debian/Ubuntu, install `python3-pyatspi`, `python3-gi`, `at-spi2-core`, `python3-venv`, and your compiler toolchain. Use the **distribution Python**, since managed uv Python installations do not see distro GI bindings:
+The editor does not require AT-SPI, but Qt needs native runtime libraries even in offscreen mode. On a minimal Debian/Ubuntu installation, install `libegl1`, `libgl1`, `libopengl0`, and `libxkbcommon0`. For system-wide X11 integration, also install `python3-pyatspi`, `python3-gi`, `at-spi2-core`, `python3-venv`, and your compiler toolchain. Use the **distribution Python**, since managed uv Python installations do not see distro GI bindings:
 
 ```sh
 /usr/bin/python3 -m venv --system-site-packages .venv
@@ -99,7 +99,7 @@ uv run inklow doctor
 uv build
 ```
 
-GitHub Actions runs deterministic safety regressions, syntax checks, capability diagnostics, checksum-verified model acquisition, real local inference, and wheel builds on macOS, Windows, and Ubuntu. Green CI alone is **not** proof of interactive OS integration. No fake prediction backend is shipped.
+GitHub Actions runs deterministic safety regressions, syntax checks, capability diagnostics, checksum-verified model acquisition, real local inference, an actual offscreen desktop launch, and wheel builds on macOS, Windows, and Ubuntu. Green CI alone is **not** proof of interactive OS integration. No fake prediction backend is shipped.
 
 ## Model attribution
 

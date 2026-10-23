@@ -19,7 +19,7 @@ dependencies = [
 
 [project.optional-dependencies]
 local = ["llama-cpp-python==0.3.36"]
-dev = ["pytest>=8,<10", "pytest-qt>=4.4,<5"]
+dev = ["pytest>=8,<10"]
 
 [project.scripts]
 inklow = "inklow.__main__:main"

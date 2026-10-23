@@ -75,4 +75,6 @@ Windows and Linux implementations were reviewed as source, not exercised on inte
 
 Linux insertion length was checked against the [canonical AT-SPI contract](https://docs.gtk.org/atspi2/method.EditableText.insert_text.html): the insertion position is a character offset, but the length is a UTF-8 byte count. The adapter uses `len(text.encode("utf-8"))` to avoid truncating non-ASCII suggestions. This is documentation-backed API verification, not a live Linux desktop result.
 
+Hosted run [40012515758](https://github.com/renan-brasilio/inklow/actions/runs/40012515758) passed macOS and Windows installation, all safety regressions, real local inference, and wheel packaging. Ubuntu stopped before tests because Qt import required missing `libEGL.so.1`. CI now installs the documented native Qt runtime packages and launches the real desktop offscreen on all OSes. The same offscreen launch command completed locally with exit code 0. The unused pytest-qt plugin was removed; runtime checks remain in place rather than suppressing Qt import errors.
+
 Disposable smoke drivers were removed after verification. No user document, actual password, or personal typing history was used. These observations are bounded by the stated fields/providers and do not establish universal app compatibility.

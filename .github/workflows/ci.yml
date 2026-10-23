@@ -14,7 +14,7 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
@@ -22,6 +22,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install Linux Qt runtime libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libopengl0 libxkbcommon0
       - name: Install desktop, local inference, and test dependencies
         run: python -m pip install -e ".[dev,local]"
       - name: Check syntax on every platform module
@@ -34,6 +39,8 @@ jobs:
         run: inklow model download
       - name: Exercise real local inference
         run: python -c "from inklow.config import load_config; from inklow.providers import create_provider; p = create_provider(load_config()); print(p.complete('Thank you for your', '')); p.close()"
+      - name: Launch the real desktop offscreen
+        run: python -c "from PySide6.QtCore import QTimer; from PySide6.QtWidgets import QApplication; from inklow.config import load_config; from inklow.desktop import launch; app = QApplication([]); QTimer.singleShot(1000, app.closeAllWindows); code = launch(load_config()); print('Desktop launch smoke finished', code); raise SystemExit(code)"
       - name: Build installable wheel
         run: python -m pip wheel --no-deps . --wheel-dir dist
       - uses: actions/upload-artifact@v7
