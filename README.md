@@ -179,6 +179,8 @@ GitHub Actions checks regressions, launches actual settings, runs source/frozen 
 
 To publish, update the version in `pyproject.toml` and `src/inklow/__init__.py`, commit the source, then run **Actions → Cross-platform checks → Run workflow** with `release_tag` set to the matching `v<version>`. An empty input runs checks only. Pushing a matching version tag also publishes after verification. Existing tags/releases are never overwritten.
 
+For Git-only publication without API workflow-dispatch access, push the committed release source to `release/<version>` (for example, `git push origin HEAD:refs/heads/release/0.3.0`). This explicitly requests a release; the workflow creates the matching version tag only after every platform passes. Use a new version after an already-published release.
+
 The initial installer release uses the verified 0.3 code line. Unfinished model/prompt experiments are not silently included in release binaries. See workflow inputs and release notes for the exact source revision.
 
 ### Source layout

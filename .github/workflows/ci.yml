@@ -25,7 +25,10 @@ jobs:
         id: version
         env:
           REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-        run: python3 tools/release_assets.py version --tag "$REQUESTED_TAG"
+          RELEASE_BRANCH: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/') && github.ref_name || '' }}
+        run: |
+          if [ -n "$RELEASE_BRANCH" ]; then REQUESTED_TAG="v${RELEASE_BRANCH#release/}"; fi
+          python3 tools/release_assets.py version --tag "$REQUESTED_TAG"
   verify:
     needs: metadata
     strategy:

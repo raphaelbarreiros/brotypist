@@ -42,6 +42,8 @@ def manifest(args) -> None:
     receipt = json.loads(args.receipt.read_text(encoding='utf-8'))
     if not isinstance(receipt, dict):
         raise ValueError('The native installer smoke receipt must be an object.')
+    if receipt.get('status', receipt.get('result')) != 'passed':
+        raise ValueError('Only passed native installer receipts can seal release assets.')
     rows = []
     for ending in TARGET_FILES[args.target]:
         path = args.assets / f'Inklow-{app_version}-{ending}'
