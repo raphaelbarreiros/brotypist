@@ -200,3 +200,17 @@ The final integrated Linux suite passed **318 tests, 1 skipped in 12.77 seconds*
 
 [The bootstrap native receipt](wayland-bootstrap-smoke.json) passed all **27 real protocol/UI/privacy/acceptance checks in 21.24 seconds** in the private virtual compositor. Its GUI observer now uses genuinely asynchronous requests; synchronously waiting for the agent while it queried the target's AT-SPI endpoint produced a test-only wait cycle. The target event loop remains free during those reads. No native model, insertion, or key-forwarding behavior was mocked, and no new installer publication is established by this run.
 
+## Approved actual-desktop activation — 2026-10-25
+
+After explicit approval to enable the candidate, source **`22e05e6b56de580414c59289db4c79429fd62282`** was installed in the existing CachyOS source checkout and its native library compiled there. The cached checksum-verified Qwen2.5 1.5B model was reused. The KDE input-method entry was selected without changing desktop sessions or installing system packages.
+
+The **clean, uninstrumented installed application** then passed an actual-desktop check in **9.7 seconds**. The owned synthetic Qt/text-input-v3 field generated a suggestion automatically, with no force command, manual context resynchronization, diagnostic launcher, or observer monkeypatches. KWin reported a visible native input-method panel. A focus-checked compositor Tab committed exactly ` dig ` and was not forwarded into the target; the real above-Tab key committed `a hole, place the tree in the `. The final field was exactly `The three steps for planting a tree are to dig a hole, place the tree in the `. This is a functional sample, not a language-quality or latency benchmark.
+
+[Actual desktop receipt](wayland-desktop-smoke.json), [target after native acceptance](wayland-desktop-target.png), and [clean activation/tray/data-preservation receipt](wayland-desktop-activation.json). The image is the owned Qt widget's generated pixels, not an unrestricted desktop screenshot; compositor mapping is separately recorded in the receipt.
+
+The running application had a registered **Active** status item titled **Inklow**, with **Quit Inklow** in its real exported quick menu. Normal Quit was exercised during installation without forced process termination; the final clean instance was left running. Its launcher points directly to `python -m inklow --background --wayland-input-method`, not a diagnostic wrapper. Temporary diagnostic launchers and desktop-test scripts were removed.
+
+The private rollback retained the original profile and KDE configuration. Comparing existing JSON preference keys found **no changed values**; the only changed KDE configuration entry was **Wayland:InputMethod**, the explicitly approved selection. The selected cached model remained the 1.5B preset; no 7B promotion, model redownload, Mac replacement, or new installer release occurred. GUI tests briefly focused only the owned synthetic window. An initial desktop observer encountered KWin's list-length-derived script-ID collision; its owned observer was unloaded and configured scripts restarted through their manager without changing plugin configuration. Subsequent desktop observations used unique owned plugin names rather than numeric script-object identity.
+
+Compatibility remains bounded to the exercised KDE/text-input-v3/AT-SPI path. Other applications, all languages, other compositors, and Windows installation are not certified by this result.
+

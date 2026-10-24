@@ -412,7 +412,7 @@ def test_native_menu_pages_skip_disabled_items_and_restore_shortcuts_on_close(na
 @pytest.mark.parametrize("phase", [1, 2])
 @pytest.mark.parametrize("transition", ["ready", "inactive", "unsupported", "focus-changed", "sensitive", "stopped"])
 def test_initial_context_resync_preserves_capture_isolation(native, qt_app, monkeypatch, transition, phase):
-    from PySide6 import QtDBus
+    QtDBus = pytest.importorskip("PySide6.QtDBus")
     bridge, peer = native
     peer.ready = False
     bridge._needs_context_state = phase

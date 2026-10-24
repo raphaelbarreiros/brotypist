@@ -1,0 +1,25 @@
+{
+  "source": "22e05e6b56de580414c59289db4c79429fd62282",
+  "native_pid": 2409093,
+  "clean_launcher": true,
+  "selected_input_method": "/home/renanrocha/.local/share/applications/com.inklow.Inklow.InputMethod.desktop",
+  "model": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+  "cached_model_bytes": 1117320736,
+  "profile_changed_existing_keys": [],
+  "kwin_changed_entries": [
+    "Wayland:InputMethod"
+  ],
+  "tray": [
+    {
+      "properties": {
+        "Id": "Inklow",
+        "Title": "Inklow",
+        "Status": "Active",
+        "Menu": "/MenuBar"
+      },
+      "quit_present": true
+    }
+  ],
+  "native_library_sha256": "6acc306ad22bfbc72a0930a3f072cfbc9e350fb0f9ec3b3f894b9916db958c58",
+  "desktop_smoke_result": "passed"
+}
