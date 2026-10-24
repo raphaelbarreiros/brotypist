@@ -65,12 +65,28 @@ jobs:
       - name: Install pinned Windows installer compiler
         if: runner.os == 'Windows'
         run: dotnet tool install --global wix --version 5.0.2
-      - name: Build portable x86 inference backend
+      - name: Restore explicitly portable inference wheel
         if: runner.os != 'macOS'
+        id: backend-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: build/portable-backend
+          key: portable-llama-py312-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci.yml', 'pyproject.toml') }}
+      - name: Build portable x86 inference backend
+        if: runner.os != 'macOS' && steps.backend-cache.outputs.cache-hit != 'true'
         env:
           CMAKE_ARGS: -DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_AVX512=OFF -DGGML_CUDA=OFF -DGGML_VULKAN=OFF -DGGML_BLAS=OFF
           CMAKE_BUILD_PARALLEL_LEVEL: 2
-        run: python -m pip install --no-cache-dir --no-binary=llama-cpp-python --no-deps llama-cpp-python==0.3.36
+        run: python -m pip wheel --no-cache-dir --no-binary=llama-cpp-python --no-deps llama-cpp-python==0.3.36 --wheel-dir build/portable-backend
+      - name: Save only the CPU-baseline wheel
+        if: runner.os != 'macOS' && steps.backend-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: build/portable-backend
+          key: ${{ steps.backend-cache.outputs.cache-primary-key }}
+      - name: Install the verified-baseline inference wheel
+        if: runner.os != 'macOS'
+        run: python -m pip install --no-index --no-deps --find-links build/portable-backend llama-cpp-python==0.3.36
       - name: Install desktop, local inference, and test dependencies
         run: python -m pip install -e ".[dev,local,build]"
       - name: Check syntax on every platform module
@@ -135,6 +151,14 @@ jobs:
             worker-smoke.json
             reports/
           retention-days: 14
+      - name: Preserve failed installer payloads for native diagnosis
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: failed-packages-${{ matrix.target }}
+          path: release/
+          if-no-files-found: ignore
+          retention-days: 7
   publish:
     needs: [metadata, verify]
     if: needs.metadata.outputs.tag != '' && github.event_name != 'pull_request'

@@ -1,7 +1,8 @@
 """Package an already-built amd64 Linux onedir into .deb and portable .tar.gz.
 
-Requires dpkg-dev. Native shared-library dependencies are derived from the ELF
-payload, not guessed from the Python environment. No model download or rebuild.
+Requires dpkg-dev (including binutils). Native shared-library dependencies are
+derived from the ELF payload, with bundled SONAMEs supplied by Inklow itself,
+not guessed from the Python environment. No model download or rebuild.
 """
 from __future__ import annotations
 
@@ -95,7 +96,24 @@ def shared_library_dependencies(app: Path, work: Path) -> str:
                 if struct.unpack_from("<H", header, 16)[0] in (2, 3):
                     elfs.append(path)
                     library_directories.add(path.parent)
-    command = ["dpkg-shlibdeps", "--ignore-missing-info", "-O"]
+    # shlibs.local takes precedence over installed symbols/shlibs metadata.
+    # Otherwise, private copies of system libraries can inherit dependencies
+    # such as libkrb5support0 (= ${binary:Version}) from the host package.
+    environment = dict(os.environ, LC_ALL="C")
+    dynamic = run(["readelf", "--dynamic", "--wide", *map(str, sorted(elfs))], env=environment)
+    sonames = set(re.findall(r"\(SONAME\)\s+Library soname:\s*\[([^\]]+)\]", dynamic))
+    local_shlibs = []
+    for soname in sorted(sonames):
+        # deb-shlibs(5) supports these two versioned SONAME forms. Unversioned
+        # private libraries/plugins do not need shlibs dependency information.
+        match = re.fullmatch(r"(.+)\.so\.(.+)", soname) or re.fullmatch(r"(.+)-(\d.*)\.so", soname)
+        if match:
+            local_shlibs.append(f"{match[1]} {match[2]} inklow\n")
+    (debian / "shlibs.local").write_text("".join(local_shlibs), encoding="utf-8")
+    # Exclude only this package's own SONAMEs, not entire host library packages.
+    # Still scan every bundled ELF for its genuinely external requirements;
+    # missing dependency metadata for those must remain a packaging error.
+    command = ["dpkg-shlibdeps", "-xinklow", "-O"]
     command.extend(f"-l{path}" for path in sorted(library_directories))
     command.extend(f"-e{path}" for path in sorted(elfs))
     output = run(command, cwd=work)
@@ -103,6 +121,8 @@ def shared_library_dependencies(app: Path, work: Path) -> str:
     if not dependency_line:
         raise RuntimeError("dpkg-shlibdeps did not emit native runtime dependencies")
     dependencies = dependency_line.partition("=")[2]
+    if "${" in dependencies:
+        raise RuntimeError(f"dpkg-shlibdeps emitted unresolved runtime dependencies: {dependencies}")
     # at-spi2-core supplies the session accessibility bus/registry, not Python.
     # Qt's xcb plugin dlopens the cursor helper, so it is not always ELF-linked.
     return ", ".join(filter(None, [dependencies, "libc6 (>= 2.39)", "at-spi2-core (>= 2.52)",
@@ -140,10 +160,12 @@ def package(bundle: Path, output: Path, version: str) -> tuple[Path, Path]:
         icons = root / "usr/share/icons/hicolor"
         icons.parent.mkdir(parents=True)
         shutil.copytree(app / "share/icons/hicolor", icons)
-        dependencies = shared_library_dependencies(app, work)
-        installed_size = (sum(path.stat().st_size for path in root.rglob("*") if path.is_file()) + 1023) // 1024
+        # Let dpkg-shlibdeps identify the package root and resolve $ORIGIN
+        # paths for the bundled private libraries before rendering control.
         control = root / "DEBIAN"
         control.mkdir()
+        dependencies = shared_library_dependencies(app, work)
+        installed_size = (sum(path.stat().st_size for path in root.rglob("*") if path.is_file()) + 1023) // 1024
         metadata = (ROOT / "packaging/linux/control.in").read_text(encoding="utf-8")
         metadata = metadata.replace("@VERSION@", version).replace("@SIZE@", str(installed_size)).replace("@DEPENDS@", dependencies)
         (control / "control").write_text(metadata, encoding="utf-8")

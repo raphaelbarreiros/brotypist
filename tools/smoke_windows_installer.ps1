@@ -10,6 +10,26 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+function Format-SmokeError([System.Management.Automation.ErrorRecord]$Record) {
+    $diagnostic = @(
+        "ErrorRecord: $($Record.Exception.ToString())"
+        "FullyQualifiedErrorId: $($Record.FullyQualifiedErrorId)"
+        "CategoryInfo: $($Record.CategoryInfo)"
+        "Position: $($Record.InvocationInfo.PositionMessage)"
+        "ScriptStackTrace: $($Record.ScriptStackTrace)"
+    ) -join "`n"
+    # Keep CI output and receipt errors useful without unbounded exception dumps.
+    if ($diagnostic.Length -gt 8192) { return $diagnostic.Substring(0, 8192) + "`n[diagnostic truncated]" }
+    return $diagnostic
+}
+
+# Preflight failures happen before the install/uninstall receipt exists. Retain
+# their original ErrorRecord location and stack instead of only the message.
+trap {
+    [Console]::Error.WriteLine((Format-SmokeError $_))
+    break
+}
 if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
     throw "This smoke requires native Windows."
 }
@@ -69,17 +89,29 @@ function Invoke-Version([string]$Executable, [string]$Prefix) {
     return $actual
 }
 
-function Read-MsiProperty($Database, [string]$Name) {
-    $view = $Database.OpenView("SELECT ``Value`` FROM ``Property`` WHERE ``Property`` = '$Name'")
+function Read-MsiProperty($Database, [string]$Name, [switch]$AllowMissing) {
+    $query = "SELECT ``Value`` FROM ``Property`` WHERE ``Property`` = '$Name'"
+    $view = $Database.GetType().InvokeMember("OpenView", [System.Reflection.BindingFlags]::InvokeMethod, $null, $Database, @($query))
+    if ($null -eq $view) { throw "MSI OpenView returned no view for property '$Name'." }
     try {
-        $view.Execute()
-        $row = $view.Fetch()
-        if ($null -eq $row) { return "" }
-        try { return $row.StringData(1) }
+        [void]$view.GetType().InvokeMember("Execute", [System.Reflection.BindingFlags]::InvokeMethod, $null, $view, $null)
+        $row = $view.GetType().InvokeMember("Fetch", [System.Reflection.BindingFlags]::InvokeMethod, $null, $view, $null)
+        if ($null -eq $row) {
+            if ($AllowMissing) { return "" }
+            throw "MSI Property table is missing required property '$Name'."
+        }
+        try {
+            # StringData is a 1-based indexed COM property, not a method. Use
+            # explicit IDispatch property-get rather than PS7 method dispatch.
+            # https://learn.microsoft.com/en-us/windows/win32/msi/record-stringdata
+            $value = $row.GetType().InvokeMember("StringData", [System.Reflection.BindingFlags]::GetProperty, $null, $row, @([int]1))
+            if ($null -eq $value) { throw "MSI StringData returned null for property '$Name'." }
+            return [string]$value
+        }
         finally { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($row) }
     }
     finally {
-        $view.Close()
+        [void]$view.GetType().InvokeMember("Close", [System.Reflection.BindingFlags]::InvokeMethod, $null, $view, $null)
         [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($view)
     }
 }
@@ -106,8 +138,10 @@ $zipPath = (Resolve-Path -LiteralPath $package.artifacts.zip.path).Path
 Assert-Hash $zipPath $package.artifacts.zip.sha256
 
 $installer = New-Object -ComObject WindowsInstaller.Installer
-$database = $installer.OpenDatabase($msiPath, 0)
+$database = $null
 try {
+    $database = $installer.GetType().InvokeMember("OpenDatabase", [System.Reflection.BindingFlags]::InvokeMethod, $null, $installer, @($msiPath, [int]0))
+    if ($null -eq $database) { throw "MSI OpenDatabase returned no database for '$msiPath'." }
     $productCode = Read-MsiProperty $database "ProductCode"
     Assert-Equal ($productCode.ToUpperInvariant()) ("{" + $package.product_code.ToUpperInvariant() + "}") "MSI ProductCode"
     Assert-Equal (Read-MsiProperty $database "ProductName") "Inklow" "MSI ProductName"
@@ -115,10 +149,10 @@ try {
     Assert-Equal ((Read-MsiProperty $database "UpgradeCode").ToUpperInvariant()) ("{" + $package.upgrade_code.ToUpperInvariant() + "}") "MSI UpgradeCode"
     Assert-Equal (Read-MsiProperty $database "INKLOW_SOURCE_COMMIT") $SourceCommit "MSI source metadata"
     Assert-Equal (Read-MsiProperty $database "INKLOW_ARCHITECTURE") "x86_64" "MSI architecture metadata"
-    Assert-Equal (Read-MsiProperty $database "ALLUSERS") "" "MSI must not request machine installation"
+    Assert-Equal (Read-MsiProperty $database "ALLUSERS" -AllowMissing) "" "MSI must not request machine installation"
 }
 finally {
-    [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($database)
+    if ($null -ne $database) { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($database) }
     [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($installer)
 }
 
@@ -237,7 +271,7 @@ try {
     $run = Read-Autostart
     Assert-Equal $run $oldRun "Installer/paused GUI must not change autostart"
 }
-catch { $errors.Add($_.Exception.Message) }
+catch { $errors.Add((Format-SmokeError $_)) }
 finally {
     try {
         if ($null -ne $gui -and -not $gui.HasExited) {
@@ -256,7 +290,7 @@ finally {
         foreach ($sentinel in $sentinels) { Assert-Hash $sentinel.path $sentinel.sha256 }
         $receipt.external_data_preserved = $true
     }
-    catch { $errors.Add("Cleanup/uninstall: " + $_.Exception.Message) }
+    catch { $errors.Add("Cleanup/uninstall: " + (Format-SmokeError $_)) }
     [Environment]::SetEnvironmentVariable("INKLOW_HOME", $oldHome, "Process")
     [Environment]::SetEnvironmentVariable("QT_QPA_PLATFORM", $oldQt, "Process")
     $receipt.errors = @($errors.ToArray())
