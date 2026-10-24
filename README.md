@@ -22,6 +22,8 @@ The Windows EXEs are **not standalone files**: keep the entire portable ZIP toge
 
 Model weights are downloaded separately, only when requested. Installers do not contain models, settings, writing history, or credentials.
 
+The latest prebuilt release is **0.3.0**. The **0.3.1 source hotfix** corrects stale Linux/Windows model-download progress; 0.3.1 installers have not been published. Existing complete model files are reused.
+
 ### macOS
 
 1. Open the DMG and drag **Inklow.app** to **Applications**.
@@ -41,7 +43,7 @@ Windows releases are unsigned unless the release explicitly states otherwise. Wi
 Download the `.deb`, then install the specific file you downloaded:
 
 ```sh
-sudo apt install ./Inklow-0.3.1-linux-amd64.deb
+sudo apt install ./Inklow-0.3.0-linux-amd64.deb
 inklow
 ```
 

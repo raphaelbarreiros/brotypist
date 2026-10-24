@@ -153,3 +153,19 @@ After publication, **all six assets were downloaded from GitHub**. `shasum -a 25
 
 **Limits:** Windows MSI/EXE packaging builds, but its corrected native installer/runtime smoke has not run; Windows binaries are intentionally unpublished and listed as pending in the README, notes and manifest. macOS distribution is ad-hoc signed, not Developer ID-signed or notarized. Linux verification used X11/Xvfb, not Wayland or third-party interactive typing. The Linux smoke explicitly uses scoped SIGTERM cleanup rather than claiming a normal-menu Quit test. Unfinished multilingual prediction/permission-status experiments were not included, and the installed `/Applications/Inklow.app` was not replaced by this release task.
 
+## Linux model-progress hotfix — 0.3.1 — 2026-10-24
+
+The reported 14% stall was a stale Models dialog, not an incomplete model file. The existing Qwen2.5 1.5B Q4_K_M file was already complete: **1,117,320,736 bytes**, SHA-256 `6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e`, matching the pinned preset. No model was redownloaded, removed, or selected during this repair.
+
+Source commit **`0622e307872fdfcb1f8fc70f86dc5acb5bd6edc0`** gives the Models dialog its own visible-only refresh timer, independent of parent Settings visibility and input/menu polling. Unchanged inventories do not rebuild the dropdown. A regression held a checksum-verified synthetic download at 14%, let the actual downloader finish with its parent hidden and controller polling stopped, and required the dialog to enable its installed-model action without manual refresh. It failed before the fix. The candidate passed the native Linux suite (**276 passed, 1 skipped**) and macOS suite (**252 passed, 2 skipped**).
+
+The actual CachyOS source installation was fast-forwarded to that commit and restarted as **0.3.1** without forced termination. Its environment had no `llama-cpp-python` package; the declared **0.3.36** dependency was then built and installed into the existing application venv with a CPU-only AVX2/FMA/F16C baseline. This did not require system-package, desktop-session, or permission changes.
+
+Actual runtime observations, not an offscreen replacement:
+
+- The visible native Qt Models dialog reported **“Installed; choose Use installed model to select it.”** for **Balanced — Qwen2.5 1.5B Writing**.
+- **Use installed model** was enabled; **Cancel download** was disabled. The selected model remained **None**, preserving the existing preference.
+- The production CLI used those cached weights in an isolated profile with CPU inference. Synthetic prefix `Thank you for your` produced ` cooperation.`; exit status **0**, complete invocation **1.62 seconds**. This is one cold invocation, not a sustained latency or grammar benchmark.
+
+**Remaining limit:** the real desktop is Wayland. `inklow doctor` explicitly reported global typing unavailable, including XWayland applications. Settings/model readiness and actual inference are verified; system-wide typing in this desktop session is not. No logout, X11 installation, compositor changes, or broader permissions were performed. This is a source hotfix; published 0.3.0 installer assets were not replaced.
+
