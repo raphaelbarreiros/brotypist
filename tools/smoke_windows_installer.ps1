@@ -122,6 +122,55 @@ function Read-Autostart {
     return (Get-Item -LiteralPath $key).GetValue("Inklow", $null)
 }
 
+# Query MSI's own product/context contract, not an assumed ARP registry hive.
+# https://learn.microsoft.com/en-us/windows/win32/api/msi/nf-msi-msigetproductinfoexw
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class InklowMsi {
+    [DllImport("msi.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    public static extern uint MsiGetProductInfoExW(
+        string product, string sid, uint context, string property,
+        StringBuilder value, ref uint length);
+}
+'@
+
+function Read-ProductInfo([uint32]$Context, [string]$Property, [switch]$AllowAbsentProduct) {
+    [uint32]$length = 0
+    $code = [InklowMsi]::MsiGetProductInfoExW($productCode, $null, $Context, $Property, $null, [ref]$length)
+    if ($code -eq 1605 -and $AllowAbsentProduct) { return $null }
+    if ($code -ne 0) { throw "MsiGetProductInfoExW($productCode, context=$Context, $Property) failed: $code" }
+    $buffer = [System.Text.StringBuilder]::new([int]$length + 1)
+    $length = [uint32]$buffer.Capacity
+    $code = [InklowMsi]::MsiGetProductInfoExW($productCode, $null, $Context, $Property, $buffer, [ref]$length)
+    if ($code -ne 0) { throw "MsiGetProductInfoExW($productCode, context=$Context, $Property) failed: $code" }
+    return $buffer.ToString()
+}
+
+function Read-ProductContexts {
+    # Current user only (NULL SID); context 4 is the machine instance.
+    foreach ($context in @(1, 2, 4)) {
+        $state = Read-ProductInfo $context "State" -AllowAbsentProduct
+        if ($null -ne $state) { [pscustomobject]@{ context = $context; state = $state } }
+    }
+}
+
+function Get-PackedProductCode([string]$Code) {
+    $parts = $Code.Trim('{}').Split('-')
+    $packed = ""
+    foreach ($part in $parts[0..2]) {
+        $chars = $part.ToCharArray()
+        [array]::Reverse($chars)
+        $packed += -join $chars
+    }
+    $tail = $parts[3] + $parts[4]
+    for ($index = 0; $index -lt $tail.Length; $index += 2) {
+        $packed += [string]$tail[$index + 1] + [string]$tail[$index]
+    }
+    return $packed
+}
+
 $msiPath = (Resolve-Path -LiteralPath $Msi).Path
 $package = Get-Content -LiteralPath $PackageReceipt -Raw | ConvertFrom-Json
 $reportPath = [System.IO.Path]::GetFullPath($Report)
@@ -158,8 +207,19 @@ finally {
 
 $installDirectory = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "Programs\Inklow"
 $shortcut = Join-Path ([Environment]::GetFolderPath("Programs")) "Inklow.lnk"
-$uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$productCode"
-if ((Test-Path -LiteralPath $installDirectory) -or (Test-Path -LiteralPath $uninstallKey) -or (Test-Path -LiteralPath $shortcut)) {
+$userSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$packedProductCode = Get-PackedProductCode $productCode
+# MSI's per-user InstallProperties live under HKLM, scoped by the installing
+# user's SID. HKLM storage does not imply MSIINSTALLCONTEXT_MACHINE.
+# Check only this exact product's registration locations, never other products.
+$uninstallKeys = @(
+    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$productCode"
+    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$productCode"
+    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Installer\UserData\$userSid\Products\$packedProductCode\InstallProperties"
+)
+$existingContexts = @(Read-ProductContexts)
+if ($existingContexts.Count -gt 0 -or (Test-Path -LiteralPath $installDirectory) -or
+    @($uninstallKeys | Where-Object { Test-Path -LiteralPath $_ }).Count -gt 0 -or (Test-Path -LiteralPath $shortcut)) {
     throw "Refusing to modify an existing Inklow installation. Use a disposable CI runner."
 }
 $isolated = Join-Path ([System.IO.Path]::GetTempPath()) ("inklow-installer-smoke-" + [guid]::NewGuid().ToString("N"))
@@ -189,6 +249,8 @@ $receipt = [ordered]@{
     msi_sha256 = $package.artifacts.msi.sha256; signing = "unsigned"
     external_profile = $isolated; sentinels = $sentinels
     install_exit_code = $null; uninstall_exit_code = $null
+    installer_user_sid = $userSid; installed_contexts = @(); uninstall_contexts = @()
+    arp_entries = @()
     portable_cli_version = $null; installed_cli_version = $null
     native_settings_visible = $false; native_settings_quit_invoked = $false; gui_exit_code = $null
     payload_verified = $false; uninstall_verified = $false; external_data_preserved = $false
@@ -217,13 +279,41 @@ try {
     Assert-Equal $installedMarker.version $Version "Installed bundle version"
     Assert-Equal $installedMarker.source_commit $SourceCommit "Installed bundle source"
     Assert-Equal $installedMarker.architecture "x86_64" "Installed bundle architecture"
-    $arp = Get-ItemProperty -LiteralPath $uninstallKey
-    Assert-Equal $arp.DisplayName "Inklow" "Uninstall entry name"
-    Assert-Equal $arp.DisplayVersion $Version "Uninstall entry version"
-    Assert-Equal ($arp.InstallLocation.TrimEnd('\')) ($installDirectory.TrimEnd('\')) "Uninstall entry install directory"
-    if ([string]::IsNullOrWhiteSpace($arp.DisplayIcon)) { throw "Uninstall entry has no icon." }
-    $displayIcon = ($arp.DisplayIcon -replace ',\s*-?\d+$', '').Trim('"')
-    if (-not (Test-Path -LiteralPath $displayIcon -PathType Leaf)) { throw "Uninstall entry icon is missing: $displayIcon" }
+    $receipt.installed_contexts = @(Read-ProductContexts)
+    Assert-Equal $receipt.installed_contexts.Count 1 "Exactly one installed MSI context"
+    $installedContext = $receipt.installed_contexts[0]
+    Assert-Equal $installedContext.context 2 "MSI per-user unmanaged context"
+    Assert-Equal $installedContext.state "5" "MSI installed product state"
+    Assert-Equal (Read-ProductInfo 2 "AssignmentType") "0" "MSI per-user assignment"
+    Assert-Equal (Read-ProductInfo 2 "InstalledProductName") "Inklow" "Registered MSI name"
+    Assert-Equal (Read-ProductInfo 2 "VersionString") $Version "Registered MSI version"
+    Assert-Equal ((Read-ProductInfo 2 "InstallLocation").TrimEnd('\')) ($installDirectory.TrimEnd('\')) "Registered MSI location"
+    $receipt.arp_entries = @(
+        foreach ($key in $uninstallKeys) {
+            if (Test-Path -LiteralPath $key) {
+                $entry = Get-ItemProperty -LiteralPath $key
+                [pscustomobject]@{ path = $key; values = $entry }
+            }
+        }
+    )
+    if ($receipt.arp_entries.Count -eq 0) { throw "Installed MSI has no Add/Remove Programs registration for this product/user." }
+    foreach ($entry in $receipt.arp_entries) {
+        $arp = $entry.values
+        Assert-Equal $arp.DisplayName "Inklow" "Uninstall entry name"
+        Assert-Equal $arp.DisplayVersion $Version "Uninstall entry version"
+        Assert-Equal ($arp.InstallLocation.TrimEnd('\')) ($installDirectory.TrimEnd('\')) "Uninstall entry install directory"
+        Assert-Equal $arp.WindowsInstaller 1 "Uninstall entry Windows Installer marker"
+        if ($arp.PSObject.Properties.Name -contains "SystemComponent" -and $arp.SystemComponent -ne 0) {
+            throw "MSI registration hides Inklow from Installed Apps."
+        }
+        if ([string]::IsNullOrWhiteSpace($arp.UninstallString) -or
+            $arp.UninstallString.IndexOf($productCode, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            throw "Uninstall entry does not reference this MSI product."
+        }
+        if ([string]::IsNullOrWhiteSpace($arp.DisplayIcon)) { throw "Uninstall entry has no icon." }
+        $displayIcon = ($arp.DisplayIcon -replace ',\s*-?\d+$', '').Trim('"')
+        if (-not (Test-Path -LiteralPath $displayIcon -PathType Leaf)) { throw "Uninstall entry icon is missing: $displayIcon" }
+    }
     if (-not (Test-Path -LiteralPath $shortcut -PathType Leaf)) { throw "Start Menu shortcut was not installed." }
     $shell = New-Object -ComObject WScript.Shell
     $link = $shell.CreateShortcut($shortcut)
@@ -279,14 +369,25 @@ finally {
             $gui.Kill()
             $gui.WaitForExit()
         }
-        if ($installAttempted -and (Test-Path -LiteralPath $uninstallKey)) {
-            $receipt.uninstall_exit_code = Invoke-Msi @("/x", $productCode) (Join-Path $reportDirectory "windows-msi-uninstall.log")
-            if ((Test-Path -LiteralPath $installDirectory) -or (Test-Path -LiteralPath $shortcut) -or (Test-Path -LiteralPath $uninstallKey)) {
-                throw "MSI uninstall left installed application files, shortcut or uninstall registration behind."
+    }
+    catch { $errors.Add("GUI failure cleanup: " + (Format-SmokeError $_)) }
+    try {
+        # ARP/metadata/GUI assertions can fail after a successful installation.
+        # Always use MSI's installed/advertised state to decide cleanup.
+        if ($installAttempted) {
+            $receipt.uninstall_contexts = @(Read-ProductContexts)
+            if ($receipt.uninstall_contexts.Count -gt 0) {
+                $receipt.uninstall_exit_code = Invoke-Msi @("/x", $productCode) (Join-Path $reportDirectory "windows-msi-uninstall.log")
             }
-            $receipt.uninstall_verified = $true
+            $remainingContexts = @(Read-ProductContexts)
+            $remainingKeys = @($uninstallKeys | Where-Object { Test-Path -LiteralPath $_ })
+            if ($remainingContexts.Count -gt 0 -or $remainingKeys.Count -gt 0 -or
+                (Test-Path -LiteralPath $installDirectory) -or (Test-Path -LiteralPath $shortcut)) {
+                throw "MSI uninstall left installed application files, shortcut or product registration behind."
+            }
+            if ($null -ne $receipt.uninstall_exit_code) { $receipt.uninstall_verified = $true }
+            elseif ($errors.Count -eq 0) { throw "Installed product has no MSI registration to uninstall." }
         }
-        elseif ($installAttempted -and $errors.Count -eq 0) { throw "Installed product has no uninstall registration." }
         foreach ($sentinel in $sentinels) { Assert-Hash $sentinel.path $sentinel.sha256 }
         $receipt.external_data_preserved = $true
     }
