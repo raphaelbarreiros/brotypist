@@ -138,3 +138,18 @@ The **actual installed normally launched GUI then passed the complete field/menu
 
 Local integrated suite: **252 passed, 1 skipped in 11.26 seconds**. The macOS skip is the intentionally absent Qt module, not a portable pass. [CI run 40077282052](https://github.com/renan-brasilio/inklow/actions/runs/40077282052) passed macOS, Windows, and Ubuntu at the source revision above, including regressions, actual settings/source inference, native packaging, frozen inference, and artifact upload. Windows/Linux remain headless CI evidence, not interactive desktop accessibility certification.
 
+## Native installer release — 2026-10-24
+
+[Published private release `v0.3.0`](https://github.com/renan-brasilio/inklow/releases/tag/v0.3.0) packages source **`510c5fb9dd0b869cec144c367b653630cd4b8d8b`**. It contains an Apple Silicon macOS DMG/ZIP and Linux amd64 DEB/TAR.GZ, plus `SHA256SUMS` and [the actual native receipts](https://github.com/renan-brasilio/inklow/releases/download/v0.3.0/release-manifest.json). The app itself remains named **Inklow**.
+
+| Native verification environment | Regression passes | Skips | Runtime proof |
+| --- | ---: | ---: | --- |
+| macOS arm64 | 252 | 1 | Real source/frozen CPU inference; native settings; read-only DMG mount, drag-install layout, copied-app signature/version/source checks, visible own-process settings and normal quit; profile/data preservation; detach |
+| Ubuntu 24.04 amd64, isolated self-hosted X11/D-Bus container | 275 | 1 | Real source/frozen CPU inference; actual DEB install and portable launch; mapped, visible/enabled AT-SPI settings with the real Linux bridge ready; purge removes program/integration while preserving external settings/model/history sentinels |
+
+The Linux caption failure was a smoke-harness assumption, not an application startup deadlock: Qt exposed `Inklow Settings — Inklow`. The final smoke uses process ownership, native window type/map state, positive geometry and accessible settings controls rather than a fixed caption. Missing GTK theme dependencies on the minimal build host were installed inside the disposable container; build prerequisites now name them explicitly. No production host packages or services were changed, and the owned container was stopped after evidence/artifact extraction.
+
+After publication, **all six assets were downloaded from GitHub**. `shasum -a 256 -c SHA256SUMS` passed for the four native packages and manifest. GitHub's asset digests matched the sealed local files; the release was observed published, not draft, with exactly the intended asset set. The repository remained private.
+
+**Limits:** Windows MSI/EXE packaging builds, but its corrected native installer/runtime smoke has not run; Windows binaries are intentionally unpublished and listed as pending in the README, notes and manifest. macOS distribution is ad-hoc signed, not Developer ID-signed or notarized. Linux verification used X11/Xvfb, not Wayland or third-party interactive typing. The Linux smoke explicitly uses scoped SIGTERM cleanup rather than claiming a normal-menu Quit test. Unfinished multilingual prediction/permission-status experiments were not included, and the installed `/Applications/Inklow.app` was not replaced by this release task.
+

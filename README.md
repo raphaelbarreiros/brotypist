@@ -146,7 +146,7 @@ Download a model explicitly with `inklow model download`; use `--no-select` to l
 ### Build applications and installers
 
 ```sh
-uv run inklow model download --preset tiny --no-select
+uv run inklow model download --preset tiny
 uv run python tools/build_app.py
 uv run python tools/smoke_bundle.py
 # Run the command matching the build host:
@@ -154,6 +154,8 @@ uv run python tools/package_macos.py --bundle dist/Inklow.app --output release -
 uv run python tools/package_windows.py --bundle dist/Inklow --output release --version 0.3.0
 uv run python tools/package_linux.py --bundle dist/Inklow --output release --version 0.3.0
 ```
+
+The example explicitly selects `tiny` for the inference smoke. Set `INKLOW_HOME` to a disposable profile directory for **all** these commands if you want to preserve your normal model selection; `--no-select` downloads weights but does not configure the smoke worker.
 
 The packagers consume a complete native build; they do not cross-compile. macOS uses `hdiutil`/`ditto`, Windows uses WiX, and Linux uses `dpkg-deb`. The workflow installs their build-only prerequisites and exercises the resulting installers.
 
@@ -163,7 +165,7 @@ Windows installer builds additionally require .NET SDK 8 and the pinned WiX tool
 dotnet tool install --global wix --version 5.0.2
 ```
 
-For Linux builds, install `dpkg-dev`, `python3-gi`, `python3-pyatspi`, `gir1.2-atspi-2.0`, and `gir1.2-glib-2.0` alongside the desktop libraries. Build with CPython 3.12 on Ubuntu 24.04 so the distro GI extension ABI matches. The [CI workflow](.github/workflows/ci.yml) lists the complete build prerequisites. Packaged Linux applications include the Python bindings; end users do not need Python packages.
+For Linux builds, install `dpkg-dev`, `python3-gi`, `python3-pyatspi`, `gir1.2-atspi-2.0`, `gir1.2-glib-2.0`, and `libgtk-3-0t64` alongside the desktop libraries. GTK is needed to resolve the bundled Qt native-theme plugin's ELF dependencies even on a minimal X11 build host. Build with CPython 3.12 on Ubuntu 24.04 so the distro GI extension ABI matches. The [CI workflow](.github/workflows/ci.yml) lists the complete build prerequisites. Packaged Linux applications include the Python bindings; end users do not need Python packages.
 
 For stable local macOS signing, supply the same existing Keychain identity on each build:
 
