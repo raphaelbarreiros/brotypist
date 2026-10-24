@@ -78,7 +78,7 @@ Windows/Linux have no native browser URL observation or screenshot context in th
 
 ### macOS permissions
 
-Enable Accessibility and Input Monitoring for **`/Applications/Inklow.app`** in System Settings → Privacy & Security. Terminal/Python permissions do **not** prove that the app launched normally has permission. If a stale Inklow entry points at a removed build, remove that entry and add the current app with the `+` control. Setup displays actual app-process status and opens the appropriate OS pane; no grant is automated. Restart Inklow after changing permission. The menu explicitly identifies missing required permissions. Screen Recording is optional and only needed for opted-in screen context.
+Enable **Device Control and Data Access** (called **Accessibility** on older macOS) and **Input Monitoring** for **`/Applications/Inklow.app`** in System Settings → Privacy & Security. The separate Accessibility sidebar page is not the app-permission list. Terminal/Python permissions do **not** prove that the app launched normally has permission. If a stale Inklow entry points at a removed build, remove that entry and add the current app with the `+` control. Setup uses the underlying Accessibility API name and displays actual app-process status; no grant is automated. Restart Inklow after changing permission. The menu explicitly identifies missing required permissions. Screen Recording is optional and only needed for opted-in screen context.
 
 ### Linux prerequisites
 

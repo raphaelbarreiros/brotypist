@@ -40,5 +40,8 @@
   },
   "screenshots": ["input-empty-badge.png", "input-native-suggestion.png", "input-field-card.png"],
   "cross_platform_ci_url": "https://github.com/renan-brasilio/inklow/actions/runs/40071249762",
-  "cross_platform_ci_status_at_receipt_creation": "running"
+  "cross_platform_ci_conclusion": "success",
+  "cross_platform_ci_successful_jobs": ["verify (ubuntu-latest)", "verify (windows-latest)", "verify (macos-latest)"],
+  "observed_macos_permission_page_label": "Device Control and Data Access",
+  "permission_label_observation": "Exact static label observed in System Settings AX metadata; the separate Accessibility sidebar is not the grant list"
 }
