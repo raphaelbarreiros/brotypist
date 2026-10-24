@@ -73,21 +73,24 @@ def publish(args) -> None:
     if args.tag != 'v' + app_version:
         raise ValueError('Release tag does not match the application version.')
     source = commit(args.commit)
+    requested = set(args.targets)
+    if len(requested) != len(args.targets):
+        raise ValueError('Release targets must be unique.')
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', args.repo):
         raise ValueError('Use an explicit owner/repository target.')
     repo = json.loads(gh('api', f'repos/{args.repo}').stdout)
     if not repo.get('private'):
         raise ValueError('This project release workflow requires the repository to remain private.')
     manifests = sorted(args.inputs.glob('*/build-manifest.json'))
-    if len(manifests) != len(TARGET_FILES):
-        raise ValueError('A successful native manifest for every release target is required.')
+    if len(manifests) != len(requested):
+        raise ValueError('A successful native manifest for every explicitly requested target is required.')
     targets = set()
     native = []
     paths = []
     for path in manifests:
         value = json.loads(path.read_text(encoding='utf-8'))
         target = value.get('target')
-        if target not in TARGET_FILES or target in targets:
+        if target not in requested or target in targets:
             raise ValueError('Duplicate or unexpected release target.')
         targets.add(target)
         if value.get('source_commit') != source or value.get('version') != app_version:
@@ -110,6 +113,7 @@ def publish(args) -> None:
         'created_at': datetime.now(timezone.utc).isoformat(),
         'signing': 'Windows unsigned; macOS ad-hoc signed, not notarized. No distribution-signing identity is configured by this workflow.',
         'targets': native,
+        'unpublished_targets': sorted(set(TARGET_FILES) - requested),
     }, indent=2) + '\n', encoding='utf-8')
     paths.append(release_manifest)
     sums = args.output / 'SHA256SUMS'
@@ -130,19 +134,26 @@ def publish(args) -> None:
         if obj['type'] != 'commit' or obj['sha'] != source:
             raise ValueError('The existing release tag points to a different source commit.')
 
+    platform_rows = {
+        'macos-arm64': '| macOS 15+, Apple Silicon | `.dmg` | `.zip` |\n',
+        'windows-x86_64': '| Windows 10/11, x86-64 | `.msi` (app + CLI EXEs) | `.zip` |\n',
+        'linux-x86_64': '| Ubuntu 24.04+/Debian 13+, x86-64/X11 | `.deb` | `.tar.gz` |\n',
+    }
+    unpublished = set(TARGET_FILES) - requested
+    unavailable_note = ('**Not published in this release:** ' + ', '.join(sorted(unpublished))
+                        + '; native verification remains pending.\n\n') if unpublished else ''
     notes = (
         f'Native installers for Inklow {app_version}.\n\n'
         '| Platform | Installer | Portable |\n| --- | --- | --- |\n'
-        '| macOS 15+, Apple Silicon | `.dmg` | `.zip` |\n'
-        '| Windows 10/11, x86-64 | `.msi` (app + CLI EXEs) | `.zip` |\n'
-        '| Ubuntu 24.04+/Debian 13+, x86-64/X11 | `.deb` | `.tar.gz` |\n\n'
-        'Download an installer under **Assets**. Windows/Linux local inference requires AVX2, FMA, and F16C. '
+        + ''.join(platform_rows[target] for target in TARGET_FILES if target in requested) + '\n'
+        + unavailable_note
+        + 'Download an installer under **Assets**. Windows/Linux local inference requires AVX2, FMA, and F16C. '
         'Models are separate explicit downloads; no model weights, settings, or writing history are bundled. '
         'Upgrades and removal preserve external per-user data.\n\n'
         '**Signing:** Windows is unsigned. macOS is ad-hoc signed, not Developer ID-signed or notarized. '
         'Do not disable OS security protections globally. Verify downloads against `SHA256SUMS`.\n\n'
-        '**Verification:** native regression, settings, source/frozen inference, and installer mount/install, '
-        'launch and cleanup checks passed before publication. See `release-manifest.json` for actual receipts. '
+        '**Verification:** the published targets passed native regression, settings, source/frozen inference, '
+        'and installer mount/install, launch and cleanup checks. See `release-manifest.json` for actual receipts. '
         'These checks are not certification of interactive typing in every third-party application.\n\n'
         f'Source: `{source}`. This initial installer release uses the verified 0.3 code line; '
         'unfinished multilingual prediction experiments are not included.\n'
@@ -175,6 +186,8 @@ def main() -> None:
     release.add_argument('--tag', required=True)
     release.add_argument('--commit', required=True)
     release.add_argument('--repo', required=True)
+    release.add_argument('--targets', nargs='+', choices=TARGET_FILES, default=list(TARGET_FILES),
+                         help='Explicit verified target set; defaults to all platforms. Never infers a partial release.')
     args = parser.parse_args()
     if args.command == 'version':
         current = version()

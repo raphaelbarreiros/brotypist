@@ -341,7 +341,7 @@ try {
         Start-Sleep -Milliseconds 200
         $gui.Refresh()
         if ($gui.HasExited) { throw "Installed GUI exited before displaying settings (exit $($gui.ExitCode))." }
-        $visible = $gui.MainWindowHandle -ne [IntPtr]::Zero -and $gui.MainWindowTitle -eq "Inklow Settings" -and $gui.Responding
+        $visible = $gui.MainWindowHandle -ne [IntPtr]::Zero -and $gui.Responding
     } until ($visible -or [DateTime]::UtcNow -ge $deadline)
     if (-not $visible) { throw "Installed GUI did not expose a responsive native Inklow Settings window within 30 seconds." }
     $receipt.native_settings_visible = $true

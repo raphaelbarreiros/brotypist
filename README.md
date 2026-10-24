@@ -15,7 +15,7 @@ Download the installer matching your operating system from **Releases → Assets
 | Platform | Installer | Portable package | Requirements |
 | --- | --- | --- | --- |
 | macOS, Apple Silicon | `Inklow-<version>-macos-arm64.dmg` | `.zip` | macOS 15 or newer; Apple Silicon |
-| Windows, x86-64 | `Inklow-<version>-windows-x86_64.msi` | `.zip`, containing the app and CLI EXEs | Windows 10/11; AVX2, FMA, and F16C for bundled local inference |
+| Windows, x86-64 | **Pending native verification**; MSI packager available in source | Planned `.zip`, containing the app and CLI EXEs | Windows 10/11; AVX2, FMA, and F16C for bundled local inference |
 | Linux, x86-64 | `Inklow-<version>-linux-amd64.deb` | `.tar.gz` | Ubuntu 24.04+/Debian 13+, an X11 desktop and D-Bus; AVX2, FMA, and F16C |
 
 The Windows EXEs are **not standalone files**: keep the entire portable ZIP together. ARM Windows/Linux, Intel macOS, older distributions, and other CPU baselines require a build on the target platform.
@@ -180,6 +180,12 @@ GitHub Actions checks regressions, launches actual settings, runs source/frozen 
 To publish, update the version in `pyproject.toml` and `src/inklow/__init__.py`, commit the source, then run **Actions → Cross-platform checks → Run workflow** with `release_tag` set to the matching `v<version>`. An empty input runs checks only. Pushing a matching version tag also publishes after verification. Existing tags/releases are never overwritten.
 
 For Git-only publication without API workflow-dispatch access, push the committed release source to `release/<version>` (for example, `git push origin HEAD:refs/heads/release/0.3.0`). This explicitly requests a release; the workflow creates the matching version tag only after every platform passes. Use a new version after an already-published release.
+
+Self-hosted/manual releases use the same `tools/package_<platform>.py` and `tools/smoke_<platform>_*` checks on disposable native desktops. Windows verification requires an interactive Windows user session; Wine or a CLI version check is not a substitute. Linux installer smoke requires passwordless sudo **inside the disposable test environment**, X11/Xvfb and a private D-Bus session.
+
+After all checks for a target pass, seal its two native files with `tools/release_assets.py manifest --assets <target-directory> --target <target> --commit <full-source-sha> --receipt <native-smoke.json>`. Keep one target directory per platform under a common input directory. `publish --inputs <directory> --output <new-directory> --tag v<version> --commit <full-source-sha> --repo renan-brasilio/inklow` verifies the transferred files before draft-first publication.
+
+The publisher defaults to **all three targets**. An intentionally reduced release must explicitly pass `--targets` and lists omitted targets in its release notes and manifest; missing/failed native checks never silently become a partial release. Windows installer publication is currently deferred pending its native runtime checks.
 
 The initial installer release uses the verified 0.3 code line. Unfinished model/prompt experiments are not silently included in release binaries. See workflow inputs and release notes for the exact source revision.
 

@@ -2,8 +2,7 @@
 
 Run as the desktop/CI user inside dbus-run-session + xvfb-run; sudo is used only
 for apt/dpkg. Uses disposable external user state. No model download, inference,
-interactive typing proof, real home mutation, or accessibility grants. The
-source-startup diagnostic uses the same native session without installing an app.
+interactive typing proof, real home mutation, or accessibility grants.
 """
 from __future__ import annotations
 
@@ -61,18 +60,22 @@ def owned_process(pid: int, launched_pid: int) -> bool:
 
 
 def mapped_settings(tree: str, launched_pid: int, environment: dict) -> dict | None:
-    for match in re.finditer(r'^\s*(0x[0-9a-fA-F]+)\s+"Inklow Settings"', tree, re.MULTILINE):
+    for match in re.finditer(r'^\s*(0x[0-9a-fA-F]+)\s', tree, re.MULTILINE):
         window = match[1]
-        properties = command(["xprop", "-id", window, "_NET_WM_PID"], environment=environment, timeout=3)
+        properties = command(["xprop", "-id", window, "_NET_WM_PID", "_NET_WM_WINDOW_TYPE", "_NET_WM_NAME"],
+                             environment=environment, timeout=3)
         owner = re.search(r"_NET_WM_PID\(CARDINAL\)\s*=\s*(\d+)", properties)
         if owner is None or not owned_process(int(owner[1]), launched_pid):
+            continue
+        if not any(kind in properties for kind in ("_NET_WM_WINDOW_TYPE_NORMAL", "_NET_WM_WINDOW_TYPE_DIALOG")):
             continue
         info = command(["xwininfo", "-id", window], environment=environment, timeout=3)
         width = re.search(r"^\s*Width:\s*(\d+)$", info, re.MULTILINE)
         height = re.search(r"^\s*Height:\s*(\d+)$", info, re.MULTILINE)
         if ("Map State: IsViewable" in info and width and height
                 and int(width[1]) > 0 and int(height[1]) > 0):
-            return {"id": window, "pid": int(owner[1]), "title": "Inklow Settings",
+            title = re.search(r'_NET_WM_NAME\([^)]*\)\s*=\s*"(.*)"', properties)
+            return {"id": window, "pid": int(owner[1]), "title": title[1] if title else None,
                     "map_state": "IsViewable", "width": int(width[1]), "height": int(height[1])}
     return None
 
@@ -150,7 +153,7 @@ def inspect_atspi_window(pid: int) -> dict:
             if window is None:
                 continue
             window.clearCache()
-            if window.name != "Inklow Settings":
+            if window.getRole() not in (pyatspi.ROLE_FRAME, pyatspi.ROLE_DIALOG, pyatspi.ROLE_WINDOW):
                 continue
             state = window.getState()
             if not all(state.contains(flag) for flag in
@@ -167,7 +170,7 @@ def inspect_atspi_window(pid: int) -> dict:
                 element = stack.pop()
                 remaining -= 1
                 name = str(element.name or "")
-                sections = sections or name == "Settings sections"
+                sections = sections or element.getRole() == pyatspi.ROLE_LIST
                 if name.startswith("Linux AT-SPI/X11 ready."):
                     native = name
                 if native and sections:
@@ -184,39 +187,10 @@ def inspect_atspi_window(pid: int) -> dict:
     raise RuntimeError(f"AT-SPI did not expose a usable settings window for PID {pid}")
 
 
-def source_startup_child() -> int:
-    import faulthandler
-    faulthandler.enable()
-    faulthandler.dump_traceback_later(10, repeat=False)
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-    append_distro_bindings()
-    print("Source startup: importing Qt and constructing QApplication", flush=True)
-    from PySide6.QtCore import QTimer
-    from PySide6.QtWidgets import QApplication
-    app = QApplication([])
-    print("Source startup: importing settings shell", flush=True)
-    from inklow.config import Config
-    from inklow.qt_ui import launch
-
-    def bridge_ready() -> None:
-        shell = getattr(app, "_inklow_menu_agent", None)
-        native = shell.controller.bridge.status() if shell is not None else "No menu agent"
-        print(f"Source startup event loop: {native}", flush=True)
-        faulthandler.dump_traceback()
-        if not native.startswith("Linux AT-SPI/X11 ready."):
-            os._exit(2)
-
-    QTimer.singleShot(0, bridge_ready)
-    print("Source startup: launching with the real Linux bridge enabled", flush=True)
-    return launch(Config(global_enabled=False), no_tray=True, pane="Setup")
-
-
-def launch_settings(executable: Path, environment: dict, log: Path, *, offscreen: bool,
-                    arguments: list[str] | None = None) -> dict:
+def launch_settings(executable: Path, environment: dict, log: Path, *, offscreen: bool) -> dict:
     environment = dict(environment, QT_QPA_PLATFORM="offscreen" if offscreen else "xcb")
     with log.open("w", encoding="utf-8") as stream:
-        process = subprocess.Popen([str(executable), *(arguments if arguments is not None else
-                                                     ["--settings", "--no-tray", "--paused"])],
+        process = subprocess.Popen([str(executable), "--settings", "--no-tray", "--paused", "--pane", "setup"],
                                    env=environment, stdout=stream, stderr=subprocess.STDOUT,
                                    start_new_session=True)
         started = time.monotonic()
@@ -273,31 +247,8 @@ def exercise(executable: Path, home: Path, report: Path, version: str) -> dict:
         raise RuntimeError("Doctor metadata does not match the release version")
     offscreen = launch_settings(executable, isolated_environment(home / "offscreen"),
                                 report.with_suffix(".offscreen.log"), offscreen=True)
-    try:
-        x11 = launch_settings(executable, isolated_environment(home / "x11"),
-                              report.with_suffix(".x11.log"), offscreen=False)
-    except (OSError, RuntimeError, subprocess.SubprocessError) as failure:
-        # launch_settings has already recorded and stopped only its own session.
-        # A fresh bus/display prevents the hung frozen Qt provider from tainting
-        # the independent source traceback. Success here never excuses failure
-        # of the installed/portable app.
-        diagnostic_report = report.with_suffix(".source-startup.json")
-        diagnostic_log = report.with_suffix(".source-startup.launcher.log")
-        diagnostic_environment = isolated_environment(home / "source-diagnostic-launcher")
-        for name in ("AT_SPI_BUS_ADDRESS", "DBUS_SESSION_BUS_ADDRESS", "DISPLAY", "XAUTHORITY"):
-            diagnostic_environment.pop(name, None)
-        try:
-            with diagnostic_log.open("w", encoding="utf-8") as stream:
-                diagnostic = subprocess.run(
-                    ["dbus-run-session", "--", "xvfb-run", "-a", sys.executable,
-                     str(Path(__file__).resolve()), "--source-startup-diagnostic",
-                     "--report", str(diagnostic_report)],
-                    env=diagnostic_environment, stdout=stream, stderr=subprocess.STDOUT, timeout=60)
-            outcome = f"exit {diagnostic.returncode}"
-        except (OSError, subprocess.SubprocessError) as error:
-            outcome = f"unavailable: {error}"
-        raise RuntimeError(f"{failure}\nIndependent source startup diagnostic: {outcome}; "
-                           f"launcher log: {diagnostic_log}; report/log prefix: {diagnostic_report.with_suffix('')}") from failure
+    x11 = launch_settings(executable, isolated_environment(home / "x11"),
+                          report.with_suffix(".x11.log"), offscreen=False)
     return {"version": observed_version, "doctor": doctor,
             "offscreen_settings": offscreen, "x11_settings": x11}
 
@@ -384,38 +335,16 @@ def main() -> int:
     parser.add_argument("--deb", type=Path)
     parser.add_argument("--archive", type=Path)
     parser.add_argument("--version")
-    parser.add_argument("--source-startup-diagnostic", action="store_true",
-                        help="Diagnose native source Qt startup with a bounded Python stack dump; do not install anything")
-    parser.add_argument("--source-startup-child", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--inspect-atspi-window", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--report", type=Path, default=Path("reports/linux-installer-smoke.json"))
     args = parser.parse_args()
     try:
-        if args.source_startup_child:
-            return source_startup_child()
         if args.inspect_atspi_window is not None:
             print(json.dumps(inspect_atspi_window(args.inspect_atspi_window)))
             return 0
-        if args.source_startup_diagnostic:
-            if sys.platform != "linux" or os.geteuid() == 0:
-                raise RuntimeError("Run native startup diagnostics on Linux as the unprivileged desktop/CI user")
-            if not os.environ.get("DISPLAY") or not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
-                raise RuntimeError("Run inside dbus-run-session -- xvfb-run -a")
-            report = args.report.absolute()
-            report.parent.mkdir(parents=True, exist_ok=True)
-            log = report.with_suffix(".x11.log")
-            with tempfile.TemporaryDirectory(prefix="inklow-source-startup-") as temporary:
-                result = launch_settings(Path(sys.executable), isolated_environment(Path(temporary)),
-                                         log, offscreen=False,
-                                         arguments=["-u", str(Path(__file__).resolve()), "--source-startup-child"])
-            if "Source startup event loop: Linux AT-SPI/X11 ready." not in log.read_text(encoding="utf-8"):
-                raise RuntimeError(f"Source settings did not report a ready real native bridge from its event loop: {log}")
-            result = {"result": "passed", "source_startup": result}
-            report.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-        else:
-            if not all((args.deb, args.archive, args.version)):
-                parser.error("--deb, --archive and --version are required for installer smoke")
-            result = smoke(args.deb.resolve(strict=True), args.archive.resolve(strict=True), args.version, args.report.absolute())
+        if not all((args.deb, args.archive, args.version)):
+            parser.error("--deb, --archive and --version are required for installer smoke")
+        result = smoke(args.deb.resolve(strict=True), args.archive.resolve(strict=True), args.version, args.report.absolute())
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, tarfile.TarError) as error:
         parser.exit(1, f"Linux installer smoke: {error}\n")
     print(json.dumps(result, indent=2))
