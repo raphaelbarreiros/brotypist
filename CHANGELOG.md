@@ -9,6 +9,7 @@
 - Corroborate native surrounding text with privacy-gated AT-SPI metadata and exact current text/caret before insertion. Separate stable field/context identity from changing revision tokens; retain word-by-word acceptance while rejecting stale snapshots, selections, protected fields, and changed focus.
 - Confirm the resulting target text before reporting an insertion as accepted. Keep atomic replacement, selected-text synonyms, and emoji rewriting disabled on Linux.
 - Add explicit per-user input-method registration and a native KDE selector link without selecting the method, altering the desktop session, or selecting/downloading a model automatically. Document the tested text-input-v3 path and unsupported/incomplete protocol contexts; published 0.3.0 installers remain unchanged.
+- Bootstrap missing KWin context state asynchronously, first establishing purpose and then safe surrounding state. Bound resynchronization to those initial phases, guard each reply against context changes, and do not alter input-method selection, visibility mode, protected-field policy, or native snapshot validation.
 
 ## 0.3.1 — 2026-10-24
 

@@ -327,8 +327,8 @@ def im() -> int:
 def target() -> int:
     root, output = isolation(display=True)
     os.environ["QT_QPA_PLATFORM"] = "wayland"
-    from PySide6.QtCore import ClassInfo, QEvent, QObject, Qt, QTimer, Slot
-    from PySide6.QtDBus import QDBus, QDBusConnection, QDBusMessage
+    from PySide6.QtCore import ClassInfo, QEvent, QEventLoop, QObject, Qt, QTimer, Slot
+    from PySide6.QtDBus import QDBusConnection, QDBusMessage, QDBusPendingCallWatcher
     from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QVBoxLayout, QWidget
 
     app = QApplication(["inklow-wayland-smoke-target"])
@@ -395,25 +395,84 @@ def target() -> int:
     def bus_call(service, path, interface, method, *arguments):
         message = QDBusMessage.createMethodCall(service, path, interface, method)
         message.setArguments(list(arguments))
-        # The observer queries this target's AT-SPI connection while replying.
-        # Keep its GUI/D-Bus events running instead of deadlocking the oracle.
-        reply = bus.call(message, QDBus.CallMode.BlockWithGui, 1500)
+        # The observer reads our AT-SPI endpoint while replying. BlockWithGui
+        # can exclude those deliveries; explicitly dispatch all target events.
+        watcher = QDBusPendingCallWatcher(bus.asyncCall(message, 1500), app)
+        if not watcher.isFinished():
+            loop = QEventLoop()
+            watcher.finished.connect(loop.quit)
+            loop.exec(QEventLoop.ProcessEventsFlag.AllEvents)
+        reply = watcher.reply()
+        watcher.deleteLater()
         if reply.type() == QDBusMessage.MessageType.ErrorMessage:
             raise RuntimeError(f"{service}.{method}: {reply.errorName()}: {reply.errorMessage()}")
         return reply.arguments()
 
-    def rpc(op, **arguments):
+    ipc = {"state": None, "polling": False, "command": False, "closing": False}
+    watchers = set()
+
+    def send_rpc(op, arguments, completed):
         payload = {"token": os.environ["INKLOW_SMOKE_TOKEN"], "op": op, **arguments}
-        reply = json.loads(bus_call(IM_SERVICE, "/Smoke", INTERFACE, "request", json.dumps(payload))[0])
-        if not reply["ok"]:
-            raise RuntimeError(reply["error"])
-        return reply["value"]
+        message = QDBusMessage.createMethodCall(IM_SERVICE, "/Smoke", INTERFACE, "request")
+        message.setArguments([json.dumps(payload)])
+        watcher = QDBusPendingCallWatcher(bus.asyncCall(message, 1500), app)
+        watchers.add(watcher)
+
+        def replied(call):
+            watchers.discard(call)
+            reply = call.reply()
+            call.deleteLater()
+            try:
+                if reply.type() == QDBusMessage.MessageType.ErrorMessage:
+                    raise RuntimeError(reply.errorName() + ": " + reply.errorMessage())
+                data = json.loads(reply.arguments()[0])
+                if not data["ok"]:
+                    raise RuntimeError(data["error"])
+            except Exception as error:
+                completed(None, str(error))
+            else:
+                completed(data["value"], None)
+
+        watcher.finished.connect(replied)
+
+    def poll_state():
+        if ipc["polling"] or ipc["command"] or ipc["closing"]:
+            return
+        ipc["polling"] = True
+
+        def received(value, error):
+            ipc["polling"] = False
+            if error is None:
+                ipc["state"] = value
+
+        send_rpc("state", {}, received)
+
+    poll_timer = QTimer(app)
+    poll_timer.timeout.connect(poll_state)
+    poll_timer.start(100)
+
+    def command(op, arguments):
+        ipc["command"] = True
+        result = {}
+        try:
+            yield from wait_for(lambda: not ipc["polling"], "previous asynchronous state reply", 3)
+            def received(value, error):
+                result.update(done=True, value=value, error=error)
+            send_rpc(op, arguments, received)
+            yield from wait_for(lambda: result.get("done"), "asynchronous " + op + " reply", 3)
+            if result["error"] is not None:
+                raise RuntimeError(result["error"])
+            return result["value"]
+        finally:
+            ipc["command"] = False
+
+    def rpc(op, **arguments):
+        # State predicates use actual asynchronous observations; commands yield
+        # the target GUI thread so the agent can read its AT-SPI endpoint.
+        return ipc["state"] if op == "state" else command(op, arguments)
 
     def state_or_none():
-        try:
-            return rpc("state")
-        except RuntimeError:
-            return None
+        return ipc["state"]
 
     def check(name, condition, **evidence):
         report["checks"].append({"name": name, "passed": bool(condition), **evidence})
@@ -452,7 +511,7 @@ def target() -> int:
         return (yield from wait_for(lambda: eligible(text, field), "matching safe native + AT-SPI context"))
 
     def offer():
-        check("R6 production force command accepts safe context", rpc("invoke", action="force"))
+        check("R6 production force command accepts safe context", (yield from rpc("invoke", action="force")))
 
         def ready():
             state = rpc("state")
@@ -560,7 +619,7 @@ callDBus(%s, '/Smoke', %s, 'Scene', JSON.stringify({label:%s, rows:rows}));
             report["limits"].append("Mapped scene evidence unavailable: " + str(error))
 
         # R5: actual compositor keyboard-grab navigation, not _menu_key calls.
-        check("R5 production native menu opens", rpc("menu"))
+        check("R5 production native menu opens", (yield from rpc("menu")))
         menu_state = yield from wait_for(lambda: rpc("state") if rpc("state")["panel"]["menu"]
                                          and not rpc("state")["panel"]["pending"] else None,
                                          "attached real native menu")
@@ -575,7 +634,7 @@ callDBus(%s, '/Smoke', %s, 'Scene', JSON.stringify({label:%s, rows:rows}));
                                     "native menu selection follows compositor key")
             injector.chord(1)  # KEY_ESC closes the menu, not the input context.
         else:
-            check("R5 direct menu close (not keyboard proof)", rpc("menu_close"))
+            check("R5 direct menu close (not keyboard proof)", (yield from rpc("menu_close")))
         yield from wait_for(lambda: not rpc("state")["panel"]["menu"], "native menu dismissed")
         check("R5 dismissal preserves offered completion", rpc("state")["suggestion"] == offered["suggestion"])
 
@@ -591,7 +650,7 @@ callDBus(%s, '/Smoke', %s, 'Scene', JSON.stringify({label:%s, rows:rows}));
         if injector is not None:
             injector.chord(15)  # KEY_TAB: acceptance must consume both edges.
         else:
-            check("R6 direct Controller word invocation (not keyboard proof)", rpc("invoke", action="word"))
+            check("R6 direct Controller word invocation (not keyboard proof)", (yield from rpc("invoke", action="word")))
         yield from wait_for(lambda: writing.text() == PREFIX + word, "exact first native word commit")
         yield 0.25
         check("R6 actual Qt input-method commit equals offered word", commits[im_start:] == [
@@ -606,7 +665,7 @@ callDBus(%s, '/Smoke', %s, 'Scene', JSON.stringify({label:%s, rows:rows}));
               before=snapshot, after=advanced["snapshot"])
         if remaining:
             yield from wait_for(lambda: rpc("state")["suggestion"] == remaining, "remaining offer survives native revision")
-            check("R2 full remaining acceptance", rpc("invoke", action="all"))
+            check("R2 full remaining acceptance", (yield from rpc("invoke", action="all")))
             yield from wait_for(lambda: writing.text() == PREFIX + word + remaining, "exact continued native completion")
             check("R2 full resulting synthetic string", writing.text() == PREFIX + word + remaining,
                   expected=PREFIX + word + remaining, actual=writing.text())
@@ -616,33 +675,33 @@ callDBus(%s, '/Smoke', %s, 'Scene', JSON.stringify({label:%s, rows:rows}));
 
         # R1/R4: each saved snapshot comes from a real compositor revision.
         yield from prepare("Synthetic stale revision boundary")
-        saved = rpc("save", name="stale")
+        saved = yield from rpc("save", name="stale")
         writing.insert(" changed")
         yield from wait_for(lambda: eligible("Synthetic stale revision boundary changed"), "edited revision")
         start = len(commits)
-        refused = rpc("insert_saved", name="stale")
+        refused = yield from rpc("insert_saved", name="stale")
         yield 0.2
         check("R1 stale revision refuses before actual commit", refused is False and not commits[start:]
               and writing.text() == "Synthetic stale revision boundary changed", saved=saved,
               actual=writing.text())
 
         yield from prepare(PREFIX)
-        rpc("save", name="selection")
+        yield from rpc("save", name="selection")
         # Keep a real active offer while changing the native selection.
         yield from offer()
         writing.setSelection(0, 9)
         app.inputMethod().update(Qt.InputMethodQuery.ImSurroundingText | Qt.InputMethodQuery.ImCursorPosition | Qt.InputMethodQuery.ImAnchorPosition | Qt.InputMethodQuery.ImCurrentSelection)
         yield from wait_for(lambda: rpc("state")["snapshot"] is None, "native selected-text refusal")
         start = len(commits)
-        refused = rpc("insert_saved", name="selection")
-        accepted = rpc("invoke", action="all")
+        refused = yield from rpc("insert_saved", name="selection")
+        accepted = yield from rpc("invoke", action="all")
         yield 0.2
         check("R1 selection refuses capture and acceptance", refused is False and accepted is False
               and not commits[start:] and writing.text() == PREFIX
               and writing.selectedText() == PREFIX[:9], actual=writing.text(), selected=writing.selectedText())
 
         yield from prepare(PREFIX)
-        rpc("save", name="protected")
+        yield from rpc("save", name="protected")
         yield from offer()
         writing.setEchoMode(QLineEdit.EchoMode.Password)
         writing.setInputMethodHints(Qt.InputMethodHint.ImhHiddenText | Qt.InputMethodHint.ImhSensitiveData
@@ -653,9 +712,9 @@ callDBus(%s, '/Smoke', %s, 'Scene', JSON.stringify({label:%s, rows:rows}));
         yield from wait_for(lambda: rpc("state")["snapshot"] is None,
                             "real password control refuses capture")
         start = len(commits)
-        refused = rpc("insert_saved", name="protected")
-        accepted = rpc("invoke", action="all")
-        forced = rpc("invoke", action="force")
+        refused = yield from rpc("insert_saved", name="protected")
+        accepted = yield from rpc("invoke", action="all")
+        forced = yield from rpc("invoke", action="force")
         yield 0.2
         protected = rpc("state")
         check("R1 real password refuses capture, commit and generation", refused is False and accepted is False
@@ -665,7 +724,7 @@ callDBus(%s, '/Smoke', %s, 'Scene', JSON.stringify({label:%s, rows:rows}));
         # Exercise native sensitive-data rejection on re-entering an ordinary
         # editable control; password exclusion above is independently AT-SPI-gated.
         yield from prepare(PREFIX)
-        rpc("save", name="sensitive")
+        yield from rpc("save", name="sensitive")
         yield from offer()
         writing.setInputMethodHints(Qt.InputMethodHint.ImhSensitiveData | Qt.InputMethodHint.ImhNoPredictiveText)
         app.inputMethod().update(Qt.InputMethodQuery.ImHints)
@@ -678,9 +737,9 @@ callDBus(%s, '/Smoke', %s, 'Scene', JSON.stringify({label:%s, rows:rows}));
         yield from wait_for(lambda: rpc("state")["native_state"] is None and rpc("state")["snapshot"] is None,
                             "native sensitive-data hint clears readiness")
         start = len(commits)
-        refused = rpc("insert_saved", name="sensitive")
-        accepted = rpc("invoke", action="all")
-        forced = rpc("invoke", action="force")
+        refused = yield from rpc("insert_saved", name="sensitive")
+        accepted = yield from rpc("invoke", action="all")
+        forced = yield from rpc("invoke", action="force")
         yield 0.2
         sensitive = rpc("state")
         check("R1 native sensitive hint refuses capture, commit and generation",
@@ -696,7 +755,7 @@ callDBus(%s, '/Smoke', %s, 'Scene', JSON.stringify({label:%s, rows:rows}));
                   events=delivered)
 
         yield from prepare("Synthetic original forwarding boundary")
-        rpc("invoke", action="dismiss")
+        yield from rpc("invoke", action="dismiss")
         if injector is not None:
             for label, modifiers, expected_modifier in (("Tab", (), 0), ("Shift+Tab", (42,), int(Qt.KeyboardModifier.ShiftModifier.value))):
                 start = len(events)
@@ -707,10 +766,10 @@ callDBus(%s, '/Smoke', %s, 'Scene', JSON.stringify({label:%s, rows:rows}));
                       and all(e["modifiers"] == expected_modifier for e in delivered), events=delivered)
 
         yield from prepare("Synthetic focus context refusal boundary")
-        saved = rpc("save", name="focus")
+        saved = yield from rpc("save", name="focus")
         other_before = yield from prepare("Synthetic other focused native field", other)
         start = len(commits)
-        refused = rpc("insert_saved", name="focus")
+        refused = yield from rpc("insert_saved", name="focus")
         yield 0.2
         check("R1 old native field context cannot commit to new focus", refused is False and not commits[start:]
               and other.text() == "Synthetic other focused native field"
@@ -718,7 +777,7 @@ callDBus(%s, '/Smoke', %s, 'Scene', JSON.stringify({label:%s, rows:rows}));
               and other_before["snapshot"]["field_id"] != saved["field_id"],
               before=saved, after=other_before["snapshot"])
         report["final_native_state"] = rpc("state")
-        stopped = rpc("stop")
+        stopped = yield from rpc("stop")
         check("R4 owned worker and native client stop", stopped["native_client_closed"]
               and stopped["read_notifier_removed"] and stopped["status"]["worker_pid"] is None
               and stopped["worker_pid"] is not None and stopped["worker_returncode"] is not None,
@@ -733,22 +792,31 @@ callDBus(%s, '/Smoke', %s, 'Scene', JSON.stringify({label:%s, rows:rows}));
         if finished:
             return
         finished = True
+        ipc["closing"] = True
+        poll_timer.stop()
         if error is not None:
             report["result"] = "incomplete" if isinstance(error, ProofUnavailable) else "failed"
             report["limits"].append(f"{type(error).__name__}: {error}")
             report["traceback"] = traceback.format_exc()
-            try:
-                report["failure_native_state"] = rpc("state")
-                report["failure_stop"] = rpc("stop")
-            except Exception as stop_error:
-                report["limits"].append("Observer shutdown: " + str(stop_error))
+            report["failure_native_state"] = ipc["state"]
         if injector is not None:
             injector.close()
-        report["target_key_events"] = events
-        report["target_input_method_events"] = commits
-        (output / "target-report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
-        window.close()
-        app.exit({"passed": 0, "incomplete": 2}.get(report["result"], 1))
+
+        def persist(value=None, stop_error=None):
+            if value is not None:
+                report["failure_stop"] = value
+            if stop_error is not None:
+                report["limits"].append("Observer shutdown: " + stop_error)
+            report["target_key_events"] = events
+            report["target_input_method_events"] = commits
+            (output / "target-report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
+            window.close()
+            app.exit({"passed": 0, "incomplete": 2}.get(report["result"], 1))
+
+        if error is not None:
+            send_rpc("stop", {}, persist)
+        else:
+            persist()
 
     def step():
         try:

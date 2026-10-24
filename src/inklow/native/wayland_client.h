@@ -26,6 +26,8 @@ typedef int (*inklow_wl_callback)(void *, const struct inklow_wl_event *);
 /* Single-threaded, same event-loop ownership. Callbacks must not close the client.
  * Key callback names are borrowed until return; no event contains field text.
  * Canonical modifiers: Shift=1, Control=4, Alt=8, Super=64, unsupported=128.
+ * Event 1 state: 1 missing initial purpose; 2 known-safe initial state incomplete.
+ * Ready and known-sensitive contexts use 0; no field text crosses this event.
  * Event 5 reports a reusable compositor buffer; retry only a pending frame.
  */
 INKLOW_WL_API inklow_wl *inklow_wl_connect(int owned_fd, inklow_wl_callback, void *userdata);

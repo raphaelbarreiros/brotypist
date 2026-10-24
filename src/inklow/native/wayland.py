@@ -111,6 +111,10 @@ class WaylandBridge(LinuxBridge):
         self._native_depth = 0
         self._close_pending = False
         self._ui_callback: Callable[[str], None] | None = None
+        self._needs_context_state = 0
+        self._context_sync_pending = False
+        self._context_synced = (0, 0)
+        self._context_calls: set = set()
         self._panel_snapshot: Snapshot | None = None
         self._panel_text = ""
         self._panel_paused = False
@@ -161,6 +165,7 @@ class WaylandBridge(LinuxBridge):
                     "AT-SPI fields are supported; password fields and selections are excluded. "
                     "Browser website rules require observable native URL metadata."
                 )
+                self._queue_context_sync()
         except Exception as exc:
             if fd is not None:
                 os.close(fd)
@@ -368,6 +373,9 @@ class WaylandBridge(LinuxBridge):
         try:
             event = pointer.contents
             if event.type == 1:
+                self._needs_context_state = event.state
+                if self._needs_context_state:
+                    self._queue_context_sync()
                 state = self._state()
                 if self._panel_snapshot and (state is None or self._anchor(state) != self._panel_snapshot.native_anchor):
                     self.hide_native()
@@ -398,6 +406,70 @@ class WaylandBridge(LinuxBridge):
             self.set_shortcuts_enabled(False)
             self.hide_native()
         return 0
+
+    def _queue_context_sync(self) -> None:
+        if (not self._needs_context_state or self._context_sync_pending
+                or not self._client or self._stopped.is_set()):
+            return
+        from PySide6.QtCore import QTimer
+        self._context_sync_pending = True
+        QTimer.singleShot(0, self._sync_context_state)
+
+    def _sync_context_state(self) -> None:
+        """Bootstrap purpose, then safe surrounding state; never retry a phase."""
+        self._context_sync_pending = False
+        if not self._client or not self._needs_context_state or self._stopped.is_set():
+            return
+        context = self._native_call("context", self._client)
+        phase = self._needs_context_state
+        if not context or (context, phase) == self._context_synced:
+            return
+        self._context_synced = (context, phase)
+        from PySide6.QtCore import QCoreApplication
+        from PySide6.QtDBus import QDBusConnection, QDBusMessage, QDBusPendingCallWatcher, QDBusVariant
+        bus = QDBusConnection.sessionBus()
+        if not bus.isConnected():
+            return
+
+        def current() -> bool:
+            return bool(self._client and not self._stopped.is_set() and self._needs_context_state == phase
+                        and self._native_call("context", self._client) == context)
+
+        def request(method, arguments, completed):
+            if not current():
+                return
+            message = QDBusMessage.createMethodCall(
+                "org.kde.KWin", "/VirtualKeyboard", "org.freedesktop.DBus.Properties", method)
+            message.setArguments(["org.kde.kwin.VirtualKeyboard", *arguments])
+            watcher = QDBusPendingCallWatcher(bus.asyncCall(message, 200), QCoreApplication.instance())
+            self._context_calls.add(watcher)
+
+            def finished(call):
+                self._context_calls.discard(call)
+                reply = call.reply()
+                call.deleteLater()
+                if current() and reply.type() != QDBusMessage.MessageType.ErrorMessage:
+                    completed(reply.arguments())
+
+            watcher.finished.connect(finished)
+
+        def is_true(arguments) -> bool:
+            if len(arguments) != 1:
+                return False
+            value = arguments[0]
+            return (value.variant() if isinstance(value, QDBusVariant) else value) is True
+
+        def supported(arguments):
+            if is_true(arguments):
+                # Set the already-true property to request adoptInputMethodContext;
+                # never change selection, visibility mode, or purpose defaults.
+                request("Set", ["active", QDBusVariant(True)], lambda _arguments: None)
+
+        def active(arguments):
+            if is_true(arguments):
+                request("Get", ["activeClientSupportsTextInput"], supported)
+
+        request("Get", ["active"], active)
 
     def _read_ready(self, *unused) -> None:
         if not self._client or self._dispatching:
@@ -615,6 +687,9 @@ class WaylandBridge(LinuxBridge):
             self._dispatch(action)
 
     def _release_native(self) -> None:
+        for call in self._context_calls:
+            call.deleteLater()
+        self._context_calls.clear()
         for name in ("_read_notifier", "_write_notifier"):
             notifier = getattr(self, name, None)
             if notifier is not None:

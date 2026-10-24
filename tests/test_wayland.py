@@ -153,6 +153,9 @@ def native(monkeypatch):
     bridge._dispatching = bridge._close_pending = False
     bridge._native_depth = 0
     bridge._ui_callback = None
+    bridge._needs_context_state = bridge._context_sync_pending = False
+    bridge._context_synced = (0, 0)
+    bridge._context_calls = set()
     bridge._panel_snapshot = None
     bridge._panel_text = ""
     bridge._panel_paused = bridge._pending_render = False
@@ -404,3 +407,71 @@ def test_native_menu_pages_skip_disabled_items_and_restore_shortcuts_on_close(na
     assert event(bridge, type=2, state=1, generation=peer.revision, name=b"Tab", key=23) == 1
     assert calls == ["item:10", "menu_closed", "word"]
     assert peer.commits == []
+
+
+@pytest.mark.parametrize("phase", [1, 2])
+@pytest.mark.parametrize("transition", ["ready", "inactive", "unsupported", "focus-changed", "sensitive", "stopped"])
+def test_initial_context_resync_preserves_capture_isolation(native, qt_app, monkeypatch, transition, phase):
+    from PySide6 import QtDBus
+    bridge, peer = native
+    peer.ready = False
+    bridge._needs_context_state = phase
+    assert bridge.capture() is None and peer.reads == 0
+    pending = []
+
+    class Signal:
+        def connect(self, callback):
+            self.callback = callback
+
+    class Watcher:
+        def __init__(self, message, parent):
+            self.message = message
+            self.finished = Signal()
+            pending.append(self)
+
+        def reply(self):
+            return SimpleNamespace(type=lambda: QtDBus.QDBusMessage.MessageType.ReplyMessage,
+                                   arguments=lambda: self.arguments)
+
+        def deleteLater(self):
+            pass
+
+    bus = SimpleNamespace(isConnected=lambda: True, asyncCall=lambda message, timeout: message)
+    monkeypatch.setattr(QtDBus.QDBusConnection, "sessionBus", lambda: bus)
+    monkeypatch.setattr(QtDBus, "QDBusPendingCallWatcher", Watcher)
+    bridge._sync_context_state()
+    replies = 0
+    while pending:
+        watcher = pending.pop(0)
+        if replies == 0:
+            if transition == "focus-changed":
+                peer.context += 1
+            elif transition == "sensitive":
+                bridge._needs_context_state = False
+            elif transition == "stopped":
+                bridge.stop()
+        arguments = watcher.message.arguments()
+        if watcher.message.member() == "Set":
+            # The external peer is permissive: production must prevent activation
+            # after focus loss, teardown, or an ineligible compositor response.
+            watcher.arguments = []
+            if bridge._needs_context_state == 1:
+                # Purpose arrives before safe surrounding text can be retained.
+                event(bridge, type=1, state=2)
+            else:
+                peer.ready = True
+                event(bridge, type=1, state=0)
+        else:
+            key = arguments[1]
+            value = not ((key == "active" and transition == "inactive")
+                         or (key == "activeClientSupportsTextInput" and transition == "unsupported"))
+            watcher.arguments = [QtDBus.QDBusVariant(value)]
+        replies += 1
+        watcher.finished.callback(watcher)
+        qt_app.processEvents()
+
+    captured = bridge.capture()
+    if transition == "ready":
+        assert captured is not None and captured.text == peer.text and captured.native_anchor
+    else:
+        assert not peer.ready and captured is None and peer.reads == 0

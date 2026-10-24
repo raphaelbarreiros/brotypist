@@ -190,3 +190,13 @@ Integrated regressions: **Linux 306 passed, 1 skipped (12.95 seconds)**; **macOS
 
 **Limits and deployment state:** this is an unreleased source candidate, not a rebuilt 0.3.0 installer or a new installed Mac build. The exercised target explicitly uses text-input-v3; default Qt text-input-v2 did not supply a complete usable context in this environment. Other applications/compositors, XWayland, full compositor screenshots, actual desktop input-method activation, and installed/frozen Wayland packaging are not established by this run. KDE selection remains a separate explicit user action. Atomic cross-app rewriting remains disabled on Linux. The real desktop and its current model selection were left unchanged.
 
+## Purpose-first KWin context bootstrap — 2026-10-25
+
+The first real-desktop check exposed a connected client whose native context never became ready: automatic polling ran, but no field-value read or suggestion occurred. On the owned active text-input-v3 field, asking KWin to resend its already-active context made automatic generation and actual word/full acceptance work. This was a missing-state bootstrap, not a model download or model-quality failure.
+
+The client now reports incomplete initial state without exposing text. The bridge asynchronously checks KWin's existing active/supported context and requests its authoritative state, first establishing purpose and then obtaining safe surrounding state when necessary. Each phase is bounded to the same context lifetime; stale, stopped, inactive, unsupported, ready, and known-sensitive states do not continue the bootstrap. Private-socket, purpose, AT-SPI pre-read rules, exact snapshot matching, and confirmed-insertion checks remain in place. Selection and visibility mode are not changed.
+
+The final integrated Linux suite passed **318 tests, 1 skipped in 12.77 seconds**; macOS passed **280 tests, 16 skipped in 11.56 seconds**. The additional Qt-only cases exercise eligibility after both bootstrap phases and rejection after focus changes, sensitive-state transitions, unsupported/inactive replies, and teardown.
+
+[The bootstrap native receipt](wayland-bootstrap-smoke.json) passed all **27 real protocol/UI/privacy/acceptance checks in 21.24 seconds** in the private virtual compositor. Its GUI observer now uses genuinely asynchronous requests; synchronously waiting for the agent while it queried the target's AT-SPI endpoint produced a test-only wait cycle. The target event loop remains free during those reads. No native model, insertion, or key-forwarding behavior was mocked, and no new installer publication is established by this run.
+

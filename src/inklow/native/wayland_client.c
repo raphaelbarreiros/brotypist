@@ -56,7 +56,7 @@ struct inklow_wl {
     uint32_t generation, serial, modifiers;
     uint64_t context_id;
     uint32_t method_id, panel_id, compositor_id, shm_id, seat_id;
-    bool known, safe, surrounding, ready, failed, visible, pointer_inside;
+    bool known, safe, surrounding, ready, failed, visible, pointer_inside, initial_state_pending;
     bool consumed[MAX_KEY];
     int32_t pointer_x, pointer_y;
 };
@@ -90,7 +90,11 @@ static int emit(struct inklow_wl *w, struct inklow_wl_event *event)
 
 static void state_event(struct inklow_wl *w)
 {
-    struct inklow_wl_event event = {.type = 1, .serial = w->serial};
+    struct inklow_wl_event event = {
+        .type = 1, .serial = w->serial,
+        .state = w->context && w->initial_state_pending && !w->failed
+            ? (!w->known ? 1u : (w->safe ? 2u : 0u)) : 0u
+    };
     emit(w, &event);
 }
 
@@ -435,6 +439,7 @@ static void context_commit(void *data, struct zwp_input_method_context_v1 *conte
     if (w->ready) invalidate(w, false);
     w->serial = serial;
     w->ready = w->known && w->safe && w->surrounding && !w->failed;
+    if (w->ready) w->initial_state_pending = false;
     if (!w->ready) inklow_wl_hide(w);
     state_event(w);
 }
@@ -467,6 +472,7 @@ static void method_activate(void *data, struct zwp_input_method_v1 *method, stru
     struct inklow_wl *w = data;
     release_context(w);
     w->context = context;
+    w->initial_state_pending = true;
     if (++w->context_id == 0) ++w->context_id;
     zwp_input_method_context_v1_add_listener(context, &context_listener, w);
     state_event(w);
