@@ -6,6 +6,7 @@ sole owner of controller events and overlays; keyboard callbacks never own UI.
 from __future__ import annotations
 
 from copy import deepcopy
+from collections import deque
 from dataclasses import replace
 from pathlib import Path
 import time
@@ -291,6 +292,10 @@ class InklowApplication(NSObject):
         self.timer = None
         self.status_item = None
         self.menu = None
+        self.tracking_menus = set()
+        self.pending_menu_actions = deque()
+        self.menu_shortcuts_were_enabled = False
+        self.resume_menu_shortcuts = False
         self.overlay = None
         self.last_error = ""
         return self
@@ -301,13 +306,16 @@ class InklowApplication(NSObject):
         app.setApplicationIconImage_(A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("app.png"))))
         self._build_main_menu()
         self._build_status_menu()
-        self.overlay = CaretOverlay(self.controller.invoke, self.menu, self.controller.config.show_accessory)
+        self.overlay = CaretOverlay(self.controller.invoke, self._accessory_menu, self.controller.config.show_accessory)
         if not self.no_tray:
             try:
-                self.status_item = A.NSStatusBar.systemStatusBar().statusItemWithLength_(A.NSVariableStatusItemLength)
+                self.status_item = A.NSStatusBar.systemStatusBar().statusItemWithLength_(A.NSSquareStatusItemLength)
                 if self.status_item is None or self.status_item.button() is None:
                     raise RuntimeError("The macOS menu bar is unavailable. Settings will stay accessible instead.")
                 self.status_item.setMenu_(self.menu)
+                self.status_item.setAutosaveName_("com.inklow.Inklow")
+                self.status_item.setBehavior_(0)
+                self.status_item.setVisible_(True)
                 _identify(self.status_item.button(), "inklow.statusItem", "Inklow menu")
             except Exception as exc:
                 self.no_tray = True
@@ -336,6 +344,9 @@ class InklowApplication(NSObject):
     def perform_(self, sender):
         callback = self.bindings.get(int(sender.tag()))
         if callback:
+            if isinstance(sender, A.NSMenuItem):
+                self.pending_menu_actions.append((callback, sender))
+                return
             try:
                 callback(sender)
             except Exception as exc:
@@ -399,18 +410,43 @@ class InklowApplication(NSObject):
         self._menu_item(self.menu, "Quit Inklow", "inklow.menu.quit", lambda: A.NSApplication.sharedApplication().terminate_(None), "q")
         self.menu_binding_limit = self.next_tag
 
+    @objc.python_method
+    def _accessory_menu(self):
+        self._refresh_status()
+        self._refresh_menu_stats()
+        menu = self.menu.copy()
+        menu.setDelegate_(self)
+        return menu
+
     def menuWillOpen_(self, menu):
+        if not self.tracking_menus and not self.resume_menu_shortcuts:
+            self.menu_shortcuts_were_enabled = bool(self.controller.bridge._enabled)
+        self.tracking_menus.add(menu)
+        self.controller.bridge.set_shortcuts_enabled(False)
         try:
             self._refresh_status()
             self._refresh_menu_stats()
         except Exception as exc:
             self.status_line.setTitle_(f"Inklow — {str(exc)[:100]}")
 
+    def menuDidClose_(self, menu):
+        self.tracking_menus.discard(menu)
+        if not self.tracking_menus:
+            self.resume_menu_shortcuts = True
+
     def tick_(self, timer):
-        if self.stopping:
+        if self.stopping or self.tracking_menus:
             return
         try:
+            while self.pending_menu_actions:
+                callback, sender = self.pending_menu_actions.popleft()
+                callback(sender)
+                if self.stopping:
+                    return
             self.controller.tick()
+            if self.resume_menu_shortcuts:
+                self.resume_menu_shortcuts = False
+                self.controller.bridge.set_shortcuts_enabled(self.menu_shortcuts_were_enabled)
             for event in self.controller.drain_events():
                 kind = event.get("type")
                 if kind == "suggestion":
@@ -467,9 +503,12 @@ class InklowApplication(NSObject):
         self.current_item.setEnabled_(bool(app))
         self.current_item.setState_(A.NSControlStateValueOn if active and app else A.NSControlStateValueOff)
         icon_state = "active" if enabled else "paused"
+        if self.status_item and not self.status_item.isVisible():
+            self.status_item.setVisible_(True)
         if self.status_item and (self.last_status is None or self.last_status.get("enabled") != enabled):
             image = A.NSImage.alloc().initWithContentsOfFile_(str(asset_path(f"tray/{icon_state}-template-18.png")))
             image.setTemplate_(True)
+            image.setSize_(A.NSMakeSize(18, 18))
             self.status_item.button().setImage_(image)
             self.status_item.button().setToolTip_(f"Inklow — {message}")
         self.overlay.configure(self.controller.config.show_accessory)

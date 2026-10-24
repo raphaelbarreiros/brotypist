@@ -18,6 +18,9 @@
 - Anchor a muted Inklow menu badge to supported field bounds even before typing. Use a field-attached suggestion card when native caret bounds are unavailable, while preserving exact focus/protection/snapshot checks and inline rendering when a caret is observable.
 - Request only advertised per-app Electron/Chromium accessibility support, accept authoritative focused-element metadata when its redundant focus flag is absent, and revalidate native focus/protection around context reads.
 - Consolidate the development Mac installation into `/Applications/Inklow.app`, remove the owned versioned preview, preserve saved data, and show missing app-process permissions explicitly rather than implying an idle agent is ready.
+- Make the floating control icon-only and place it above text, using nonoverlapping screen-edge placement. Keep menus stable across native timer ticks, suspend shortcut interception during tracking, and defer actions until fresh focus can be checked.
+- Retain a fixed-size visible status/tray item while open, preserve menu-agent lifetime when preferences close, and verify the quick-menu Quit path. Document third-party menu-manager visibility policy separately from application registration.
+- Support an optional existing Apple code-signing identity for executables, libraries and the final Mac bundle instead of discarding it in the final resource-sealing step.
 
 ## 0.2.0 — 2026-10-23
 

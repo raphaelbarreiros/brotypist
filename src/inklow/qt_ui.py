@@ -11,7 +11,7 @@ from pathlib import Path
 import sys
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QEvent, QPoint, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QCursor, QKeySequence, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog,
@@ -574,7 +574,7 @@ class SettingsWindow(QDialog):
                 recorder.setEnabled(False)
                 recorder.setToolTip("Selected-text rewriting is unavailable on Linux because AT-SPI has no atomic replacement operation.")
             recorder.changed.connect(self._changed)
-            recorder.recording_changed.connect(lambda recording: self.controller.bridge.set_shortcuts_enabled(not recording))
+            recorder.recording_changed.connect(lambda _recording: self.shell._sync_shortcuts())
             self.shortcut_controls[action] = recorder
             form.addRow(title, recorder)
         form.addRow(_label("Click a shortcut, then press its real key combination. The physical key above Tab works across keyboard layouts. Escape cancels recording; Backspace clears an assignment. Operating-system and desktop-reserved shortcuts remain system-owned and may not be available to Inklow."))
@@ -998,14 +998,16 @@ class Accessory(QWidget):
         self.shell = shell
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setFixedSize(24, 24)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.button = QToolButton()
         self.button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.button.setIcon(tray_icon())
-        self.button.setText("inklow")
-        self.button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.button.setStyleSheet("QToolButton { color: palette(mid); border: none; padding: 2px 4px; }")
+        self.button.setIconSize(QSize(18, 18))
+        self.button.setFixedSize(24, 24)
+        self.button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.button.setStyleSheet("QToolButton { border: none; padding: 3px; }")
         self.button.setToolTip("Inklow actions and choices")
         self.button.setAccessibleName("Inklow accessory menu")
         self.button.clicked.connect(self._menu)
@@ -1014,6 +1016,8 @@ class Accessory(QWidget):
 
     def _menu(self) -> None:
         if self.menu:
+            if self.menu.isVisible():
+                return
             self.menu.close()
             self.menu.deleteLater()
         self.menu = self.shell.create_menu(choices=True)
@@ -1031,10 +1035,11 @@ class MenuAgent:
         self.controller.set_clipboard_reader(system.clipboard_text)
         self.controller.set_screen_reader(system.screen_text)
         self.controller.set_battery_reader(system.on_battery)
+        self._tray_requested = not no_tray
         self.tray_available = not no_tray and QSystemTrayIcon.isSystemTrayAvailable()
         self.tray_notice = "" if self.tray_available else (
             "System tray disabled. Keep settings open to control Inklow; closing offers Quit." if no_tray else
-            "No system tray is available. Keep settings open, or enable your desktop's tray extension and relaunch. Closing offers Quit.")
+            "No system tray is available. Keep settings open, or enable your desktop's tray extension; Inklow reconnects automatically. Closing offers Quit.")
         self.settings: SettingsWindow | None = None
         self.overlay = CaretOverlay()
         self.accessory = Accessory(self)
@@ -1042,13 +1047,17 @@ class MenuAgent:
         self._stopped = False
         self._ticks = 0
         self._last_overlay: dict | None = None
+        self._tracking_menus: set[QMenu] = set()
+        self._menu_session = False
+        self._deferred_actions: list[tuple] = []
+        self._hide_accessory_after_menu = False
         self.tray = QSystemTrayIcon(tray_icon(), app)
         self.tray.setToolTip("Inklow")
         self.menu = self.create_menu()
         self.tray.setContextMenu(self.menu)
         self.menu.aboutToShow.connect(self.refresh_menu)
         self.tray.activated.connect(self._activated)
-        if self.tray_available:
+        if self._tray_requested:
             self.tray.show()
         self.timer = QTimer()
         self.timer.setInterval(100)
@@ -1070,6 +1079,7 @@ class MenuAgent:
 
     def create_menu(self, *, choices: bool = False) -> QMenu:
         menu = QMenu()
+        self._watch_menu(menu)
         status = menu.addAction("Inklow")
         status.setEnabled(False)
         status.setObjectName("status")
@@ -1079,8 +1089,9 @@ class MenuAgent:
         enabled.setObjectName("enabled")
         enabled.triggered.connect(lambda _checked: self._invoke("toggle"))
         pause = menu.addMenu("Pause")
+        self._watch_menu(pause)
         for minutes in (5, 15, 60):
-            pause.addAction(f"{minutes} minutes", lambda _checked=False, minutes=minutes: self._call(self.controller.pause, minutes))
+            pause.addAction(f"{minutes} minutes", lambda _checked=False, minutes=minutes: self._menu_action(self.controller.pause, minutes))
         app_toggle = menu.addAction("Enable in current application (this session)")
         app_toggle.setObjectName("app_toggle")
         app_toggle.setCheckable(True)
@@ -1092,25 +1103,74 @@ class MenuAgent:
         if choices:
             for index, choice in enumerate(self.choices[:9], 1):
                 action = QAction(f"{index}. {choice}".replace("&", "&&"), menu)
+                action.setObjectName(f"choice:{index}")
                 action.triggered.connect(lambda _checked=False, index=index: self._invoke(f"choice:{index}"))
                 menu.addAction(action)
-            menu.addAction("Accept next word", lambda: self._invoke("word"))
-            menu.addAction("Accept full completion", lambda: self._invoke("all"))
-            menu.addAction("Dismiss suggestion", lambda: self._invoke("dismiss"))
+            menu.addAction("Accept next word", lambda: self._invoke("word")).setObjectName("word")
+            menu.addAction("Accept full completion", lambda: self._invoke("all")).setObjectName("all")
+            menu.addAction("Dismiss suggestion", lambda: self._invoke("dismiss")).setObjectName("dismiss")
             menu.addSeparator()
-        menu.addAction("Request completion", lambda: self._invoke("force"))
-        menu.addAction("Alternative words", lambda: self._invoke("alternatives"))
+        menu.addAction("Request completion", lambda: self._invoke("force")).setObjectName("force")
+        menu.addAction("Alternative words", lambda: self._invoke("alternatives")).setObjectName("alternatives")
         synonyms = menu.addAction("Selected-text synonyms", lambda: self._invoke("synonyms"))
+        synonyms.setObjectName("synonyms")
         if sys.platform.startswith("linux"):
             synonyms.setEnabled(False)
             synonyms.setToolTip("Unavailable: AT-SPI cannot atomically replace selected text.")
         menu.addSeparator()
-        menu.addAction("Settings…", lambda: self.show_settings("General"))
-        menu.addAction("Statistics…", lambda: self.show_settings("Statistics"))
-        menu.addAction("Models…", self.open_models)
+        menu.addAction("Settings…", lambda: self._menu_action(self.show_settings, "General"))
+        menu.addAction("Statistics…", lambda: self._menu_action(self.show_settings, "Statistics"))
+        menu.addAction("Models…", lambda: self._menu_action(self.open_models))
         menu.addSeparator()
-        menu.addAction("Quit Inklow", self.quit)
+        menu.addAction("Quit Inklow", lambda: self._menu_action(self.quit)).setObjectName("quit")
         return menu
+
+    def _watch_menu(self, menu: QMenu) -> None:
+        menu.aboutToShow.connect(lambda: self._menu_opened(menu))
+        menu.aboutToHide.connect(lambda: self._menu_closed(menu))
+
+    def _menu_opened(self, menu: QMenu) -> None:
+        self._tracking_menus.add(menu)
+        self._menu_session = True
+        self._sync_shortcuts()
+
+    def _menu_closed(self, menu: QMenu) -> None:
+        self._tracking_menus.discard(menu)
+        if not self._tracking_menus:
+            # QAction.triggered can follow aboutToHide. Keep capture and native
+            # interception suspended until the whole selection event unwinds.
+            QTimer.singleShot(0, self._finish_menu_session)
+
+    def _sync_shortcuts(self) -> None:
+        recording = self.settings and any(
+            recorder._recording for recorder in self.settings.shortcut_controls.values())
+        self.controller.bridge.set_shortcuts_enabled(
+            not self._stopped and not self._menu_session and not recording)
+
+    def _menu_action(self, function, *args) -> None:
+        if self._menu_session:
+            self._deferred_actions.append((function, args))
+        else:
+            self._call(function, *args)
+
+    def _finish_menu_session(self) -> None:
+        if self._tracking_menus or not self._menu_session or self._stopped:
+            return
+        actions, self._deferred_actions = self._deferred_actions, []
+        for function, args in actions:
+            # Controller.invoke performs the normal fresh foreground/snapshot
+            # checks after the popup releases focus; never insert from cached UI.
+            self._call(function, *args)
+            if self._stopped:
+                return
+        self._menu_session = False
+        if self._hide_accessory_after_menu:
+            self.accessory.hide()
+            self._hide_accessory_after_menu = False
+        # Revalidate the focused field and drain clears before interception
+        # resumes, including when the menu was dismissed without an action.
+        self.tick()
+        self._sync_shortcuts()
 
     def _call(self, function, *args) -> None:
         try:
@@ -1120,7 +1180,7 @@ class MenuAgent:
             _error(self.settings, exc)
 
     def _invoke(self, action: str) -> None:
-        self._call(self.controller.invoke, action)
+        self._menu_action(self.controller.invoke, action)
 
     def _activated(self, reason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
@@ -1154,7 +1214,7 @@ class MenuAgent:
         self.show_settings("General")
         self.settings.open_models()
 
-    def _position(self, rect) -> tuple[QPoint, int]:
+    def _position(self, rect, *, clamp: bool = True) -> tuple[QPoint, int]:
         x, y, width, height = (float(value) for value in rect)
         # Native Windows and X11 caret rectangles use device pixels. Qt widgets
         # use logical desktop coordinates. Convert relative to the owning screen
@@ -1178,7 +1238,7 @@ class MenuAgent:
         if screen is None:
             screen = self.app.screenAt(QPoint(round(x), round(y))) or self.app.primaryScreen()
         point = QPoint(round(x + width + 2), round(y))
-        if screen:
+        if clamp and screen:
             available = screen.availableGeometry()
             point.setX(max(available.left(), min(point.x(), available.right() - 100)))
             point.setY(max(available.top(), min(point.y(), available.bottom() - 50)))
@@ -1202,18 +1262,33 @@ class MenuAgent:
         self._caret(event)
 
     def _caret(self, event: dict) -> None:
-        rect = event.get("field_rect") or event.get("rect")
-        if not self.controller.config.show_accessory or not isinstance(rect, (tuple, list)) or len(rect) != 4:
+        if self._menu_session:
+            return
+        caret, field = event.get("rect"), event.get("field_rect")
+        valid_caret = isinstance(caret, (tuple, list)) and len(caret) == 4
+        valid_field = isinstance(field, (tuple, list)) and len(field) == 4
+        rect = caret if valid_caret else field
+        if not self.controller.config.show_accessory or not (valid_caret or valid_field):
             self.accessory.hide()
             return
-        point, height = self._position((rect[0], rect[1], 0, rect[3]))
-        self.accessory.adjustSize()
-        left = point.x() - self.accessory.width() - 6
-        screen = self.app.screenAt(point) or self.app.primaryScreen()
-        if screen and left < screen.availableGeometry().left() + 4:
-            left = max(point.x(), screen.availableGeometry().left() + 4)
-            point.setY(point.y() + height + 4)
-        self.accessory.move(left, point.y())
+        point, height = self._position((rect[0], rect[1], 0, rect[3]), clamp=False)
+        left = point.x() - 2
+        if valid_field:
+            field_point, _ = self._position((field[0], field[1], 0, field[3]), clamp=False)
+            left = field_point.x() - 2
+        screen = self.app.screenAt(QPoint(point.x() - 2, point.y())) or self.app.primaryScreen()
+        top = point.y() - self.accessory.height() - 4
+        if screen:
+            bounds = screen.availableGeometry()
+            left = max(bounds.left(), min(left, bounds.right() - self.accessory.width() + 1))
+            if top < bounds.top():
+                # At the top edge, use the space below the line rather than
+                # clamping the icon over the text it is meant to leave visible.
+                top = point.y() + height + 4
+            if top < bounds.top() or top + self.accessory.height() > bounds.bottom() + 1:
+                self.accessory.hide()
+                return
+        self.accessory.move(left, top)
         self.accessory.show()
 
     def clear_overlay(self, *, hide_accessory: bool = True) -> None:
@@ -1221,11 +1296,14 @@ class MenuAgent:
         self.choices = []
         self.overlay.hide()
         if hide_accessory:
-            self.accessory.hide()
-        if self.accessory.menu:
-            self.accessory.menu.close()
+            if self._menu_session:
+                self._hide_accessory_after_menu = True
+            else:
+                self.accessory.hide()
 
     def tick(self) -> None:
+        if self._stopped or self._menu_session:
+            return
         try:
             self.controller.tick()
             for event in self.controller.drain_events():
@@ -1249,10 +1327,16 @@ class MenuAgent:
                         self.settings.refresh_stats()
                 if not self.controller.config.show_accessory:
                     self.accessory.hide()
-                if self.tray_available and not QSystemTrayIcon.isSystemTrayAvailable():
-                    self.tray_available = False
-                    self.tray_notice = "The system tray became unavailable. Settings remain open so Inklow stays controllable."
-                    self.show_settings("General")
+                if self._tray_requested:
+                    available = QSystemTrayIcon.isSystemTrayAvailable()
+                    if self.tray_available and not available:
+                        self.tray_notice = "The system tray became unavailable. Settings remain open so Inklow stays controllable."
+                        self.show_settings("General")
+                    elif available and not self.tray_available:
+                        self.tray_notice = ""
+                    self.tray_available = available
+                    if not self.tray.isVisible():
+                        self.tray.show()
         except Exception as exc:
             self.clear_overlay()
             self.tray_notice = f"Typing assistance error: {exc}. Review Setup; you can still change settings or Quit."
@@ -1262,10 +1346,19 @@ class MenuAgent:
         if self._stopped:
             return
         self.timer.stop()
+        self._deferred_actions.clear()
+        self._menu_session = False
+        for menu in tuple(self._tracking_menus):
+            menu.close()
+        self._tracking_menus.clear()
+        self.menu.close()
+        if self.accessory.menu:
+            self.accessory.menu.close()
         self.clear_overlay()
         self.tray.hide()
         self.controller.stop()
         self._stopped = True
+        self._hide_accessory_after_menu = False
 
     def quit(self) -> None:
         if self.settings and self.settings._changes():

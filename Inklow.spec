@@ -1,5 +1,6 @@
 # Native onedir build: run tools/build_app.py on the destination OS.
 from pathlib import Path
+import os
 import runpy
 import sys
 
@@ -7,6 +8,7 @@ ROOT = Path(SPECPATH)
 ASSETS = ROOT / "src" / "inklow" / "assets"
 VERSION = runpy.run_path(str(ROOT / "src" / "inklow" / "__init__.py"))["__version__"]
 native_excludes = ["PySide6"] if sys.platform == "darwin" else []
+codesign_identity = os.environ.get("INKLOW_CODESIGN_IDENTITY") if sys.platform == "darwin" else None
 keyring_backend = ("keyring.backends.macOS" if sys.platform == "darwin" else
                    "keyring.backends.Windows" if sys.platform == "win32" else
                    "keyring.backends.SecretService")
@@ -41,6 +43,7 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
+    codesign_identity=codesign_identity,
     icon=str(ASSETS / ("app.ico" if sys.platform == "win32" else "app.icns"))
          if sys.platform in ("win32", "darwin") else None,
 )
@@ -76,6 +79,7 @@ if sys.platform == "darwin":
         icon=str(ASSETS / "app.icns"),
         bundle_identifier="com.inklow.Inklow",
         version=VERSION,
+        codesign_identity=codesign_identity,
         info_plist={
             "CFBundleName": "Inklow",
             "CFBundleDisplayName": "Inklow",

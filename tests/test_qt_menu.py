@@ -10,12 +10,15 @@ import pytest
 
 if sys.platform == "darwin":
     pytest.skip("macOS uses the native AppKit shell, not the Qt UI", allow_module_level=True)
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer
 from PySide6.QtGui import QKeyEvent
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMessageBox, QPlainTextEdit
 
 from inklow.config import Config
 from inklow import qt_ui
+from inklow.core import Snapshot
+from inklow.native.base import BridgeBase
 
 
 class UIController:
@@ -28,6 +31,8 @@ class UIController:
         self.started = False
         self.stopped = False
         self.saved = []
+        self.bridge = BridgeBase()
+        self.ticks = 0
 
     def set_clipboard_reader(self, reader):
         self.clipboard_reader = reader
@@ -40,9 +45,12 @@ class UIController:
 
     def start(self):
         self.started = True
+        self.bridge.configure(self.config)
+        self.bridge.start_shortcuts(self.invoke)
+        self.bridge.set_shortcuts_enabled(True)
 
     def tick(self):
-        pass
+        self.ticks += 1
 
     def drain_events(self):
         events, self.events = self.events, []
@@ -50,6 +58,7 @@ class UIController:
 
     def stop(self):
         self.stopped = True
+        self.bridge.stop()
 
     def status(self):
         return {"enabled": self.config.global_enabled, "state": "idle", "message": "Ready",
@@ -86,13 +95,15 @@ class UIController:
 
 
 @pytest.fixture
-def shell(monkeypatch, tmp_path):
+def shell(monkeypatch, tmp_path, request):
     app = QApplication.instance() or QApplication([])
     app.setQuitOnLastWindowClosed(False)
     monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
     monkeypatch.setattr(qt_ui, "Controller", UIController)
     monkeypatch.setattr(qt_ui.system, "launch_at_login_state", lambda: False)
-    shell = qt_ui.MenuAgent(app, Config(global_enabled=False), no_tray=True)
+    tray_available = getattr(request, "param", False)
+    monkeypatch.setattr(qt_ui.QSystemTrayIcon, "isSystemTrayAvailable", lambda: tray_available)
+    shell = qt_ui.MenuAgent(app, Config(global_enabled=False), no_tray=not tray_available)
     yield shell
     shell.stop()
     app.aboutToQuit.disconnect(shell.stop)
@@ -102,6 +113,8 @@ def shell(monkeypatch, tmp_path):
         shell.settings.deleteLater()
     shell.overlay.deleteLater()
     shell.accessory.deleteLater()
+    if shell.accessory.menu:
+        shell.accessory.menu.deleteLater()
     shell.tray.deleteLater()
     shell.menu.deleteLater()
     app.processEvents()
@@ -286,3 +299,208 @@ def test_recording_existing_global_chord_cannot_toggle_typing(shell, finish):
     assert bridge._dispatch(action)
     shell.controller.tick()
     assert not shell.controller.config.global_enabled
+
+
+@pytest.mark.parametrize("caret", [True, False])
+def test_accessory_is_compact_and_above_native_line_or_field(shell, caret):
+    bounds = shell.app.primaryScreen().availableGeometry()
+    ratio = shell.app.primaryScreen().devicePixelRatio()
+    field_x, field_y = bounds.left() + 40, bounds.top() + 80
+    line_y = field_y + 60 if caret else field_y
+    field = [field_x * ratio, field_y * ratio, 240 * ratio, 160 * ratio]
+    rect = [(field_x + 120) * ratio, line_y * ratio, ratio, 20 * ratio] if caret else None
+    shell._caret({"type": "caret", "rect": rect, "field_rect": field})
+    geometry = shell.accessory.geometry()
+    assert shell.accessory.isVisible()
+    assert geometry.size().width() == geometry.size().height() == 24
+    assert shell.accessory.button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly
+    assert geometry.left() == field_x
+    assert geometry.bottom() < line_y
+    assert 3 <= line_y - geometry.bottom() <= 8
+    assert not geometry.intersects(QRect(field_x, line_y, 240, 20))
+
+
+def test_accessory_clamps_at_screen_edge_without_covering_text_line(shell):
+    screen = shell.app.primaryScreen()
+    bounds, ratio = screen.availableGeometry(), screen.devicePixelRatio()
+    line_y = bounds.top() + 2
+    shell._caret({"type": "caret", "rect": [bounds.right() * ratio, line_y * ratio, ratio, 20 * ratio]})
+    geometry = shell.accessory.geometry()
+    assert bounds.contains(geometry)
+    assert geometry.top() > line_y + 20
+    assert not geometry.intersects(QRect(bounds.left(), line_y, bounds.width(), 20))
+
+
+@pytest.mark.parametrize("surface", ["tray", "accessory"])
+def test_owned_menu_stays_selectable_and_freezes_capture_across_timer_ticks(shell, surface):
+    shell.controller.start()
+    shell.controller.events = [{"type": "caret", "rect": [120, 160, 1, 20], "field_rect": [40, 100, 240, 160]}]
+    shell.tick()
+    anchor = shell.accessory.geometry()
+    if surface == "accessory":
+        shell.accessory.button.click()
+        menu = shell.accessory.menu
+    else:
+        menu = shell.menu
+        menu.popup(QPoint(40, 40))
+    enabled = next(action for action in menu.actions() if action.objectName() == "enabled")
+    menu.setActiveAction(enabled)
+    ticks = shell.controller.ticks
+    shell.controller.events = [{"type": "clear", "hide_accessory": True}]
+    for _ in range(12):
+        shell.tick()
+    assert menu.isVisible()
+    assert menu.activeAction() is enabled
+    assert shell.accessory.geometry() == anchor
+    assert shell.accessory.isVisible()
+    assert shell.controller.ticks == ticks
+    assert shell.controller.events == [{"type": "clear", "hide_accessory": True}]
+    assert not shell.controller.bridge._dispatch("toggle")
+    QTest.keyClick(menu, Qt.Key.Key_Return)
+    assert not menu.isVisible()
+    assert shell.controller.actions == []
+    shell.app.processEvents()
+    assert shell.controller.actions == ["toggle"]
+    assert shell.controller.ticks > ticks
+    assert not shell.accessory.isVisible()
+    assert shell.controller.bridge._dispatch("toggle")
+
+
+def test_submenu_dismissal_keeps_parent_menu_capture_suspended(shell):
+    shell.controller.start()
+    shell.menu.popup(QPoint(40, 40))
+    submenu = next(action.menu() for action in shell.menu.actions() if action.menu())
+    submenu.popup(QPoint(80, 80))
+    submenu.close()
+    shell.app.processEvents()
+    shell.tick()
+    assert shell.menu.isVisible()
+    assert shell.controller.ticks == 0
+    assert not shell.controller.bridge._dispatch("toggle")
+    shell.menu.close()
+    shell.app.processEvents()
+    assert shell.controller.ticks > 0
+    assert shell.controller.bridge._dispatch("toggle")
+
+
+def test_clear_does_not_destroy_open_accessory_menu_and_dismissal_applies_hide(shell):
+    shell._caret({"rect": [120, 160, 1, 20], "field_rect": [40, 100, 240, 160]})
+    shell.accessory.button.click()
+    menu = shell.accessory.menu
+    shell.clear_overlay(hide_accessory=True)
+    assert shell.accessory.isVisible()
+    assert menu.isVisible()
+    menu.close()
+    shell.app.processEvents()
+    assert not menu.isVisible()
+    assert not shell.accessory.isVisible()
+
+
+@pytest.mark.parametrize("target", ["same", "changed", "protected"])
+def test_accessory_selection_revalidates_fresh_target_only_after_menu_closes(shell, target):
+    from inklow.runtime import Controller
+
+    class FieldBridge(BridgeBase):
+        def __init__(self):
+            super().__init__()
+            self.snapshot = Snapshot("fixture.writer", "body", "Fixture draft", 13,
+                                     caret_rect=(120, 160, 1, 20), field_rect=(40, 100, 240, 160))
+            self.captures = 0
+            self.insertions = []
+
+        def foreground(self):
+            return {"app_id": self.snapshot.app_id, "domain": "", "name": "Fixture"}
+
+        def capture(self):
+            self.captures += 1
+            return self.snapshot
+
+        def insert(self, snapshot, text):
+            if snapshot.key != self.snapshot.key or not snapshot.eligible(1):
+                return False
+            self.insertions.append(text)
+            self.snapshot = replace(snapshot, text=snapshot.prefix + text + snapshot.suffix,
+                                    caret=snapshot.caret + len(text))
+            return True
+
+    bridge = FieldBridge()
+    shell.controller = Controller(Config(min_chars=1000, statistics_enabled=False), bridge)
+    shell.tick()
+    snapshot = bridge.snapshot
+    shell.controller._publish_choices(snapshot, [" tomorrow"], "alternatives", (snapshot.caret, 0))
+    shell.tick()
+    shell.accessory.button.click()
+    menu = shell.accessory.menu
+    choice = next(action for action in menu.actions() if action.objectName() == "choice:1")
+    menu.setActiveAction(choice)
+    captures = bridge.captures
+    if target == "changed":
+        bridge.snapshot = replace(snapshot, field_id="different-field")
+    elif target == "protected":
+        bridge.snapshot = replace(snapshot, protected=True)
+    shell.tick()
+    assert bridge.captures == captures
+    assert not bridge._dispatch("choice:1")
+    QTest.keyClick(menu, Qt.Key.Key_Return)
+    assert not menu.isVisible()
+    assert bridge.captures == captures
+    assert bridge.insertions == []
+    shell.app.processEvents()
+    assert bridge.captures > captures
+    assert bridge.insertions == ([" tomorrow"] if target == "same" else [])
+    assert not shell.overlay.isVisible()
+    if target == "protected":
+        assert not shell.accessory.isVisible()
+
+
+@pytest.mark.parametrize("shell", [True], indirect=True)
+def test_tray_stays_visible_after_settings_close_and_quit_exits_event_loop(shell):
+    shell.controller.config.setup_completed = True
+    shell.start(background=True)
+    shell.show_settings("General")
+    shell.settings.close()
+    assert shell.tray.isVisible()
+    assert not shell.settings.isVisible()
+    assert shell.timer.isActive()
+    shell.menu.popup(QPoint(40, 40))
+    quit_action = next(action for action in shell.menu.actions() if action.objectName() == "quit")
+    shell.menu.setActiveAction(quit_action)
+    exited = []
+    on_quit = lambda: exited.append(True)
+    shell.app.aboutToQuit.connect(on_quit)
+    timeout = QTimer()
+    timeout.setSingleShot(True)
+    timeout.timeout.connect(lambda: shell.app.exit(87))
+    timeout.start(2000)
+    QTimer.singleShot(0, lambda: QTest.keyClick(shell.menu, Qt.Key.Key_Return))
+    try:
+        assert shell.app.exec() == 0
+    finally:
+        timeout.stop()
+        shell.app.aboutToQuit.disconnect(on_quit)
+    assert exited == [True]
+    assert shell.controller.stopped
+    assert not shell.timer.isActive()
+    assert not shell.tray.isVisible()
+    assert not shell.accessory.isVisible()
+
+
+@pytest.mark.parametrize("shell", [True], indirect=True)
+def test_tray_recovers_after_host_disappears_without_restarting_agent(shell, monkeypatch):
+    shell.controller.config.setup_completed = True
+    shell.start(background=True)
+    monkeypatch.setattr(qt_ui.QSystemTrayIcon, "isSystemTrayAvailable", lambda: False)
+    for _ in range(10):
+        shell.tick()
+    assert not shell.tray_available
+    assert shell.settings.isVisible()
+    assert not shell.controller.stopped
+    monkeypatch.setattr(qt_ui.QSystemTrayIcon, "isSystemTrayAvailable", lambda: True)
+    for _ in range(10):
+        shell.tick()
+    assert shell.tray_available
+    assert shell.tray.isVisible()
+    shell.settings.close()
+    assert not shell.settings.isVisible()
+    assert shell.tray.isVisible()
+    assert not shell.controller.stopped

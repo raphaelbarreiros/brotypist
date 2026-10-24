@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -141,9 +142,13 @@ def build(destination: Path, *, replace: bool = False) -> Path:
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text(json.dumps({"application": APP_ID, "platform": platform}, indent=2) + "\n", encoding="utf-8")
         if platform == "darwin":
-            # The ownership marker is a sealed bundle resource. Finalize the
-            # ad-hoc signature after every resource is in place, not before.
-            subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(bundle)], check=True)
+            # Finalize the sealed ownership marker with the same signing
+            # identity as PyInstaller's executable and collected libraries.
+            identity = os.environ.get("INKLOW_CODESIGN_IDENTITY") or "-"
+            command = ["/usr/bin/codesign", "--force", "--sign", identity]
+            if identity != "-":
+                command.extend(["--options", "runtime"])
+            subprocess.run([*command, str(bundle)], check=True)
             subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(bundle)], check=True)
         publish(bundle, destination, replace=replace, platform=platform)
     return destination
