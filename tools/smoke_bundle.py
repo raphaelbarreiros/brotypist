@@ -62,6 +62,9 @@ def worker_completion(command: list[str], environment: dict) -> dict:
             if phase != last_phase:
                 print(f"Worker phase: {phase}", flush=True)
                 last_phase = phase
+            if phase == "ready":
+                process.stdin.write(json.dumps({"type": "proceed", "id": 1}) + "\n")
+                process.stdin.flush()
             if event["type"] == "error":
                 raise RuntimeError(event.get("message", "Frozen inference failed"))
             if event["type"] == "result":

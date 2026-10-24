@@ -136,6 +136,7 @@ import inklow.providers as providers
 from inklow.process_worker import main
 class SlowProvider:
     loads = 0
+    generations = 0
     def prepare(self):
         type(self).loads += 1
         print("synthetic private model diagnostic", flush=True)
@@ -143,7 +144,8 @@ class SlowProvider:
         time.sleep(1.0)
     def stream(self, prefix, suffix, cancel, **kwargs):
         if not cancel.is_set():
-            yield " prepared " + str(type(self).loads) + " " + prefix
+            type(self).generations += 1
+            yield " prepared " + str(type(self).loads) + " generation " + str(type(self).generations) + " " + prefix
     def close(self):
         pass
 providers.create_provider = lambda config: SlowProvider()
@@ -163,7 +165,7 @@ raise SystemExit(main())
             time.sleep(0.15)
             assert client.status()["worker_pid"] == pid
         result, events = final(client, newest)
-        assert result["text"] == " prepared 1 newest"
+        assert result["text"] == " prepared 1 generation 1 newest"
         assert client.status()["worker_pid"] == pid
         assert all(event.get("id") == newest for event in events)
         client.release()
@@ -193,3 +195,103 @@ def test_frozen_windows_uses_console_companion_for_real_pipes(monkeypatch, tmp_p
     console.unlink()
     with pytest.raises(RuntimeError, match="companion"):
         worker_command()
+
+
+@pytest.mark.parametrize("first_attempt_fails", [False, True])
+def test_native_initialization_does_not_overlap_a_blocking_stdin_read(monkeypatch, tmp_path, first_attempt_fails):
+    # Model Windows DLL/CRT initialization's standard-handle constraint using
+    # a real worker pipe. The ordinary next-request read must wait for prepare.
+    bootstrap = '''
+import sys
+import time
+import threading
+import inklow.providers as providers
+from inklow.process_worker import main
+original = sys.stdin
+reading = threading.Event()
+class Input:
+    @property
+    def buffer(self):
+        return self
+    def readline(self, limit):
+        reading.set()
+        try:
+            return original.buffer.readline(limit)
+        finally:
+            reading.clear()
+sys.stdin = Input()
+class NativeProvider:
+    attempts = 0
+    def prepare(self):
+        self.attempts += 1
+        if FIRST_ATTEMPT_FAILS and self.attempts == 1:
+            raise OSError("Synthetic model was not yet available")
+        time.sleep(0.1)
+        if reading.is_set():
+            raise RuntimeError("Native initialization collided with pending standard input")
+    def stream(self, prefix, suffix, cancel, **kwargs):
+        yield " safely initialized after " + str(self.attempts) + " attempts"
+    def close(self):
+        pass
+providers.create_provider = lambda config: NativeProvider()
+raise SystemExit(main())
+'''.replace("FIRST_ATTEMPT_FAILS", str(first_attempt_fails))
+    monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
+    monkeypatch.setattr("inklow.process_client.worker_command", lambda: [sys.executable, "-u", "-c", bootstrap])
+    client = ProcessClient()
+    try:
+        identifier = client.submit(Config(), "synthetic initialization", "")
+        if first_attempt_fails:
+            until(lambda: any(event.get("type") == "error" for event in client.poll()))
+            identifier = client.submit(Config(), "synthetic same-model retry", "")
+        result, _ = final(client, identifier)
+        assert result["text"] == " safely initialized after " + ("2" if first_attempt_fails else "1") + " attempts"
+    finally:
+        client.close()
+
+
+def test_cancellation_arriving_with_ready_cannot_authorize_stale_generation(monkeypatch, tmp_path):
+    marker = tmp_path / "stale-generation"
+    bootstrap = '''
+import sys
+from pathlib import Path
+import inklow.providers as providers
+from inklow.process_worker import main
+class Provider:
+    def prepare(self):
+        pass
+    def stream(self, prefix, suffix, cancel, **kwargs):
+        Path(sys.argv[1]).write_text("generation started", encoding="utf-8")
+        yield " stale generation"
+    def close(self):
+        pass
+providers.create_provider = lambda config: Provider()
+raise SystemExit(main())
+'''
+    monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
+    monkeypatch.setattr("inklow.process_client.worker_command", lambda: [sys.executable, "-u", "-c", bootstrap, str(marker)])
+    client = ProcessClient()
+    canceled = threading.Event()
+
+    class CancelAtReady(queue.Queue):
+        delay_next = False
+
+        def get_nowait(self):
+            if self.delay_next:
+                self.delay_next = False
+                time.sleep(0.2)  # Let an incorrectly authorized child start.
+            item = super().get_nowait()
+            if item[1].get("type") == "ready":
+                client.cancel()
+                canceled.set()
+                self.delay_next = True
+            return item
+
+    client._incoming = CancelAtReady(maxsize=64)
+    try:
+        client.submit(replace(Config(), idle_release_seconds=0), "obsolete synthetic prefix", "")
+        until(canceled.is_set)
+        until(lambda: client.status()["state"] == "ready")
+        assert not marker.exists()
+    finally:
+        client.close()

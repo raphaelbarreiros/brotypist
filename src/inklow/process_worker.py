@@ -2,6 +2,9 @@
 
 Only this process may import llama_cpp. Protocol stdout is a duplicated fd;
 Python/native model diagnostics are discarded, never written to a draft log.
+After ``generate``, ``ready`` requires a matching ``proceed`` before evaluation.
+Native preparation finishes before the next blocking stdin read; ``cancel`` and
+``stop`` discard pending work. The supervisor can kill a cold initializer.
 """
 from __future__ import annotations
 
@@ -51,6 +54,9 @@ def main() -> int:
     pending = None
     active_cancel = threading.Event()
     stopped = False
+    input_ready = 0
+    active_identifier = None
+    generation_allowed = False
 
     def send(value: dict):
         data = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode() + b"\n"
@@ -65,7 +71,7 @@ def main() -> int:
                 view = view[written:]
 
     def generate():
-        nonlocal pending, active_cancel
+        nonlocal pending, active_cancel, input_ready, active_identifier, generation_allowed
         from .providers import create_provider
         provider = None
         configured = None
@@ -78,6 +84,8 @@ def main() -> int:
                         return
                     identifier, config, payload = pending
                     pending = None
+                    active_identifier = identifier
+                    generation_allowed = False
                     cancel = active_cancel = threading.Event()
                 try:
                     identity = tuple(getattr(config, name) for name in ("backend", "model_path", "endpoint", "model", "acceleration", "prompt_style"))
@@ -87,14 +95,22 @@ def main() -> int:
                             provider.close()
                         provider = create_provider(config)
                         configured = identity
-                        send({"type": "loading", "id": identifier})
-                        if config.backend == "gguf":
-                            provider.prepare()
-                            provider_ready = True
                     provider.config = config
+                    if config.backend == "gguf" and not provider_ready:
+                        send({"type": "loading", "id": identifier})
+                        provider.prepare()
+                        provider_ready = True
                     if cancel.is_set():
                         continue
                     send({"type": "ready", "id": identifier, "model_loaded": provider_ready})
+                    with condition:
+                        input_ready = identifier
+                        condition.notify_all()
+                        # Confirm freshness after expensive initialization,
+                        # before evaluating a possibly obsolete prefix.
+                        condition.wait_for(lambda: generation_allowed or cancel.is_set() or stopped)
+                    if cancel.is_set() or stopped:
+                        continue
                     text = ""
                     options = {key: value for key, value in payload.items() if key not in {"prefix", "suffix"}}
                     for text in provider.stream(payload["prefix"], payload["suffix"], cancel, options=options):
@@ -111,6 +127,9 @@ def main() -> int:
                         # fixed actionable diagnostic, never its arbitrary body.
                         send({"type": "error", "id": identifier, "message": "Local inference failed. Check the chosen model file, local inference installation, and local server availability."})
                 finally:
+                    with condition:
+                        input_ready = identifier
+                        condition.notify_all()
                     send({"type": "done", "id": identifier, "model_loaded": provider_ready})
         finally:
             if provider is not None:
@@ -136,15 +155,29 @@ def main() -> int:
                         active_cancel.set()
                         superseded = pending[0] if pending is not None else None
                         pending = request
-                        condition.notify()
+                        condition.notify_all()
+                        # Native DLL/CRT initialization must not overlap a
+                        # blocking stdin read on Windows. Native preparation
+                        # includes its warm-up; cancellation remains bounded by
+                        # the supervisor's process termination during this phase.
+                        if request[1].backend == "gguf":
+                            condition.wait_for(lambda: input_ready >= request[0] or stopped)
                     if superseded is not None:
                         send({"type": "done", "id": superseded})
+                elif kind == "proceed":
+                    identifier = value.get("id")
+                    if type(identifier) is not int or identifier < 1:
+                        raise ValueError("Invalid generation confirmation")
+                    with condition:
+                        if identifier == active_identifier:
+                            generation_allowed = True
+                            condition.notify_all()
                 elif kind == "cancel":
                     with condition:
                         active_cancel.set()
                         superseded = pending[0] if pending is not None else None
                         pending = None
-                        condition.notify()
+                        condition.notify_all()
                     if superseded is not None:
                         send({"type": "done", "id": superseded})
                 elif kind == "stop":
@@ -158,7 +191,7 @@ def main() -> int:
             stopped = True
             active_cancel.set()
             pending = None
-            condition.notify()
+            condition.notify_all()
         thread.join(timeout=0.2)
         protocol.close()
     return 0

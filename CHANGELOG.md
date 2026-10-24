@@ -14,6 +14,7 @@
 - Fix a portable-settings field/method name collision found by Windows/Linux CI; exercise the actual Qt preferences and saved settings in an isolated offscreen smoke before retrying hosted verification.
 - Make the portable settings smoke quit through Inklow's real application action, retaining the no-tray close-confirmation safeguard; bound the GUI smoke step so an unexpected dialog cannot stall the packaging pipeline.
 - Build Windows/Linux x86 inference libraries with an explicit AVX2 baseline instead of cached host-native instructions; exercise the actual source worker before freezing as well as the packaged worker.
+- Gate native model initialization before the next blocking stdin read, confirm request freshness after model readiness, send cancellation once per request, and cleanly retry failed warmups without retaining a broken model.
 
 ## 0.2.0 — 2026-10-23
 

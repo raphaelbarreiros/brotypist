@@ -38,6 +38,7 @@ class ProcessClient:
         self._serial = 0
         self._active = None
         self._cancel_since = None
+        self._cancel_sent = False
         self._cancel_requested = threading.Event()
         self._release_requested = threading.Event()
         self._stopped = False
@@ -120,6 +121,7 @@ class ProcessClient:
         self._process = None
         self._active = None
         self._cancel_since = None
+        self._cancel_sent = False
         self._configured = None
         self._loaded = False
         self._initializing = False
@@ -241,12 +243,20 @@ class ProcessClient:
                             self._loaded = bool(event.get("model_loaded", self._loaded))
                             self._active = None
                             self._cancel_since = None
+                            self._cancel_sent = False
                             self._last_activity = now
                             if self._state != "error":
                                 self._state, self._message = "ready", "Ready."
+                        if kind == "loading" and identifier == self._active:
+                            self._initializing = True
                         if kind == "ready":
                             self._initializing = False
                             self._loaded = bool(event.get("model_loaded", True))
+                            if self._cancel_since is not None:
+                                self._cancel_since = now
+                            if (identifier == self._serial and not self._release_requested.is_set()
+                                    and not self._cancel_requested.is_set()):
+                                self._send(json.dumps({"type": "proceed", "id": identifier}).encode() + b"\n")
                         if identifier != self._serial:
                             continue
                         if kind == "ready":
@@ -260,12 +270,12 @@ class ProcessClient:
                     if (self._pending is not None and self._active is not None
                             and self._pending[1] != self._configured):
                         self._kill()
-                    if self._pending is not None and self._active is not None:
-                        if self._cancel_since is None:
-                            self._send(b'{"type":"cancel"}\n')
-                            self._cancel_since = now
-                    elif self._active is not None and self._active != self._serial and self._cancel_since is not None:
+                    if (self._active is not None and (self._pending is not None or self._active != self._serial)
+                            and not self._cancel_sent):
                         self._send(b'{"type":"cancel"}\n')
+                        self._cancel_sent = True
+                        if self._cancel_since is None:
+                            self._cancel_since = now
                     if (not self._initializing and self._cancel_since is not None
                             and now - self._cancel_since >= 0.3):
                         self._kill()
@@ -282,6 +292,7 @@ class ProcessClient:
                                 or identifier != self._serial):
                             continue
                         self._active = identifier
+                        self._cancel_sent = False
                         self._last_activity = now
                         self._send(data)
                     elif (self._process is not None and self._active is None and self._idle_timeout > 0

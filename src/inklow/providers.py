@@ -155,9 +155,15 @@ class GGUFProvider(_StreamingProvider):
     def prepare(self) -> None:
         with self._lock:
             if self._model is None:
-                model = self._load()
-                # Allocate compute buffers and compile GPU kernels before the first keystroke.
-                model.create_completion(prompt=model.tokenize(b" "), max_tokens=1, temperature=0.0)
+                try:
+                    model = self._load()
+                    # Warm native kernels before the worker resumes pipe reads.
+                    model.create_completion(prompt=model.tokenize(b" "), max_tokens=1, temperature=0.0)
+                except Exception:
+                    model, self._model = self._model, None
+                    if model is not None:
+                        model.close()
+                    raise
 
     def stream(self, prefix: str, suffix: str, cancel: threading.Event, *, options: dict | None = None) -> Iterator[str]:
         with self._lock:
