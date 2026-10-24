@@ -41,7 +41,7 @@ Windows releases are unsigned unless the release explicitly states otherwise. Wi
 Download the `.deb`, then install the specific file you downloaded:
 
 ```sh
-sudo apt install ./Inklow-0.3.0-linux-amd64.deb
+sudo apt install ./Inklow-0.3.1-linux-amd64.deb
 inklow
 ```
 
@@ -150,9 +150,9 @@ uv run inklow model download --preset tiny
 uv run python tools/build_app.py
 uv run python tools/smoke_bundle.py
 # Run the command matching the build host:
-uv run python tools/package_macos.py --bundle dist/Inklow.app --output release --version 0.3.0
-uv run python tools/package_windows.py --bundle dist/Inklow --output release --version 0.3.0
-uv run python tools/package_linux.py --bundle dist/Inklow --output release --version 0.3.0
+uv run python tools/package_macos.py --bundle dist/Inklow.app --output release --version 0.3.1
+uv run python tools/package_windows.py --bundle dist/Inklow --output release --version 0.3.1
+uv run python tools/package_linux.py --bundle dist/Inklow --output release --version 0.3.1
 ```
 
 The example explicitly selects `tiny` for the inference smoke. Set `INKLOW_HOME` to a disposable profile directory for **all** these commands if you want to preserve your normal model selection; `--no-select` downloads weights but does not configure the smoke worker.
@@ -181,7 +181,7 @@ GitHub Actions checks regressions, launches actual settings, runs source/frozen 
 
 To publish, update the version in `pyproject.toml` and `src/inklow/__init__.py`, commit the source, then run **Actions → Cross-platform checks → Run workflow** with `release_tag` set to the matching `v<version>`. An empty input runs checks only. Pushing a matching version tag also publishes after verification. Existing tags/releases are never overwritten.
 
-For Git-only publication without API workflow-dispatch access, push the committed release source to `release/<version>` (for example, `git push origin HEAD:refs/heads/release/0.3.0`). This explicitly requests a release; the workflow creates the matching version tag only after every platform passes. Use a new version after an already-published release.
+For Git-only publication without API workflow-dispatch access, push the committed release source to `release/<version>` (for example, `git push origin HEAD:refs/heads/release/0.3.1`). This explicitly requests a release; the workflow creates the matching version tag only after every platform passes. Use a new version after an already-published release.
 
 Self-hosted/manual releases use the same `tools/package_<platform>.py` and `tools/smoke_<platform>_*` checks on disposable native desktops. Windows verification requires an interactive Windows user session; Wine or a CLI version check is not a substitute. Linux installer smoke requires passwordless sudo **inside the disposable test environment**, X11/Xvfb and a private D-Bus session.
 

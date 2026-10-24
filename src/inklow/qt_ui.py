@@ -207,7 +207,19 @@ class ModelManager(QDialog):
         self.cancel.clicked.connect(self.controller.cancel_download)
         self.custom.clicked.connect(self._custom)
         reveal.clicked.connect(lambda: self._call(system.reveal_models))
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setInterval(1000)
+        self._refresh_timer.timeout.connect(self.refresh_inventory)
         self.refresh_inventory()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.refresh_inventory()
+        self._refresh_timer.start()
+
+    def hideEvent(self, event) -> None:
+        self._refresh_timer.stop()
+        super().hideEvent(event)
 
     def _call(self, function, *args) -> None:
         try:
@@ -216,6 +228,7 @@ class ModelManager(QDialog):
             _error(self, exc)
 
     def refresh_inventory(self) -> None:
+        previous = self._models
         selected = self.models.currentData()
         try:
             self._models = self.controller.models()
@@ -223,6 +236,9 @@ class ModelManager(QDialog):
         except Exception as exc:
             self._models = []
             self._inventory_error = f"Model inventory unavailable: {exc}. Check the model-folder permissions and reopen Models."
+        if self._models == previous and self.models.count() == len(self._models):
+            self.refresh()
+            return
         self.models.blockSignals(True)
         self.models.clear()
         for model in self._models:
@@ -899,8 +915,6 @@ class SettingsWindow(QDialog):
             self.login_status.setText(f"System login registration: {state}")
         except Exception as exc:
             self.login_status.setText(f"Login registration unavailable: {exc}")
-        if self.model_manager and self.model_manager.isVisible():
-            self.model_manager.refresh_inventory()
         # Synchronize untouched controls with menu/runtime changes. Dirty draft
         # fields remain owned by the user until Save or Revert.
         self._loading = True

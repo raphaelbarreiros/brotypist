@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.3.1 — 2026-10-24
+
+- Keep model-download progress and verified model availability updating even when the parent Settings window is hidden or input/menu polling is paused. The Models dialog owns its refresh timer and stops it while hidden.
+- Preserve model-dropdown selection/popups by avoiding inventory rebuilds when nothing changed. Existing downloaded weights are reused; no model migration, default change, or redownload is required for this UI fix.
+
 ## 0.3.0 — 2026-10-24
 
 - Replace the editor with a menu-first agent: native AppKit preferences/overlays on macOS, native-themed Qt tray/preferences on Windows/Linux. Remove obsolete editor and in-process UI worker APIs; omit Qt from the Mac dependency/bundle.
