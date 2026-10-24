@@ -1003,6 +1003,9 @@ class Accessory(QWidget):
         self.button = QToolButton()
         self.button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.button.setIcon(tray_icon())
+        self.button.setText("inklow")
+        self.button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.button.setStyleSheet("QToolButton { color: palette(mid); border: none; padding: 2px 4px; }")
         self.button.setToolTip("Inklow actions and choices")
         self.button.setAccessibleName("Inklow accessory menu")
         self.button.clicked.connect(self._menu)
@@ -1191,25 +1194,26 @@ class MenuAgent:
             return
         self._last_overlay = event
         self.choices = list(event.get("choices") or [])
+        rect = (rect[0], rect[1], 0, rect[3]) if event.get("field_anchor") else rect
         point, height = self._position(rect)
         if event.get("mode") != "completion" or not event.get("inline", True):
             point.setY(point.y() + height + 4)
         self.overlay.present(event, point)
-        if self.controller.config.show_accessory:
-            self.accessory.adjustSize()
-            self.accessory.move(point.x(), point.y() + height + 3)
-            self.accessory.show()
-        else:
-            self.accessory.hide()
+        self._caret(event)
 
     def _caret(self, event: dict) -> None:
-        rect = event.get("rect")
+        rect = event.get("field_rect") or event.get("rect")
         if not self.controller.config.show_accessory or not isinstance(rect, (tuple, list)) or len(rect) != 4:
             self.accessory.hide()
             return
-        point, height = self._position(rect)
+        point, height = self._position((rect[0], rect[1], 0, rect[3]))
         self.accessory.adjustSize()
-        self.accessory.move(point.x(), point.y() + height + 3)
+        left = point.x() - self.accessory.width() - 6
+        screen = self.app.screenAt(point) or self.app.primaryScreen()
+        if screen and left < screen.availableGeometry().left() + 4:
+            left = max(point.x(), screen.availableGeometry().left() + 4)
+            point.setY(point.y() + height + 4)
+        self.accessory.move(left, point.y())
         self.accessory.show()
 
     def clear_overlay(self, *, hide_accessory: bool = True) -> None:

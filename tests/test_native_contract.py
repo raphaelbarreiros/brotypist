@@ -420,3 +420,176 @@ def test_mac_caret_uses_real_glyph_row_without_moving_its_horizontal_position(te
         AXUIElementCopyParameterizedAttributeValue=lambda field, name, value, output: (0, rectangles[value]),
         AXValueGetValue=lambda value, kind, output: (True, value))
     assert bridge._caret_bounds(object(), text, caret, location) == (100, 60, 1, 20)
+
+
+# Field discovery regression map: geometry survives empty text (P1); missing
+# optional focus flags still require authoritative app focus (P0); explicit
+# denial, changed focus, and unsupported geometry fail closed (P0). AX doubles
+# provide only synthetic text and assert returned snapshots / forbidden reads.
+def mac_capture_boundary(text="", **overrides):
+    bridge = MacBridge.__new__(MacBridge)
+    BridgeBase.__init__(bridge)
+    bridge._secure_description = "Localized secure role"
+    bridge._foreground = lambda: (1234, "/Editor", {"app_id": "editor", "domain": ""})
+    attributes = {
+        ("application", "AXFocusedUIElement"): "field",
+        ("field", "AXRole"): "AXTextArea",
+        ("field", "AXFocused"): True,
+        ("field", "AXEnabled"): True,
+        ("field", "AXSelectedTextRange"): (len(text), 0),
+        ("field", "AXValue"): text,
+        ("field", "AXPosition"): (120, 240),
+        ("field", "AXSize"): (400, 180),
+    }
+    attributes.update({("field", name): value for name, value in overrides.items()})
+    reads, writes = [], []
+    def copy_attribute(element, name, output):
+        reads.append((element, name))
+        value = attributes.get((element, name))
+        return (0, value) if value is not None else (-25205, None)
+    bridge.ax = SimpleNamespace(
+        AXIsProcessTrusted=lambda: True,
+        AXUIElementCreateApplication=lambda pid: "application",
+        AXUIElementCopyAttributeValue=copy_attribute,
+        AXUIElementIsAttributeSettable=lambda element, name, output:
+            (0, element == "field" and name == "AXValue"),
+        AXUIElementSetAttributeValue=lambda element, name, value:
+            writes.append((element, name, value)) or 0,
+        kAXValueCFRangeType=1, kAXValueCGRectType=2,
+        kAXValueCGPointType=3, kAXValueCGSizeType=4,
+        AXValueCreate=lambda kind, value: value,
+        AXValueGetValue=lambda value, kind, output: (True, value),
+        AXUIElementCopyParameterizedAttributeValue=lambda *args: (-25205, None),
+    )
+    return bridge, attributes, reads, writes
+
+
+def test_mac_empty_field_keeps_native_field_geometry_without_inventing_a_caret():
+    bridge, _, _, _ = mac_capture_boundary()
+    snapshot = bridge.capture()
+    assert snapshot is not None
+    assert snapshot.text == ""
+    assert snapshot.field_rect == (120, 240, 400, 180)
+    assert snapshot.caret_rect is None
+
+
+@pytest.mark.parametrize("attribute,value", [
+    ("AXPosition", None), ("AXSize", None), ("AXSize", (0, 180)),
+    ("AXSize", (-1, 180)), ("AXPosition", (float("nan"), 240)),
+    ("AXSize", (400, float("inf"))),
+])
+def test_mac_invalid_field_geometry_does_not_discard_a_supported_field(attribute, value):
+    bridge, _, _, _ = mac_capture_boundary(**{attribute: value})
+    snapshot = bridge.capture()
+    assert snapshot is not None
+    assert snapshot.field_rect is None
+
+
+def test_mac_authoritative_app_focus_allows_missing_optional_focused_flag():
+    bridge, _, _, _ = mac_capture_boundary(AXFocused=None)
+    assert bridge.capture() is not None
+
+
+def test_mac_explicitly_unfocused_control_never_reads_its_value():
+    bridge, _, reads, _ = mac_capture_boundary(AXFocused=False)
+    assert bridge.capture() is None
+    assert ("field", "AXValue") not in reads
+
+
+def test_mac_changed_focus_during_capture_discards_the_snapshot():
+    bridge, attributes, _, _ = mac_capture_boundary()
+    copy_attribute = bridge.ax.AXUIElementCopyAttributeValue
+    def change_focus_after_value(element, name, output):
+        result = copy_attribute(element, name, output)
+        if name == "AXValue":
+            attributes[("application", "AXFocusedUIElement")] = "another_field"
+        return result
+    bridge.ax.AXUIElementCopyAttributeValue = change_focus_after_value
+    assert bridge.capture() is None
+
+
+def test_mac_electron_accessibility_activation_is_advertised_and_not_repeated():
+    bridge, attributes, _, writes = mac_capture_boundary()
+    attributes[("application", "AXManualAccessibility")] = False
+    is_settable = bridge.ax.AXUIElementIsAttributeSettable
+    bridge.ax.AXUIElementIsAttributeSettable = lambda element, name, output: (
+        (0, True) if (element, name) == ("application", "AXManualAccessibility")
+        else is_settable(element, name, output))
+    assert bridge.capture() is not None
+    assert bridge.capture() is not None
+    assert writes == [("application", "AXManualAccessibility", True)]
+
+
+def test_mac_ordinary_native_application_never_receives_accessibility_setters():
+    bridge, _, _, writes = mac_capture_boundary()
+    assert bridge.capture() is not None
+    assert writes == []
+
+
+def test_mac_denied_app_never_activates_accessibility_or_reads_a_field():
+    bridge, _, reads, writes = mac_capture_boundary()
+    bridge._app_rules = {"app:editor": {"enabled": False}}
+    assert bridge.capture() is None
+    assert reads == []
+    assert writes == []
+
+
+def test_mac_caret_on_next_visual_row_is_not_moved_back_to_the_previous_glyph():
+    bridge = MacBridge.__new__(MacBridge)
+    rectangles = {(3, 0): ((100, 60), (0, 20)),
+                  (2, 1): ((380, 40), (20, 20))}
+    bridge.ax = SimpleNamespace(
+        kAXValueCFRangeType=1, kAXValueCGRectType=2,
+        AXValueCreate=lambda kind, value: value,
+        AXUIElementCopyParameterizedAttributeValue=lambda field, name, value, output: (0, rectangles[value]),
+        AXValueGetValue=lambda value, kind, output: (True, value))
+    assert bridge._caret_bounds(object(), "abc", 3, 3) == (100, 60, 1, 20)
+
+
+@pytest.mark.parametrize("app_id,expected", [
+    ("com.google.chrome", [("application", "AXEnhancedUserInterface", True)]),
+    ("ordinary-editor", []),
+])
+def test_mac_enhanced_accessibility_is_limited_to_known_chromium_browsers(app_id, expected):
+    bridge, attributes, _, writes = mac_capture_boundary()
+    bridge._foreground = lambda: (1234, "/Editor", {"app_id": app_id, "domain": ""})
+    attributes[("application", "AXEnhancedUserInterface")] = False
+    is_settable = bridge.ax.AXUIElementIsAttributeSettable
+    bridge.ax.AXUIElementIsAttributeSettable = lambda element, name, output: (
+        (0, True) if (element, name) == ("application", "AXEnhancedUserInterface")
+        else is_settable(element, name, output))
+    assert bridge.capture() is not None
+    assert bridge.capture() is not None
+    assert writes == expected
+
+
+def test_mac_already_enabled_accessibility_is_not_toggled():
+    bridge, attributes, _, writes = mac_capture_boundary()
+    attributes[("application", "AXManualAccessibility")] = True
+    assert bridge.capture() is not None
+    assert writes == []
+
+
+def test_mac_caret_at_wrap_boundary_is_not_moved_to_the_following_glyph_row():
+    bridge = MacBridge.__new__(MacBridge)
+    rectangles = {(2, 0): ((400, 40), (0, 20)),
+                  (2, 1): ((100, 60), (20, 20))}
+    bridge.ax = SimpleNamespace(
+        kAXValueCFRangeType=1, kAXValueCGRectType=2,
+        AXValueCreate=lambda kind, value: value,
+        AXUIElementCopyParameterizedAttributeValue=lambda field, name, value, output: (0, rectangles[value]),
+        AXValueGetValue=lambda value, kind, output: (True, value))
+    assert bridge._caret_bounds(object(), "abc", 2, 2) == (400, 40, 1, 20)
+
+
+def test_mac_changed_focus_during_range_metadata_never_reads_the_old_value():
+    bridge, attributes, reads, _ = mac_capture_boundary(AXFocused=None)
+    copy_attribute = bridge.ax.AXUIElementCopyAttributeValue
+    def change_focus_after_range(element, name, output):
+        result = copy_attribute(element, name, output)
+        if name == "AXSelectedTextRange":
+            attributes[("application", "AXFocusedUIElement")] = "another_field"
+        return result
+    bridge.ax.AXUIElementCopyAttributeValue = change_focus_after_range
+    assert bridge.capture() is None
+    assert ("field", "AXValue") not in reads

@@ -609,3 +609,50 @@ def test_synonyms_replace_short_phrases_and_decomposed_unicode_without_touching_
     controller.tick()
     assert controller.invoke("choice:1")
     assert bridge.snapshot.text == "A " + replacement + " update"
+
+
+def test_empty_field_shows_accessory_without_prediction_and_hides_after_blur(runtime):
+    controller, bridge, client = runtime
+    bridge.snapshot = Snapshot("writer", "empty", "", 0, field_rect=(100, 200, 400, 50))
+    controller.tick()
+    events = controller.drain_events()
+    anchor = next(event for event in events if event["type"] == "caret")
+    assert anchor["field_rect"] == [100, 200, 400, 50]
+    assert not client.requests
+    bridge.snapshot = None
+    controller.tick()
+    assert any(event["type"] == "clear" and event.get("hide_accessory") for event in controller.drain_events())
+
+
+def test_field_accessory_moves_without_regenerating_text(runtime):
+    controller, bridge, client = runtime
+    bridge.snapshot = replace(bridge.snapshot, field_rect=(100, 200, 400, 50))
+    controller.tick()
+    controller.drain_events()
+    bridge.snapshot = replace(bridge.snapshot, field_rect=(150, 250, 400, 50))
+    controller.tick()
+    anchor = next(event for event in controller.drain_events() if event["type"] == "caret")
+    assert anchor["field_rect"] == [150, 250, 400, 50]
+    assert not client.requests
+
+
+def test_protected_empty_field_never_shows_brand_accessory(runtime):
+    controller, bridge, client = runtime
+    bridge.snapshot = Snapshot("writer", "password", "", 0, protected=True, field_rect=(100, 200, 400, 50))
+    controller.tick()
+    assert not any(event["type"] == "caret" for event in controller.drain_events())
+    assert not client.requests
+
+
+def test_field_bounds_allow_visible_card_and_guarded_acceptance_without_caret(runtime):
+    controller, bridge, _ = runtime
+    bridge.snapshot = replace(bridge.snapshot, caret_rect=None, field_rect=(100, 200, 400, 50))
+    offer(controller, bridge, " arrives tomorrow")
+    event = next(event for event in controller.drain_events() if event["type"] == "suggestion")
+    assert event["inline"] is False
+    assert event["rect"] == [100, 200, 400, 50]
+    assert controller.invoke("word")
+    assert bridge.snapshot.text == "Dear team, the update arrives "
+    bridge.snapshot = replace(bridge.snapshot, field_rect=None)
+    assert not controller.invoke("all")
+    assert bridge.snapshot.text == "Dear team, the update arrives "

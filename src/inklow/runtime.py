@@ -247,8 +247,8 @@ class Controller:
         previous = self._candidate
         if previous is not None and previous.key == snapshot.key:
             self._candidate = snapshot
-            if previous.caret_rect != snapshot.caret_rect:
-                if snapshot.caret_rect and not previous.caret_rect and not self._suggestion.text and not self._choices:
+            if previous.caret_rect != snapshot.caret_rect or previous.field_rect != snapshot.field_rect:
+                if snapshot.anchor_rect and not previous.anchor_rect and not self._suggestion.text and not self._choices:
                     self._attempted = None
                 if self._suggestion.snapshot is not None:
                     self._suggestion.offer(self._suggestion.generation, snapshot, self._suggestion.text)
@@ -269,8 +269,9 @@ class Controller:
         self._publish_caret(snapshot)
 
     def _publish_caret(self, snapshot):
-        if snapshot.caret_rect and (snapshot.eligible(1) or self._selected_word(snapshot)):
-            self._emit({"type": "caret", "rect": list(snapshot.caret_rect)})
+        if snapshot.field_rect or snapshot.caret_rect:
+            self._emit({"type": "caret", "rect": list(snapshot.caret_rect) if snapshot.caret_rect else None,
+                        "field_rect": list(snapshot.field_rect) if snapshot.field_rect else None})
         else:
             self._emit({"type": "clear", "hide_accessory": True})
 
@@ -377,7 +378,7 @@ class Controller:
             if options is None:
                 self._error = "Could not prepare local writing preferences."
                 continue
-            if current is None or not current.caret_rect or current.key != snapshot.key:
+            if current is None or not current.anchor_rect or current.key != snapshot.key:
                 self._clear(hide_accessory=True)
                 continue
             self._error = options.pop("_warning", "")
@@ -392,11 +393,14 @@ class Controller:
 
     def _publish_completion(self):
         snapshot, text = self._suggestion.snapshot, self._suggestion.text
-        if snapshot is None or not text or not snapshot.caret_rect:
+        if snapshot is None or not text or not snapshot.anchor_rect:
             self._emit({"type": "clear"})
             return
-        self._emit({"type": "suggestion", "text": text, "rect": list(snapshot.caret_rect), "choices": [],
-                    "mode": "completion", "inline": not bool(snapshot.suffix.split("\n", 1)[0].strip())})
+        self._emit({"type": "suggestion", "text": text, "rect": list(snapshot.anchor_rect), "choices": [],
+                    "field_rect": list(snapshot.field_rect) if snapshot.field_rect else None,
+                    "field_anchor": snapshot.caret_rect is None,
+                    "mode": "completion",
+                    "inline": bool(snapshot.caret_rect) and not bool(snapshot.suffix.split("\n", 1)[0].strip())})
 
     def _publish_choices(self, snapshot, choices, mode, replacement):
         if mode in {"emoji", "synonyms"} and not self._rewrites_supported:
@@ -407,8 +411,10 @@ class Controller:
         self._replacement = replacement
         self._mode = mode
         self._completion_counted = False
-        if snapshot.caret_rect and self._choices:
-            self._emit({"type": "suggestion", "text": self._choices[0], "rect": list(snapshot.caret_rect),
+        if snapshot.anchor_rect and self._choices:
+            self._emit({"type": "suggestion", "text": self._choices[0], "rect": list(snapshot.anchor_rect),
+                        "field_rect": list(snapshot.field_rect) if snapshot.field_rect else None,
+                        "field_anchor": snapshot.caret_rect is None,
                         "choices": list(self._choices), "mode": mode})
 
     def _consume_results(self):
@@ -489,7 +495,7 @@ class Controller:
                     if snapshot is not None:
                         if isinstance(command, tuple) and snapshot.key != command[1]:
                             continue
-                        if not snapshot.caret_rect:
+                        if not snapshot.anchor_rect:
                             continue
                         mode = "completion" if action == "force" else action
                         if ((mode == "completion" and snapshot.eligible(1))
@@ -509,7 +515,7 @@ class Controller:
             self._observe(snapshot)
             self._consume_prepared()
             self._consume_results()
-            if snapshot is not None and snapshot.caret_rect:
+            if snapshot is not None and snapshot.anchor_rect:
                 selected = self._selected_word(snapshot)
                 mode = "synonyms" if selected else "completion"
                 delay = self.config.synonyms_delay_ms if selected else self.config.debounce_ms
@@ -560,7 +566,7 @@ class Controller:
 
     def _accept(self, full=False, choice=None):
         current = self._capture()
-        if current is None or not current.caret_rect:
+        if current is None or not current.anchor_rect:
             self._clear(hide_accessory=True)
             return False
         if self._choices:
@@ -640,7 +646,7 @@ class Controller:
                     return False
                 current = self._capture()
                 expected = self._choice_snapshot or self._suggestion.snapshot or (self._request[1] if self._request else self._candidate)
-                if current is None or not current.caret_rect or expected is None or current.key != expected.key:
+                if current is None or not current.anchor_rect or expected is None or current.key != expected.key:
                     self._clear(hide_accessory=True)
                     return False
                 self._clear()
@@ -661,7 +667,7 @@ class Controller:
                 if action == "synonyms" and (not self.config.synonyms_enabled or not self._rewrites_supported):
                     return False
                 snapshot = self._capture()
-                if snapshot is None or not snapshot.caret_rect or (action == "synonyms" and not self._selected_word(snapshot)):
+                if snapshot is None or not snapshot.anchor_rect or (action == "synonyms" and not self._selected_word(snapshot)):
                     return False
                 if action != "synonyms" and not snapshot.eligible(1):
                     return False

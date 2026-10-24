@@ -18,7 +18,7 @@ Models load **lazily in a separate process**. The process is terminated after 60
 
 Native build output: `dist/Inklow.app` on macOS; `dist/Inklow/Inklow.exe` on Windows; `dist/Inklow/launch-inklow` on Linux. Native bundles include the runtime and original app/tray icons, **not weights or user data**. Existing saved preferences are preserved. A running older editor must be quit normally, with unsaved writing saved, before replacing its installed bundle.
 
-On the development Mac, the verified build is installed at **`/Applications/Inklow 0.3.app`**. The original `/Applications/Inklow.app` was deliberately not replaced: normal Quit exposed unsaved writing, so Quit was cancelled. Save and quit that old editor before launching the new app normally. Do not run both for typing; the versions share the application identity/default preferences. [Installation and protection receipt](evidence/menu-first-installed-app.json).
+On the development Mac, the current app is **`/Applications/Inklow.app`**. The older editor bundle was replaced after it was no longer running; the version-suffixed preview bundle was removed. Saved settings, downloaded models, and local history were retained. macOS permissions belong to the launched application: a successful terminal-launched smoke can inherit the terminal's permission and does not prove a normal Finder/LaunchServices launch is authorized.
 
 Python 3.11+ is required; Python 3.12 is recommended. With [uv](https://docs.astral.sh/uv/):
 
@@ -48,6 +48,7 @@ Ollama (`/api/generate`, raw) and OpenAI-compatible (`/v1/completions`) local se
 - Type `:smile` or a supported emoticon for an offline Unicode emoji chooser; numbered keys/click accept explicitly. Skin tone and gender preferences are separate.
 - Select a word/short phrase for contextual synonyms, or enable alternative continuations in Labs. These use the local inference model and bounded structured results; model quality is not guaranteed.
 - Menu: enable/disable globally, temporary current-app toggle, timed pause, settings panes, actual accepted-writing statistics, diagnostics/permission shortcuts, About, and Quit.
+- A muted **inklow** menu badge is attached to the focused field's left edge, including empty fields; it does not require a model or a prediction. Native caret geometry enables inline ghost text. Where the provider exposes reliable field bounds but no usable caret rectangle, a field-attached suggestion card supports explicit acceptance instead of guessing a caret position.
 
 New profiles enable global typing; password managers and terminals are excluded by default. **Enable completions by default** controls per-app inheritance, separately from the global master switch. App/domain rules can override completions, Tab acceptance, custom instructions, and recording. Temporary app toggles last for this process only. Website rules use exact native-observable hosts, never a guessed window title.
 
@@ -77,7 +78,7 @@ Windows/Linux have no native browser URL observation or screenshot context in th
 
 ### macOS permissions
 
-Enable Accessibility and Input Monitoring for **Inklow.app**, or the Python/terminal host for source execution, in System Settings → Privacy & Security. Source permissions need not cover a newly bundled app. Setup displays status and opens the appropriate OS pane; it does not click permission grants. Screen Recording is optional and only needed for opted-in screen context.
+Enable Accessibility and Input Monitoring for **`/Applications/Inklow.app`** in System Settings → Privacy & Security. Terminal/Python permissions do **not** prove that the app launched normally has permission. If a stale Inklow entry points at a removed build, remove that entry and add the current app with the `+` control. Setup displays actual app-process status and opens the appropriate OS pane; no grant is automated. Restart Inklow after changing permission. The menu explicitly identifies missing required permissions. Screen Recording is optional and only needed for opted-in screen context.
 
 ### Linux prerequisites
 

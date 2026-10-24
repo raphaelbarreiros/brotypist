@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import math
 import threading
 import dataclasses
 
@@ -88,6 +89,29 @@ class MacBridge(BridgeBase):
             except Exception:
                 return super().foreground()
 
+    def _prepare_accessibility(self, app, pid, app_id):
+        # Electron documents AXManualAccessibility for third-party assistive
+        # clients. Chromium browsers advertise AXEnhancedUserInterface instead.
+        # Only touch an advertised, writable per-application flag; never TCC.
+        target = (pid, app_id)
+        if getattr(self, "_accessibility_target", None) == target:
+            return
+        self._accessibility_target = target
+        manual = self._attribute(app, "AXManualAccessibility")
+        if manual is not None:
+            attribute, enabled = "AXManualAccessibility", manual
+        elif app_id.casefold() in {
+            "com.google.chrome", "com.google.chrome.canary", "org.chromium.chromium",
+            "com.microsoft.edgemac", "com.brave.browser",
+            "com.operasoftware.opera", "com.vivaldi.vivaldi",
+        }:
+            attribute = "AXEnhancedUserInterface"
+            enabled = self._attribute(app, attribute)
+        else:
+            return
+        if enabled is not None and not enabled and self._settable(app, attribute):
+            self.ax.AXUIElementSetAttributeValue(app, attribute, True)
+
     def _focused(self):
         # Resolve the foreground process through NSWorkspace. System-wide AX
         # AXFocusedApplication can return kAXErrorCannotComplete even while the
@@ -100,6 +124,7 @@ class MacBridge(BridgeBase):
         if pid == os.getpid() or not app_id or not self._allowed(app_id, metadata["domain"], executable):
             return None
         app = self.ax.AXUIElementCreateApplication(pid)
+        self._prepare_accessibility(app, pid, app_id)
         field = self._attribute(app, "AXFocusedUIElement")
         if field is None:
             return None
@@ -117,7 +142,11 @@ class MacBridge(BridgeBase):
             return None
         # NSTextView omits AXEnabled; its writable setters establish editability.
         enabled = self._attribute(field, "AXEnabled")
-        if (enabled is not None and not enabled) or not self._attribute(field, "AXFocused"):
+        focused = self._attribute(field, "AXFocused")
+        # AXFocusedUIElement on the foreground application's AX root is the
+        # authoritative focus source. Some providers omit the redundant flag;
+        # an explicit false still rejects the control.
+        if (enabled is not None and not enabled) or (focused is not None and not focused):
             return None
         if not (self._settable(field, "AXSelectedText") or self._settable(field, "AXValue")):
             return None
@@ -142,16 +171,41 @@ class MacBridge(BridgeBase):
         if not valid:
             return None
         location, length = int(native_range[0]), int(native_range[1])
+        if self._focused() != focused:
+            return None
         text = self._attribute(field, "AXValue")
         if not isinstance(text, str) or len(text) > 1_000_000:
             return None
         caret = utf16_to_index(text, location)
         end = utf16_to_index(text, location + length)
         rect = self._caret_bounds(field, text, caret, location)
+        field_rect = self._field_bounds(field)
+        multiline = self._attribute(field, "AXRole") == "AXTextArea"
+        # Re-resolve foreground policy, security, writability and field identity
+        # after asynchronous AX calls. Never return a snapshot of stale focus.
+        if self._focused() != focused:
+            return None
         # CFEqual/hash on AXUIElement retains identity across fresh AX references.
         field_id = f"{pid}:{hash(field)}"
         return Snapshot(app_id, field_id, text, caret, end - caret, rect,
-                        domain=domain, multiline=self._attribute(field, "AXRole") == "AXTextArea"), field
+                        domain=domain, multiline=multiline,
+                        field_rect=field_rect), field
+
+    def _field_bounds(self, field):
+        position = self._attribute(field, "AXPosition")
+        size = self._attribute(field, "AXSize")
+        if position is None or size is None:
+            return None
+        valid_position, position = self.ax.AXValueGetValue(position, self.ax.kAXValueCGPointType, None)
+        valid_size, size = self.ax.AXValueGetValue(size, self.ax.kAXValueCGSizeType, None)
+        if not valid_position or not valid_size:
+            return None
+        bounds = (float(position[0]), float(position[1]), float(size[0]), float(size[1]))
+        if not all(math.isfinite(value) for value in bounds) or bounds[2] <= 0 or bounds[3] <= 0:
+            return None
+        # AX screen coordinates already use the top-left origin, like caret
+        # ranges; do not apply AppKit's bottom-left screen conversion here.
+        return bounds
 
     def _range_bounds(self, field, location, length):
         value = self.ax.AXValueCreate(self.ax.kAXValueCFRangeType, (location, length))
@@ -161,7 +215,10 @@ class MacBridge(BridgeBase):
         valid, bounds = self.ax.AXValueGetValue(bounds, self.ax.kAXValueCGRectType, None)
         if not valid or bounds[1][1] <= 0:
             return None
-        return (float(bounds[0][0]), float(bounds[0][1]), float(bounds[1][0]), float(bounds[1][1]))
+        bounds = (float(bounds[0][0]), float(bounds[0][1]), float(bounds[1][0]), float(bounds[1][1]))
+        if not all(math.isfinite(value) for value in bounds) or bounds[2] < 0:
+            return None
+        return bounds
 
     def _caret_bounds(self, field, text, caret, location):
         bounds = self._range_bounds(field, location, 0)
@@ -179,7 +236,8 @@ class MacBridge(BridgeBase):
         else:
             return None  # No reliable glyph row on an empty line.
         if (glyph is not None and abs(glyph[3] - bounds[3]) <= 1
-                and abs(glyph[1] - bounds[1]) <= bounds[3] + 1):
+                and 0 <= glyph[1] - bounds[1] <= bounds[3] + 1
+                and bounds[0] <= glyph[0] + glyph[2] + 1):
             bounds = (bounds[0], glyph[1], bounds[2], bounds[3])
         return bounds[0], bounds[1], max(1.0, bounds[2]), bounds[3]
 

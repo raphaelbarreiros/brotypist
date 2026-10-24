@@ -90,8 +90,10 @@ def _position(rect, width, height, *, accessory=False):
     screen = next((s for s in screens if A.NSPointInRect(
         A.NSMakePoint(x, caret_bottom), s.frame())), screens[0])
     visible = screen.visibleFrame()
-    left = x - width - 4 if accessory else x + caret_width
-    bottom = caret_bottom - height - 4
+    left = x - width - 6 if accessory else x + caret_width
+    bottom = (origin_top - y - min(caret_height, height)) if accessory else caret_bottom - height - 4
+    if accessory and left < A.NSMinX(visible) + 4:
+        left, bottom = x, caret_bottom - height - 4
     if bottom < A.NSMinY(visible):
         bottom = caret_bottom + caret_height + 4
     left = max(A.NSMinX(visible) + 4, min(left, A.NSMaxX(visible) - width - 4))
@@ -109,17 +111,22 @@ class CaretOverlay:
         self.accessory = _panel("inklow.accessory")
         self.target = OverlayActions.alloc().init().setup(invoke, self._menu)
         self.rect = None
+        self.field_rect = None
         self._event_key = None
-        surface = _surface(27, 27)
-        button = InklowOverlayButton.alloc().initWithFrame_(A.NSMakeRect(1, 1, 25, 25))
+        self.accessory.setHasShadow_(False)
+        surface = A.NSView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 78, 24))
+        button = InklowOverlayButton.alloc().initWithFrame_(A.NSMakeRect(1, 1, 76, 22))
         button.setIdentifier_("inklow.accessory.menu")
         button.setAccessibilityIdentifier_("inklow.accessory.menu")
         button.setAccessibilityLabel_("Inklow menu")
         button.setToolTip_("Inklow — typing settings and pause controls")
+        button.setTitle_("inklow")
+        button.setFont_(A.NSFont.systemFontOfSize_weight_(12, A.NSFontWeightMedium))
+        button.setContentTintColor_(A.NSColor.secondaryLabelColor())
         image = A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("tray/active-template-18.png")))
         image.setTemplate_(True)
         button.setImage_(image)
-        button.setImagePosition_(A.NSImageOnly)
+        button.setImagePosition_(A.NSImageLeft)
         button.setBordered_(False)
         button.setTag_(100)
         button.setTarget_(self.target)
@@ -139,16 +146,20 @@ class CaretOverlay:
         self.show_accessory = bool(show_accessory)
         if not self.show_accessory:
             self.accessory.orderOut_(None)
-        elif self.rect is not None:
-            self.caret(self.rect)
+        elif self.rect is not None or self.field_rect is not None:
+            self.caret(self.rect, self.field_rect)
 
-    def caret(self, rect):
-        if not rect or len(rect) != 4 or not all(math.isfinite(float(n)) for n in rect):
+    def caret(self, rect, field_rect=None):
+        anchor = field_rect or rect
+        if (not anchor or len(anchor) != 4
+                or not all(math.isfinite(float(n)) for n in anchor)
+                or float(anchor[2]) < 0 or float(anchor[3]) <= 0):
             self.clear(hide_accessory=True)
             return
-        self.rect = tuple(rect)
+        self.rect = tuple(rect) if rect else None
+        self.field_rect = tuple(field_rect) if field_rect else None
         if self.show_accessory:
-            self.accessory.setFrame_display_(_position(rect, 27, 27, accessory=True), True)
+            self.accessory.setFrame_display_(_position(anchor, 78, 24, accessory=True), True)
             self.accessory.orderFrontRegardless()
 
     def _present_inline(self, text, rect):
@@ -195,10 +206,11 @@ class CaretOverlay:
         if not rect:
             self.clear(hide_accessory=True)
             return
-        self.caret(rect)
+        self.caret(rect, event.get("field_rect"))
         choices = [str(s) for s in event.get("choices", []) if str(s)][:9]
         text = str(event.get("text", ""))
-        key = (text, tuple(choices), event.get("mode"), tuple(rect))
+        key = (text, tuple(choices), event.get("mode"), tuple(rect),
+               event.get("inline", True), bool(event.get("field_anchor")))
         if key == self._event_key:
             return
         self._event_key = key
@@ -236,7 +248,8 @@ class CaretOverlay:
             self.target.actions[tag] = f"choice:{index + 1}" if choices else "all"
             surface.addSubview_(button)
         self.suggestion.setContentView_(surface)
-        self.suggestion.setFrame_display_(_position(rect, width, height), True)
+        card_rect = (rect[0], rect[1], 0, rect[3]) if event.get("field_anchor") else rect
+        self.suggestion.setFrame_display_(_position(card_rect, width, height), True)
         self.suggestion.orderFrontRegardless()
 
     def clear(self, *, hide_accessory=False):
@@ -244,6 +257,7 @@ class CaretOverlay:
         self._event_key = None
         if hide_accessory:
             self.rect = None
+            self.field_rect = None
             self.accessory.orderOut_(None)
 
     def close(self):

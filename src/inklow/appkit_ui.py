@@ -416,7 +416,7 @@ class InklowApplication(NSObject):
                 if kind == "suggestion":
                     self.overlay.present(event)
                 elif kind == "caret":
-                    self.overlay.caret(event.get("rect"))
+                    self.overlay.caret(event.get("rect"), event.get("field_rect"))
                 elif kind == "clear":
                     self.overlay.clear(hide_accessory=bool(event.get("hide_accessory")))
                 elif kind == "settings":
@@ -443,6 +443,13 @@ class InklowApplication(NSObject):
         enabled = bool(status.get("enabled"))
         state = str(status.get("state", "idle"))
         message = str(status.get("message") or state.capitalize())
+        if enabled:
+            permissions = self._permission_state()
+            if not permissions["accessibility"]:
+                state, message = "permission", "Accessibility permission required — open Setup"
+            elif not permissions["input_monitoring"]:
+                state, message = "permission", "Input Monitoring required for acceptance shortcuts — open Setup"
+        status = {**status, "state": state, "message": message}
         self.status_line.setTitle_(f"Inklow — {message[:100]}")
         self.status_line.setToolTip_(message)
         self.pause_item.setTitle_("Pause Inklow" if enabled else "Resume Inklow")

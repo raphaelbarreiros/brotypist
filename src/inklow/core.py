@@ -18,6 +18,12 @@ class Snapshot:
     protected: bool = False
     domain: str = ""
     multiline: bool = True
+    field_rect: tuple[float, float, float, float] | None = None
+
+    @property
+    def anchor_rect(self) -> tuple[float, float, float, float] | None:
+        """A native caret supports inline text; field-only bounds support a card."""
+        return self.caret_rect or self.field_rect
 
     @property
     def prefix(self) -> str:

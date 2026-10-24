@@ -15,6 +15,9 @@
 - Make the portable settings smoke quit through Inklow's real application action, retaining the no-tray close-confirmation safeguard; bound the GUI smoke step so an unexpected dialog cannot stall the packaging pipeline.
 - Build Windows/Linux x86 inference libraries with an explicit AVX2 baseline instead of cached host-native instructions; exercise the actual source worker before freezing as well as the packaged worker.
 - Gate native model initialization before the next blocking stdin read, confirm request freshness after model readiness, send cancellation once per request, and cleanly retry failed warmups without retaining a broken model.
+- Anchor a muted Inklow menu badge to supported field bounds even before typing. Use a field-attached suggestion card when native caret bounds are unavailable, while preserving exact focus/protection/snapshot checks and inline rendering when a caret is observable.
+- Request only advertised per-app Electron/Chromium accessibility support, accept authoritative focused-element metadata when its redundant focus flag is absent, and revalidate native focus/protection around context reads.
+- Consolidate the development Mac installation into `/Applications/Inklow.app`, remove the owned versioned preview, preserve saved data, and show missing app-process permissions explicitly rather than implying an idle agent is ready.
 
 ## 0.2.0 — 2026-10-23
 
