@@ -1,0 +1,18 @@
+{
+  "bundle": "/Applications/Inklow.app",
+  "launch_mode": "LaunchServices",
+  "isolated_profile": true,
+  "status_icon_entire_bounds_on_active_display": [
+    1195.0,
+    4.5,
+    24.0,
+    24.0
+  ],
+  "status_icon_survived_pause_and_resume": true,
+  "real_pause_and_resume_persisted": true,
+  "status_menu_held_open_two_seconds": true,
+  "quit_menu_terminated_app": true,
+  "launch_client_exit_code": 0,
+  "gui_exit_code": null,
+  "normal_input_permission": "separate doctor reported denied; this smoke does not prove accessory/input authorization"
+}

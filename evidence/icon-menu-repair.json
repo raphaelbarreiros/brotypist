@@ -1,0 +1,64 @@
+{
+  "source_revision": "893a8db395f9d46fecd25a042b73d1e82a10d4b9",
+  "installed_bundle": "/Applications/Inklow.app",
+  "installed_executable_sha256": "e2b79cc84162901ab55bad18c9f0ae955ca6db830e50ae0c2df4dd84abf8c30d",
+  "installation": {
+    "settings_bytes_unchanged": true,
+    "models_and_history_not_removed": true,
+    "deep_strict_signature_verified": true,
+    "signing": "Existing Apple Development identity; no key exported or new certificate created",
+    "designated_requirement": "Certificate-backed, not specific to an executable cdhash",
+    "notarization_claimed": false
+  },
+  "signed_dist_native_gui_smoke": {
+    "launch_mode": "direct-inherited-host",
+    "normal_launch_permission_proof": false,
+    "all_inputs_synthetic": true,
+    "icon_only_size": [24, 24],
+    "above_text_line_verified": true,
+    "accessory_native_press_opened_real_menu": true,
+    "menu_survived_two_seconds_of_native_tracking": true,
+    "accessory_pause_selected_and_persisted": true,
+    "status_menu_resume_selected_and_persisted": true,
+    "status_quit_selected": true,
+    "gui_exit_code": 0,
+    "fixture_text_unchanged": true,
+    "interaction": "Native AXPress on the actual button/menu items, not physical mouse-event routing"
+  },
+  "frozen_inference": {
+    "cli_exit_code": 0,
+    "cli_suggestion": " message.",
+    "worker_exit_code": 0,
+    "worker_stream_updates": 2,
+    "worker_suggestion": " cooperation.",
+    "worker_elapsed_ms": 3030.49,
+    "controlled_latency_benchmark": false
+  },
+  "checks": {
+    "local_passed": 252,
+    "local_skipped": 1,
+    "skip": "Qt-only module intentionally skipped on macOS",
+    "ci_run": "https://github.com/renan-brasilio/inklow/actions/runs/40077282052",
+    "ci_platforms_passed": ["macOS", "Windows", "Ubuntu"],
+    "interactive_windows_linux_accessibility_proven": false
+  },
+  "normal_launch_input_check": {
+    "launch_mode": "LaunchServices",
+    "field_accessory_smoke": "Blocked before accessory: no native badge appeared",
+    "separate_actual_doctor": "Accessibility permission required",
+    "manual_reapproval_required_for_new_signing_identity": true,
+    "permission_toggled_or_reset_by_this_repair": false
+  },
+  "menu_manager": {
+    "app": "Thaw 3.0.0-beta.3",
+    "target": "com.inklow.Inklow:inklow.statusItem",
+    "supported_custom_accessibility_action": "Move to Visible",
+    "action_result": 0,
+    "persisted_section_before": "hidden",
+    "persisted_section_after": "visible",
+    "global_new_item_default_after": "hidden",
+    "global_automation_not_enabled": true,
+    "other_persisted_order_comparison": "Differed; complete pre-action map was not retained, so preservation of all other persisted ordering is not established",
+    "scope": "Only the exact live Inklow tile received a move action; no global reveal/recovery or other item action"
+  }
+}
