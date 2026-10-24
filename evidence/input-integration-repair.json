@@ -1,0 +1,44 @@
+{
+  "source_revision": "b39cd0a46dda37c30479d616219fa02323df9249",
+  "installed_path": "/Applications/Inklow.app",
+  "executable_sha256": "40320412a6948a9981a193bcf8c423578bddbb980b122fd2f9f5f47fbb9af537",
+  "codesign_deep_strict_exit_code": 0,
+  "obsolete_editor_bundle_replaced_after_not_running": true,
+  "version_suffixed_preview_bundle_removed": true,
+  "saved_settings_bytes_preserved_during_install": true,
+  "models_and_history_not_removed": true,
+  "local_regressions": {"passed": 246, "skipped": 1, "elapsed_seconds": 11.24},
+  "installed_gui_smoke": {
+    "launch_mode": "direct-inherited-host",
+    "actual_frozen_gui_not_source_controller": true,
+    "scope": "Disposable native input process only; per-app default off for every other application",
+    "grey_wordmark_visible_before_typing": true,
+    "actual_model": "Qwen2.5 1.5B Q4_K_M",
+    "plain_prefix": "I look forward to hearing",
+    "plain_after_real_tab": "I look forward to hearing from ",
+    "field_only_prefix": "Thank you for your",
+    "field_only_after_real_tab": "Thank you for your time",
+    "secure_and_readonly_fixture_overlay_hidden": true,
+    "focus_pid_checked_before_keys_and_captures": true,
+    "all_writing_synthetic": true,
+    "normal_user_settings_not_modified_by_smoke": true
+  },
+  "normal_launch_diagnostic": {
+    "method": "open -W -n -a /Applications/Inklow.app --stdout <private temporary path> --args doctor",
+    "global_enabled": true,
+    "model_file_exists": true,
+    "accessibility": "denied",
+    "normal_launch_typing_verified": false,
+    "required_user_action": "Grant current Inklow.app Accessibility in macOS Privacy & Security, then restart; Input Monitoring is needed for global acceptance shortcuts",
+    "no_os_permissions_changed_automatically": true
+  },
+  "native_metadata_diagnosis": {
+    "tern_character_range_bounds_height": 0,
+    "tern_nonzero_focused_field_bounds_available": true,
+    "personal_field_values_read_during_diagnosis": false,
+    "caret_coordinates_not_fabricated": true
+  },
+  "screenshots": ["input-empty-badge.png", "input-native-suggestion.png", "input-field-card.png"],
+  "cross_platform_ci_url": "https://github.com/renan-brasilio/inklow/actions/runs/40071249762",
+  "cross_platform_ci_status_at_receipt_creation": "running"
+}

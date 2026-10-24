@@ -66,7 +66,7 @@ AES-GCM storage tests use deterministic test keys and exercise encryption, unava
 
 ## Build, frozen inference, and automated checks
 
-Local final suite: **223 passed, 1 skipped, 11.36 seconds**. The skip is the Qt-only module on macOS, where Qt is intentionally absent. Regression checks include selected short phrases, decomposed Unicode, cancellation at model readiness, initialization/input ordering, and failed-warmup recovery. The Mac application built successfully, rejected private/model payloads, and passed final resource-signature verification.
+Original menu-first suite: **223 passed, 1 skipped, 11.36 seconds**. The input-integration follow-up below extends this to **246 passed, 1 skipped, 11.24 seconds**. The skip is the Qt-only module on macOS, where Qt is intentionally absent. Regression checks include selected short phrases, decomposed Unicode, cancellation at model readiness, initialization/input ordering, and failed-warmup recovery. The Mac application built successfully, rejected private/model payloads, and passed final resource-signature verification.
 
 The actual frozen CLI generated ` message.`. The actual frozen `_worker` protocol streamed ` cooperation.`, processed stop, and exited 0. These outputs prove real inference and IPC, not writing quality. Receipt: [frozen CLI/worker](menu-first-frozen-worker.json). Direct source/settings and frozen settings checks above are separate from unit tests.
 
@@ -80,7 +80,7 @@ Interactive Windows/Linux accessibility and keyboard compatibility have not been
 
 Historical 0.2 evidence remains in [UPGRADE-0.2.md](UPGRADE-0.2.md); older CI and image artifacts remain historical, not descriptions of the removed editor's current availability.
 
-## Installed application and document protection
+## Original side-by-side installation and document protection (historical)
 
 The current verified bundle was copied to `/Applications/Inklow 0.3.app` and passed `codesign --verify --deep --strict`. Its executable SHA-256 matches the verified `dist` executable: `f678c0111ebac6f02da53fcfd1591d0c78b933d5513e10f61f004690e0b484f5`. An earlier installed 0.3 build exercised all eleven native preference-pane/control/close/quit interactions using a disposable paused profile and exited 0: [installed UI receipt](menu-first-installed-ui.json). After the worker-protocol rebuild, the current installed copy displayed its real General window and exited 0 through normal native application termination: [current installed screenshot](menu-first-installed-current.png). This latest visual smoke used only a disposable paused profile and captured only its own window.
 
@@ -101,3 +101,15 @@ The worker now prevents the next blocking stdin read during native GGUF preparat
 The current installed executable ran the real Qwen model with the production source supervisor: cold cancellation retained the same worker, the newest request returned ` from you soon.`, idle release removed the child, release during a new initialization removed that child, and the parent did not import the model module. Only the executable locator was redirected to the installed bundle; no model/IPC behavior was mocked. [Lifecycle receipt](menu-first-worker-lifecycle.json).
 
 The subsequent complete three-platform run linked above passed Windows source and frozen inference with this protocol. That establishes resolution of the observed Windows loading stall for the CI configuration; it does not independently prove the inferred CRT mechanism or every production-model/desktop combination.
+
+## Input integration and canonical installation follow-up
+
+The current installation is `/Applications/Inklow.app`; the old editor bundle was replaced only after it was no longer running, and the owned `/Applications/Inklow 0.3.app` preview was removed. The current executable SHA-256 is `40320412a6948a9981a193bcf8c423578bddbb980b122fd2f9f5f47fbb9af537`; deep/strict signature verification passed. Saved settings bytes were unchanged by installation; models/history were not removed.
+
+Two implementation gates hid the field accessory: it required nonempty text and a usable caret rectangle. The badge now uses native field geometry independently of prediction eligibility and stays at the field's left edge. Native caret geometry still permits inline text. Where only field bounds are reliable, a real field-attached suggestion card permits explicit acceptance with the same focus/protection/exact-snapshot guards. No caret coordinates are invented. Tern's observed character-range bounds had zero height, while its focused-element bounds were nondegenerate. That diagnosis read metadata/geometry only, not personal input values.
+
+The **actual installed frozen GUI**, not a source controller, ran with an isolated profile allowing only a disposable native input application. A real empty field showed the muted wordmark. Actual Qwen inference produced an inline completion; real Tab changed `I look forward to hearing` to `I look forward to hearing from `. A native text-field subclass with unavailable character-range bounds showed a field-attached completion card; real Tab changed `Thank you for your` to `Thank you for your time`. Focusing the secure/read-only fixture controls hid overlays. The foreground PID was checked before key injection and each scoped screenshot. [Empty field](input-empty-badge.png), [native inline completion](input-native-suggestion.png), [field-only completion card](input-field-card.png).
+
+**This direct-executable GUI smoke inherited its terminal host's permission. It is not normal-launch authorization proof.** A separate `open -W -n -a /Applications/Inklow.app … --args doctor` run under LaunchServices reported Accessibility denied despite global enablement and valid model weights. Earlier terminal-launched results did not establish that Finder-launched Inklow was authorized. No TCC grant was automated. Normal-launch typing verification remains blocked until the user grants the current Inklow app Accessibility (and Input Monitoring for shortcuts) and restarts it. The native menu now explicitly identifies missing required permissions instead of only displaying idle.
+
+[Observed installation/input/permission receipt](input-integration-repair.json). Source revision: `b39cd0a46dda37c30479d616219fa02323df9249`. [Follow-up three-platform CI](https://github.com/renan-brasilio/inklow/actions/runs/40071249762) was running when this section was written; do not substitute the earlier green run for this revision's result.
