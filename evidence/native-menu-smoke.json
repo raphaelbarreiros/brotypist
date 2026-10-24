@@ -1,0 +1,26 @@
+{
+  "bundle": "/Applications/Inklow.app",
+  "icon_only_size": [
+    24,
+    24
+  ],
+  "above_text_line_verified": true,
+  "accessory_native_press_opened_real_menu": true,
+  "menu_survived_two_seconds_of_native_tracking": true,
+  "accessory_pause_selected_and_persisted": true,
+  "actual_menu_bar_icon_visible": true,
+  "status_icon_bounds": [
+    1197.0,
+    4.5,
+    24.0,
+    24.0
+  ],
+  "status_menu_resume_selected_and_persisted": true,
+  "status_quit_selected": true,
+  "quit_terminated_app": true,
+  "gui_exit_code": null,
+  "launch_client_exit_code": 0,
+  "fixture_text_unchanged": true,
+  "launch_mode": "LaunchServices",
+  "all_inputs_synthetic": true
+}

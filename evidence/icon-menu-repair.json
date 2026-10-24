@@ -44,10 +44,19 @@
   },
   "normal_launch_input_check": {
     "launch_mode": "LaunchServices",
-    "field_accessory_smoke": "Blocked before accessory: no native badge appeared",
-    "separate_actual_doctor": "Accessibility permission required",
+    "field_accessory_smoke": "Passed after the authorized stale-entry reset and fresh manual grant: actual installed LaunchServices GUI showed above-line icon, kept accessory menu open, persisted Pause/Resume, and terminated through status-menu Quit",
+    "separate_actual_doctor": "Accessibility permission required, including after the first user-reported re-add",
+    "os_log_diagnosis": "Failed to match existing code requirement for com.inklow.Inklow and kTCCServiceAccessibility; saved requirement still referenced old cdhash 4186c8bd94732224bc18206da17109865326eaaa",
     "manual_reapproval_required_for_new_signing_identity": true,
-    "permission_toggled_or_reset_by_this_repair": false
+    "manual_reapproval_completed": true,
+    "final_native_gui_receipt": "native-menu-smoke.json",
+    "interrupted_post_grant_attempt": "One popup closed during tracking; an uninterrupted foreground-controlled run passed without any intervening app rebuild or source change",
+    "explicitly_authorized_reset": {
+      "command": "tccutil reset Accessibility com.inklow.Inklow",
+      "result": "Successfully reset Accessibility approval status for com.inklow.Inklow",
+      "other_apps_or_services_reset": false,
+      "os_grant_toggled_by_assistant": false
+    }
   },
   "menu_manager": {
     "app": "Thaw 3.0.0-beta.3",
