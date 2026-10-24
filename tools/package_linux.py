@@ -24,8 +24,10 @@ FORBIDDEN_NAMES = {"settings.json", "config.json", "secrets.yaml", ".env", "hist
 
 
 def run(command: list[str], **kwargs) -> str:
-    return subprocess.run(command, check=True, text=True, capture_output=True,
-                          timeout=300, **kwargs).stdout.strip()
+    result = subprocess.run(command, text=True, capture_output=True, timeout=300, **kwargs)
+    if result.returncode:
+        raise RuntimeError(f"{command[0]} exited {result.returncode}:\n{result.stderr}\n{result.stdout}")
+    return result.stdout.strip()
 
 
 def validate_bundle(bundle: Path, version: str) -> None:

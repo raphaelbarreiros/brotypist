@@ -40,7 +40,7 @@
            and no wildcard RemoveFile are authored by this package. -->
       <RemoveFolder Id="RemoveInklowProgramsFolder" Directory="InklowProgramsFolder" On="uninstall" />
     </Component>
-    <Feature Id="Complete" Title="Inklow" Level="1" Absent="disallow">
+    <Feature Id="Complete" Title="Inklow" Level="1">
       <ComponentRef Id="InklowRegistration" />
       <ComponentGroupRef Id="InklowPayload" />
     </Feature>
