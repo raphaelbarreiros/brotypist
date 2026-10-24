@@ -9,7 +9,9 @@
   "models_and_history_not_removed": true,
   "local_regressions": {"passed": 246, "skipped": 1, "elapsed_seconds": 11.24},
   "installed_gui_smoke": {
-    "launch_mode": "direct-inherited-host",
+    "launch_mode": "LaunchServices via open -n -a /Applications/Inklow.app",
+    "prior_direct_host_smoke_also_passed": true,
+    "normal_gui_did_not_inherit_terminal_authorization": true,
     "actual_frozen_gui_not_source_controller": true,
     "scope": "Disposable native input process only; per-app default off for every other application",
     "grey_wordmark_visible_before_typing": true,
@@ -23,7 +25,7 @@
     "all_writing_synthetic": true,
     "normal_user_settings_not_modified_by_smoke": true
   },
-  "normal_launch_diagnostic": {
+  "initial_normal_launch_diagnostic_before_permission_repair": {
     "method": "open -W -n -a /Applications/Inklow.app --stdout <private temporary path> --args doctor",
     "global_enabled": true,
     "model_file_exists": true,
@@ -40,6 +42,28 @@
   },
   "screenshots": ["input-empty-badge.png", "input-native-suggestion.png", "input-field-card.png"],
   "cross_platform_ci_url": "https://github.com/renan-brasilio/inklow/actions/runs/40071249762",
+  "stale_approval_repair": {
+    "system_log_evidence": "Failed to match existing code requirement for subject com.inklow.Inklow and service kTCCServiceAccessibility",
+    "old_requirement_cdhash": "e92c98aeb3db2441d9c84347fc452a7367df3cdf",
+    "current_requirement_cdhash": "4186c8bd94732224bc18206da17109865326eaaa",
+    "reset_explicitly_authorized_by_user": true,
+    "reset_scope": "tccutil reset Accessibility com.inklow.Inklow",
+    "reset_result": "Successfully reset Accessibility approval status for com.inklow.Inklow",
+    "user_reported_current_app_reapproved_after_reset": true,
+    "other_app_permissions_not_reset": true,
+    "normal_gui_verification_after_reapproval": "passed",
+    "normal_launch_doctor_accessibility_granted": true,
+    "normal_launch_model_file_exists": true,
+    "normal_launch_global_enabled": true
+  },
+  "normal_user_session_postflight": {
+    "normally_launched_app_left_running": true,
+    "installed_path": "/Applications/Inklow.app",
+    "setup_completed_through_native_done_button": true,
+    "global_enabled": true,
+    "show_accessory": true,
+    "personal_field_values_read": false
+  },
   "cross_platform_ci_conclusion": "success",
   "cross_platform_ci_successful_jobs": ["verify (ubuntu-latest)", "verify (windows-latest)", "verify (macos-latest)"],
   "observed_macos_permission_page_label": "Device Control and Data Access",
