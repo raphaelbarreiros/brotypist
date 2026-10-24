@@ -656,3 +656,58 @@ def test_field_bounds_allow_visible_card_and_guarded_acceptance_without_caret(ru
     bridge.snapshot = replace(bridge.snapshot, field_rect=None)
     assert not controller.invoke("all")
     assert bridge.snapshot.text == "Dear team, the update arrives "
+
+
+def test_native_partial_acceptance_survives_new_revision_without_global_geometry(runtime):
+    # R2: same native context, fresh revision/serial, exact remaining acceptance.
+    controller, bridge, _ = runtime
+    bridge.snapshot = replace(bridge.snapshot, field_id="body:wl:101", caret_rect=None,
+                              native_anchor="7:19")
+    offer(controller, bridge, " arrives tomorrow morning")
+    assert controller.invoke("word")
+    assert bridge.snapshot.text == "Dear team, the update arrives "
+    bridge.snapshot = replace(bridge.snapshot, native_anchor="8:20")
+    controller.drain_events()
+    controller.tick()
+    event = next(event for event in controller.drain_events() if event["type"] == "suggestion")
+    assert event["text"] == "tomorrow morning"
+    assert event["native_anchor"] == "8:20" and event["rect"] is None
+    assert controller.invoke("all")
+    assert bridge.snapshot.text == "Dear team, the update arrives tomorrow morning"
+    assert bridge.insertions == [" arrives ", "tomorrow morning"]
+    assert controller.stats()["totals"] == {
+        "completions": 1, "words": 3, "characters": len(" arrives tomorrow morning")}
+
+
+def test_native_typing_through_candidate_keeps_suffix_and_rejects_old_stream(runtime):
+    # R2: typed-through text is not counted/inserted again after a native revision.
+    controller, bridge, client = runtime
+    prefix, suffix = "The next update is", " on Friday."
+    bridge.snapshot = Snapshot("writer", "body:wl:101", prefix + suffix, len(prefix),
+                               native_anchor="7:19")
+    identifier = offer(controller, bridge, " ready for review")
+    bridge.snapshot = replace(bridge.snapshot, text=prefix + " ready" + suffix,
+                              caret=len(prefix + " ready"), native_anchor="8:20")
+    controller.tick()
+    assert controller._suggestion.text == " for review"
+    client.events.append({"type": "result", "id": identifier, "text": " obsolete text", "final": True})
+    controller.tick()
+    assert controller._suggestion.text == " for review"
+    assert controller.invoke("all")
+    assert bridge.snapshot.text == "The next update is ready for review on Friday."
+    assert bridge.insertions == [" for review"]
+    assert controller.stats()["totals"]["characters"] == len(" for review")
+
+
+def test_native_reactivated_context_cannot_accept_identical_old_offer(runtime):
+    # R1/R2: unchanged visible text does not make another native lifetime safe.
+    controller, bridge, _ = runtime
+    bridge.snapshot = replace(bridge.snapshot, field_id="body:wl:101", caret_rect=None,
+                              native_anchor="7:19")
+    offer(controller, bridge, " arrives tomorrow")
+    bridge.snapshot = replace(bridge.snapshot, field_id="body:wl:102", native_anchor="8:20")
+    original = bridge.snapshot
+    assert not controller.invoke("all")
+    assert bridge.snapshot == original and bridge.insertions == []
+    assert controller._suggestion.text == ""
+    assert controller.stats()["totals"]["characters"] == 0

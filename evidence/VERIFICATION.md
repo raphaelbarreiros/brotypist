@@ -169,3 +169,24 @@ Actual runtime observations, not an offscreen replacement:
 
 **Remaining limit:** the real desktop is Wayland. `inklow doctor` explicitly reported global typing unavailable, including XWayland applications. Settings/model readiness and actual inference are verified; system-wide typing in this desktop session is not. No logout, X11 installation, compositor changes, or broader permissions were performed. This is a source hotfix; published 0.3.0 installer assets were not replaced.
 
+## Native KDE Wayland source candidate — 2026-10-24
+
+The candidate's actual production entry point, controller, native client, renderer, AT-SPI adapter, and cached Qwen2.5 1.5B worker ran together on CachyOS, **KWin 6.8.1 / Qt 6.12.0**, inside an owned virtual compositor using llvmpipe. The harness had a private session bus, runtime/config/data directories, and settings profile; it did not replace the user's compositor, read personal fields, select a model in the real profile, or alter KDE's selected input method. A test-only Wayland fake-input client injected keys solely into that owned compositor; production insertion uses the private input-method protocol, not fake input.
+
+The final native run **passed all 27 checks in 11.712 seconds**. This duration covers the whole synthetic scenario, not suggestion latency. Observed:
+
+1. The compositor-provided input-method FD was consumed before QApplication construction and removed from the environment before Qt opened its separate normal display connection.
+2. The real model offered ` dig a hole, place ` for `The three steps for planting a tree are to`. KWin reported a visible, nonminimized native input-method window with positive geometry; the native buffer was actually attached.
+3. The production quick menu opened with actionable entries and dismissed without discarding the offer.
+4. A compositor-delivered Tab produced exactly one actual Qt input-method commit, ` dig `, without forwarding the consumed Tab into the target. Stable field identity survived the changed native revision. Full acceptance committed the remaining `a hole, place `, yielding the exact offered result.
+5. Edited revisions, active selections, real password controls, native sensitive-data hints, and changed field focus refused stale insertion. Protected states also refused forced generation and hid the panel. Unconsumed Tab and Shift+Tab reached the real target exactly once per press/release with their original modifiers.
+6. Stopping the real agent closed the native client/notifier and terminated its actual inference worker.
+
+Qt's runtime password transition stopped sending further IM state in this fixture, leaving an old native revision observable. The independent AT-SPI protection gate nevertheless refused capture, generation, and insertion. Native sensitive-hint rejection was exercised separately by re-entering an ordinary editable control with its actual sensitive-data hint set; it must not be conflated with the password-mode case.
+
+[Complete synthetic receipt](wayland-native-smoke.json). [Production panel pixels](wayland-native-panel.png) and [actual Qt target after acceptance](wayland-native-target.png) are client-generated images, **not compositor screenshots**; visible mapping is independently established by the receipt's KWin scene rows. KWin attributes the private input-panel connection to its own PID, so the scene observer recognizes the input-method role inside the owned compositor rather than assuming it shares the Python PID.
+
+Integrated regressions: **Linux 306 passed, 1 skipped (12.95 seconds)**; **macOS 280 passed, 4 skipped (11.82 seconds)**. The native C library compiled with `-Wall -Wextra -Werror`. The missing protocol definitions were supplied through a private build SDK extracted from a signature-verified Arch package, not installed into the host OS.
+
+**Limits and deployment state:** this is an unreleased source candidate, not a rebuilt 0.3.0 installer or a new installed Mac build. The exercised target explicitly uses text-input-v3; default Qt text-input-v2 did not supply a complete usable context in this environment. Other applications/compositors, XWayland, full compositor screenshots, actual desktop input-method activation, and installed/frozen Wayland packaging are not established by this run. KDE selection remains a separate explicit user action. Atomic cross-app rewriting remains disabled on Linux. The real desktop and its current model selection were left unchanged.
+

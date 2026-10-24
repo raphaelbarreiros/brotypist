@@ -71,7 +71,8 @@ def copy_application(bundle: Path, target: Path) -> None:
     shutil.copytree(bundle, target, symlinks=True)
     # build_app's entries point to its original destination. Portable users run
     # launch-inklow directly; .deb integration is rendered for installed paths.
-    for entry in (target / "Inklow.desktop", target / "share/applications" / f"{APP_ID}.desktop"):
+    for entry in (target / "Inklow.desktop", target / "share/applications" / f"{APP_ID}.desktop",
+                  target / "share/applications" / f"{APP_ID}.InputMethod.desktop"):
         entry.unlink(missing_ok=True)
     for path in target.rglob("*"):
         if not path.is_symlink():
@@ -157,6 +158,9 @@ def package(bundle: Path, output: Path, version: str) -> tuple[Path, Path]:
         template = (ROOT / "packaging/linux" / f"{APP_ID}.desktop.in").read_text(encoding="utf-8")
         entry = template.replace("@EXEC@", "/usr/bin/inklow").replace("@ICON@", APP_ID)
         (applications / f"{APP_ID}.desktop").write_text(entry, encoding="utf-8")
+        method_template = (ROOT / "packaging/linux" / f"{APP_ID}.InputMethod.desktop.in").read_text(encoding="utf-8")
+        method_entry = method_template.replace("@EXEC@", "/usr/bin/inklow").replace("@ICON@", APP_ID)
+        (applications / f"{APP_ID}.InputMethod.desktop").write_text(method_entry, encoding="utf-8")
         icons = root / "usr/share/icons/hicolor"
         icons.parent.mkdir(parents=True)
         shutil.copytree(app / "share/icons/hicolor", icons)

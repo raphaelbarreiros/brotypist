@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import plistlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -11,6 +12,7 @@ import threading
 import time
 
 _AUTOSTART_ID = "com.inklow.Inklow"
+_INPUT_METHOD_ID = _AUTOSTART_ID + ".InputMethod"
 _battery_lock = threading.Lock()
 _battery_cache = (0.0, False)
 _screen_lock = threading.Lock()
@@ -20,6 +22,14 @@ def _launch_arguments() -> list[str]:
     if getattr(sys, "frozen", False):
         return [sys.executable, "--background"]
     return [sys.executable, "-m", "inklow", "--background"]
+
+
+def _desktop_command(arguments: list[str]) -> str:
+    def quote(argument: str) -> str:
+        if "\n" in argument or "\r" in argument:
+            raise ValueError("Desktop launcher arguments cannot contain line breaks.")
+        return '"' + argument.replace("\\", "\\\\").replace('"', '\\"').replace("`", "\\`").replace("$", "\\$").replace("%", "%%") + '"'
+    return " ".join(quote(argument) for argument in arguments)
 
 
 def _autostart_path() -> Path:
@@ -94,13 +104,67 @@ def set_launch_at_login(enabled: bool) -> bool:
             "ProcessType": "Interactive", "LimitLoadToSessionType": "Aqua",
         })
     else:
-        def quote(argument: str) -> str:
-            return '"' + argument.replace("\\", "\\\\").replace('"', '\\"').replace("`", "\\`").replace("$", "\\$").replace("%", "%%") + '"'
-        command = " ".join(quote(argument) for argument in arguments)
+        command = _desktop_command(arguments)
         content = ("[Desktop Entry]\nType=Application\nName=Inklow\n"
                    f"Exec={command}\nTerminal=false\nX-Inklow-Owned=true\n").encode("utf-8")
     _atomic_write(path, content)
     return True
+
+
+def install_wayland_input_method() -> Path:
+    """Install only this user's launcher; never select it or alter KWin settings."""
+    if not sys.platform.startswith("linux"):
+        raise RuntimeError("KDE Wayland input-method setup is available on Linux only.")
+    if os.environ.get("INKLOW_HOME"):
+        raise RuntimeError("Desktop integration cannot be installed from an isolated profile.")
+    native = Path(__file__).parent / "native" / "libinklow_wayland.so"
+    if not native.is_file():
+        raise RuntimeError("The native Wayland client is missing. Build it with python tools/build_wayland.py, or install a package containing it.")
+    path = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "applications" / (_INPUT_METHOD_ID + ".desktop")
+    if path.is_symlink() or (path.exists() and "X-Inklow-Owned=true" not in path.read_text(encoding="utf-8")):
+        raise RuntimeError(f"A different input-method entry already exists at {path}; it was not overwritten.")
+    command = _desktop_command([*_launch_arguments(), "--wayland-input-method"])
+    icon = str(Path(__file__).parent / "assets/icons/app-256.png").replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r")
+    content = ("[Desktop Entry]\nType=Application\nName=Inklow\n"
+               "GenericName=Predictive typing input method\n"
+               "Comment=Local predictions for supported KDE Wayland text inputs\n"
+               f"Exec={command}\nIcon={icon}\nTerminal=false\nNoDisplay=true\n"
+               "X-KDE-Wayland-VirtualKeyboard=true\nX-Inklow-Owned=true\n")
+    _atomic_write(path, content.encode("utf-8"))
+    return path
+
+
+def wayland_input_method_selected() -> bool:
+    """Avoid a competing normal autostart when KWin owns this application's launch."""
+    if not sys.platform.startswith("linux") or not (
+            os.environ.get("WAYLAND_DISPLAY") or os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland"):
+        return False
+    reader = shutil.which("kreadconfig6")
+    if not reader:
+        return False
+    try:
+        selected = subprocess.check_output(
+            [reader, "--file", "kwinrc", "--group", "Wayland", "--key", "InputMethod"],
+            text=True, stderr=subprocess.DEVNULL, timeout=3).strip()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if Path(selected).name != _INPUT_METHOD_ID + ".desktop":
+        return False
+    if Path(selected).is_absolute():
+        return Path(selected).is_file()
+    roots = [os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))]
+    roots.extend(os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":"))
+    return any((Path(root) / "applications" / selected).is_file() for root in roots if root)
+
+
+def open_wayland_settings() -> None:
+    """Open the user's native selector; permission and method selection stay manual."""
+    if not sys.platform.startswith("linux"):
+        raise RuntimeError("KDE Wayland settings are available on Linux only.")
+    command = shutil.which("kcmshell6")
+    if not command:
+        raise RuntimeError("Open KDE System Settings → Keyboard → Virtual Keyboard and choose Inklow.")
+    subprocess.Popen([command, "kcm_virtualkeyboard"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def _open(target: str) -> None:
@@ -126,7 +190,7 @@ def open_permissions(kind: str = "accessibility") -> None:
     elif sys.platform == "win32":
         _open("ms-settings:privacy")
     else:
-        raise RuntimeError("Enable accessibility in your desktop's settings and run in an X11 session. Inklow does not change OS permissions automatically.")
+        raise RuntimeError("Enable desktop accessibility. X11 uses AT-SPI keyboard access; KDE Wayland requires explicitly selecting Inklow as the native input method in Setup. OS access is never granted automatically.")
 
 
 def reveal_models() -> None:

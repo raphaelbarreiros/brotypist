@@ -19,11 +19,17 @@ class Snapshot:
     domain: str = ""
     multiline: bool = True
     field_rect: tuple[float, float, float, float] | None = None
+    native_anchor: str = ""
 
     @property
     def anchor_rect(self) -> tuple[float, float, float, float] | None:
         """A native caret supports inline text; field-only bounds support a card."""
         return self.caret_rect or self.field_rect
+
+    @property
+    def has_anchor(self) -> bool:
+        """A compositor-owned input panel needs no global screen coordinates."""
+        return bool(self.anchor_rect or self.native_anchor)
 
     @property
     def prefix(self) -> str:

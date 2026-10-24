@@ -11,17 +11,33 @@ from .base import BridgeBase, Shortcut
 
 
 class LinuxBridge(BridgeBase):
-    def __init__(self) -> None:
+    def __init__(self, *, accessibility_only: bool = False) -> None:
         super().__init__()
         self._thread: threading.Thread | None = None
         self._wake_read = None
         self._wake_write = None
         self._desktop = None
         self._available = False
+        if accessibility_only:
+            try:
+                import pyatspi
+                self._connect_accessibility(pyatspi)
+            except ImportError:
+                self._set_status(
+                    "Linux accessibility dependency missing. Install your distribution's python3-pyatspi "
+                    "and python3-gi packages; virtualenvs need --system-site-packages."
+                )
+                return
+            except Exception:
+                self._set_status("AT-SPI unavailable. Enable desktop accessibility and the session D-Bus.")
+                return
+            self._available = True
+            return
         if os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland" or os.environ.get("WAYLAND_DISPLAY"):
             self._set_status(
-                "Global typing is unavailable under Wayland, including XWayland applications. "
-                "Sign in to an X11 desktop session to enable global typing."
+                "KDE Wayland requires Inklow to be launched as the explicitly selected native input method. "
+                "Install its entry in Setup, Quit, then choose Inklow in KDE Virtual Keyboard settings. "
+                "Other Wayland compositors and XWayland-only controls are unsupported; X11 sessions use the AT-SPI adapter."
             )
             return
         if not os.environ.get("DISPLAY"):
@@ -39,10 +55,7 @@ class LinuxBridge(BridgeBase):
             return
         self.atspi, self.x, self.xk, self._display_type = pyatspi, X, XK, display.Display
         try:
-            pyatspi.setTimeout(200, 500)
-            self._desktop = pyatspi.Registry.getDesktop(0)
-            if self._desktop is None:
-                raise RuntimeError("AT-SPI registry returned no desktop")
+            self._connect_accessibility(pyatspi)
             # Confirm authorization now; all later X requests belong to the hook
             # thread's independent connection.
             connection = display.Display()
@@ -63,6 +76,14 @@ class LinuxBridge(BridgeBase):
             "before starting target apps. Password fields are excluded."
             " Browser URLs are not observable through documented window metadata; domain rules cannot apply here."
         )
+
+    def _connect_accessibility(self, pyatspi) -> None:
+        """Initialize shared metadata access without importing or opening Xlib."""
+        self.atspi = pyatspi
+        pyatspi.setTimeout(200, 500)
+        self._desktop = pyatspi.Registry.getDesktop(0)
+        if self._desktop is None:
+            raise RuntimeError("AT-SPI registry returned no desktop")
 
     def _application_identity(self, app, include_disabled: bool = False):
         pid = int(app.get_process_id())
@@ -131,7 +152,7 @@ class LinuxBridge(BridgeBase):
             except Exception:
                 return super().foreground()
 
-    def _capture(self):
+    def _capture(self, *, geometry: bool = True, reject_selection: bool = False):
         if not self._available or self._stopped.is_set():
             return None
         focused = self._focused()
@@ -161,6 +182,8 @@ class LinuxBridge(BridgeBase):
             return None
         caret = int(text_iface.caretOffset)
         selections = int(text_iface.getNSelections())
+        if reject_selection and selections:
+            return None
         selection_length = 0
         if selections:
             if selections != 1:
@@ -175,12 +198,13 @@ class LinuxBridge(BridgeBase):
                 or not 0 <= selection_length <= count - caret):
             return None
         rect = None
-        try:
-            x, y, width, height = text_iface.getCharacterExtents(caret, a.DESKTOP_COORDS)
-            if height > 0:
-                rect = (float(x), float(y), float(max(1, width)), float(height))
-        except Exception:
-            pass
+        if geometry:
+            try:
+                x, y, width, height = text_iface.getCharacterExtents(caret, a.DESKTOP_COORDS)
+                if height > 0:
+                    rect = (float(x), float(y), float(max(1, width)), float(height))
+            except Exception:
+                pass
         object_path = getattr(element, "path", None)
         field_id = f"{pid}:{object_path if object_path else hash(element)}"
         return Snapshot(app_id, field_id, text, caret, selection_length, rect,

@@ -495,7 +495,15 @@ class SettingsWindow(QDialog):
         permissions = QPushButton("Open accessibility / input permissions")
         permissions.clicked.connect(lambda: self._call(system.open_permissions, "accessibility"))
         form.addRow(permissions)
-        form.addRow(_label("Windows: supported accessible edit controls and the native keyboard hook. Linux: X11 with AT-SPI accessibility and keyboard access. Wayland global typing is unsupported; use an X11 session. Password fields, excluded apps and this settings window are never read."))
+        form.addRow(_label("Windows uses accessible edit controls and the native keyboard hook. Linux/X11 uses AT-SPI and replayable key grabs. KDE Wayland uses an explicitly selected native input method, not raw keyboard-device access. Only eligible, unprotected fields are used for predictions."))
+        if sys.platform.startswith("linux"):
+            form.addRow(_label("KDE Wayland: selecting Inklow as the input method lets the OS send it keyboard events and surrounding text from supported text-input controls. Password/sensitive hints are discarded; excluded or mismatched AT-SPI fields are not used. KDE places the popup near the caret. Other input methods cannot occupy the same KDE input-method slot. No selection or permission changes happen automatically."))
+            install_method = QPushButton("Install KDE input-method entry…")
+            install_method.clicked.connect(self._install_wayland_method)
+            form.addRow(install_method)
+            open_method = QPushButton("Open KDE Virtual Keyboard settings")
+            open_method.clicked.connect(lambda: self._call(system.open_wayland_settings))
+            form.addRow(open_method)
         models = QPushButton("Choose or download a local model…")
         models.clicked.connect(self.open_models)
         form.addRow(models)
@@ -503,6 +511,16 @@ class SettingsWindow(QDialog):
         form.addRow(self.setup_model)
         self._check(form, "setup_completed", "Setup completed", "Check after reviewing system access and selecting a model. No permission is granted automatically.")
         form.addRow(_label("Accept the next word with Tab; accept the full completion with the physical key above Tab. Native/system shortcuts are never replaced when no eligible suggestion is active."))
+
+    def _install_wayland_method(self) -> None:
+        try:
+            path = system.install_wayland_input_method()
+        except (OSError, RuntimeError, ValueError) as exc:
+            _error(self, exc)
+            return
+        QMessageBox.information(
+            self, "KDE input-method entry installed",
+            f"Installed {path}\n\nQuit Inklow using its menu, then choose Inklow in KDE System Settings → Keyboard → Virtual Keyboard. KDE will start the native input-method instance. The selected input method was not changed.")
 
     def _general(self, layout) -> None:
         form = self._group(layout, "Application")
@@ -1063,6 +1081,12 @@ class MenuAgent:
         self._last_overlay: dict | None = None
         self._tracking_menus: set[QMenu] = set()
         self._menu_session = False
+        self._native_surface = bool(getattr(self.controller.bridge, "supports_native_overlay", False))
+        self._native_refresh_pending = False
+        self._native_anchor = ""
+        self._native_menu_active = False
+        self._native_menu: QMenu | None = None
+        self._native_actions: dict[str, QAction] = {}
         self._deferred_actions: list[tuple] = []
         self._hide_accessory_after_menu = False
         self.tray = QSystemTrayIcon(tray_icon(), app)
@@ -1077,6 +1101,8 @@ class MenuAgent:
         self.timer.setInterval(100)
         self.timer.timeout.connect(self.tick)
         self.app.aboutToQuit.connect(self.stop)
+        if self._native_surface:
+            self.controller.bridge.bind_ui(self._native_action)
 
     def start(self, *, background: bool = False) -> None:
         try:
@@ -1139,6 +1165,63 @@ class MenuAgent:
         menu.addAction("Quit Inklow", lambda: self._menu_action(self.quit)).setObjectName("quit")
         return menu
 
+    def _native_refresh(self) -> None:
+        self._native_refresh_pending = False
+        self.tick()
+
+    def _native_action(self, identifier: str) -> None:
+        if self._stopped:
+            return
+        if identifier == "context_changed":
+            if not self._native_refresh_pending:
+                self._native_refresh_pending = True
+                QTimer.singleShot(0, self._native_refresh)
+            return
+        if identifier == "menu":
+            if self._native_menu_active:
+                return
+            menu = self.create_menu(choices=True)
+            self.refresh_menu(menu)
+            self._native_menu = menu
+            self._native_actions = {}
+            rows = []
+
+            def collect(current: QMenu, prefix: str = "") -> None:
+                for action in current.actions():
+                    if action.isSeparator():
+                        continue
+                    title = action.text().replace("&&", "\0").replace("&", "").replace("\0", "&")
+                    if action.isCheckable():
+                        title = ("✓ " if action.isChecked() else "") + title
+                    if action.menu():
+                        collect(action.menu(), prefix + title + " → ")
+                        continue
+                    key = f"action:{len(self._native_actions)}"
+                    self._native_actions[key] = action
+                    rows.append((key, prefix + title, action.isEnabled()))
+
+            collect(menu)
+            self._native_menu_active = True
+            self._sync_shortcuts()
+            if not self.controller.bridge.show_native_menu(rows):
+                self._native_action("menu_closed")
+            return
+        action = self._native_actions.get(identifier)
+        menu, self._native_menu = self._native_menu, None
+        self._native_actions = {}
+        self._native_menu_active = False
+        self._sync_shortcuts()
+        if identifier != "menu_closed":
+            self.controller.bridge.hide_native()
+        if action is not None and action.isEnabled():
+            self._call(action.trigger)
+        if menu is not None:
+            menu.deleteLater()
+        self.tick()
+        if self._last_overlay:
+            self._suggestion(self._last_overlay)
+
+
     def _watch_menu(self, menu: QMenu) -> None:
         menu.aboutToShow.connect(lambda: self._menu_opened(menu))
         menu.aboutToHide.connect(lambda: self._menu_closed(menu))
@@ -1159,7 +1242,9 @@ class MenuAgent:
         recording = self.settings and any(
             recorder._recording for recorder in self.settings.shortcut_controls.values())
         self.controller.bridge.set_shortcuts_enabled(
-            not self._stopped and not self._menu_session and not recording)
+            not self._stopped and not self._menu_session and not self._native_menu_active and not recording)
+        if recording and self._native_surface:
+            self.controller.bridge.hide_native()
 
     def _menu_action(self, function, *args) -> None:
         if self._menu_session:
@@ -1204,9 +1289,9 @@ class MenuAgent:
             geometry = self.tray.geometry()
             self.menu.popup(geometry.bottomLeft() if geometry.isValid() else QCursor.pos())
 
-    def refresh_menu(self) -> None:
+    def refresh_menu(self, menu: QMenu | None = None) -> None:
         state = self.controller.status()
-        for action in self.menu.actions():
+        for action in (menu or self.menu).actions():
             if action.objectName() == "status":
                 action.setText(f"Inklow — {state.get('state', 'idle')}")
             elif action.objectName() == "enabled":
@@ -1259,11 +1344,17 @@ class MenuAgent:
         return point, max(18, round(height))
 
     def _suggestion(self, event: dict) -> None:
-        rect = event.get("rect")
-        if not isinstance(rect, (tuple, list)) or len(rect) != 4:
+        if self.settings and (self.settings.isActiveWindow() or (self.settings.model_manager and self.settings.model_manager.isActiveWindow())):
             self.clear_overlay()
             return
-        if self.settings and (self.settings.isActiveWindow() or (self.settings.model_manager and self.settings.model_manager.isActiveWindow())):
+        if self._native_surface:
+            self._last_overlay = event
+            self.choices = list(event.get("choices") or [])
+            self._native_anchor = str(event.get("native_anchor") or "")
+            self.controller.bridge.present_native(self._native_anchor, str(event.get("text") or ""))
+            return
+        rect = event.get("rect")
+        if not isinstance(rect, (tuple, list)) or len(rect) != 4:
             self.clear_overlay()
             return
         self._last_overlay = event
@@ -1277,6 +1368,15 @@ class MenuAgent:
 
     def _caret(self, event: dict) -> None:
         if self._menu_session:
+            return
+        if self._native_surface:
+            self._native_anchor = str(event.get("native_anchor") or "")
+            text = str((self._last_overlay or {}).get("text") or "")
+            if self.controller.config.show_accessory or text:
+                status = self.controller.status()
+                self.controller.bridge.present_native(self._native_anchor, text, paused=status.get("state") == "paused")
+            else:
+                self.controller.bridge.hide_native()
             return
         caret, field = event.get("rect"), event.get("field_rect")
         valid_caret = isinstance(caret, (tuple, list)) and len(caret) == 4
@@ -1309,6 +1409,12 @@ class MenuAgent:
         self._last_overlay = None
         self.choices = []
         self.overlay.hide()
+        if self._native_surface:
+            if hide_accessory or not self.controller.config.show_accessory:
+                self._native_anchor = ""
+                self.controller.bridge.hide_native()
+            else:
+                self.controller.bridge.present_native(self._native_anchor, "")
         if hide_accessory:
             if self._menu_session:
                 self._hide_accessory_after_menu = True
@@ -1316,7 +1422,7 @@ class MenuAgent:
                 self.accessory.hide()
 
     def tick(self) -> None:
-        if self._stopped or self._menu_session:
+        if self._stopped or self._menu_session or self._native_menu_active:
             return
         try:
             self.controller.tick()
@@ -1359,8 +1465,14 @@ class MenuAgent:
     def stop(self) -> None:
         if self._stopped:
             return
+        self._stopped = True
         self.timer.stop()
         self._deferred_actions.clear()
+        self._native_menu_active = False
+        self._native_actions.clear()
+        if self._native_menu:
+            self._native_menu.deleteLater()
+            self._native_menu = None
         self._menu_session = False
         for menu in tuple(self._tracking_menus):
             menu.close()
@@ -1371,7 +1483,6 @@ class MenuAgent:
         self.clear_overlay()
         self.tray.hide()
         self.controller.stop()
-        self._stopped = True
         self._hide_accessory_after_menu = False
 
     def quit(self) -> None:

@@ -2,6 +2,14 @@
 
 # Changelog
 
+## Unreleased — KDE Wayland source candidate
+
+- Add a native KWin input-method-v1 client over the compositor-provided private socket, prepared before Qt starts. Keep ordinary X11 operation separate; do not impersonate a screen reader or use raw-device/global input injection.
+- Add compositor-positioned icon, streaming suggestion, and keyboard-navigable quick-menu surfaces with reusable, release-tracked shared-memory buffers. Preserve original keys/modifiers when no eligible action consumes them.
+- Corroborate native surrounding text with privacy-gated AT-SPI metadata and exact current text/caret before insertion. Separate stable field/context identity from changing revision tokens; retain word-by-word acceptance while rejecting stale snapshots, selections, protected fields, and changed focus.
+- Confirm the resulting target text before reporting an insertion as accepted. Keep atomic replacement, selected-text synonyms, and emoji rewriting disabled on Linux.
+- Add explicit per-user input-method registration and a native KDE selector link without selecting the method, altering the desktop session, or selecting/downloading a model automatically. Document the tested text-input-v3 path and unsupported/incomplete protocol contexts; published 0.3.0 installers remain unchanged.
+
 ## 0.3.1 — 2026-10-24
 
 - Keep model-download progress and verified model availability updating even when the parent Settings window is hidden or input/menu polling is paused. The Models dialog owns its refresh timer and stops it while hidden.

@@ -36,6 +36,10 @@ if sys.platform == "linux":
         return callable(Atspi.get_desktop)
 
     require_linux_bindings()  # Fail the build, never ship an UnavailableBridge.
+    wayland_library = ROOT / "src/inklow/native/libinklow_wayland.so"
+    if not wayland_library.is_file():
+        raise RuntimeError("Build the native Wayland client with tools/build_wayland.py before freezing Linux.")
+    linux_binaries.append((str(wayland_library), "inklow/native"))
     linux_imports = collect_submodules("pyatspi") + ["gi", "gi._gi", "Xlib"]
     pending = [("Atspi", "2.0")]
     collected = set()

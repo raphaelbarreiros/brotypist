@@ -47,9 +47,27 @@ sudo apt install ./Inklow-0.3.0-linux-amd64.deb
 inklow
 ```
 
-Run Inklow as your desktop user, **not with sudo**. The Debian package installs the application, launcher, desktop entry, and icons. Use an **X11 session**: global typing is unavailable under Wayland, including XWayland applications.
+Run Inklow as your desktop user, **not with sudo**. The published 0.3.0 Debian package installs the application, launcher, desktop entry, and icons, and requires an **X11 session** for typing. Its Wayland restriction includes XWayland applications. The newer source-only KDE path below is not included in that release.
 
 The portable archive must remain intact. Extract it to a writable location and run its `launch-inklow` script. Distribution runtime dependencies and the same CPU/glibc baseline still apply.
+
+#### KDE Wayland — unreleased source candidate
+
+The source now includes a native **KWin input-method-v1** client. It uses the compositor's private input-method connection, not global keyboard injection, a screen-reader identity, or access to raw input devices. This is not universal Wayland support: targets must expose both a compatible text-input protocol and matching editable AT-SPI metadata.
+
+Build on Linux after installing the development dependencies described below:
+
+```sh
+.venv/bin/python tools/build_wayland.py
+.venv/bin/inklow wayland install
+```
+
+The install command adds only Inklow's per-user input-method launcher. Then explicitly select **Inklow** in KDE **System Settings → Keyboard → Virtual Keyboard**, or use **Setup & Permissions…** to open the selector. KDE owns the resulting app launch and its private socket; do not run `--wayland-input-method` directly from a terminal. Selecting an input method lets it receive keyboard events and surrounding text for supported fields, and occupies KDE's input-method slot; consider an existing Fcitx/IBus setup before replacing it. Inklow never selects itself or changes the desktop session automatically.
+
+The exercised target uses **text-input-v3**. Qt applications can request it at their own launch with `QT_WAYLAND_TEXT_INPUT_PROTOCOL=zwp_text_input_v3 QT_IM_MODULE=wayland <application>`. The tested default Qt text-input-v2 path did not provide the required complete context; unobservable or incomplete fields are skipped. This setting is per target application, not a global environment change.
+
+KWin positions the native icon, suggestion, and quick-menu panel near the caret. Exact placement belongs to the compositor; the X11/macOS above-line offset is not a Wayland guarantee. Passwords, selections, stale contexts, and unmatched AT-SPI fields are rejected. Atomic cross-app replacement remains unavailable, so emoji/emoticon rewriting and selected-text synonyms stay disabled. GNOME, wlroots compositors, XWayland targets, and arbitrary third-party applications are not verified by this candidate.
+
 
 ### Verify a download
 
@@ -79,7 +97,7 @@ Models load lazily in a separate process. That process exits after 60 seconds id
 
 - **macOS:** enable **Device Control and Data Access**—called **Accessibility** on earlier macOS—and **Input Monitoring** in System Settings → Privacy & Security. Grant access to the installed `Inklow.app`, not merely a terminal/Python host. Restart after a change. Screen Recording is optional and needed only for opted-in screen context. Replacing an ad-hoc-signed build can require a fresh manual approval.
 - **Windows:** supported controls must expose UI Automation/native Edit capabilities. Elevated applications may require matching integrity privileges; Inklow does not bypass Windows isolation.
-- **Linux:** enable desktop accessibility and run within the user's X11/D-Bus session. Some Qt targets need `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1` before they start.
+- **Linux:** enable desktop accessibility and run within the user's D-Bus session. X11 uses the normal launcher; the unreleased KDE Wayland source path requires explicit input-method selection as described above. Some Qt targets need `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1` before they start.
 
 Inklow opens the relevant settings pages but never grants permissions automatically.
 
@@ -167,7 +185,7 @@ Windows installer builds additionally require .NET SDK 8 and the pinned WiX tool
 dotnet tool install --global wix --version 5.0.2
 ```
 
-For Linux builds, install `dpkg-dev`, `python3-gi`, `python3-pyatspi`, `gir1.2-atspi-2.0`, `gir1.2-glib-2.0`, and `libgtk-3-0t64` alongside the desktop libraries. GTK is needed to resolve the bundled Qt native-theme plugin's ELF dependencies even on a minimal X11 build host. Build with CPython 3.12 on Ubuntu 24.04 so the distro GI extension ABI matches. The [CI workflow](.github/workflows/ci.yml) lists the complete build prerequisites. Packaged Linux applications include the Python bindings; end users do not need Python packages.
+For Linux builds, install `dpkg-dev`, `python3-gi`, `python3-pyatspi`, `gir1.2-atspi-2.0`, `gir1.2-glib-2.0`, and `libgtk-3-0t64` alongside the desktop libraries. The native Wayland client additionally requires a C compiler, `pkg-config`, `libwayland-dev`, `libxkbcommon-dev`, `wayland-protocols`, and `wayland-scanner` (usually supplied by `libwayland-bin`); source development can build it with `python tools/build_wayland.py`, and the Linux application build invokes that helper automatically. GTK is needed to resolve the bundled Qt native-theme plugin's ELF dependencies even on a minimal X11 build host. Build with CPython 3.12 on Ubuntu 24.04 so the distro GI extension ABI matches. The [CI workflow](.github/workflows/ci.yml) lists the complete build prerequisites. Packaged Linux applications include the Python bindings; end users do not need Python packages.
 
 For stable local macOS signing, supply the same existing Keychain identity on each build:
 

@@ -80,6 +80,10 @@ def prepare_linux(bundle: Path, destination: Path) -> None:
     applications = bundle / "share" / "applications"
     applications.mkdir(parents=True, exist_ok=True)
     (applications / f"{APP_ID}.desktop").write_text(entry, encoding="utf-8")
+    method_template = (ROOT / "packaging/linux" / f"{APP_ID}.InputMethod.desktop.in").read_text(encoding="utf-8")
+    method_entry = method_template.replace("@EXEC@", desktop_exec(destination / "launch-inklow"))
+    method_entry = method_entry.replace("@ICON@", desktop_value(str(icon)))
+    (applications / f"{APP_ID}.InputMethod.desktop").write_text(method_entry, encoding="utf-8")
     (bundle / "Inklow.desktop").write_text(entry, encoding="utf-8")
     (bundle / "Inklow.desktop").chmod(0o755)
 
@@ -126,6 +130,8 @@ def build(destination: Path, *, replace: bool = False) -> Path:
     for package in ("PyInstaller", "llama_cpp"):
         if importlib.util.find_spec(package) is None:
             raise RuntimeError(f"Missing {package}; install this project's local and build extras in the current interpreter")
+    if platform == "linux":
+        subprocess.run([sys.executable, str(ROOT / "tools" / "build_wayland.py")], cwd=ROOT, check=True)
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".inklow-build-", dir=destination.parent) as temporary:
         staging = Path(temporary)

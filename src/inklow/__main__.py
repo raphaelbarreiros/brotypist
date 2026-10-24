@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import replace
 import json
+import os
 from pathlib import Path
 import platform
 import sys
@@ -26,6 +27,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="version", version=f"Inklow {__version__}")
     parser.add_argument("--background", action="store_true", help="Start in the menu bar/system tray when available")
     parser.add_argument("--no-tray", action="store_true", help="Open recoverable settings without a tray icon")
+    parser.add_argument("--wayland-input-method", action="store_true",
+                        help="Run as the KDE-selected input method using KWin's private socket")
     parser.add_argument("--paused", action="store_true", help="Start with global suggestions paused for this launch")
     parser.add_argument("--settings", action="store_true", help="Open Settings instead of remaining in the menu bar")
     parser.add_argument("--pane", choices=_PANES, help="Open a specific settings pane")
@@ -34,12 +37,26 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command")
     commands.add_parser("doctor", help="Show native integration and local model readiness")
     commands.add_parser("complete", help="Read text from stdin and print a local continuation")
+    wayland = commands.add_parser("wayland", help="Explicit per-user KDE Wayland input-method setup")
+    wayland.add_argument("action", choices=["install"], help="Install the selector entry without changing the selected input method")
     model = commands.add_parser("model", help="List or explicitly download verified writing models")
     model.add_argument("action", choices=["list", "download"])
     model.add_argument("--preset", choices=[preset.id for preset in PRESETS], default=DEFAULT_PRESET)
     model.add_argument("--no-select", action="store_true", help="Download without changing the selected model")
     args = parser.parse_args(arguments)
     try:
+        if args.wayland_input_method:
+            if not sys.platform.startswith("linux") or args.command:
+                raise ValueError("The Wayland input-method mode is only for KDE application launches on Linux.")
+            descriptor = os.environ.get("WAYLAND_SOCKET")
+            if descriptor is None:
+                raise ValueError("Select Inklow in KDE Virtual Keyboard settings; KWin must supply the private input-method socket.")
+            from .native.wayland import prepare_input_method
+            prepare_input_method(int(descriptor))
+        elif args.background and not args.command and not args.settings and not args.pane:
+            from .system import wayland_input_method_selected
+            if wayland_input_method_selected():
+                return 0
         config = load_config()
         if args.model_path:
             known = next((p for p in PRESETS if p.filename == Path(args.model_path).name), None)
@@ -64,6 +81,11 @@ def main(argv: list[str] | None = None) -> int:
                 save_config(replace(config, backend="gguf", model_path=str(path), prompt_style=preset.prompt_style))
             print(f"Verified model: {preset.label}\n{path}")
             print("Model downloaded; selection unchanged." if args.no_select else "Model selected. Restart Inklow or select it in Models to reload.")
+            return 0
+        if args.command == "wayland":
+            from .system import install_wayland_input_method
+            path = install_wayland_input_method()
+            print(f"Installed {path}\nQuit Inklow, then select Inklow in KDE System Settings → Keyboard → Virtual Keyboard.\nKDE starts the input-method instance; no desktop setting was changed automatically.")
             return 0
         if args.command == "doctor":
             from .native import create_bridge

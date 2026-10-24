@@ -19,6 +19,9 @@ def create_bridge():
             from .windows import WindowsBridge
             return WindowsBridge()
         if sys.platform.startswith("linux"):
+            from .wayland import WaylandBridge, available_input_method
+            if available_input_method():
+                return WaylandBridge()
             from .linux import LinuxBridge
             return LinuxBridge()
         return UnavailableBridge("System-wide typing is unsupported on this OS. Settings remain available.")
