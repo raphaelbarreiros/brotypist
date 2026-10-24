@@ -21,6 +21,10 @@
 - Make the floating control icon-only and place it above text, using nonoverlapping screen-edge placement. Keep menus stable across native timer ticks, suspend shortcut interception during tracking, and defer actions until fresh focus can be checked.
 - Retain a fixed-size visible status/tray item while open, preserve menu-agent lifetime when preferences close, and verify the quick-menu Quit path. Document third-party menu-manager visibility policy separately from application registration.
 - Support an optional existing Apple code-signing identity for executables, libraries and the final Mac bundle instead of discarding it in the final resource-sealing step.
+- Publish native GitHub Release installers: a per-user Windows MSI with both application EXEs, a Linux Debian package with desktop/icons integration, and an Apple Silicon macOS DMG with drag-to-Applications layout. Include complete portable archives and SHA-256 checksums; keep installed application names unversioned.
+- Collect Linux AT-SPI/GI bindings, typelibs and native libraries into the frozen payload instead of relying on developer Python packages at runtime. Derive Debian shared-library dependencies from the actual ELF payload.
+- Gate release publication on three native builds, real local inference, installer launch/removal and external-user-data preservation checks. Record the exact source revision and native receipts; publish from a draft only after all artifacts are present and verified.
+- Rewrite the README around installation, first-run permissions/models, privacy, platform requirements, development, native builds and the versioned release workflow. Explicitly disclose unsigned/not-notarized distributions and unfinished multilingual prediction work.
 
 ## 0.2.0 — 2026-10-23
 

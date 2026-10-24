@@ -12,6 +12,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import platform as host_platform
+import runpy
 import shutil
 import subprocess
 import sys
@@ -140,7 +142,18 @@ def build(destination: Path, *, replace: bool = False) -> Path:
         reject_private_payload(bundle)
         marker = marker_path(bundle, platform)
         marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text(json.dumps({"application": APP_ID, "platform": platform}, indent=2) + "\n", encoding="utf-8")
+        try:
+            source_commit = subprocess.check_output(
+                ["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
+        except (OSError, subprocess.CalledProcessError):
+            source_commit = None
+        version = runpy.run_path(str(ROOT / "src" / "inklow" / "__init__.py"))["__version__"]
+        machine = host_platform.machine().lower()
+        architecture = {"amd64": "x86_64", "aarch64": "arm64"}.get(machine, machine)
+        marker.write_text(json.dumps({
+            "application": APP_ID, "platform": platform, "version": version,
+            "source_commit": source_commit, "architecture": architecture,
+        }, indent=2) + "\n", encoding="utf-8")
         if platform == "darwin":
             # Finalize the sealed ownership marker with the same signing
             # identity as PyInstaller's executable and collected libraries.

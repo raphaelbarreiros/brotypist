@@ -2,21 +2,47 @@ name: Cross-platform checks
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Publish verified installers (must match the app version, e.g. v0.3.0); empty runs checks only'
+        required: false
+        type: string
 permissions:
   contents: read
 concurrency:
-  group: checks-${{ github.ref }}
-  cancel-in-progress: true
+  group: checks-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
 jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate release version
+        id: version
+        env:
+          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+        run: python3 tools/release_assets.py version --tag "$REQUESTED_TAG"
   verify:
+    needs: metadata
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        include:
+          - os: macos-15
+            target: macos-arm64
+          - os: windows-2025
+            target: windows-x86_64
+          - os: ubuntu-24.04
+            target: linux-x86_64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 45
     env:
       QT_QPA_PLATFORM: offscreen
+      INKLOW_VERSION: ${{ needs.metadata.outputs.version }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -24,19 +50,28 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: pyproject.toml
-      - name: Install Linux Qt runtime libraries
+      - name: Install Linux build, accessibility, and desktop libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libopengl0 libxkbcommon0
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config dpkg-dev python3-gi python3-pyatspi gir1.2-atspi-2.0 gir1.2-glib-2.0 libgirepository-1.0-1 at-spi2-core dbus dbus-x11 dbus-user-session xvfb xauth x11-utils desktop-file-utils libegl1 libgl1 libopengl0 libfontconfig1 libfreetype6 libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-shape0 libxcb-randr0 libxcb-xfixes0 libxcb-sync1 libxcb-xinerama0 libxcb-xkb1
+      - uses: actions/setup-dotnet@v5
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install pinned Windows installer compiler
+        if: runner.os == 'Windows'
+        run: dotnet tool install --global wix --version 5.0.2
       - name: Build portable x86 inference backend
         if: runner.os != 'macOS'
         env:
-          CMAKE_ARGS: -DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON
+          CMAKE_ARGS: -DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_AVX512=OFF -DGGML_CUDA=OFF -DGGML_VULKAN=OFF -DGGML_BLAS=OFF
           CMAKE_BUILD_PARALLEL_LEVEL: 2
         run: python -m pip install --no-cache-dir --no-binary=llama-cpp-python --no-deps llama-cpp-python==0.3.36
       - name: Install desktop, local inference, and test dependencies
         run: python -m pip install -e ".[dev,local,build]"
       - name: Check syntax on every platform module
-        run: python -m compileall -q src
+        run: python -m compileall -q src tools
       - name: Run deterministic safety regressions
         run: python -m pytest -q --junitxml=test-results.xml
       - name: Report native capabilities
@@ -54,15 +89,69 @@ jobs:
         run: python tools/build_app.py
       - name: Exercise packaged local inference
         run: python tools/smoke_bundle.py
-      - name: Archive native application preserving bundle symlinks
-        run: python -c "import pathlib,sys,tarfile; root=pathlib.Path('dist'); name='Inklow.app' if sys.platform=='darwin' else 'Inklow'; archive=root/('Inklow-'+sys.platform+'.tar.gz'); bundle=tarfile.open(archive,'w:gz'); bundle.add(root/name,arcname=name); bundle.close()"
+      - name: Package macOS disk image and portable application
+        if: runner.os == 'macOS'
+        run: python tools/package_macos.py --bundle dist/Inklow.app --output release --version "$INKLOW_VERSION"
+      - name: Mount and exercise actual macOS installer
+        if: runner.os == 'macOS'
+        run: python tools/smoke_macos_dmg.py --dmg "release/Inklow-$INKLOW_VERSION-macos-arm64.dmg" --version "$INKLOW_VERSION" --require-gui
+      - name: Package Windows MSI and portable application
+        if: runner.os == 'Windows'
+        run: python tools/package_windows.py --bundle dist/Inklow --output release --version "$env:INKLOW_VERSION"
+      - name: Install, launch and uninstall Windows MSI
+        if: runner.os == 'Windows'
+        run: pwsh -NoProfile -File tools/smoke_windows_installer.ps1 -Msi "release/Inklow-$env:INKLOW_VERSION-windows-x86_64.msi" -Version "$env:INKLOW_VERSION" -SourceCommit "${{ github.sha }}"
+      - name: Package Linux Debian installer and portable application
+        if: runner.os == 'Linux'
+        run: python tools/package_linux.py --bundle dist/Inklow --output release --version "$INKLOW_VERSION"
+      - name: Install, launch and remove Linux package under real X11 and D-Bus
+        if: runner.os == 'Linux'
+        run: dbus-run-session -- xvfb-run -a python tools/smoke_linux_installer.py --deb "release/Inklow-$INKLOW_VERSION-linux-amd64.deb" --archive "release/Inklow-$INKLOW_VERSION-linux-amd64.tar.gz" --version "$INKLOW_VERSION"
+      - name: Seal successful native asset provenance
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            macOS) receipt=reports/macos-dmg-smoke.json ;;
+            Windows) receipt=reports/windows-installer-smoke.json ;;
+            Linux) receipt=reports/linux-installer-smoke.json ;;
+          esac
+          python tools/release_assets.py manifest --assets release --target "${{ matrix.target }}" --commit "${{ github.sha }}" --receipt "$receipt"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.target }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
-          name: inklow-${{ matrix.os }}
+          name: checks-${{ matrix.target }}
           path: |
             test-results.xml
             dist/*.whl
-            dist/Inklow-*.tar.gz
             worker-smoke.json
+            reports/
+          retention-days: 14
+  publish:
+    needs: [metadata, verify]
+    if: needs.metadata.outputs.tag != '' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: native-assets
+      - name: Verify transferred assets and publish a complete GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+        run: python3 tools/release_assets.py publish --inputs native-assets --output published --tag "$RELEASE_TAG" --commit "${{ github.sha }}" --repo "${{ github.repository }}"
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: release-publication
+          path: published/
           retention-days: 14

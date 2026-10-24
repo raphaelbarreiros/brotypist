@@ -1,0 +1,14 @@
+Package: inklow
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: Inklow contributors <noreply@localhost>
+Installed-Size: @SIZE@
+Depends: @DEPENDS@
+Description: Local-first predictive typing for X11 desktops
+ Private writing assistance with frozen Python, Qt and AT-SPI bindings.
+ Supports Ubuntu 24.04+ and Debian 13+ amd64 X11 desktop sessions.
+ Requires an AVX2, FMA and F16C capable CPU. Wayland global typing is not
+ supported. Model weights are not included; downloads are explicit.
+ User settings, model caches and writing history are never package-owned.

@@ -13,12 +13,54 @@ keyring_backend = ("keyring.backends.macOS" if sys.platform == "darwin" else
                    "keyring.backends.Windows" if sys.platform == "win32" else
                    "keyring.backends.SecretService")
 
+linux_binaries, linux_datas, linux_imports = [], [], []
+if sys.platform == "linux":
+    # Distro bindings must match the build interpreter's ABI (Ubuntu 24.04:
+    # CPython 3.12). Append, do not prepend PYTHONPATH: distro packages must not
+    # shadow the project's pinned wheel dependencies. This is build-time only.
+    distro_bindings = "/usr/lib/python3/dist-packages"
+    if distro_bindings not in sys.path:
+        sys.path.append(distro_bindings)
+    from PyInstaller import isolated
+    from PyInstaller.utils.hooks import collect_submodules
+    from PyInstaller.utils.hooks.gi import GiModuleInfo
+
+    @isolated.decorate
+    def require_linux_bindings():
+        import gi
+        import gi._gi
+        import pyatspi
+        import Xlib
+        gi.require_version("Atspi", "2.0")
+        from gi.repository import Atspi
+        return callable(Atspi.get_desktop)
+
+    require_linux_bindings()  # Fail the build, never ship an UnavailableBridge.
+    linux_imports = collect_submodules("pyatspi") + ["gi", "gi._gi", "Xlib"]
+    pending = [("Atspi", "2.0")]
+    collected = set()
+    while pending:
+        namespace, version = pending.pop()
+        if (namespace, version) in collected:
+            continue
+        collected.add((namespace, version))
+        info = GiModuleInfo(namespace, version)
+        if not info.available:
+            raise RuntimeError(f"Missing required GI namespace: {namespace}-{version}")
+        binaries, datas, imports = info.collect_typelib_data()
+        if len(binaries) < len(info.sharedlibs):
+            raise RuntimeError(f"Unresolved native libraries for {namespace}-{version}")
+        linux_binaries.extend(binaries)
+        linux_datas.extend(datas)
+        linux_imports.extend(imports)
+        pending.extend(tuple(dependency.rsplit("-", 1)) for dependency in info.dependencies)
+
 analysis = Analysis(
     [str(ROOT / "packaging" / "launcher.py")],
     pathex=[str(ROOT / "src")],
-    binaries=[],
-    datas=[(str(ASSETS), "inklow/assets")],
-    hiddenimports=["llama_cpp", keyring_backend],
+    binaries=linux_binaries,
+    datas=[(str(ASSETS), "inklow/assets")] + linux_datas,
+    hiddenimports=["llama_cpp", keyring_backend] + linux_imports,
     hookspath=[str(ROOT / "packaging" / "hooks")],
     hooksconfig={},
     runtime_hooks=[],

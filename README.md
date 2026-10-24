@@ -2,127 +2,196 @@
 
 # Inklow
 
-Local-first predictive typing for macOS, Windows, and Linux. An independent implementation of a [redacted reference]-like menu-agent experience—not copied proprietary code, models, or assets.
+Local-first predictive typing for macOS, Windows, and Linux. Inklow runs in the menu bar or system tray and offers completions in supported applications—there is no separate writing editor.
 
-![Native Inklow preferences](evidence/menu-first-general.png)
+[Download the latest release](https://github.com/renan-brasilio/inklow/releases/latest) · [All releases](https://github.com/renan-brasilio/inklow/releases) · [Changelog](CHANGELOG.md)
 
-## What changed in 0.3
+![Inklow settings](evidence/menu-first-general.png)
 
-**No editor.** Inklow lives in the menu bar/system tray and suggests directly in supported applications. macOS uses native AppKit/PyObjC controls and nonactivating caret overlays; no Qt runtime is installed or bundled on macOS. Windows/Linux use native-themed Qt tray/settings surfaces with the same headless controller.
+## Install
 
-Preferences have Setup, General, Context, Personalization, Emoji, Shortcuts, Battery, App Settings, Labs, Statistics, and About panes. Closing preferences leaves the agent running; Quit stops hooks and its inference worker. If a tray cannot be created, preferences remain accessible as a fallback.
+Download the installer matching your operating system from **Releases → Assets**. This repository is private; you must be signed in to a GitHub account with access to download its releases. Packaged applications include Python and their UI runtime, so Python is not required for installation.
 
-Models load **lazily in a separate process**. The process is terminated after 60 seconds idle by default, or on pause, model change, and quit. This releases model allocations, at the cost of a cold load on the next request. There is no idle preload or editor document in the resident process. A separately managed local inference server has its own lifecycle; Inklow cannot unload that server's model.
+| Platform | Installer | Portable package | Requirements |
+| --- | --- | --- | --- |
+| macOS, Apple Silicon | `Inklow-<version>-macos-arm64.dmg` | `.zip` | macOS 15 or newer; Apple Silicon |
+| Windows, x86-64 | `Inklow-<version>-windows-x86_64.msi` | `.zip`, containing the app and CLI EXEs | Windows 10/11; AVX2, FMA, and F16C for bundled local inference |
+| Linux, x86-64 | `Inklow-<version>-linux-amd64.deb` | `.tar.gz` | Ubuntu 24.04+/Debian 13+, an X11 desktop and D-Bus; AVX2, FMA, and F16C |
 
-## Run
+The Windows EXEs are **not standalone files**: keep the entire portable ZIP together. ARM Windows/Linux, Intel macOS, older distributions, and other CPU baselines require a build on the target platform.
 
-Native build output: `dist/Inklow.app` on macOS; `dist/Inklow/Inklow.exe` on Windows; `dist/Inklow/launch-inklow` on Linux. Native bundles include the runtime and original app/tray icons, **not weights or user data**. Existing saved preferences are preserved. A running older editor must be quit normally, with unsaved writing saved, before replacing its installed bundle.
+Model weights are downloaded separately, only when requested. Installers do not contain models, settings, writing history, or credentials.
 
-On the development Mac, the current app is **`/Applications/Inklow.app`**. The older editor bundle was replaced after it was no longer running; the version-suffixed preview bundle was removed. Saved settings, downloaded models, and local history were retained. macOS permissions belong to the launched application: a successful terminal-launched smoke can inherit the terminal's permission and does not prove a normal Finder/LaunchServices launch is authorized.
+### macOS
 
-Python 3.11+ is required; Python 3.12 is recommended. With [uv](https://docs.astral.sh/uv/):
+1. Open the DMG and drag **Inklow.app** to **Applications**.
+2. Launch Inklow from Applications, then open **Setup & Permissions…** from its menu-bar icon.
+3. Grant the required permissions described below and select a local model.
+
+The app name stays **Inklow**, without a version suffix. Quit a running copy before replacing it. GitHub-built macOS releases are ad-hoc signed and **not notarized**; they are not Developer ID-signed distributions. Do not disable Gatekeeper globally. Review the source and checksums before deciding whether to allow a downloaded build through macOS security controls.
+
+### Windows
+
+Run the MSI. It installs for the current user and adds an Inklow Start Menu shortcut. For the portable package, extract the full ZIP and run `Inklow.exe`; use `Inklow-cli.exe` for terminal commands.
+
+Windows releases are unsigned unless the release explicitly states otherwise. Windows may show an unrecognized-publisher warning. Do not disable security protections globally.
+
+### Linux
+
+Download the `.deb`, then install the specific file you downloaded:
+
+```sh
+sudo apt install ./Inklow-0.3.0-linux-amd64.deb
+inklow
+```
+
+Run Inklow as your desktop user, **not with sudo**. The Debian package installs the application, launcher, desktop entry, and icons. Use an **X11 session**: global typing is unavailable under Wayland, including XWayland applications.
+
+The portable archive must remain intact. Extract it to a writable location and run its `launch-inklow` script. Distribution runtime dependencies and the same CPU/glibc baseline still apply.
+
+### Verify a download
+
+Every release includes `SHA256SUMS`. Run the checksum command in the directory containing the downloaded assets:
+
+```sh
+# Linux
+sha256sum --check SHA256SUMS --ignore-missing
+# macOS
+shasum -a 256 <downloaded-file>
+```
+
+On Windows, use `Get-FileHash <downloaded-file> -Algorithm SHA256` in PowerShell. Compare the result with the matching entry in `SHA256SUMS`. A checksum checks file integrity; it is not a code-signing or notarization certificate.
+
+## First run
+
+1. Open **Setup & Permissions…** from the menu bar/system tray.
+2. Enable the required OS access for the application you actually launched.
+3. In **General → Manage Models…**, explicitly download a writing preset or choose an existing GGUF model.
+4. Focus a supported editable input and start typing. Secure fields, password managers, and terminals are excluded by default.
+
+The writing preset in 0.3 is **Qwen2.5 1.5B**, approximately 1.12 GB. The 101 MB Tiny preset is an English starter/testing model, not a comparable writing-quality replacement. Model quality and language coverage vary; suggestions are not a grammar or factuality guarantee.
+
+Models load lazily in a separate process. That process exits after 60 seconds idle by default, and on pause, model change, or Quit. A later request may need a cold load. Locally managed Ollama or OpenAI-compatible servers are also supported through literal loopback URLs; Inklow does not manage those servers' model lifetimes.
+
+### OS permissions
+
+- **macOS:** enable **Device Control and Data Access**—called **Accessibility** on earlier macOS—and **Input Monitoring** in System Settings → Privacy & Security. Grant access to the installed `Inklow.app`, not merely a terminal/Python host. Restart after a change. Screen Recording is optional and needed only for opted-in screen context. Replacing an ad-hoc-signed build can require a fresh manual approval.
+- **Windows:** supported controls must expose UI Automation/native Edit capabilities. Elevated applications may require matching integrity privileges; Inklow does not bypass Windows isolation.
+- **Linux:** enable desktop accessibility and run within the user's X11/D-Bus session. Some Qt targets need `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1` before they start.
+
+Inklow opens the relevant settings pages but never grants permissions automatically.
+
+## Using Inklow
+
+| Action | Default control |
+| --- | --- |
+| Accept the next word | Tab |
+| Accept the complete suggestion | Physical key above Tab |
+| Request a suggestion now | Control + physical key above Tab |
+| Dismiss and briefly pause | Escape |
+| Open pause/settings controls near a field | Click the small Inklow icon above the input line |
+| Stop Inklow and its worker | **Quit Inklow** in the menu-bar/tray menu |
+
+Shortcuts, trailing spaces/punctuation, per-app defaults, temporary pauses, and login startup are configurable. Closing Settings leaves Inklow running. Normal application/system shortcuts pass through when no eligible suggestion is active.
+
+Other features include an offline Unicode emoji chooser, contextual synonym/alternative suggestions, optional local context, encrypted opt-in writing history, and aggregate accepted-writing statistics. These are subject to the platform limits below.
+
+## Privacy and saved data
+
+- No account, cloud inference, automatic telemetry, or cloud synchronization is built in. Inference endpoints are restricted to literal loopback addresses; model downloads are the explicit public network operation.
+- Clipboard and foreground-screen context are off by default. Screen OCR is macOS-only, uses the eligible foreground window, and does not save screenshots.
+- Writing history is off by default. When enabled, it requires AES-GCM encryption and an OS credential store; there is no plaintext fallback.
+- Custom instructions are ordinary settings text, not a secret store. Do not put credentials in them.
+- Upgrades/uninstallers leave per-user preferences, downloaded models, and history outside the application installation. History and aggregate statistics have separate deletion controls in Settings.
+- `INKLOW_HOME` selects an isolated data/settings profile for development. It does not relocate the shared model cache, and isolated profiles cannot change login integration.
+
+A separately managed inference server, OS swap, and OS crash collection have their own privacy behavior outside Inklow's control.
+
+## Platform support
+
+macOS uses native AppKit settings and nonactivating overlays; Qt is not bundled there. Windows/Linux use Qt settings/tray surfaces with native accessibility adapters.
+
+| Capability | macOS | Windows | Linux/X11 |
+| --- | --- | --- | --- |
+| Supported accessible text inputs | AX | UI Automation/native Edit | AT-SPI Text/EditableText |
+| Inline/field-attached suggestions | Yes, when geometry is observable | Yes, when geometry is observable | Yes, when geometry is observable |
+| Selected-text/emoji rewriting | Guarded native replacement | Target/control-dependent | Disabled: no cross-app atomic replacement |
+| Native-observable website rules | Supported browsers | Unavailable | Unavailable |
+| Optional foreground-window OCR | Yes | No | No |
+
+Unsupported, protected, composition-ambiguous, or unobservable fields are skipped. Release install/launch/inference checks do not establish compatibility with every third-party control. Interactive Windows/Linux typing remains a separate verification limit. See the [verification report](evidence/VERIFICATION.md) for exercised scenarios.
+
+## Develop
+
+Use Python 3.12 and [uv](https://docs.astral.sh/uv/). Build on the target OS/architecture; a macOS build cannot produce a Windows runtime.
 
 ```sh
 git clone git@github.com:renan-brasilio/inklow.git
 cd inklow
-uv sync --python 3.12 --extra local
-uv run inklow model download
+uv sync --python 3.12 --extra dev --extra local --extra build
+uv run inklow doctor
 uv run inklow --settings
+uv run pytest -q
 ```
 
-For ordinary Python, create/activate a virtual environment, then `python -m pip install -e ".[local]"`. Windows PowerShell uses the same application commands. GGUF may require Xcode Command Line Tools, Visual Studio C++ Build Tools, or gcc/clang.
-
-`model download` explicitly downloads the recommended **Qwen2.5-1.5B-Instruct Q4_K_M** writing model (1,117,320,736 bytes), validates SHA-256 against an immutable revision, and selects guided draft-prefill prompting. `model download --preset tiny` selects the 101 MB English starter. **General → Manage Models…** provides download/cancel, installed-preset selection, custom GGUF selection, CPU/automatic acceleration, and prompt format. Nothing downloads just because preferences open.
-
-The guided model supports short multilingual draft continuations; output quality varies. It is not [redacted reference]'s model. GPU offload depends on the installed llama.cpp build (Metal on this Apple Silicon build); CPU is the portable fallback. Streaming, newest-request cancellation, and typed-through reuse avoid waiting for a full prediction unnecessarily.
-
-Ollama (`/api/generate`, raw) and OpenAI-compatible (`/v1/completions`) local servers are also supported. Use a literal loopback URL such as `http://127.0.0.1:11434` or `http://[::1]:8080`. Remote hosts, DNS names, URL credentials, proxies, and inference redirects are refused. Guided writing is specifically a Qwen2.5 ChatML profile, not a universal chat template. Server backends do not require the `local` extra.
-
-## Typing and menu controls
-
-- **Tab:** accept the next word. Trailing space and punctuation are configurable.
-- **Physical key above Tab:** accept the whole suggestion. macOS distinguishes ANSI and ISO geometry; an unrecognized geometry is left unassigned instead of hijacking another key. Shortcuts are editable.
-- **Control + key above Tab:** request a completion immediately.
-- **Escape:** dismiss and briefly pause by default; configurable app-disable/pass-through behavior. With no suggestion, normal keys pass through.
-- **Option+Tab on macOS:** dismiss and pass a normal Tab to the target. OS Alt+Tab remains system-owned on Windows/Linux.
-- Type `:smile` or a supported emoticon for an offline Unicode emoji chooser; numbered keys/click accept explicitly. Skin tone and gender preferences are separate.
-- Select a word/short phrase for contextual synonyms, or enable alternative continuations in Labs. These use the local inference model and bounded structured results; model quality is not guaranteed.
-- Menu: enable/disable globally, temporary current-app toggle, timed pause, settings panes, actual accepted-writing statistics, diagnostics/permission shortcuts, About, and Quit.
-- A small **icon-only** menu control sits above the focused text line, including empty fields. It does not require a model or prediction. Menu tracking pauses capture/shortcut interception and keeps its anchor stable; actions execute after dismissal with fresh target validation. Native caret geometry enables inline ghost text. Where only field bounds are reliable, a field-attached suggestion card supports explicit acceptance instead of guessing a caret position.
-
-New profiles enable global typing; password managers and terminals are excluded by default. **Enable completions by default** controls per-app inheritance, separately from the global master switch. App/domain rules can override completions, Tab acceptance, custom instructions, and recording. Temporary app toggles last for this process only. Website rules use exact native-observable hosts, never a guessed window title.
-
-Launch-at-login is explicit and per-user, not a privileged service. Isolated `INKLOW_HOME` profiles cannot change login integration. Only Inklow-owned entries are removed when disabling it.
-
-## Context, personalization, privacy
-
-- Clipboard and screenshot context are **off by default**. Clipboard text is read only for eligible requests after opt-in. Screen context is macOS-only, uses ScreenCaptureKit/Vision local OCR of the eligible target's window, revalidates focus/protection before capture, and never writes images to disk. OS Screen Recording permission is required; no grant is automated.
-- Custom instructions are ordinary settings text, not an encrypted secret store. Draft edits require explicit Save/Revert. Do not put credentials in instructions.
-- Writing history is **off by default**. Enabling it requires AES-GCM encryption and a supported OS credential-store backend (macOS Keychain, Windows Credential Manager, Linux Secret Service/KWallet). There is no plaintext fallback. The encryption key is not stored beside the database.
-- The recording switch is an inherited default, **not a kill switch for explicit app overrides**. An app set to record continues recording with the default off. Unaccepted typing requires a separate opt-in. History deletion and aggregate-statistics deletion are independent.
-- Personalization uses relevant vocabulary from opted-in encrypted history; it does not train/fine-tune the model. No iCloud/cloud synchronization, account, subscription, automatic telemetry, or cloud inference is implemented.
-- Aggregate local statistics count confirmed native insertions, not generated suggestions; they contain counts/application identifiers, not drafts. Statistics are independently disableable/deletable. Estimated time saved is a heuristic, not measured productivity.
-- Native exclusions, secure/read-only checks, IME metadata, exact snapshot identity, and focus/caret revalidation guard capture and insertion. Target providers still determine what protection/composition metadata is observable. No accessibility API provides a cross-app atomic focus transaction.
-- Model downloads are the only built-in public network operation and require explicit action. A local HTTP inference server remains trusted software: its own logging/network behavior is outside Inklow's control. OS swap/crash collection is also outside these guarantees.
-
-## Platform boundaries
-
-| Platform | Settings/agent | Global integration and limits |
-| --- | --- | --- |
-| macOS | Native AppKit, menu bar, no Qt | AX capture and guarded selected-text/Quartz insertion; native inline ghost/chooser; scoped-window OCR. Real isolated native interaction proof is documented below. |
-| Windows | Qt tray and preferences | UIA capture; native Edit insertion and atomic replacement. Observable modern UIA controls support guarded insertion/existing-selection replacement; typed-suffix emoji replacement requires native Edit. Interactive Windows desktops remain unverified here. |
-| Linux/X11 | Qt tray and preferences | AT-SPI Text/EditableText and X11 interception. Continuations/alternative insertions supported; emoji/emoticon conversion and selected-word synonyms disabled because AT-SPI lacks atomic replacement. Interactive Linux desktops remain unverified here. |
-| Linux/Wayland | Preferences/tray where available | Global typing unavailable, including XWayland; no privileged interception workaround or fallback editor. |
-
-Windows/Linux have no native browser URL observation or screenshot context in this implementation. Stored website deny rules fail closed for recognized browsers without an observable URL; website history exclusions suppress recording there. Elevated Windows targets require matching integrity privileges; Inklow does not bypass UIPI. Fields without reliable caret bounds/editability/composition metadata are skipped.
-
-### macOS permissions
-
-Enable **Device Control and Data Access** (called **Accessibility** on older macOS) and **Input Monitoring** for **`/Applications/Inklow.app`** in System Settings → Privacy & Security. The separate Accessibility sidebar page is not the app-permission list. Terminal/Python permissions do **not** prove that the app launched normally has permission. If a stale Inklow entry points at a removed build, remove that entry and add the current app with the `+` control. Setup uses the underlying Accessibility API name and displays actual app-process status; no grant is automated. Restart Inklow after changing permission. The menu explicitly identifies missing required permissions. Screen Recording is optional and only needed for opted-in screen context.
-
-### Linux prerequisites
-
-Qt needs native runtime libraries, including in offscreen CI. Debian/Ubuntu: `libegl1 libgl1 libopengl0 libxkbcommon0`. X11 integration also needs `python3-pyatspi python3-gi at-spi2-core python3-venv` and compiler tools. Use the distribution Python to see GI bindings:
+GGUF source builds need Xcode Command Line Tools, Visual Studio C++ Build Tools, or GCC/Clang/CMake. Linux development additionally needs the distribution's AT-SPI/GI bindings and Qt/X11 runtime libraries. Use the distribution Python with `--system-site-packages` when those bindings are supplied by the distribution:
 
 ```sh
 /usr/bin/python3 -m venv --system-site-packages .venv
-.venv/bin/python -m pip install -e ".[local]"
-.venv/bin/inklow
+.venv/bin/python -m pip install -e '.[dev,local,build]'
 ```
 
-Run in the logged-in user's X11/D-Bus session with accessibility enabled. Some Qt targets require `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1` before launch. Missing capabilities produce explicit diagnostics, not simulated integration.
+Download a model explicitly with `inklow model download`; use `--no-select` to leave the selected model unchanged. A source launch may inherit its terminal host's permissions and is not proof that a separately installed app has access.
 
-## Evidence and implementation
-
-- [REA [redacted reference] analysis, native settings observations, and limits](evidence/[redacted reference].md)
-- [Sanitized process-scoped native reference evidence](evidence/[redacted reference]-menu-reference.json)
-- [Observed Inklow verification and platform limits](evidence/VERIFICATION.md)
-- [Passing icon/menu repair Windows/macOS/Ubuntu pipeline](https://github.com/renan-brasilio/inklow/actions/runs/40077282052)—source/frozen local inference and real settings event loops; not interactive Windows/Linux typing certification
-- [Real native preferences interaction receipt](evidence/menu-first-native-ui.json)
-- [Historical 0.2 latency/model samples](evidence/UPGRADE-0.2.md)—not a benchmark of 0.3
-
-Shared code: `runtime.py` (headless controller), `core.py` (snapshot/acceptance), `process_client.py`/`process_worker.py` (isolated worker protocol/lifecycle), `providers.py`/`writing.py` (local inference), `storage.py` (encrypted history/aggregate statistics), `features.py` (Unicode lookup/structured utilities), `config.py`, `models.py`, and `native/`. `desktop.py` dispatches to `appkit_ui.py` or `qt_ui.py`; `system.py` owns explicit OS integration; `instance.py` prevents duplicate hooks per profile. The removed editor/window-worker APIs are not retained as compatibility shims.
-
-## Development and packaging
+### Build applications and installers
 
 ```sh
-uv sync --extra dev --extra local --extra build
-uv run pytest -q
-uv run inklow doctor
-uv run python tools/smoke_desktop.py
-uv build
+uv run inklow model download --preset tiny --no-select
 uv run python tools/build_app.py
 uv run python tools/smoke_bundle.py
+# Run the command matching the build host:
+uv run python tools/package_macos.py --bundle dist/Inklow.app --output release --version 0.3.0
+uv run python tools/package_windows.py --bundle dist/Inklow --output release --version 0.3.0
+uv run python tools/package_linux.py --bundle dist/Inklow --output release --version 0.3.0
 ```
-For local macOS updates, provide the same existing Apple-issued signing identity on every build: `INKLOW_CODESIGN_IDENTITY="<identity name or fingerprint>" uv run python tools/build_app.py --replace`. The identity signs the executable, collected libraries, and final sealed application. Private keys remain in Keychain, never in the repository or bundle. Changing from an old ad-hoc approval to a certificate-backed identity may require one manual permission reapproval; no grant is automated.
 
+The packagers consume a complete native build; they do not cross-compile. macOS uses `hdiutil`/`ditto`, Windows uses WiX, and Linux uses `dpkg-deb`. The workflow installs their build-only prerequisites and exercises the resulting installers.
 
-GitHub Actions defines macOS/Windows/Ubuntu safety checks, actual source settings launch, verified Tiny acquisition, local CPU inference, wheel and native application builds, and frozen CLI plus isolated-worker inference. Workflow definitions are not proof that the current revision has passed; see the verification report for observed runs. Windows includes a console sibling `Inklow-cli.exe`; Linux includes relocatable desktop integration. Build on each target OS/architecture. macOS defaults to ad-hoc signing when no identity is supplied; local certificate signing does not imply notarization. `--replace` only replaces a marked Inklow build and retains rollback during publication. Bundles reject model weights, settings, databases, and encrypted-history payloads.
+Windows installer builds additionally require .NET SDK 8 and the pinned WiX tool:
 
-Windows/Linux x86 CI builds the inference backend from source with `GGML_NATIVE=OFF` and an explicit **AVX2/FMA/F16C** target instead of reusing a cached host-native wheel. These x86 artifacts require those CPU features. For another CPU/architecture, build the backend for that target before packaging; `build_app.py` bundles the installed native backend and cannot make an incompatible library portable. Upstream [build/reinstall guidance](https://github.com/abetlen/llama-cpp-python#installation) and [CPU build options](https://github.com/ggml-org/llama.cpp/blob/master/ggml/src/CMakeLists.txt).
+```powershell
+dotnet tool install --global wix --version 5.0.2
+```
 
-## Attribution
+For Linux builds, install `dpkg-dev`, `python3-gi`, `python3-pyatspi`, `gir1.2-atspi-2.0`, and `gir1.2-glib-2.0` alongside the desktop libraries. Build with CPython 3.12 on Ubuntu 24.04 so the distro GI extension ABI matches. The [CI workflow](.github/workflows/ci.yml) lists the complete build prerequisites. Packaged Linux applications include the Python bindings; end users do not need Python packages.
 
-Recommended model: [Qwen/Qwen2.5-1.5B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF), Apache-2.0, revision `91cad51170dc346986eccefdc2dd33a9da36ead9`, file `qwen2.5-1.5b-instruct-q4_k_m.gguf`, SHA-256 `6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e`.
+For stable local macOS signing, supply the same existing Keychain identity on each build:
 
-Starter: [ggml-org/SmolLM2-135M-GGUF](https://huggingface.co/ggml-org/SmolLM2-135M-GGUF), Apache-2.0, revision `1076b85d135017971845b19b8d07df1479155988`, SHA-256 `e3131339bf4e8065265593d4fd8f7bb7ff2d3abff1edb5618aa1197b89cad9f5`. No weights are committed/bundled. The offline catalogue contains 3,944 fully qualified Unicode 17 emoji sequences with the Unicode License V3 embedded. Dependencies retain their respective licenses.
+```sh
+INKLOW_CODESIGN_IDENTITY='<identity name or fingerprint>' uv run python tools/build_app.py --replace
+```
+
+Never commit or export signing keys into the repository. Local certificate signing does not imply Developer ID distribution or notarization.
+
+### Release workflow
+
+GitHub Actions checks regressions, launches actual settings, runs source/frozen inference, builds native packages, and exercises installer installation/mount and removal. Release assets are published only after every native job succeeds. The publication step creates a versioned GitHub Release, portable packages, a manifest, and SHA-256 checksums from the verified files.
+
+To publish, update the version in `pyproject.toml` and `src/inklow/__init__.py`, commit the source, then run **Actions → Cross-platform checks → Run workflow** with `release_tag` set to the matching `v<version>`. An empty input runs checks only. Pushing a matching version tag also publishes after verification. Existing tags/releases are never overwritten.
+
+The initial installer release uses the verified 0.3 code line. Unfinished model/prompt experiments are not silently included in release binaries. See workflow inputs and release notes for the exact source revision.
+
+### Source layout
+
+- `runtime.py`, `core.py`: controller, snapshots, acceptance guards.
+- `process_client.py`, `process_worker.py`: isolated inference worker and lifecycle.
+- `providers.py`, `writing.py`, `models.py`: local backends, prompts, pinned downloads.
+- `appkit_ui.py`, `qt_ui.py`, `native/`: platform interfaces and accessibility adapters.
+- `storage.py`, `config.py`, `system.py`: local data, preferences, explicit OS integration.
+- `tools/`, `packaging/`, `.github/workflows/`: development checks, native packaging, releases.
+
+## References and attribution
+
+[Implementation verification](evidence/VERIFICATION.md) · [Reference-app research](evidence/[redacted reference].md)
+
+Inklow does not contain [redacted reference]'s proprietary code, models, or assets. The bundled emoji catalogue retains its Unicode license; third-party runtimes/models retain their own licenses. No model weights are committed to the repository or included in installers.
