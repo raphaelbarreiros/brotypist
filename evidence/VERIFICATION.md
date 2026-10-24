@@ -47,7 +47,7 @@ The original utility prompt returned `[]` for an ordinary adjective and sometime
 | Cold first English suggestion, including source-app startup/focus harness | 2.050 |
 | First suggestion for a new Portuguese prefix with the same model worker | 0.537 |
 
-These are one observation each, different prefixes, not a controlled benchmark or a speed comparison with [redacted reference]. The warm measurement includes the 200 ms debounce and native polling/UI delivery. Worker release trades lower idle allocations for another cold load.
+These are one observation each from the earlier 0.3 native-typing run, different prefixes, not a controlled benchmark or a speed comparison with [redacted reference]. The warm measurement includes the 200 ms debounce and native polling/UI delivery. Worker release trades lower idle allocations for another cold load. After the worker-protocol rebuild, a separate installed CPU cold-cancellation smoke reached its latest final result at 6.83 seconds; that functional run is also not a benchmark. Do not interpret the earlier two samples as a latency guarantee.
 
 Memory came from the operating system's `proc_pid_rusage(..., RUSAGE_INFO_V4, ...)`, using a small helper compiled against the installed macOS SDK. RSS was independently sampled with `ps`.
 
@@ -66,11 +66,11 @@ AES-GCM storage tests use deterministic test keys and exercise encryption, unava
 
 ## Build, frozen inference, and automated checks
 
-Local final suite: **220 passed, 1 skipped, 10.16 seconds**. The skip is the Qt-only module on macOS, where Qt is intentionally absent. Regression checks include selected short phrases and decomposed Unicode. The Mac application built successfully, rejected private/model payloads, and passed final resource-signature verification.
+Local final suite: **223 passed, 1 skipped, 11.36 seconds**. The skip is the Qt-only module on macOS, where Qt is intentionally absent. Regression checks include selected short phrases, decomposed Unicode, cancellation at model readiness, initialization/input ordering, and failed-warmup recovery. The Mac application built successfully, rejected private/model payloads, and passed final resource-signature verification.
 
 The actual frozen CLI generated ` message.`. The actual frozen `_worker` protocol streamed ` cooperation.`, processed stop, and exited 0. These outputs prove real inference and IPC, not writing quality. Receipt: [frozen CLI/worker](menu-first-frozen-worker.json). Direct source/settings and frozen settings checks above are separate from unit tests.
 
-The GitHub Actions matrix defines Windows/macOS/Ubuntu installation, tests, actual source settings launch, verified Tiny download, CPU inference, wheel/native packaging, and frozen CLI/worker smoke. Current-run results are recorded separately when observed; earlier green runs in [upgrade-ci-run.json](upgrade-ci-run.json) apply to 0.2, not this revision.
+GitHub Actions run [40045550783](https://github.com/renan-brasilio/inklow/actions/runs/40045550783) passed **Windows, macOS, and Ubuntu** at source revision `08d878b68030bb9ff841688d1d9715fbf02e1e72`. Each completed regressions, actual source-worker inference, actual settings event-loop launch, wheel/native packaging, frozen CLI/worker inference, and artifact upload. CI uses the checksum-verified Tiny SmolLM2 GGUF; the separate Mac typing/lifecycle checks use Qwen. Windows/Linux GUI smoke is offscreen, not interactive accessibility proof. [Run/stage/native-artifact metadata](menu-first-ci-run.json). Uploaded artifact metadata was observed through GitHub's API; the archives were not independently downloaded/rehashed locally. Earlier green runs in [upgrade-ci-run.json](upgrade-ci-run.json) apply to 0.2, not this revision.
 
 Interactive Windows/Linux accessibility and keyboard compatibility have not been exercised here. Linux has no atomic rewrite operation, so selected-text synonyms and emoji/emoticon rewriting are disabled rather than risking destructive partial edits. Wayland global typing is unavailable. Windows/Linux URL/screen-context limitations are explicit in the README. Passing headless CI is not proof of interactive compatibility.
 
@@ -82,7 +82,7 @@ Historical 0.2 evidence remains in [UPGRADE-0.2.md](UPGRADE-0.2.md); older CI an
 
 ## Installed application and document protection
 
-The verified bundle was copied to `/Applications/Inklow 0.3.app` and passed `codesign --verify --deep --strict`. Its executable SHA-256 matches the verified `dist` executable: `883cacf98f0736881b868c8871717e1e5be8ca75c8ed01cc90cf19f2ca8dae93`. The **installed copy** repeated all eleven native preference-pane/control/close/quit interactions using a disposable paused profile and exited 0: [installed UI receipt](menu-first-installed-ui.json).
+The current verified bundle was copied to `/Applications/Inklow 0.3.app` and passed `codesign --verify --deep --strict`. Its executable SHA-256 matches the verified `dist` executable: `f678c0111ebac6f02da53fcfd1591d0c78b933d5513e10f61f004690e0b484f5`. An earlier installed 0.3 build exercised all eleven native preference-pane/control/close/quit interactions using a disposable paused profile and exited 0: [installed UI receipt](menu-first-installed-ui.json). After the worker-protocol rebuild, the current installed copy displayed its real General window and exited 0 through normal native application termination: [current installed screenshot](menu-first-installed-current.png). This latest visual smoke used only a disposable paused profile and captured only its own window.
 
 Normal Quit of the original `/Applications/Inklow.app` exposed its unsaved-writing protection. Quit was cancelled; document values were never read, and that running app/bundle was not replaced. Save and quit the original editor before normal use of the new build; the two versions share their application identity and default settings. [Safe installation receipt](menu-first-installed-app.json).
 
@@ -91,3 +91,13 @@ Normal Quit of the original `/Applications/Inklow.app` exposed its unsaved-writi
 The first hosted run passed the complete Mac pipeline but found a real Windows/Linux launch failure: a shortcut-controls dictionary shadowed the dynamically dispatched `_shortcuts` pane builder. The field was renamed and its consumers migrated. A separate actual Qt offscreen launch then constructed all eleven panes and saved a real preference using an isolated profile: [portable smoke](menu-first-portable-smoke.json). This local Qt check ran in a temporary dependency overlay on macOS, not an interactive Linux/Windows desktop, and did not add Qt back to the Mac app.
 
 The next hosted run passed both portable regression suites and direct inference but waited in the no-tray quit-confirmation dialog: the smoke used `QApplication.quit()` instead of the application's guarded Quit action. The smoke now checks that untouched settings are clean and calls the real menu-agent Quit path. That actual Qt event loop exited 0 in 2.70 seconds in the local dependency overlay; the close-confirmation safeguard was not disabled. The hosted GUI smoke step is bounded to one minute.
+
+## Native worker initialization and cancellation
+
+Hosted run [40041926809](https://github.com/renan-brasilio/inklow/actions/runs/40041926809) completed the Mac and Ubuntu pipelines, including source/frozen inference and actual preferences launch. Windows instead remained in `loading` until the 120-second source-worker smoke deadline; the child had not exited. This localized the failure before prompt evaluation, not solely to freezing. Linux's earlier illegal-instruction failure was addressed by source-building the dependency with the documented explicit AVX2/FMA/F16C baseline rather than reusing a host-native wheel.
+
+The worker now prevents the next blocking stdin read during native GGUF preparation/warmup. It reports ready, then requires the parent's explicit per-request `proceed` decision before evaluating a prompt. The parent sends cancellation once, suppresses stale/cancelled readiness, and preserves the warm process for the newest same-model request. A failed warmup closes its partial model and a retry re-enters initialization. A CRT/standard-handle initialization interaction on Windows is **[INFERENCE]**, not a captured native stack diagnosis.
+
+The current installed executable ran the real Qwen model with the production source supervisor: cold cancellation retained the same worker, the newest request returned ` from you soon.`, idle release removed the child, release during a new initialization removed that child, and the parent did not import the model module. Only the executable locator was redirected to the installed bundle; no model/IPC behavior was mocked. [Lifecycle receipt](menu-first-worker-lifecycle.json).
+
+The subsequent complete three-platform run linked above passed Windows source and frozen inference with this protocol. That establishes resolution of the observed Windows loading stall for the CI configuration; it does not independently prove the inferred CRT mechanism or every production-model/desktop combination.

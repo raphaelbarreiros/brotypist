@@ -1,0 +1,65 @@
+{
+  "run_id": 40045550783,
+  "url": "https://github.com/renan-brasilio/inklow/actions/runs/40045550783",
+  "source_revision": "08d878b68030bb9ff841688d1d9715fbf02e1e72",
+  "conclusion": "success",
+  "started_at": "2026-10-24T00:33:19Z",
+  "jobs": [
+    {
+      "name": "verify (windows-latest)",
+      "conclusion": "success",
+      "completed_at": "2026-10-24T00:47:13Z"
+    },
+    {
+      "name": "verify (ubuntu-latest)",
+      "conclusion": "success",
+      "completed_at": "2026-10-24T00:38:37Z"
+    },
+    {
+      "name": "verify (macos-latest)",
+      "conclusion": "success",
+      "completed_at": "2026-10-24T00:35:37Z"
+    }
+  ],
+  "successful_stages_on_each_platform": [
+    "Run deterministic safety regressions",
+    "Exercise real local inference",
+    "Launch real native settings utility",
+    "Build installable wheel",
+    "Build native desktop application",
+    "Exercise packaged local inference",
+    "Archive native application preserving bundle symlinks",
+    "Run actions/upload-artifact@v7"
+  ],
+  "ci_inference_model": "Checksum-verified Tiny SmolLM2-135M GGUF; not the production Qwen writing model",
+  "artifacts_observed": [
+    {
+      "id": 12541655622,
+      "name": "inklow-macos-latest",
+      "size_in_bytes": 31907106,
+      "digest": "sha256:aff316782653b9b0b993fecd93620fc25297967a193f04603cd3763599f077d2",
+      "expired": false
+    },
+    {
+      "id": 12541343405,
+      "name": "inklow-windows-latest",
+      "size_in_bytes": 82556881,
+      "digest": "sha256:0a982d6ac1baf20ee89ba3222301adc7a1d7ea6724b7553e65dce9c4e150e6e0",
+      "expired": false
+    },
+    {
+      "id": 12540814857,
+      "name": "inklow-ubuntu-latest",
+      "size_in_bytes": 116425586,
+      "digest": "sha256:7c5e769296179615549b4b963c5911cc7c57a9894aff14cd2fdd608d0364b95e",
+      "expired": false
+    }
+  ],
+  "limitations": [
+    "Artifacts were confirmed through GitHub API metadata, not downloaded and independently rehashed locally",
+    "Windows/Linux settings smoke uses an actual Qt event loop with the offscreen platform, not an interactive desktop",
+    "Interactive Windows/Linux global typing has not been verified",
+    "No live [redacted reference] prediction or apples-to-apples performance comparison was established"
+  ],
+  "repository_history_redaction": "Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations."
+}
