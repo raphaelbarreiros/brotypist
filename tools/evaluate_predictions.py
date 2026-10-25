@@ -47,7 +47,7 @@ def main() -> int:
         parser.error("runs must be between 1 and 10")
     preset = get_preset(args.preset)
     if not is_installed(preset):
-        parser.error("Model not installed. Explicitly download it with inklow model download --preset ... --no-select")
+        parser.error("Model not installed. Explicitly download it with brotypist model download --preset ... --no-select")
     config = replace(Config(), model_path=str(model_path(preset)), acceleration=args.acceleration, prompt_style=preset.prompt_style)
     provider = create_provider(config)
     report = {"preset": preset.id, "sha256": preset.sha256,

@@ -103,11 +103,11 @@ def main() -> int:
         print(json.dumps(receipt, ensure_ascii=False, indent=2))
         return 0
     if sys.platform == "darwin":
-        executable = ROOT / "dist/Inklow.app/Contents/MacOS/Inklow"
+        executable = ROOT / "dist/BroTypist.app/Contents/MacOS/BroTypist"
     elif sys.platform == "win32":
-        executable = ROOT / "dist/Inklow/Inklow-cli.exe"
+        executable = ROOT / "dist/BroTypist/BroTypist-cli.exe"
     else:
-        executable = ROOT / "dist/Inklow/Inklow"
+        executable = ROOT / "dist/BroTypist/BroTypist"
     if not executable.is_file():
         raise RuntimeError(f"Frozen executable missing: {executable}")
     environment = dict(os.environ, QT_QPA_PLATFORM="offscreen")

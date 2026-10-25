@@ -94,9 +94,9 @@ jobs:
       - name: Run deterministic safety regressions
         run: python -m pytest -q --junitxml=test-results.xml
       - name: Report native capabilities
-        run: inklow doctor
+        run: brotypist doctor
       - name: Acquire checksum-verified lightweight CI model
-        run: inklow model download --preset tiny
+        run: brotypist model download --preset tiny
       - name: Exercise real local inference
         run: python tools/smoke_bundle.py --source-worker
       - name: Launch real native settings utility
@@ -110,22 +110,22 @@ jobs:
         run: python tools/smoke_bundle.py
       - name: Package macOS disk image and portable application
         if: runner.os == 'macOS'
-        run: python tools/package_macos.py --bundle dist/Inklow.app --output release --version "$INKLOW_VERSION"
+        run: python tools/package_macos.py --bundle dist/BroTypist.app --output release --version "$INKLOW_VERSION"
       - name: Mount and exercise actual macOS installer
         if: runner.os == 'macOS'
-        run: python tools/smoke_macos_dmg.py --dmg "release/Inklow-$INKLOW_VERSION-macos-arm64.dmg" --version "$INKLOW_VERSION" --require-gui
+        run: python tools/smoke_macos_dmg.py --dmg "release/BroTypist-$INKLOW_VERSION-macos-arm64.dmg" --version "$INKLOW_VERSION" --require-gui
       - name: Package Windows MSI and portable application
         if: runner.os == 'Windows'
-        run: python tools/package_windows.py --bundle dist/Inklow --output release --version "$env:INKLOW_VERSION"
+        run: python tools/package_windows.py --bundle dist/BroTypist --output release --version "$env:INKLOW_VERSION"
       - name: Install, launch and uninstall Windows MSI
         if: runner.os == 'Windows'
-        run: pwsh -NoProfile -File tools/smoke_windows_installer.ps1 -Msi "release/Inklow-$env:INKLOW_VERSION-windows-x86_64.msi" -Version "$env:INKLOW_VERSION" -SourceCommit "${{ github.sha }}"
+        run: pwsh -NoProfile -File tools/smoke_windows_installer.ps1 -Msi "release/BroTypist-$env:INKLOW_VERSION-windows-x86_64.msi" -Version "$env:INKLOW_VERSION" -SourceCommit "${{ github.sha }}"
       - name: Package Linux Debian installer and portable application
         if: runner.os == 'Linux'
-        run: python tools/package_linux.py --bundle dist/Inklow --output release --version "$INKLOW_VERSION"
+        run: python tools/package_linux.py --bundle dist/BroTypist --output release --version "$INKLOW_VERSION"
       - name: Install, launch and remove Linux package under real X11 and D-Bus
         if: runner.os == 'Linux'
-        run: dbus-run-session -- xvfb-run -a python tools/smoke_linux_installer.py --deb "release/Inklow-$INKLOW_VERSION-linux-amd64.deb" --archive "release/Inklow-$INKLOW_VERSION-linux-amd64.tar.gz" --version "$INKLOW_VERSION"
+        run: dbus-run-session -- xvfb-run -a python tools/smoke_linux_installer.py --deb "release/BroTypist-$INKLOW_VERSION-linux-amd64.deb" --archive "release/BroTypist-$INKLOW_VERSION-linux-amd64.tar.gz" --version "$INKLOW_VERSION"
       - name: Seal successful native asset provenance
         shell: bash
         run: |

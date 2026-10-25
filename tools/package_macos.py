@@ -1,4 +1,4 @@
-"""Package an already-built, signed Inklow.app using Apple's native tools."""
+"""Package an already-built, signed BroTypist.app using Apple's native tools."""
 from __future__ import annotations
 
 import argparse
@@ -20,8 +20,8 @@ def run(*args: str) -> str:
 
 
 def inspect_bundle(bundle: Path, version: str) -> dict:
-    if bundle.name != "Inklow.app" or bundle.is_symlink() or not bundle.is_dir():
-        raise ValueError("Expected a real Inklow.app directory")
+    if bundle.name != "BroTypist.app" or bundle.is_symlink() or not bundle.is_dir():
+        raise ValueError("Expected a real BroTypist.app directory")
     with (bundle / "Contents/Info.plist").open("rb") as stream:
         metadata = plistlib.load(stream)
     if metadata.get("CFBundleIdentifier") != APP_ID:
@@ -35,7 +35,7 @@ def inspect_bundle(bundle: Path, version: str) -> dict:
     marker = bundle / "Contents/Resources/.inklow-build.json"
     identity = json.loads(marker.read_text(encoding="utf-8"))
     if identity.get("application") != APP_ID or identity.get("platform") != "darwin":
-        raise ValueError("Missing native Inklow build ownership")
+        raise ValueError("Missing native BroTypist build ownership")
     source_commit = run("git", "-C", str(Path(__file__).resolve().parents[1]), "rev-parse", "HEAD")
     if identity.get("version") != version or identity.get("source_commit") != source_commit:
         raise ValueError("Bundle version/source provenance differs from the packaging checkout")
@@ -80,7 +80,7 @@ def main() -> int:
     if output.is_relative_to(bundle):
         parser.error("Output must be outside the application bundle")
     output.mkdir(parents=True, exist_ok=True)
-    stem = f"Inklow-{args.version}-macos-{info['architecture']}"
+    stem = f"BroTypist-{args.version}-macos-{info['architecture']}"
     destinations = [output / f"{stem}.dmg", output / f"{stem}.zip"]
     for destination in destinations:
         if os.path.lexists(destination):
@@ -91,10 +91,10 @@ def main() -> int:
         root = Path(temporary)
         stage = root / "volume"
         stage.mkdir()
-        run("/usr/bin/ditto", str(bundle), str(stage / "Inklow.app"))
+        run("/usr/bin/ditto", str(bundle), str(stage / "BroTypist.app"))
         (stage / "Applications").symlink_to("/Applications", target_is_directory=True)
         dmg, archive = root / "app.dmg", root / "app.zip"
-        run("/usr/bin/hdiutil", "create", "-volname", "Inklow", "-srcfolder", str(stage),
+        run("/usr/bin/hdiutil", "create", "-volname", "BroTypist", "-srcfolder", str(stage),
             "-format", "UDZO", "-fs", "HFS+", str(dmg))
         run("/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(bundle), str(archive))
         for source, destination in zip((dmg, archive), destinations):

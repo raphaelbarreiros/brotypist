@@ -1,0 +1,77 @@
+{
+  "surface": "actual Qt windows on KDE Wayland",
+  "result": "passed",
+  "checks": [
+    {
+      "name": "real model preview and configured Tab acceptance in owned Qt field",
+      "result": "passed"
+    },
+    {
+      "name": "UTF-16 selection safely suppresses preview without a cursor error",
+      "result": "passed"
+    },
+    {
+      "name": "six real settings routes and six Welcome steps",
+      "result": "passed"
+    },
+    {
+      "name": "native SNI registration, active icon and exported Quit action",
+      "result": "passed"
+    },
+    {
+      "name": "closing Settings keeps resident agent alive",
+      "result": "passed"
+    },
+    {
+      "name": "selected model and shortcuts unchanged; preview closed",
+      "result": "passed"
+    }
+  ],
+  "limits": [
+    "Owned-widget editing only; this is not third-party input compatibility proof.",
+    "No KWin input-method selection, permission, or normal profile changes."
+  ],
+  "screenshots": [
+    "linux-settings-general.png",
+    "linux-settings-models.png",
+    "linux-settings-autocomplete.png",
+    "linux-settings-languages.png",
+    "linux-settings-privacy.png",
+    "linux-settings-about.png",
+    "linux-welcome-1.png",
+    "linux-welcome-2.png",
+    "linux-welcome-3.png",
+    "linux-welcome-4.png",
+    "linux-welcome-5.png",
+    "linux-welcome-6.png",
+    "linux-welcome-real-prediction.png"
+  ],
+  "preview_suggestion": " dig a hole, place the tree in the ",
+  "preview_inserted": " dig ",
+  "sni": {
+    "result": "passed",
+    "title": "BroTypist",
+    "status": "Active",
+    "menu_labels": [
+      "BroTypist \u2014 Predictions off",
+      "No eligible application",
+      "Model: qwen2.5-1.5b-instruct-q4_k_m.gguf \u00b7 GGUF process",
+      "Typing suggestions are disabled.",
+      "Predictions",
+      "Resume now",
+      "Pause",
+      "Pause for 5 minutes",
+      "Pause for 15 minutes",
+      "Pause for 1 hour",
+      "Pause until tomorrow",
+      "Turn on in No eligible application (this session)",
+      "Request completion",
+      "Alternative words",
+      "Selected-text synonyms",
+      "Settings\u2026",
+      "Welcome\u2026",
+      "Models\u2026",
+      "Quit BroTypist"
+    ]
+  }
+}

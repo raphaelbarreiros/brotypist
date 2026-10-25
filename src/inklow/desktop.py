@@ -12,7 +12,7 @@ def launch(config: Config, *, background: bool = False, no_tray: bool = False,
     with instance_lock() as acquired:
         if not acquired:
             if sys.stderr is not None:
-                print("Inklow is already running. Open Settings from its menu-bar or tray icon.", file=sys.stderr)
+                print("BroTypist is already running. Open Settings from its menu-bar or tray icon.", file=sys.stderr)
             return 0
         if sys.platform == "darwin":
             from .appkit_ui import launch as native_launch

@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <!-- Build-only WiX authoring; no bootstrapper, service or executable custom action. -->
-  <Package Name="Inklow" Manufacturer="Inklow" Language="1033"
+  <Package Name="BroTypist" Manufacturer="BroTypist" Language="1033"
            Version="$(var.Version)" ProductCode="$(var.ProductCode)"
            UpgradeCode="$(var.UpgradeCode)" Scope="perUser"
            InstallerVersion="500" Compressed="yes">
     <!-- Remove the old payload inside the rollback-protected transaction.
          Never recursively remove directories: user-created files stay put. -->
     <MajorUpgrade Schedule="afterInstallInitialize"
-                  DowngradeErrorMessage="A newer version of Inklow is already installed." />
+                  DowngradeErrorMessage="A newer version of BroTypist is already installed." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
-    <Icon Id="Inklow.exe" SourceFile="$(var.BundlePath)\Inklow.exe" />
+    <Icon Id="Inklow.exe" SourceFile="$(var.BundlePath)\BroTypist.exe" />
     <Property Id="ARPPRODUCTICON" Value="Inklow.exe" />
     <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]"
                  After="CostFinalize" Sequence="execute" />
@@ -19,7 +19,7 @@
     <Property Id="INKLOW_ARCHITECTURE" Value="x86_64" />
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="InklowProgramsFolder" Name="Programs">
-        <Directory Id="INSTALLFOLDER" Name="Inklow" />
+        <Directory Id="INSTALLFOLDER" Name="BroTypist" />
       </Directory>
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder" />
@@ -33,14 +33,14 @@
       <RegistryValue Root="HKCU" Key="Software\Inklow\Installer"
                      Name="SourceCommit" Value="$(var.SourceCommit)" Type="string" />
       <Shortcut Id="InklowStartMenu" Directory="ProgramMenuFolder"
-                Name="Inklow" Description="Local-first predictive typing"
-                Target="[INSTALLFOLDER]Inklow.exe" WorkingDirectory="INSTALLFOLDER"
+                Name="BroTypist" Description="Local-first predictive typing"
+                Target="[INSTALLFOLDER]BroTypist.exe" WorkingDirectory="INSTALLFOLDER"
                 Icon="Inklow.exe" IconIndex="0" Advertise="no" />
       <!-- MSI RemoveFolder removes an empty directory only. No user-data path
            and no wildcard RemoveFile are authored by this package. -->
       <RemoveFolder Id="RemoveInklowProgramsFolder" Directory="InklowProgramsFolder" On="uninstall" />
     </Component>
-    <Feature Id="Complete" Title="Inklow" Level="1">
+    <Feature Id="Complete" Title="BroTypist" Level="1">
       <ComponentRef Id="InklowRegistration" />
       <ComponentGroupRef Id="InklowPayload" />
     </Feature>

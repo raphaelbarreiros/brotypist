@@ -15,8 +15,10 @@ from . import __version__
 if TYPE_CHECKING:
     from PySide6.QtGui import QGuiApplication, QIcon
 
-APP_NAME = "Inklow"
+APP_NAME = "BroTypist"
+# Keep the established OS/security identity; a display rebrand is not a data migration.
 APP_ID = "com.inklow.Inklow"
+REPOSITORY_URL = "https://github.com/renan-brasilio/brotypist"
 
 
 def asset_path(name: str) -> Path:
@@ -24,7 +26,7 @@ def asset_path(name: str) -> Path:
     root = Path(__file__).resolve().parent / "assets"
     path = (root / name).resolve()
     if not path.is_relative_to(root) or not path.is_file():
-        raise FileNotFoundError(f"Unknown Inklow asset: {name}")
+        raise FileNotFoundError(f"Unknown {APP_NAME} asset: {name}")
     return path
 
 
@@ -38,13 +40,14 @@ def app_icon() -> QIcon:
     return icon
 
 
-def tray_icon(paused: bool = False) -> QIcon:
-    """Return a distinct active/paused glyph; macOS supplies template coloring."""
+def tray_icon(state: str = "active") -> QIcon:
+    """Return a Ghost Caret state glyph, template-colored by macOS."""
     from PySide6.QtGui import QIcon
 
-    state = "paused" if paused else "active"
-    # macOS recolors an alpha-mask image for light/dark menu bars. Other desktop
-    # trays use the light glyph with its thin dark keyline for either background.
+    if state not in {"active", "paused", "loading", "off"}:
+        raise ValueError(f"Unknown tray state: {state!r}")
+    # macOS recolors the alpha mask. Portable trays get a white glyph with a
+    # graphite keyline, retaining contrast against both light and dark panels.
     variant = "template" if sys.platform == "darwin" else "contrast"
     icon = QIcon()
     for size in (18, 22, 24, 36, 44, 48):
@@ -59,7 +62,8 @@ def configure_identity(app: QGuiApplication) -> None:
     app.setApplicationName(APP_NAME)
     app.setApplicationDisplayName(APP_NAME)
     app.setApplicationVersion(__version__)
-    app.setOrganizationName("Inklow")
+    app.setOrganizationName(APP_NAME)
+    # Retain the domain and native IDs; config, keyring and permissions stay put.
     app.setOrganizationDomain("inklow.com")
     app.setDesktopFileName(APP_ID)
     if sys.platform == "win32":

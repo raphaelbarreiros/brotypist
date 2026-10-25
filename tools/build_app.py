@@ -1,4 +1,4 @@
-"""Build a native Inklow application with the current Python and local backend.
+"""Build a native BroTypist application with the current Python and local backend.
 
 Install the project's local and build extras first, then run this tool on each
 native OS. This is an onedir application: keep the Windows/Linux directory
@@ -37,14 +37,14 @@ def ensure_destination(destination: Path, *, replace: bool, platform: str) -> No
     if not destination.exists():
         return
     if not replace:
-        raise FileExistsError(f"Destination exists: {destination}; choose another path or use --replace for an Inklow build")
+        raise FileExistsError(f"Destination exists: {destination}; choose another path or use --replace for a BroTypist build")
     marker = marker_path(destination, platform)
     if marker.is_symlink() or not marker.is_file():
         raise ValueError(f"Refusing to replace an unmarked destination: {destination}")
     try:
         identity = json.loads(marker.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
-        raise ValueError(f"Invalid Inklow build marker: {marker}") from error
+        raise ValueError(f"Invalid BroTypist build marker: {marker}") from error
     if not isinstance(identity, dict) or identity.get("application") != APP_ID or identity.get("platform") != platform:
         raise ValueError(f"Refusing to replace a different application: {destination}")
 
@@ -65,8 +65,8 @@ def desktop_exec(path: Path) -> str:
 
 def prepare_linux(bundle: Path, destination: Path) -> None:
     """Create a movable shell launcher and desktop integration payload."""
-    launcher = bundle / "launch-inklow"
-    shutil.copy2(ROOT / "packaging" / "linux" / "launch-inklow", launcher)
+    launcher = bundle / "launch-brotypist"
+    shutil.copy2(ROOT / "packaging" / "linux" / "launch-brotypist", launcher)
     launcher.chmod(0o755)
     icon_root = bundle / "share" / "icons" / "hicolor"
     for size in (16, 24, 32, 48, 64, 128, 256, 512, 1024):
@@ -75,17 +75,17 @@ def prepare_linux(bundle: Path, destination: Path) -> None:
         shutil.copy2(ROOT / "src" / "inklow" / "assets" / "icons" / f"app-{size}.png", target)
     template = (ROOT / "packaging" / "linux" / f"{APP_ID}.desktop.in").read_text(encoding="utf-8")
     icon = destination / "share" / "icons" / "hicolor" / "256x256" / "apps" / f"{APP_ID}.png"
-    entry = template.replace("@EXEC@", desktop_exec(destination / "launch-inklow"))
+    entry = template.replace("@EXEC@", desktop_exec(destination / "launch-brotypist"))
     entry = entry.replace("@ICON@", desktop_value(str(icon)))
     applications = bundle / "share" / "applications"
     applications.mkdir(parents=True, exist_ok=True)
     (applications / f"{APP_ID}.desktop").write_text(entry, encoding="utf-8")
     method_template = (ROOT / "packaging/linux" / f"{APP_ID}.InputMethod.desktop.in").read_text(encoding="utf-8")
-    method_entry = method_template.replace("@EXEC@", desktop_exec(destination / "launch-inklow"))
+    method_entry = method_template.replace("@EXEC@", desktop_exec(destination / "launch-brotypist"))
     method_entry = method_entry.replace("@ICON@", desktop_value(str(icon)))
     (applications / f"{APP_ID}.InputMethod.desktop").write_text(method_entry, encoding="utf-8")
-    (bundle / "Inklow.desktop").write_text(entry, encoding="utf-8")
-    (bundle / "Inklow.desktop").chmod(0o755)
+    (bundle / "BroTypist.desktop").write_text(entry, encoding="utf-8")
+    (bundle / "BroTypist.desktop").chmod(0o755)
 
 
 def reject_private_payload(bundle: Path) -> None:
@@ -138,9 +138,9 @@ def build(destination: Path, *, replace: bool = False) -> Path:
         subprocess.run([
             sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
             "--distpath", str(staging / "dist"), "--workpath", str(staging / "work"),
-            str(ROOT / "Inklow.spec"),
+            str(ROOT / "BroTypist.spec"),
         ], cwd=ROOT, check=True)
-        bundle = staging / "dist" / ("Inklow.app" if platform == "darwin" else "Inklow")
+        bundle = staging / "dist" / ("BroTypist.app" if platform == "darwin" else "BroTypist")
         if not bundle.is_dir():
             raise RuntimeError("PyInstaller did not create the expected native application")
         if platform == "linux":
@@ -175,23 +175,23 @@ def build(destination: Path, *, replace: bool = False) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    default = ROOT / "dist" / ("Inklow.app" if sys.platform == "darwin" else "Inklow")
+    default = ROOT / "dist" / ("BroTypist.app" if sys.platform == "darwin" else "BroTypist")
     parser.add_argument("--output", type=Path, default=default,
-                        help="Final .app or application directory (default: dist/Inklow[.app])")
+                        help="Final .app or application directory (default: dist/BroTypist[.app])")
     parser.add_argument("--replace", action="store_true",
-                        help="Replace only a destination marked as an Inklow build")
+                        help="Replace only a destination marked as a BroTypist build")
     args = parser.parse_args(argv)
     try:
         result = build(args.output, replace=args.replace)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
-        parser.exit(1, f"Inklow build: {error}\n")
+        parser.exit(1, f"BroTypist build: {error}\n")
     print(f"Native application: {result}")
     if sys.platform == "linux":
-        print(f"Launch: {result / 'launch-inklow'}")
+        print(f"Launch: {result / 'launch-brotypist'}")
         print(f"Desktop entry: {result / 'share' / 'applications' / (APP_ID + '.desktop')}")
         print("Keep the directory intact. Rebuild its desktop entry if you move it.")
     elif sys.platform == "win32":
-        print("Keep Inklow.exe, Inklow-cli.exe and their _internal directory together.")
+        print("Keep BroTypist.exe, BroTypist-cli.exe and their _internal directory together.")
     return 0
 
 

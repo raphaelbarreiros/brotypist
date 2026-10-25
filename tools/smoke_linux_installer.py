@@ -238,7 +238,7 @@ def launch_settings(executable: Path, environment: dict, log: Path, *, offscreen
 def exercise(executable: Path, home: Path, report: Path, version: str) -> dict:
     environment = isolated_environment(home)
     observed_version = command([str(executable), "--version"], environment=environment)
-    if observed_version != f"Inklow {version}":
+    if observed_version != f"BroTypist {version}":
         raise RuntimeError(f"Unexpected installed version: {observed_version}")
     doctor = json.loads(command([str(executable), "doctor"], environment=environment))
     if not doctor.get("native", "").startswith("Linux AT-SPI/X11 ready."):
@@ -263,14 +263,14 @@ def smoke(deb: Path, archive: Path, version: str, report: Path) -> dict:
     if not os.environ.get("DISPLAY") or not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
         raise RuntimeError("Run inside dbus-run-session -- xvfb-run -a (X11 and a session bus are required)")
     command(["sudo", "-n", "true"])
-    installed = subprocess.run(["dpkg-query", "-W", "-f=${db:Status-Status}", "inklow"],
+    installed = subprocess.run(["dpkg-query", "-W", "-f=${db:Status-Status}", "brotypist"],
                                text=True, capture_output=True)
     if installed.returncode == 0 and installed.stdout.strip() == "installed":
-        raise RuntimeError("Refusing to replace an existing Inklow installation; use a disposable CI runner")
-    if Path("/opt/inklow").exists() or Path("/usr/bin/inklow").exists():
-        raise RuntimeError("Refusing to overwrite an existing /opt/inklow or /usr/bin/inklow")
+        raise RuntimeError("Refusing to replace an existing BroTypist installation; use a disposable CI runner")
+    if Path("/opt/brotypist").exists() or Path("/usr/bin/brotypist").exists():
+        raise RuntimeError("Refusing to overwrite an existing /opt/brotypist or /usr/bin/brotypist")
     metadata = command(["dpkg-deb", "-f", str(deb), "Package", "Version", "Architecture"])
-    expected = {"Package": "inklow", "Version": version, "Architecture": "amd64"}
+    expected = {"Package": "brotypist", "Version": version, "Architecture": "amd64"}
     observed = dict(line.split(": ", 1) for line in metadata.splitlines())
     if observed != expected:
         raise RuntimeError(f"Unexpected Debian package metadata: {observed}")
@@ -298,24 +298,24 @@ def smoke(deb: Path, archive: Path, version: str, report: Path) -> dict:
                 if digest(path) != checksum:
                     raise RuntimeError(f"Installation modified external user state: {path}")
             desktop = Path(f"/usr/share/applications/{APP_ID}.desktop").read_text(encoding="utf-8")
-            if "Exec=/usr/bin/inklow\n" not in desktop or f"Icon={APP_ID}\n" not in desktop:
+            if "Exec=/usr/bin/brotypist\n" not in desktop or f"Icon={APP_ID}\n" not in desktop:
                 raise RuntimeError("Installed desktop entry does not target installed integration")
             command(["desktop-file-validate", f"/usr/share/applications/{APP_ID}.desktop"])
             if not Path(f"/usr/share/icons/hicolor/256x256/apps/{APP_ID}.png").is_file():
                 raise RuntimeError("Installed application icon is missing")
-            receipt["installed"] = exercise(Path("/usr/bin/inklow"), home, report.with_name("linux-installed"), version)
+            receipt["installed"] = exercise(Path("/usr/bin/brotypist"), home, report.with_name("linux-installed"), version)
             # Extract away from build/install destinations; the complete onedir
             # must remain runnable after relocation, without system Python paths.
             relocated = state / "relocated portable app"
             relocated.mkdir()
             with tarfile.open(archive, "r:gz") as stream:
                 stream.extractall(relocated, filter="data")
-            receipt["portable"] = exercise(relocated / "Inklow/launch-inklow", state / "portable-home",
+            receipt["portable"] = exercise(relocated / "BroTypist/launch-brotypist", state / "portable-home",
                                             report.with_name("linux-portable"), version)
         finally:
             if attempted_install:
-                command(["sudo", "-n", "dpkg", "--purge", "inklow"])
-        if Path("/opt/inklow").exists() or Path("/usr/bin/inklow").exists():
+                command(["sudo", "-n", "dpkg", "--purge", "brotypist"])
+        if Path("/opt/brotypist").exists() or Path("/usr/bin/brotypist").exists():
             raise RuntimeError("Uninstall left application paths behind")
         for relative in (f"/usr/share/applications/{APP_ID}.desktop", f"/usr/share/icons/hicolor/256x256/apps/{APP_ID}.png"):
             if Path(relative).exists():

@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Inklow
+Name=BroTypist
 GenericName=Predictive typing input method
 Comment=Local predictions for supported KDE Wayland text inputs
 Exec=@EXEC@ --wayland-input-method --background

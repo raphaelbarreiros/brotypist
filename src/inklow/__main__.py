@@ -15,16 +15,15 @@ from . import __version__
 from .models import DEFAULT_PRESET, PRESETS, download_model, get_preset, is_installed
 
 
-_PANES = ("setup", "general", "context", "personalization", "emoji", "shortcuts",
-          "battery", "appSettings", "labs", "statistics", "about")
+_PANES = ("welcome", "general", "models", "autocomplete", "languages", "privacy", "about")
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments == ["_worker"]:
         from .process_worker import main as worker_main
         return worker_main()
-    parser = argparse.ArgumentParser(prog="inklow", description="Local-first predictive typing")
+    parser = argparse.ArgumentParser(prog="brotypist", description="Local-first predictive typing")
     parser.add_argument("--model-path", help="Use a GGUF model for this launch without changing settings")
-    parser.add_argument("--version", action="version", version=f"Inklow {__version__}")
+    parser.add_argument("--version", action="version", version=f"BroTypist {__version__}")
     parser.add_argument("--background", action="store_true", help="Start in the menu bar/system tray when available")
     parser.add_argument("--no-tray", action="store_true", help="Open recoverable settings without a tray icon")
     parser.add_argument("--wayland-input-method", action="store_true",
@@ -50,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("The Wayland input-method mode is only for KDE application launches on Linux.")
             descriptor = os.environ.get("WAYLAND_SOCKET")
             if descriptor is None:
-                raise ValueError("Select Inklow in KDE Virtual Keyboard settings; KWin must supply the private input-method socket.")
+                raise ValueError("Select BroTypist in KDE Virtual Keyboard settings; KWin must supply the private input-method socket.")
             from .native.wayland import prepare_input_method
             prepare_input_method(int(descriptor))
         elif args.background and not args.command and not args.settings and not args.pane:
@@ -80,12 +79,12 @@ def main(argv: list[str] | None = None) -> int:
             if not args.no_select:
                 save_config(replace(config, backend="gguf", model_path=str(path), prompt_style=preset.prompt_style))
             print(f"Verified model: {preset.label}\n{path}")
-            print("Model downloaded; selection unchanged." if args.no_select else "Model selected. Restart Inklow or select it in Models to reload.")
+            print("Model downloaded; selection unchanged." if args.no_select else "Model selected. Restart BroTypist or select it in AI Models to reload.")
             return 0
         if args.command == "wayland":
             from .system import install_wayland_input_method
             path = install_wayland_input_method()
-            print(f"Installed {path}\nQuit Inklow, then select Inklow in KDE System Settings → Keyboard → Virtual Keyboard.\nKDE starts the input-method instance; no desktop setting was changed automatically.")
+            print(f"Installed {path}\nQuit BroTypist, then select BroTypist in KDE System Settings → Keyboard → Virtual Keyboard.\nKDE starts the input-method instance; no desktop setting was changed automatically.")
             return 0
         if args.command == "doctor":
             from .native import create_bridge
@@ -105,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "complete":
             prefix = sys.stdin.read()
             if not prefix.strip():
-                raise ValueError("Provide text on stdin, e.g. printf 'The capital of France is' | inklow complete")
+                raise ValueError("Provide text on stdin, e.g. printf 'The capital of France is' | brotypist complete")
             provider = create_provider(config)
             try:
                 print(provider.complete(prefix, ""), end="", flush=True)
@@ -117,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
                       pane=args.pane or ("general" if args.settings else None))
     except (ValueError, RuntimeError, OSError) as error:
         if sys.stderr is not None:
-            print(f"Inklow: {error}", file=sys.stderr)
+            print(f"BroTypist: {error}", file=sys.stderr)
         return 1
 
 

@@ -25,6 +25,54 @@ wheels = [
 ]
 
 [[package]]
+name = "brotypist"
+version = "0.3.1"
+source = { editable = "." }
+dependencies = [
+    { name = "comtypes", marker = "sys_platform == 'win32'" },
+    { name = "cryptography" },
+    { name = "keyring" },
+    { name = "platformdirs" },
+    { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin'" },
+    { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'" },
+    { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'" },
+    { name = "pyobjc-framework-screencapturekit", marker = "sys_platform == 'darwin'" },
+    { name = "pyobjc-framework-vision", marker = "sys_platform == 'darwin'" },
+    { name = "pyside6", marker = "sys_platform != 'darwin'" },
+    { name = "python-xlib", marker = "sys_platform == 'linux'" },
+]
+
+[package.optional-dependencies]
+build = [
+    { name = "pyinstaller" },
+]
+dev = [
+    { name = "pytest" },
+]
+local = [
+    { name = "llama-cpp-python" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "comtypes", marker = "sys_platform == 'win32'", specifier = ">=1.4" },
+    { name = "cryptography", specifier = ">=44,<47" },
+    { name = "keyring", specifier = ">=25.5,<26" },
+    { name = "llama-cpp-python", marker = "extra == 'local'", specifier = "==0.3.36" },
+    { name = "platformdirs", specifier = ">=4,<5" },
+    { name = "pyinstaller", marker = "extra == 'build'", specifier = ">=6,<7" },
+    { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin'", specifier = ">=11" },
+    { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'", specifier = ">=11" },
+    { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'", specifier = ">=11" },
+    { name = "pyobjc-framework-screencapturekit", marker = "sys_platform == 'darwin'", specifier = ">=11" },
+    { name = "pyobjc-framework-vision", marker = "sys_platform == 'darwin'", specifier = ">=11" },
+    { name = "pyside6", marker = "sys_platform != 'darwin'", specifier = ">=6.8,<7" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8,<10" },
+    { name = "python-xlib", marker = "sys_platform == 'linux'", specifier = ">=0.33" },
+]
+provides-extras = ["local", "dev", "build"]
+
+[[package]]
 name = "cffi"
 version = "2.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -228,54 +276,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/01/e1/2069291243c926a2f
 wheels = [
     { url = "https://files.pythonhosted.org/packages/56/43/4ca9e49d27a1fcf6bece6f6aec0ea46bb9112489b93d4b688fb415457bdb/iniconfig-2.3.1-py3-none-any.whl", hash = "sha256:9121e2c1fdb355232495be3194c8dfe87ccc2d5dee45947b78e68f499790d7a7", size = 7552, upload-time = "2026-10-06T22:48:36.959Z" },
 ]
-
-[[package]]
-name = "inklow"
-version = "0.3.1"
-source = { editable = "." }
-dependencies = [
-    { name = "comtypes", marker = "sys_platform == 'win32'" },
-    { name = "cryptography" },
-    { name = "keyring" },
-    { name = "platformdirs" },
-    { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin'" },
-    { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'" },
-    { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'" },
-    { name = "pyobjc-framework-screencapturekit", marker = "sys_platform == 'darwin'" },
-    { name = "pyobjc-framework-vision", marker = "sys_platform == 'darwin'" },
-    { name = "pyside6", marker = "sys_platform != 'darwin'" },
-    { name = "python-xlib", marker = "sys_platform == 'linux'" },
-]
-
-[package.optional-dependencies]
-build = [
-    { name = "pyinstaller" },
-]
-dev = [
-    { name = "pytest" },
-]
-local = [
-    { name = "llama-cpp-python" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "comtypes", marker = "sys_platform == 'win32'", specifier = ">=1.4" },
-    { name = "cryptography", specifier = ">=44,<47" },
-    { name = "keyring", specifier = ">=25.5,<26" },
-    { name = "llama-cpp-python", marker = "extra == 'local'", specifier = "==0.3.36" },
-    { name = "platformdirs", specifier = ">=4,<5" },
-    { name = "pyinstaller", marker = "extra == 'build'", specifier = ">=6,<7" },
-    { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin'", specifier = ">=11" },
-    { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'", specifier = ">=11" },
-    { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'", specifier = ">=11" },
-    { name = "pyobjc-framework-screencapturekit", marker = "sys_platform == 'darwin'", specifier = ">=11" },
-    { name = "pyobjc-framework-vision", marker = "sys_platform == 'darwin'", specifier = ">=11" },
-    { name = "pyside6", marker = "sys_platform != 'darwin'", specifier = ">=6.8,<7" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8,<10" },
-    { name = "python-xlib", marker = "sys_platform == 'linux'", specifier = ">=0.33" },
-]
-provides-extras = ["local", "dev", "build"]
 
 [[package]]
 name = "jaraco-classes"

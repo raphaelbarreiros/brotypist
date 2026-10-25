@@ -1,3 +1,3 @@
-"""Inklow: independent, local-first predictive typing."""
+"""BroTypist: independent, local-first predictive typing."""
 
 __version__ = "0.3.1"

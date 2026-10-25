@@ -420,7 +420,7 @@ class WindowsBridge(BridgeBase):
                 if enabled and self._hook is None:
                     self._hook = u.SetWindowsHookExW(13, self._hook_callback, self.kernel.GetModuleHandleW(None), 0)
                     if not self._hook:
-                        self._set_status("Windows keyboard hook was denied. Restart Inklow and use non-elevated target applications.")
+                        self._set_status("Windows keyboard hook was denied. Restart BroTypist and use non-elevated target applications.")
                 elif not enabled and self._hook is not None:
                     u.UnhookWindowsHookEx(self._hook)
                     self._hook = None

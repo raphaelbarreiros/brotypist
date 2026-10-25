@@ -1,0 +1,90 @@
+{
+  "surface": "actual native AppKit windows",
+  "result": "passed",
+  "checks": [
+    {
+      "name": "persistent native status item, template glyph, Settings and Quit",
+      "result": "passed"
+    },
+    {
+      "name": "visible General settings without changing model or shortcuts",
+      "result": "passed"
+    },
+    {
+      "name": "visible AI Models settings without changing model or shortcuts",
+      "result": "passed"
+    },
+    {
+      "name": "visible Autocomplete settings without changing model or shortcuts",
+      "result": "passed"
+    },
+    {
+      "name": "visible Languages settings without changing model or shortcuts",
+      "result": "passed"
+    },
+    {
+      "name": "visible Privacy settings without changing model or shortcuts",
+      "result": "passed"
+    },
+    {
+      "name": "visible About settings without changing model or shortcuts",
+      "result": "passed"
+    },
+    {
+      "name": "actual current local model suggestion and native owned-field acceptance",
+      "result": "passed"
+    },
+    {
+      "name": "all six Welcome steps, real permission gating, preview worker closed",
+      "result": "passed"
+    },
+    {
+      "name": "no Qt or inference model imported into native UI process",
+      "result": "passed"
+    }
+  ],
+  "limits": [
+    "Exact owned-window captures only; no screenshot of personal applications.",
+    "No external-app typing or OS permission changes in this design smoke."
+  ],
+  "native_menu": [
+    "BroTypist",
+    "Typing suggestions are disabled.",
+    "Enable predictions",
+    "Resume now",
+    "Open Settings",
+    "Pause for 1 hour",
+    "Pause until tomorrow",
+    "Resume in Current App",
+    "Suggest Now",
+    "",
+    "Today",
+    "AI Models\u2026",
+    "",
+    "Settings\u2026",
+    "Quit BroTypist"
+  ],
+  "screenshots": [
+    "macos-settings-general.png",
+    "macos-settings-models.png",
+    "macos-settings-autocomplete.png",
+    "macos-settings-languages.png",
+    "macos-settings-privacy.png",
+    "macos-settings-about.png",
+    "macos-welcome-1.png",
+    "macos-welcome-2.png",
+    "macos-welcome-3.png",
+    "macos-welcome-4.png",
+    "macos-welcome-5.png",
+    "macos-welcome-6.png",
+    "macos-welcome-real-prediction.png"
+  ],
+  "permission_state": {
+    "accessibility": true,
+    "input_monitoring": true,
+    "screen_recording": true
+  },
+  "preview_suggestion": " dig a hole, place the tree in the ",
+  "preview_inserted": " dig ",
+  "quit_action": "invoked native menu Quit BroTypist through its normal dispatch"
+}

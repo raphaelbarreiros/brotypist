@@ -107,6 +107,9 @@ def shell(monkeypatch, tmp_path, request):
     yield shell
     shell.stop()
     app.aboutToQuit.disconnect(shell.stop)
+    if shell.welcome:
+        shell.welcome.hide()
+        shell.welcome.deleteLater()
     if shell.settings:
         shell.settings._closing = True
         shell.settings.hide()
@@ -140,11 +143,12 @@ def test_three_way_rule_merge_preserves_unrelated_runtime_changes():
     }
 
 
-def test_first_run_opens_setup_even_when_background_requested(shell):
+def test_first_run_opens_welcome_and_no_tray_recovery_even_when_background_requested(shell):
     shell.start(background=True)
     assert shell.controller.started
     assert shell.settings.isVisible()
-    assert shell.settings.sidebar.currentItem().text() == "Setup"
+    assert shell.welcome.isVisible()
+    assert shell.welcome.pages.currentIndex() == 0
     assert not shell.tray_available
 
 
@@ -155,15 +159,6 @@ def test_subsequent_tray_launch_has_no_settings_window(shell):
     assert shell.settings is None
 
 
-def test_complete_settings_hierarchy_has_no_document_editor(shell):
-    shell.show_settings("General")
-    settings = shell.settings
-    assert tuple(settings.sidebar.item(i).text() for i in range(settings.sidebar.count())) == qt_ui.PANES
-    assert {control.objectName() for control in settings.findChildren(QPlainTextEdit)} == {
-        "custom_instructions", "excluded_apps",
-    }
-    assert not settings.findChild(QPlainTextEdit, "editor")
-    assert not settings._bindings["screen_context"][0].isEnabled()
 
 
 def test_save_merges_draft_with_latest_controller_config(shell):
@@ -180,7 +175,7 @@ def test_save_merges_draft_with_latest_controller_config(shell):
 
 
 def test_failed_validation_keeps_draft_and_reports_recovery(shell, monkeypatch):
-    shell.show_settings("Personalization")
+    shell.show_settings("Languages")
     settings = shell.settings
     settings.instructions.setPlainText("x" * 8001)
     errors = []
@@ -207,7 +202,7 @@ def test_login_failure_does_not_persist_or_install_at_startup(shell, monkeypatch
 
 
 def test_history_opt_in_failure_stays_disabled(shell, monkeypatch):
-    shell.show_settings("Personalization")
+    shell.show_settings("Privacy")
     monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.StandardButton.Yes)
     def unavailable(enabled):
         raise RuntimeError("Unlock OS secret storage; plaintext fallback is not allowed.")
@@ -265,7 +260,7 @@ def test_main_thread_drain_clears_suggestions_and_privacy_accessory(shell):
 def test_linux_disables_only_unsafe_rewrites_not_alternatives(shell):
     if not sys.platform.startswith("linux"):
         pytest.skip("Linux AT-SPI atomic-replacement capability boundary")
-    shell.show_settings("Labs")
+    shell.show_settings("Autocomplete")
     controls = shell.settings._bindings
     assert not controls["emoji_enabled"][0].isEnabled()
     assert not controls["synonyms_enabled"][0].isEnabled()
@@ -281,7 +276,7 @@ def test_recording_existing_global_chord_cannot_toggle_typing(shell, finish):
     bridge = BridgeBase()
     shell.controller = Controller(config, bridge)
     shell.controller.start()
-    shell.show_settings("Shortcuts")
+    shell.show_settings("Autocomplete")
     recorder = shell.settings.shortcut_controls["toggle"]
     recorder._begin()
     action = bridge._key_action("F8", ("Ctrl", "Alt"))
@@ -360,7 +355,8 @@ def test_owned_menu_stays_selectable_and_freezes_capture_across_timer_ticks(shel
     assert not menu.isVisible()
     assert shell.controller.actions == []
     shell.app.processEvents()
-    assert shell.controller.actions == ["toggle"]
+    assert shell.controller.config.global_enabled
+    assert shell.controller.actions == [("pause", 0)]
     assert shell.controller.ticks > ticks
     assert not shell.accessory.isVisible()
     assert shell.controller.bridge._dispatch("toggle")

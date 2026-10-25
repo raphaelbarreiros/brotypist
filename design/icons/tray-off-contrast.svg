@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="18" height="16" viewBox="0 0 18 16">
+  <title>BroTypist, off</title>
+  <desc>Original 18 by 16 point Ghost Caret contrast glyph.</desc>
+  <g color="#16181D" fill="#16181D" stroke="#16181D" stroke-width="1.2" stroke-linejoin="round">
+    <rect x="2" y="2" width="2.4" height="12" rx="1.2" opacity=".45"/>
+    <rect x="7" y="6.5" width="9" height="3" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2" opacity=".45"/>
+  </g>
+  <g color="#FFFFFF" fill="#FFFFFF">
+    <rect x="2" y="2" width="2.4" height="12" rx="1.2" opacity=".45"/>
+    <rect x="7" y="6.5" width="9" height="3" rx="1.5" fill="none" stroke="currentColor" stroke-width="1" opacity=".45"/>
+  </g>
+</svg>

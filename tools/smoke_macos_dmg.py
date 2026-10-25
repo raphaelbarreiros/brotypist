@@ -21,7 +21,7 @@ from package_macos import inspect_bundle, run
 
 def gui_smoke(executable: Path, environment: dict[str, str], root: Path, timeout: float) -> dict:
     # NSRunningApplication.terminate is a normal application quit request. It
-    # neither targets another Inklow instance nor requires automation permission.
+    # neither targets another BroTypist instance nor requires automation permission.
     import AppKit
     import Quartz
 
@@ -103,14 +103,14 @@ def main() -> int:
             "-mountpoint", str(mount), str(dmg))
         mounted = True
         checks["read_only_mount"] = "passed"
-        app = mount / "Inklow.app"
+        app = mount / "BroTypist.app"
         link = mount / "Applications"
         if not link.is_symlink() or os.readlink(link) != "/Applications":
             raise ValueError("DMG must contain an Applications -> /Applications symlink")
         checks["drag_install_layout"] = "passed"
         info = inspect_bundle(app, args.version)
         checks["mounted_bundle"] = info
-        installed = root / "installed/Inklow.app"
+        installed = root / "installed/BroTypist.app"
         installed.parent.mkdir()
         run("/usr/bin/ditto", str(app), str(installed))
         checks["copied_bundle"] = inspect_bundle(installed, args.version)
@@ -128,7 +128,7 @@ def main() -> int:
         executable = installed / "Contents/MacOS" / info["executable"]
         result = subprocess.run([str(executable), "--version"], env=environment,
                                 capture_output=True, text=True, check=True, timeout=args.timeout)
-        if result.stdout.strip() != f"Inklow {args.version}":
+        if result.stdout.strip() != f"BroTypist {args.version}":
             raise ValueError("Copied executable --version did not match release metadata")
         checks["copied_executable_version"] = result.stdout.strip()
         gui_available = os.stat("/dev/console").st_uid == os.getuid() and os.getuid() != 0

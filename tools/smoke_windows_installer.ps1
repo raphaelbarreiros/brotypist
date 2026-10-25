@@ -85,7 +85,7 @@ function Invoke-Version([string]$Executable, [string]$Prefix) {
     }
     Assert-Equal $process.ExitCode 0 "CLI --version exit code"
     $actual = (Get-Content -LiteralPath $stdout -Raw).Trim()
-    Assert-Equal $actual "Inklow $Version" "CLI executable version"
+    Assert-Equal $actual "BroTypist $Version" "CLI executable version"
     return $actual
 }
 
@@ -193,7 +193,7 @@ try {
     if ($null -eq $database) { throw "MSI OpenDatabase returned no database for '$msiPath'." }
     $productCode = Read-MsiProperty $database "ProductCode"
     Assert-Equal ($productCode.ToUpperInvariant()) ("{" + $package.product_code.ToUpperInvariant() + "}") "MSI ProductCode"
-    Assert-Equal (Read-MsiProperty $database "ProductName") "Inklow" "MSI ProductName"
+    Assert-Equal (Read-MsiProperty $database "ProductName") "BroTypist" "MSI ProductName"
     Assert-Equal (Read-MsiProperty $database "ProductVersion") $Version "MSI ProductVersion"
     Assert-Equal ((Read-MsiProperty $database "UpgradeCode").ToUpperInvariant()) ("{" + $package.upgrade_code.ToUpperInvariant() + "}") "MSI UpgradeCode"
     Assert-Equal (Read-MsiProperty $database "INKLOW_SOURCE_COMMIT") $SourceCommit "MSI source metadata"
@@ -205,8 +205,8 @@ finally {
     [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($installer)
 }
 
-$installDirectory = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "Programs\Inklow"
-$shortcut = Join-Path ([Environment]::GetFolderPath("Programs")) "Inklow.lnk"
+$installDirectory = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "Programs\BroTypist"
+$shortcut = Join-Path ([Environment]::GetFolderPath("Programs")) "BroTypist.lnk"
 $userSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $packedProductCode = Get-PackedProductCode $productCode
 # MSI's per-user InstallProperties live under HKLM, scoped by the installing
@@ -220,7 +220,7 @@ $uninstallKeys = @(
 $existingContexts = @(Read-ProductContexts)
 if ($existingContexts.Count -gt 0 -or (Test-Path -LiteralPath $installDirectory) -or
     @($uninstallKeys | Where-Object { Test-Path -LiteralPath $_ }).Count -gt 0 -or (Test-Path -LiteralPath $shortcut)) {
-    throw "Refusing to modify an existing Inklow installation. Use a disposable CI runner."
+    throw "Refusing to modify an existing BroTypist installation. Use a disposable CI runner."
 }
 $isolated = Join-Path ([System.IO.Path]::GetTempPath()) ("inklow-installer-smoke-" + [guid]::NewGuid().ToString("N"))
 [void][System.IO.Directory]::CreateDirectory($isolated)
@@ -267,9 +267,9 @@ try {
     $env:QT_QPA_PLATFORM = "windows"
     $portable = Join-Path $isolated "portable"
     Expand-Archive -LiteralPath $zipPath -DestinationPath $portable
-    $portableBundle = Join-Path $portable "Inklow"
+    $portableBundle = Join-Path $portable "BroTypist"
     Assert-Payload $portableBundle $package.files
-    $receipt.portable_cli_version = Invoke-Version (Join-Path $portableBundle "Inklow-cli.exe") "portable"
+    $receipt.portable_cli_version = Invoke-Version (Join-Path $portableBundle "BroTypist-cli.exe") "portable"
 
     $installAttempted = $true
     $receipt.install_exit_code = Invoke-Msi @("/i", "`"$msiPath`"") (Join-Path $reportDirectory "windows-msi-install.log")
@@ -285,7 +285,7 @@ try {
     Assert-Equal $installedContext.context 2 "MSI per-user unmanaged context"
     Assert-Equal $installedContext.state "5" "MSI installed product state"
     Assert-Equal (Read-ProductInfo 2 "AssignmentType") "0" "MSI per-user assignment"
-    Assert-Equal (Read-ProductInfo 2 "InstalledProductName") "Inklow" "Registered MSI name"
+    Assert-Equal (Read-ProductInfo 2 "InstalledProductName") "BroTypist" "Registered MSI name"
     Assert-Equal (Read-ProductInfo 2 "VersionString") $Version "Registered MSI version"
     Assert-Equal ((Read-ProductInfo 2 "InstallLocation").TrimEnd('\')) ($installDirectory.TrimEnd('\')) "Registered MSI location"
     $receipt.arp_entries = @(
@@ -299,12 +299,12 @@ try {
     if ($receipt.arp_entries.Count -eq 0) { throw "Installed MSI has no Add/Remove Programs registration for this product/user." }
     foreach ($entry in $receipt.arp_entries) {
         $arp = $entry.values
-        Assert-Equal $arp.DisplayName "Inklow" "Uninstall entry name"
+        Assert-Equal $arp.DisplayName "BroTypist" "Uninstall entry name"
         Assert-Equal $arp.DisplayVersion $Version "Uninstall entry version"
         Assert-Equal ($arp.InstallLocation.TrimEnd('\')) ($installDirectory.TrimEnd('\')) "Uninstall entry install directory"
         Assert-Equal $arp.WindowsInstaller 1 "Uninstall entry Windows Installer marker"
         if ($arp.PSObject.Properties.Name -contains "SystemComponent" -and $arp.SystemComponent -ne 0) {
-            throw "MSI registration hides Inklow from Installed Apps."
+            throw "MSI registration hides BroTypist from Installed Apps."
         }
         if ([string]::IsNullOrWhiteSpace($arp.UninstallString) -or
             $arp.UninstallString.IndexOf($productCode, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
@@ -318,20 +318,20 @@ try {
     $shell = New-Object -ComObject WScript.Shell
     $link = $shell.CreateShortcut($shortcut)
     try {
-        Assert-Equal $link.TargetPath (Join-Path $installDirectory "Inklow.exe") "Start Menu executable target"
+        Assert-Equal $link.TargetPath (Join-Path $installDirectory "BroTypist.exe") "Start Menu executable target"
         Assert-Equal ($link.WorkingDirectory.TrimEnd('\')) ($installDirectory.TrimEnd('\')) "Start Menu working directory"
     }
     finally {
         [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($link)
         [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)
     }
-    $receipt.installed_cli_version = Invoke-Version (Join-Path $installDirectory "Inklow-cli.exe") "installed"
+    $receipt.installed_cli_version = Invoke-Version (Join-Path $installDirectory "BroTypist-cli.exe") "installed"
 
     # A real native settings window, paused in an isolated profile, with no
     # typing/model-download action. UI Automation invokes its existing Quit.
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
-    $gui = Start-Process -FilePath (Join-Path $installDirectory "Inklow.exe") `
+    $gui = Start-Process -FilePath (Join-Path $installDirectory "BroTypist.exe") `
         -ArgumentList @("--paused", "--settings", "--no-tray", "--pane", "about") -PassThru `
         -RedirectStandardOutput (Join-Path $reportDirectory "windows-gui.stdout.txt") `
         -RedirectStandardError (Join-Path $reportDirectory "windows-gui.stderr.txt")
@@ -343,18 +343,18 @@ try {
         if ($gui.HasExited) { throw "Installed GUI exited before displaying settings (exit $($gui.ExitCode))." }
         $visible = $gui.MainWindowHandle -ne [IntPtr]::Zero -and $gui.Responding
     } until ($visible -or [DateTime]::UtcNow -ge $deadline)
-    if (-not $visible) { throw "Installed GUI did not expose a responsive native Inklow Settings window within 30 seconds." }
+    if (-not $visible) { throw "Installed GUI did not expose a responsive native BroTypist Settings window within 30 seconds." }
     $receipt.native_settings_visible = $true
     $window = [System.Windows.Automation.AutomationElement]::FromHandle($gui.MainWindowHandle)
     $condition = [System.Windows.Automation.PropertyCondition]::new(
-        [System.Windows.Automation.AutomationElement]::NameProperty, "Quit Inklow"
+        [System.Windows.Automation.AutomationElement]::NameProperty, "Quit BroTypist"
     )
     $quit = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
-    if ($null -eq $quit) { throw "Native settings window did not expose its Quit Inklow action." }
+    if ($null -eq $quit) { throw "Native settings window did not expose its Quit BroTypist action." }
     $invoke = $quit.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
     $invoke.Invoke()
     $receipt.native_settings_quit_invoked = $true
-    if (-not $gui.WaitForExit(15000)) { throw "GUI did not exit after invoking Quit Inklow." }
+    if (-not $gui.WaitForExit(15000)) { throw "GUI did not exit after invoking Quit BroTypist." }
     $receipt.gui_exit_code = $gui.ExitCode
     Assert-Equal $gui.ExitCode 0 "GUI Quit exit code"
     foreach ($sentinel in $sentinels) { Assert-Hash $sentinel.path $sentinel.sha256 }

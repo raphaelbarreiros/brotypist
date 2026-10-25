@@ -18,9 +18,9 @@ def worker_command() -> list[str]:
     executable = Path(sys.executable)
     if getattr(sys, "frozen", False):
         if sys.platform == "win32":
-            executable = executable.with_name("Inklow-cli.exe")
+            executable = executable.with_name("BroTypist-cli.exe")
             if not executable.is_file():
-                raise RuntimeError("The Inklow-cli.exe worker companion is missing. Reinstall the complete application.")
+                raise RuntimeError("The BroTypist-cli.exe worker companion is missing. Reinstall the complete application.")
         return [str(executable), "_worker"]
     return [str(executable), "-m", "inklow", "_worker"]
 

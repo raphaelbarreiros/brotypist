@@ -6,12 +6,12 @@ from typing import Callable
 
 import AppKit as A
 import objc
-from Foundation import NSObject, NSAttributedString, NSDictionary
+from Foundation import NSObject
 
 from .resources import asset_path
 
 
-class InklowSuggestionPanel(A.NSPanel):
+class BroTypistSuggestionPanel(A.NSPanel):
     def canBecomeKeyWindow(self):
         return False
 
@@ -19,7 +19,7 @@ class InklowSuggestionPanel(A.NSPanel):
         return False
 
 
-class InklowOverlayButton(A.NSButton):
+class BroTypistOverlayButton(A.NSButton):
     def acceptsFirstMouse_(self, event):
         return True
 
@@ -43,16 +43,16 @@ class OverlayActions(NSObject):
             self.invoke(action)
 
 
-def _panel(identifier: str) -> InklowSuggestionPanel:
-    panel = InklowSuggestionPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+def _panel(identifier: str) -> BroTypistSuggestionPanel:
+    panel = BroTypistSuggestionPanel.alloc().initWithContentRect_styleMask_backing_defer_(
         A.NSMakeRect(0, 0, 100, 30),
         A.NSWindowStyleMaskBorderless | A.NSWindowStyleMaskNonactivatingPanel,
         A.NSBackingStoreBuffered, False,
     )
     panel.setIdentifier_(identifier)
     panel.setAccessibilityIdentifier_(identifier)
-    panel.setAccessibilityLabel_("Inklow suggestions" if identifier.endswith("suggestion") else "Inklow accessory")
-    panel.setLevel_(A.NSFloatingWindowLevel)
+    panel.setAccessibilityLabel_("BroTypist suggestions" if identifier.endswith("suggestion") else "BroTypist accessory")
+    panel.setLevel_(A.NSPopUpMenuWindowLevel)
     panel.setHidesOnDeactivate_(False)
     panel.setBecomesKeyOnlyIfNeeded_(True)
     panel.setFloatingPanel_(True)
@@ -63,20 +63,66 @@ def _panel(identifier: str) -> InklowSuggestionPanel:
         A.NSWindowCollectionBehaviorCanJoinAllSpaces
         | A.NSWindowCollectionBehaviorFullScreenAuxiliary
         | A.NSWindowCollectionBehaviorIgnoresCycle
+        | A.NSWindowCollectionBehaviorTransient
     )
     panel.setReleasedWhenClosed_(False)
     return panel
 
 
+def _dark(view):
+    return view.effectiveAppearance().bestMatchFromAppearancesWithNames_(
+        [A.NSAppearanceNameAqua, A.NSAppearanceNameDarkAqua]) == A.NSAppearanceNameDarkAqua
+
+
+def _rgb(hex_value):
+    value = hex_value.lstrip("#")
+    return A.NSColor.colorWithSRGBRed_green_blue_alpha_(
+        int(value[:2], 16) / 255, int(value[2:4], 16) / 255, int(value[4:6], 16) / 255, 1)
+
+
+def ghost_color(view):
+    contrast = A.NSWorkspace.sharedWorkspace().accessibilityDisplayShouldIncreaseContrast()
+    return _rgb(("9A9CA3" if _dark(view) else "6E7078") if contrast else ("6C6F77" if _dark(view) else "A2A4AA"))
+
+
+class ChipSurface(A.NSVisualEffectView):
+    def viewDidChangeEffectiveAppearance(self):
+        objc.super(ChipSurface, self).viewDidChangeEffectiveAppearance()
+        self.apply_accessibility()
+
+    @objc.python_method
+    def apply_accessibility(self):
+        if self.layer() is None:
+            return
+        workspace = A.NSWorkspace.sharedWorkspace()
+        contrast = workspace.accessibilityDisplayShouldIncreaseContrast()
+        opaque = workspace.accessibilityDisplayShouldReduceTransparency()
+        self.setState_(A.NSVisualEffectStateInactive if opaque else A.NSVisualEffectStateActive)
+        self.layer().setBackgroundColor_(A.NSColor.windowBackgroundColor().CGColor() if opaque else A.NSColor.clearColor().CGColor())
+        self.layer().setBorderWidth_(2 if contrast else 1)
+        border = A.NSColor.whiteColor() if _dark(self) else A.NSColor.blackColor()
+        self.layer().setBorderColor_(border.colorWithAlphaComponent_(0.8 if contrast else (0.14 if _dark(self) else 0.12)).CGColor())
+
+
 def _surface(width: float, height: float):
-    view = A.NSVisualEffectView.alloc().initWithFrame_(A.NSMakeRect(0, 0, width, height))
+    view = ChipSurface.alloc().initWithFrame_(A.NSMakeRect(0, 0, width, height))
     view.setMaterial_(A.NSVisualEffectMaterialPopover)
     view.setBlendingMode_(A.NSVisualEffectBlendingModeBehindWindow)
-    view.setState_(A.NSVisualEffectStateActive)
     view.setWantsLayer_(True)
-    view.layer().setCornerRadius_(7)
+    view.layer().setCornerRadius_(8)
     view.layer().setMasksToBounds_(True)
+    view.apply_accessibility()
     return view
+
+
+def _chip_text(text: str) -> str:
+    """Presentation only; the controller retains the complete insertion value."""
+    clean = " ".join(text.split())
+    if len(clean) <= 44:
+        return clean
+    prefix = clean[:43]
+    boundary = 43 if clean[43].isspace() else prefix.rfind(" ")
+    return (prefix[:boundary] if boundary > 0 else prefix).rstrip() + "…"
 
 
 def _position(rect, width, height, *, accessory=False, field_rect=None):
@@ -90,8 +136,8 @@ def _position(rect, width, height, *, accessory=False, field_rect=None):
     screen = next((s for s in screens if A.NSPointInRect(
         A.NSMakePoint(x, caret_bottom), s.frame())), screens[0])
     visible = screen.visibleFrame()
-    left = x - width - 6 if accessory else x + caret_width
-    bottom = origin_top - y + 6 if accessory else caret_bottom - height - 4
+    left = x - width - 6 if accessory else x
+    bottom = origin_top - y + 6 if accessory else caret_bottom - height - 6
     if accessory:
         if left < A.NSMinX(visible) + 4:
             left = max(x, A.NSMinX(visible) + 4)
@@ -105,10 +151,10 @@ def _position(rect, width, height, *, accessory=False, field_rect=None):
             else:
                 return None
             bottom = max(A.NSMinY(visible) + 4, origin_top - y - height)
-    elif bottom < A.NSMinY(visible):
-        bottom = caret_bottom + caret_height + 4
-    left = max(A.NSMinX(visible) + 4, min(left, A.NSMaxX(visible) - width - 4))
-    bottom = max(A.NSMinY(visible) + 4, min(bottom, A.NSMaxY(visible) - height - 4))
+    elif caret_bottom - A.NSMinY(visible) < height + 40:
+        bottom = caret_bottom + caret_height + 6
+    left = max(A.NSMinX(visible) + 8, min(left, A.NSMaxX(visible) - width - 8))
+    bottom = max(A.NSMinY(visible) + 8, min(bottom, A.NSMaxY(visible) - height - 8))
     return A.NSMakeRect(left, bottom, width, height)
 
 
@@ -117,6 +163,7 @@ class CaretOverlay:
 
     def __init__(self, invoke: Callable[[str], bool], menu_factory, show_accessory=True):
         self.menu_factory = menu_factory
+        self.accept_key = ""
         self._active_menu = None
         self.show_accessory = show_accessory
         self.suggestion = _panel("inklow.suggestion")
@@ -127,14 +174,15 @@ class CaretOverlay:
         self._event_key = None
         self.accessory.setHasShadow_(False)
         surface = A.NSView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 24, 24))
-        button = InklowOverlayButton.alloc().initWithFrame_(A.NSMakeRect(1, 1, 22, 22))
+        button = BroTypistOverlayButton.alloc().initWithFrame_(A.NSMakeRect(1, 1, 22, 22))
         button.setIdentifier_("inklow.accessory.menu")
         button.setAccessibilityIdentifier_("inklow.accessory.menu")
-        button.setAccessibilityLabel_("Inklow menu")
-        button.setToolTip_("Inklow — typing settings and pause controls")
+        button.setAccessibilityLabel_("BroTypist menu")
+        button.setToolTip_("BroTypist — typing settings and pause controls")
         button.setContentTintColor_(A.NSColor.secondaryLabelColor())
         image = A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("tray/active-template-18.png")))
         image.setTemplate_(True)
+        image.setSize_(A.NSMakeSize(18, 16))
         button.setImage_(image)
         button.setImagePosition_(A.NSImageOnly)
         button.setBordered_(False)
@@ -153,7 +201,8 @@ class CaretOverlay:
         finally:
             self._active_menu = None
 
-    def configure(self, show_accessory: bool):
+    def configure(self, show_accessory: bool, accept_key: str = ""):
+        self.accept_key = {"Tab": "⇥", "AboveTab": "Above Tab"}.get(accept_key, accept_key)
         if bool(show_accessory) == self.show_accessory:
             return
         self.show_accessory = bool(show_accessory)
@@ -181,44 +230,6 @@ class CaretOverlay:
             self.accessory.setFrame_display_(frame, True)
             self.accessory.orderFrontRegardless()
 
-    def _present_inline(self, text, rect):
-        """Paint ghost text on the caret baseline, without a detached card."""
-        screens = list(A.NSScreen.screens())
-        if not screens:
-            return False
-        font = A.NSFont.systemFontOfSize_(max(11, min(32, float(rect[3]) * 0.82)))
-        attributes = NSDictionary.dictionaryWithDictionary_({
-            A.NSFontAttributeName: font,
-            # Mid-gray remains legible over both light and dark target fields.
-            A.NSForegroundColorAttributeName: A.NSColor.colorWithCalibratedWhite_alpha_(0.46, 1),
-        })
-        title = NSAttributedString.alloc().initWithString_attributes_(text, attributes)
-        width = math.ceil(title.size().width) + 6
-        height = math.ceil(max(float(rect[3]) + 2, title.size().height))
-        top = A.NSMaxY(screens[0].frame())
-        bottom = top - float(rect[1]) - float(rect[3])
-        left = float(rect[0]) + float(rect[2])
-        screen = next((s for s in screens if A.NSPointInRect(A.NSMakePoint(left, bottom), s.frame())), screens[0])
-        if width > A.NSMaxX(screen.visibleFrame()) - left - 6:
-            return False
-        surface = A.NSView.alloc().initWithFrame_(A.NSMakeRect(0, 0, width, height))
-        button = InklowOverlayButton.alloc().initWithFrame_(A.NSMakeRect(0, 0, width, height))
-        button.setAttributedTitle_(title)
-        button.setAlignment_(A.NSTextAlignmentLeft)
-        button.setBordered_(False)
-        button.setFocusRingType_(A.NSFocusRingTypeNone)
-        button.setAccessibilityIdentifier_("inklow.suggestion.accept")
-        button.setAccessibilityLabel_(f"Accept completion: {text}")
-        button.setTag_(1)
-        button.setTarget_(self.target)
-        button.setAction_("pressed:")
-        self.target.actions = {100: "menu", 1: "all"}
-        surface.addSubview_(button)
-        self.suggestion.setContentView_(surface)
-        self.suggestion.setHasShadow_(False)
-        self.suggestion.setFrame_display_(A.NSMakeRect(left, bottom - (height - float(rect[3])) / 2, width, height), True)
-        self.suggestion.orderFrontRegardless()
-        return True
 
     def present(self, event: dict):
         rect = event.get("rect")
@@ -229,7 +240,7 @@ class CaretOverlay:
         choices = [str(s) for s in event.get("choices", []) if str(s)][:9]
         text = str(event.get("text", ""))
         key = (text, tuple(choices), event.get("mode"), tuple(rect),
-               event.get("inline", True), bool(event.get("field_anchor")))
+               bool(event.get("field_anchor")), self.accept_key)
         if key == self._event_key:
             return
         self._event_key = key
@@ -237,25 +248,27 @@ class CaretOverlay:
         if not rows:
             self.clear()
             return
-        if not choices and event.get("mode", "completion") == "completion" and event.get("inline", True):
-            if self._present_inline(text, rect):
-                return
+        # Native events have caret geometry, not a verified host font. Use the
+        # chip rather than guessing typography from line height over host text.
         self.suggestion.setHasShadow_(True)
-        width = min(480, max(220, max(len(s) for s in rows) * 7 + 58))
-        row_height = 32 if choices else min(108, max(34, math.ceil(len(text) * 7 / (width - 24)) * 19 + 12))
-        height = row_height * len(rows) + 8
+        visible_rows = [_chip_text(value) for value in rows]
+        key_width = min(120, max(26, len(self.accept_key) * 6 + 12)) if self.accept_key else 0
+        width = min(480, max(180, max(len(value) for value in visible_rows) * 7 + 28 + (key_width + 8 if not choices else 32)))
+        row_height = 30 if choices else 28
+        height = row_height * len(rows) + (8 if choices else 0)
         surface = _surface(width, height)
         self.target.actions = {100: "menu"}
         for index, value in enumerate(rows):
-            button = InklowOverlayButton.alloc().initWithFrame_(
-                A.NSMakeRect(6, height - (index + 1) * row_height - 4, width - 12, row_height))
-            title = f"{index + 1}   {value}" if choices else value
+            button = BroTypistOverlayButton.alloc().initWithFrame_(
+                A.NSMakeRect(10, height - (index + 1) * row_height - (4 if choices else 0), width - 20 - (0 if choices else key_width + 8), row_height))
+            title = f"{index + 1}   {visible_rows[index]}" if choices else visible_rows[index]
             button.setTitle_(title)
-            button.setFont_(A.NSFont.systemFontOfSize_(14))
+            button.setFont_(A.NSFont.systemFontOfSize_(13))
+            button.setContentTintColor_(A.NSColor.labelColor())
             button.setAlignment_(A.NSTextAlignmentLeft)
             button.setBordered_(False)
-            button.cell().setWraps_(True)
-            button.cell().setLineBreakMode_(A.NSLineBreakByWordWrapping)
+            button.cell().setWraps_(False)
+            button.cell().setLineBreakMode_(A.NSLineBreakByTruncatingTail)
             button.setIdentifier_(f"inklow.suggestion.choice.{index + 1}" if choices else "inklow.suggestion.accept")
             button.setAccessibilityIdentifier_(f"inklow.suggestion.choice.{index + 1}" if choices else "inklow.suggestion.accept")
             button.setAccessibilityLabel_(f"Accept choice {index + 1}: {value}" if choices else f"Accept completion: {value}")
@@ -266,6 +279,16 @@ class CaretOverlay:
             button.setAction_("pressed:")
             self.target.actions[tag] = f"choice:{index + 1}" if choices else "all"
             surface.addSubview_(button)
+        if not choices:
+            hint = A.NSTextField.labelWithString_(self.accept_key)
+            hint.setFrame_(A.NSMakeRect(width - key_width - 10, 5, key_width, 18))
+            hint.setFont_(A.NSFont.monospacedSystemFontOfSize_weight_(10.5, A.NSFontWeightRegular))
+            hint.setTextColor_(A.NSColor.secondaryLabelColor())
+            hint.setAlignment_(A.NSTextAlignmentCenter)
+            hint.setWantsLayer_(True)
+            hint.layer().setCornerRadius_(6)
+            hint.layer().setBackgroundColor_(A.NSColor.quaternaryLabelColor().CGColor())
+            surface.addSubview_(hint)
         self.suggestion.setContentView_(surface)
         card_rect = (rect[0], rect[1], 0, rect[3]) if event.get("field_anchor") else rect
         self.suggestion.setFrame_display_(_position(card_rect, width, height), True)

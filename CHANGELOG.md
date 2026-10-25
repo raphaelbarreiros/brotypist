@@ -2,7 +2,14 @@
 
 # Changelog
 
-## Unreleased — KDE Wayland source candidate
+## Unreleased — BroTypist / Ghost Caret
+
+- Rename the public app, CLI, installers and private GitHub repository to BroTypist / `brotypist`. Keep established bundle, startup, credential-store and data identifiers so the visual rebrand does not reset settings, model caches, encrypted history or permission identity.
+- Apply the supplied Ghost Caret identity: original Icon Composer documents, normal/dark/tinted artwork, simplified small icons, and active/paused/loading/off template tray glyphs. macOS artwork generation and the shipped native app require no Qt.
+- Reorganize native AppKit and portable Qt preferences into General, AI Models, Autocomplete, Languages, Privacy and About, retaining the existing supported settings and configured defaults.
+- Add six-step Welcome with actual OS-access status, explicit existing model management, truthful privacy disclosures and an ephemeral real-model try-it field. Reuse the current provider and acceptance rules; do not record preview text or retain a second preview worker after leaving the field.
+- Style safe, nonactivating suggestion chips with semantic contrast/transparency tokens and display-only word-boundary truncation. Do not infer host typography from caret height; use the chip when a verified host font is unavailable.
+- Keep source/release links private-access aware and preserve historical Inklow release assets and research evidence. This redesign does not add MLX, Sparkle, new models, new language-quality guarantees or changed acceptance keys.
 
 - Add a native KWin input-method-v1 client over the compositor-provided private socket, prepared before Qt starts. Keep ordinary X11 operation separate; do not impersonate a screen reader or use raw-device/global input injection.
 - Add compositor-positioned icon, streaming suggestion, and keyboard-navigable quick-menu surfaces with reusable, release-tracked shared-memory buffers. Preserve original keys/modifiers when no eligible action consumes them.

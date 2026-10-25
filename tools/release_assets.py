@@ -46,7 +46,7 @@ def manifest(args) -> None:
         raise ValueError('Only passed native installer receipts can seal release assets.')
     rows = []
     for ending in TARGET_FILES[args.target]:
-        path = args.assets / f'Inklow-{app_version}-{ending}'
+        path = args.assets / f'BroTypist-{app_version}-{ending}'
         if path.is_symlink() or not path.is_file() or path.stat().st_size == 0:
             raise ValueError(f'Missing, empty, or unsafe native asset: {path}')
         rows.append({'name': path.name, 'size': path.stat().st_size, 'sha256': sha256(path)})
@@ -95,7 +95,7 @@ def publish(args) -> None:
         targets.add(target)
         if value.get('source_commit') != source or value.get('version') != app_version:
             raise ValueError('Native packages were built from different versions or commits.')
-        expected = {f'Inklow-{app_version}-{ending}' for ending in TARGET_FILES[target]}
+        expected = {f'BroTypist-{app_version}-{ending}' for ending in TARGET_FILES[target]}
         if {row['name'] for row in value['artifacts']} != expected:
             raise ValueError('Native manifest has an unexpected asset set.')
         for row in value['artifacts']:
@@ -143,7 +143,7 @@ def publish(args) -> None:
     unavailable_note = ('**Not published in this release:** ' + ', '.join(sorted(unpublished))
                         + '; native verification remains pending.\n\n') if unpublished else ''
     notes = (
-        f'Native installers for Inklow {app_version}.\n\n'
+        f'Native installers for BroTypist {app_version}.\n\n'
         '| Platform | Installer | Portable |\n| --- | --- | --- |\n'
         + ''.join(platform_rows[target] for target in TARGET_FILES if target in requested) + '\n'
         + unavailable_note
@@ -159,7 +159,7 @@ def publish(args) -> None:
         'unfinished multilingual prediction experiments are not included.\n'
     )
     gh('release', 'create', args.tag, '--repo', args.repo, '--target', source,
-       '--verify-tag', '--draft', '--title', f'Inklow {app_version}', '--notes', notes,
+       '--verify-tag', '--draft', '--title', f'BroTypist {app_version}', '--notes', notes,
        *[str(path) for path in paths])
     # Never replace an existing published release or claim success after an upload failure.
     gh('release', 'edit', args.tag, '--repo', args.repo, '--draft=false', '--latest')

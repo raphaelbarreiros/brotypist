@@ -1,229 +1,180 @@
 > Historical record: Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations.
 
-# Inklow
+# BroTypist
 
-Local-first predictive typing for macOS, Windows, and Linux. Inklow runs in the menu bar or system tray and offers completions in supported applications—there is no separate writing editor.
+Local-first predictive typing for macOS, Windows, and Linux. BroTypist lives in the menu bar or system tray and offers suggestions in supported text inputs. Settings are not a separate writing editor.
 
-[Download the latest release](https://github.com/renan-brasilio/inklow/releases/latest) · [All releases](https://github.com/renan-brasilio/inklow/releases) · [Changelog](CHANGELOG.md)
+[Releases](https://github.com/renan-brasilio/brotypist/releases) · [Changelog](CHANGELOG.md) · [Design specification](DESIGN.md) · [Verification](evidence/VERIFICATION.md)
 
-![Inklow settings](evidence/menu-first-general.png)
+![Native BroTypist settings](evidence/brotypist/macos-settings-general.png)
 
 ## Install
 
-Download the installer matching your operating system from **Releases → Assets**. This repository is private; you must be signed in to a GitHub account with access to download its releases. Packaged applications include Python and their UI runtime, so Python is not required for installation.
+This repository is **private**. Sign in to a GitHub account with access before downloading release assets or cloning it.
 
-| Platform | Installer | Portable package | Requirements |
-| --- | --- | --- | --- |
-| macOS, Apple Silicon | `Inklow-<version>-macos-arm64.dmg` | `.zip` | macOS 15 or newer; Apple Silicon |
-| Windows, x86-64 | **Pending native verification**; MSI packager available in source | Planned `.zip`, containing the app and CLI EXEs | Windows 10/11; AVX2, FMA, and F16C for bundled local inference |
-| Linux, x86-64 | `Inklow-<version>-linux-amd64.deb` | `.tar.gz` | Ubuntu 24.04+/Debian 13+, an X11 desktop and D-Bus; AVX2, FMA, and F16C |
+The latest published installers are **0.3.0**, released under the previous **Inklow** name. Those immutable assets keep their original filenames. The **BroTypist redesign and 0.3.1 download-progress fix are in source**; do not assume that an older installer includes the new UI or native KDE Wayland integration. Build the current source below to use BroTypist before its next installer release.
 
-The Windows EXEs are **not standalone files**: keep the entire portable ZIP together. ARM Windows/Linux, Intel macOS, older distributions, and other CPU baselines require a build on the target platform.
+| Platform | Published 0.3.0 assets | Current native build outputs |
+| --- | --- | --- |
+| macOS, Apple Silicon | `Inklow-0.3.0-macos-arm64.dmg` / `.zip` | `BroTypist.app`, versioned `.dmg` / `.zip` |
+| Windows, x86-64 | Not published; native installer verification remains pending | `BroTypist.exe`, `BroTypist-cli.exe`, `.msi` / portable `.zip` |
+| Linux, x86-64 | `Inklow-0.3.0-linux-amd64.deb` / `.tar.gz` | `brotypist` launcher, versioned `.deb` / `.tar.gz` |
 
-Model weights are downloaded separately, only when requested. Installers do not contain models, settings, writing history, or credentials.
-
-The latest prebuilt release is **0.3.0**. The **0.3.1 source hotfix** corrects stale Linux/Windows model-download progress; 0.3.1 installers have not been published. Existing complete model files are reused.
+Packaged applications include Python and their UI runtime. Model weights are separate and download only when requested. Installers never include settings, writing history, credentials, or model weights.
 
 ### macOS
 
-1. Open the DMG and drag **Inklow.app** to **Applications**.
-2. Launch Inklow from Applications, then open **Setup & Permissions…** from its menu-bar icon.
-3. Grant the required permissions described below and select a local model.
+Build on Apple Silicon with macOS 15 or newer. Drag the built **BroTypist.app** to Applications; the installed app name has no version suffix. Quit the running copy before replacing it. Open **Welcome** or **Settings → Privacy** to review actual permission state.
 
-The app name stays **Inklow**, without a version suffix. Quit a running copy before replacing it. GitHub-built macOS releases are ad-hoc signed and **not notarized**; they are not Developer ID-signed distributions. Do not disable Gatekeeper globally. Review the source and checksums before deciding whether to allow a downloaded build through macOS security controls.
+GitHub-built macOS distributions are ad-hoc signed and **not notarized**, unless the release explicitly says otherwise. A local Apple Development signature is not Developer ID distribution or notarization. Do not disable Gatekeeper globally.
 
 ### Windows
 
-Run the MSI. It installs for the current user and adds an Inklow Start Menu shortcut. For the portable package, extract the full ZIP and run `Inklow.exe`; use `Inklow-cli.exe` for terminal commands.
+The MSI installs per user and adds a **BroTypist** Start Menu shortcut. Extract the complete portable ZIP before running `BroTypist.exe`; use `BroTypist-cli.exe` for terminal commands. The EXEs are **not standalone**: keep `_internal` and the rest of the payload together.
 
-Windows releases are unsigned unless the release explicitly states otherwise. Windows may show an unrecognized-publisher warning. Do not disable security protections globally.
+Windows 10/11 and an AVX2, FMA, and F16C-capable x86-64 CPU are required for the portable inference build. Releases are unsigned unless explicitly stated otherwise. Do not bypass Windows security protections globally.
 
 ### Linux
 
-Download the `.deb`, then install the specific file you downloaded:
+Install the specific Debian package you built or downloaded with `sudo apt install ./<package>.deb`, then run **`brotypist` as your desktop user, not with sudo**. The current package replaces the old `inklow` package while leaving external user data alone. Portable builds run through `launch-brotypist`; keep their directory intact.
 
-```sh
-sudo apt install ./Inklow-0.3.0-linux-amd64.deb
-inklow
-```
+The published 0.3.0 package supports **X11 only**, including its restriction on XWayland applications. Current source also has the opt-in KDE Wayland path below. Native Debian releases target Ubuntu 24.04+/Debian 13+ amd64, with D-Bus and AVX2/FMA/F16C. Other distributions, architectures, and CPU baselines require a target-system build.
 
-Run Inklow as your desktop user, **not with sudo**. The published 0.3.0 Debian package installs the application, launcher, desktop entry, and icons, and requires an **X11 session** for typing. Its Wayland restriction includes XWayland applications. The newer source-only KDE path below is not included in that release.
+#### KDE Wayland: current source
 
-The portable archive must remain intact. Extract it to a writable location and run its `launch-inklow` script. Distribution runtime dependencies and the same CPU/glibc baseline still apply.
-
-#### KDE Wayland — unreleased source candidate
-
-The source now includes a native **KWin input-method-v1** client. It uses the compositor's private input-method connection, not global keyboard injection, a screen-reader identity, or access to raw input devices. This is not universal Wayland support: targets must expose both a compatible text-input protocol and matching editable AT-SPI metadata.
-
-Build on Linux after installing the development dependencies described below:
+BroTypist uses KWin's private **input-method-v1** connection, not raw input devices, global injection, or a screen-reader identity. Targets must expose compatible text-input state and corroborating editable AT-SPI metadata. This is **not universal Wayland support**.
 
 ```sh
 .venv/bin/python tools/build_wayland.py
-.venv/bin/inklow wayland install
+.venv/bin/brotypist wayland install
 ```
 
-The install command adds only Inklow's per-user input-method launcher. Then explicitly select **Inklow** in KDE **System Settings → Keyboard → Virtual Keyboard**, or use **Setup & Permissions…** to open the selector. KDE owns the resulting app launch and its private socket; do not run `--wayland-input-method` directly from a terminal. Selecting an input method lets it receive keyboard events and surrounding text for supported fields, and occupies KDE's input-method slot; consider an existing Fcitx/IBus setup before replacing it. Inklow never selects itself or changes the desktop session automatically.
+The install command only creates the per-user selector entry. Explicitly choose **BroTypist** in **KDE System Settings → Keyboard → Virtual Keyboard**; Welcome and Privacy can open that selector. KDE supplies the private socket and owns the resulting launch. Do not invoke `--wayland-input-method` directly from a terminal.
 
-After quitting the KDE-owned instance, select **None** and then **Inklow** again to start it; the normal background launcher does not create a competing input-method process. Re-select after updating an already-selected source build as well. Use **Setup & Permissions…** in the running tray app for its native status: a terminal `inklow doctor` cannot acquire or inspect KWin's private input-method connection.
+Selecting an input method lets it receive keyboard events and surrounding text for supported fields and occupies KDE's input-method slot. Consider an existing Fcitx/IBus setup before replacing it. BroTypist never selects itself or changes the desktop session automatically. After quitting or updating a selected source build, select **None**, then **BroTypist**, to start it again. A terminal `brotypist doctor` cannot inspect the KDE-owned private connection; use the running app's Privacy status.
 
-The exercised target uses **text-input-v3**. Qt applications can request it at their own launch with `QT_WAYLAND_TEXT_INPUT_PROTOCOL=zwp_text_input_v3 QT_IM_MODULE=wayland <application>`. The tested default Qt text-input-v2 path did not provide the required complete context; unobservable or incomplete fields are skipped. This setting is per target application, not a global environment change.
+The exercised Qt target uses **text-input-v3**. A target can request it at its own launch with `QT_WAYLAND_TEXT_INPUT_PROTOCOL=zwp_text_input_v3 QT_IM_MODULE=wayland <application>`. The tested default text-input-v2 path lacked complete context. Do not set those variables globally just to make one application work.
 
-KWin positions the native icon, suggestion, and quick-menu panel near the caret. Exact placement belongs to the compositor; the X11/macOS above-line offset is not a Wayland guarantee. Passwords, selections, stale contexts, and unmatched AT-SPI fields are rejected. Atomic cross-app replacement remains unavailable, so emoji/emoticon rewriting and selected-text synonyms stay disabled. GNOME, wlroots compositors, XWayland targets, and arbitrary third-party applications are not verified by this candidate.
+KWin owns panel placement; the macOS/X11 above-line offset is not guaranteed on Wayland. Protected fields, selections, stale contexts, and unmatched metadata are rejected. Atomic cross-app replacement is unavailable on Linux, so selected-text synonyms and emoji/emoticon rewriting remain disabled. GNOME, wlroots, XWayland targets, and arbitrary third-party controls are not verified by this path.
 
+### Verify downloads
 
-### Verify a download
+Releases include `SHA256SUMS`. On Linux, use `sha256sum --check SHA256SUMS --ignore-missing`; on macOS, use `shasum -a 256 <file>`; on Windows, use `Get-FileHash <file> -Algorithm SHA256`. Compare against the matching manifest entry. Integrity checks are not a signing or notarization certificate.
 
-Every release includes `SHA256SUMS`. Run the checksum command in the directory containing the downloaded assets:
+## First run and daily use
 
-```sh
-# Linux
-sha256sum --check SHA256SUMS --ignore-missing
-# macOS
-shasum -a 256 <downloaded-file>
-```
+Welcome covers privacy, system access, explicit model selection, a real local prediction preview, and the resident menu. Reopen it from **About → Show Welcome**. Six settings destinations retain the existing supported preferences:
 
-On Windows, use `Get-FileHash <downloaded-file> -Algorithm SHA256` in PowerShell. Compare the result with the matching entry in `SHA256SUMS`. A checksum checks file integrity; it is not a code-signing or notarization certificate.
+- **General:** startup, predictions, field accessory, and aggregate activity.
+- **AI Models:** GGUF files, verified downloads, loopback backends, inference and battery controls.
+- **Autocomplete:** completion behavior, configurable shortcuts, emoji, alternatives and synonyms where supported.
+- **Languages:** truthful model-language information and access to existing custom instructions; no invented language-quality rankings.
+- **Privacy:** actual permission status, optional context/history, exclusions, and app/website rules.
+- **About:** version, source, Welcome and Quit.
 
-## First run
+The writing preset is **Qwen2.5 1.5B**, approximately 1.12 GB. The approximately 101 MB Tiny preset is an English starter/testing model, not a comparable writing-quality replacement. Existing complete models are reused. Suggestions are not a grammar or factuality guarantee.
 
-1. Open **Setup & Permissions…** from the menu bar/system tray.
-2. Enable the required OS access for the application you actually launched.
-3. In **General → Manage Models…**, explicitly download a writing preset or choose an existing GGUF model.
-4. Focus a supported editable input and start typing. Secure fields, password managers, and terminals are excluded by default.
-
-The writing preset in 0.3 is **Qwen2.5 1.5B**, approximately 1.12 GB. The 101 MB Tiny preset is an English starter/testing model, not a comparable writing-quality replacement. Model quality and language coverage vary; suggestions are not a grammar or factuality guarantee.
-
-Models load lazily in a separate process. That process exits after 60 seconds idle by default, and on pause, model change, or Quit. A later request may need a cold load. Locally managed Ollama or OpenAI-compatible servers are also supported through literal loopback URLs; Inklow does not manage those servers' model lifetimes.
-
-### OS permissions
-
-- **macOS:** enable **Device Control and Data Access**—called **Accessibility** on earlier macOS—and **Input Monitoring** in System Settings → Privacy & Security. Grant access to the installed `Inklow.app`, not merely a terminal/Python host. Restart after a change. Screen Recording is optional and needed only for opted-in screen context. Replacing an ad-hoc-signed build can require a fresh manual approval.
-- **Windows:** supported controls must expose UI Automation/native Edit capabilities. Elevated applications may require matching integrity privileges; Inklow does not bypass Windows isolation.
-- **Linux:** enable desktop accessibility and run within the user's D-Bus session. X11 uses the normal launcher; the unreleased KDE Wayland source path requires explicit input-method selection as described above. Some Qt targets need `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1` before they start.
-
-Inklow opens the relevant settings pages but never grants permissions automatically.
-
-## Using Inklow
-
-| Action | Default control |
+| Action | Existing default |
 | --- | --- |
-| Accept the next word | Tab |
-| Accept the complete suggestion | Physical key above Tab |
-| Request a suggestion now | Control + physical key above Tab |
+| Accept next word | Tab |
+| Accept full suggestion | Physical key above Tab |
+| Request a suggestion | Control + physical key above Tab |
 | Dismiss and briefly pause | Escape |
-| Open pause/settings controls near a field | Click the small Inklow icon above the input line |
-| Stop Inklow and its worker | **Quit Inklow** in the menu-bar/tray menu |
+| Open field controls | Click the small caret icon above/beside the field |
+| Stop the app and worker | **Quit BroTypist** in the menu-bar/tray menu |
 
-Shortcuts, trailing spaces/punctuation, per-app defaults, temporary pauses, and login startup are configurable. Closing Settings leaves Inklow running. Normal application/system shortcuts pass through when no eligible suggestion is active.
+Closing Settings leaves BroTypist running. Normal keys pass through when no eligible suggestion is active. Shortcuts and existing model choices are **not reset by the redesign**. The design document's proposed new defaults do not override saved preferences.
 
-Other features include an offline Unicode emoji chooser, contextual synonym/alternative suggestions, optional local context, encrypted opt-in writing history, and aggregate accepted-writing statistics. These are subject to the platform limits below.
+Models load lazily in a separate process and unload after 60 seconds idle by default, on pause, model change or Quit. A later request can require a cold load. Welcome's preview uses the same provider, does not record its text, and closes its worker when the field loses focus or the preview closes. Separately managed loopback servers have their own model lifetimes.
 
-## Privacy and saved data
+### OS access and suggestion placement
 
-- No account, cloud inference, automatic telemetry, or cloud synchronization is built in. Inference endpoints are restricted to literal loopback addresses; model downloads are the explicit public network operation.
-- Clipboard and foreground-screen context are off by default. Screen OCR is macOS-only, uses the eligible foreground window, and does not save screenshots.
-- Writing history is off by default. When enabled, it requires AES-GCM encryption and an OS credential store; there is no plaintext fallback.
-- Custom instructions are ordinary settings text, not a secret store. Do not put credentials in them.
-- Upgrades/uninstallers leave per-user preferences, downloaded models, and history outside the application installation. History and aggregate statistics have separate deletion controls in Settings.
-- `INKLOW_HOME` selects an isolated data/settings profile for development. It does not relocate the shared model cache, and isolated profiles cannot change login integration.
+- **macOS:** grant **Accessibility / Device Control and Data Access** and **Input Monitoring** to the installed app in System Settings → Privacy & Security. Source Python/terminal permission is not proof of installed-app permission. Screen Recording is optional and only needed for opted-in screen context. An ad-hoc signature replacement may require manual approval again.
+- **Windows:** target controls must expose supported UI Automation/native Edit behavior. Elevated apps can require matching integrity privileges; BroTypist does not bypass isolation.
+- **Linux:** run in your user's D-Bus/accessibility session. X11 uses AT-SPI; KDE Wayland additionally needs explicit input-method selection. Some Qt targets need `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1` before starting.
 
-A separately managed inference server, OS swap, and OS crash collection have their own privacy behavior outside Inklow's control.
+Secure, excluded, composition-ambiguous or unobservable fields are skipped. Host suggestions use a nonactivating chip when the current runtime cannot verify host typography; they do not guess a font from caret height. Display truncation never truncates accepted text. The owned Welcome field can draw its own faint inline suffix reliably.
 
-## Platform support
+## Privacy and data preservation
 
-macOS uses native AppKit settings and nonactivating overlays; Qt is not bundled there. Windows/Linux use Qt settings/tray surfaces with native accessibility adapters.
+- No built-in cloud inference, account requirement, automatic telemetry or cloud sync. Alternative inference endpoints are restricted to literal loopback addresses; their operators control their logging/network behavior.
+- Clipboard and foreground-window OCR context are off by default. OCR is macOS-only and does not save screenshots.
+- Writing history is opt-in, AES-GCM encrypted and requires the OS credential store, with no plaintext fallback. Aggregate statistics contain acceptance counts, not writing. History and statistics have separate deletion controls.
+- Custom instructions are ordinary settings text, not a place to store credentials.
+- Models, preferences and history live outside the installation and are not uninstalled with it.
 
-| Capability | macOS | Windows | Linux/X11 |
-| --- | --- | --- | --- |
-| Supported accessible text inputs | AX | UI Automation/native Edit | AT-SPI Text/EditableText |
-| Inline/field-attached suggestions | Yes, when geometry is observable | Yes, when geometry is observable | Yes, when geometry is observable |
-| Selected-text/emoji rewriting | Guarded native replacement | Target/control-dependent | Disabled: no cross-app atomic replacement |
-| Native-observable website rules | Supported browsers | Unavailable | Unavailable |
-| Optional foreground-window OCR | Yes | No | No |
+**Stable internal identities are intentional.** The Python package `inklow`, bundle/desktop ID `com.inklow.Inklow`, existing startup/credential keys and `inklow` data/cache directories remain established technical namespaces. Changing the visible app/repository name does not migrate encrypted data or deliberately reset OS permission identity. Public commands and new installer/bundle names are BroTypist / `brotypist`.
 
-Unsupported, protected, composition-ambiguous, or unobservable fields are skipped. Release install/launch/inference checks do not establish compatibility with every third-party control. Interactive Windows/Linux typing remains a separate verification limit. See the [verification report](evidence/VERIFICATION.md) for exercised scenarios.
+`INKLOW_HOME` remains the isolated settings/data profile switch for development. It does not relocate the shared model cache. Isolated profiles cannot change startup or desktop integration. OS swap/crash collection and independently managed servers have privacy behavior outside the app's control.
 
 ## Develop
 
-Use Python 3.12 and [uv](https://docs.astral.sh/uv/). Build on the target OS/architecture; a macOS build cannot produce a Windows runtime.
+Use Python 3.12 and [uv](https://docs.astral.sh/uv/). Build on the intended OS and architecture; a Mac build cannot produce a Windows runtime.
 
 ```sh
-git clone git@github.com:renan-brasilio/inklow.git
-cd inklow
+git clone git@github.com:renan-brasilio/brotypist.git
+cd brotypist
 uv sync --python 3.12 --extra dev --extra local --extra build
-uv run inklow doctor
-uv run inklow --settings
+uv run brotypist doctor
+uv run brotypist --settings
+uv run brotypist --pane welcome
 uv run pytest -q
 ```
 
-GGUF source builds need Xcode Command Line Tools, Visual Studio C++ Build Tools, or GCC/Clang/CMake. Linux development additionally needs the distribution's AT-SPI/GI bindings and Qt/X11 runtime libraries. Use the distribution Python with `--system-site-packages` when those bindings are supplied by the distribution:
+GGUF builds need Xcode Command Line Tools, Visual Studio C++ Build Tools, or GCC/Clang/CMake. Linux additionally needs distribution AT-SPI/GI and desktop libraries; use its Python with system bindings when appropriate:
 
 ```sh
 /usr/bin/python3 -m venv --system-site-packages .venv
 .venv/bin/python -m pip install -e '.[dev,local,build]'
 ```
 
-Download a model explicitly with `inklow model download`; use `--no-select` to leave the selected model unchanged. A source launch may inherit its terminal host's permissions and is not proof that a separately installed app has access.
+`brotypist model list` reports the pinned catalog. `brotypist model download --preset balanced --no-select` explicitly downloads without selecting. Avoid changing your normal profile just to run a smoke test: use `INKLOW_HOME=<disposable-directory>` for the entire test sequence.
 
-### Build applications and installers
+### Build applications, icons and installers
 
 ```sh
-uv run inklow model download --preset tiny
 uv run python tools/build_app.py
 uv run python tools/smoke_bundle.py
-# Run the command matching the build host:
-uv run python tools/package_macos.py --bundle dist/Inklow.app --output release --version 0.3.1
-uv run python tools/package_windows.py --bundle dist/Inklow --output release --version 0.3.1
-uv run python tools/package_linux.py --bundle dist/Inklow --output release --version 0.3.1
+# Run the matching native packager from a committed build:
+uv run python tools/package_macos.py --bundle dist/BroTypist.app --output release --version 0.3.1
+uv run python tools/package_windows.py --bundle dist/BroTypist --output release --version 0.3.1
+uv run python tools/package_linux.py --bundle dist/BroTypist --output release --version 0.3.1
 ```
 
-The example explicitly selects `tiny` for the inference smoke. Set `INKLOW_HOME` to a disposable profile directory for **all** these commands if you want to preserve your normal model selection; `--no-select` downloads weights but does not configure the smoke worker.
+The inference smoke needs an explicitly configured existing model. Installers consume complete native builds; they do not download models or cross-compile. Windows packaging needs .NET SDK 8 and WiX **5.0.2** (`dotnet tool install --global wix --version 5.0.2`). Linux needs `dpkg-dev`, GI/AT-SPI/GTK and Qt libraries; the Wayland client additionally needs a C compiler, `pkg-config`, Wayland/xkbcommon development libraries, protocol XMLs and `wayland-scanner`. Use CPython 3.12 on Ubuntu 24.04 for its distro GI ABI. The [CI workflow](.github/workflows/ci.yml) lists exact build prerequisites.
 
-The packagers consume a complete native build; they do not cross-compile. macOS uses `hdiutil`/`ditto`, Windows uses WiX, and Linux uses `dpkg-deb`. The workflow installs their build-only prerequisites and exercises the resulting installers.
+Original artwork sources are in `design/icons/`, including real Icon Composer documents and portable SVG variants. Rebuild with `python tools/generate_icons.py`: macOS uses installed Xcode Icon Composer/CoreGraphics/iconutil without Qt; Windows/Linux use their existing Qt toolkit. Runtime apps load committed raster assets, never the icon authoring tool.
 
-Windows installer builds additionally require .NET SDK 8 and the pinned WiX tool:
-
-```powershell
-dotnet tool install --global wix --version 5.0.2
-```
-
-For Linux builds, install `dpkg-dev`, `python3-gi`, `python3-pyatspi`, `gir1.2-atspi-2.0`, `gir1.2-glib-2.0`, and `libgtk-3-0t64` alongside the desktop libraries. The native Wayland client additionally requires a C compiler, `pkg-config`, `libwayland-dev`, `libxkbcommon-dev`, `wayland-protocols`, and `wayland-scanner` (usually supplied by `libwayland-bin`); source development can build it with `python tools/build_wayland.py`, and the Linux application build invokes that helper automatically. GTK is needed to resolve the bundled Qt native-theme plugin's ELF dependencies even on a minimal X11 build host. Build with CPython 3.12 on Ubuntu 24.04 so the distro GI extension ABI matches. The [CI workflow](.github/workflows/ci.yml) lists the complete build prerequisites. Packaged Linux applications include the Python bindings; end users do not need Python packages.
-
-For stable local macOS signing, supply the same existing Keychain identity on each build:
+For stable local Mac permission identity, sign with the **same existing Keychain identity**:
 
 ```sh
-INKLOW_CODESIGN_IDENTITY='<identity name or fingerprint>' uv run python tools/build_app.py --replace
+INKLOW_CODESIGN_IDENTITY='<existing identity name or fingerprint>' uv run python tools/build_app.py
 ```
 
-Never commit or export signing keys into the repository. Local certificate signing does not imply Developer ID distribution or notarization.
+Never export or commit signing keys. Reusing an identity is not a notarization claim.
 
 ### Release workflow
 
-GitHub Actions checks regressions, launches actual settings, runs source/frozen inference, builds native packages, and exercises installer installation/mount and removal. Release assets are published only after every native job succeeds. The publication step creates a versioned GitHub Release, portable packages, a manifest, and SHA-256 checksums from the verified files.
+GitHub Actions exercises deterministic regressions, native settings, source/frozen inference and actual installer installation/mount/removal. All required native targets must pass before publication. Windows native runtime/installer verification remains a release gate; source-level checks are not a substitute.
 
-To publish, update the version in `pyproject.toml` and `src/inklow/__init__.py`, commit the source, then run **Actions → Cross-platform checks → Run workflow** with `release_tag` set to the matching `v<version>`. An empty input runs checks only. Pushing a matching version tag also publishes after verification. Existing tags/releases are never overwritten.
+Update both `pyproject.toml` and `src/inklow/__init__.py`, commit, then run **Actions → Cross-platform checks** with matching `release_tag=v<version>`. Empty input checks only. A matching version tag or `release/<version>` branch also requests publication. Never overwrite a published version or its historical assets.
 
-For Git-only publication without API workflow-dispatch access, push the committed release source to `release/<version>` (for example, `git push origin HEAD:refs/heads/release/0.3.1`). This explicitly requests a release; the workflow creates the matching version tag only after every platform passes. Use a new version after an already-published release.
-
-Self-hosted/manual releases use the same `tools/package_<platform>.py` and `tools/smoke_<platform>_*` checks on disposable native desktops. Windows verification requires an interactive Windows user session; Wine or a CLI version check is not a substitute. Linux installer smoke requires passwordless sudo **inside the disposable test environment**, X11/Xvfb and a private D-Bus session.
-
-After all checks for a target pass, seal its two native files with `tools/release_assets.py manifest --assets <target-directory> --target <target> --commit <full-source-sha> --receipt <native-smoke.json>`. Keep one target directory per platform under a common input directory. `publish --inputs <directory> --output <new-directory> --tag v<version> --commit <full-source-sha> --repo renan-brasilio/inklow` verifies the transferred files before draft-first publication.
-
-The publisher defaults to **all three targets**. An intentionally reduced release must explicitly pass `--targets` and lists omitted targets in its release notes and manifest; missing/failed native checks never silently become a partial release. Windows installer publication is currently deferred pending its native runtime checks.
-
-The initial installer release uses the verified 0.3 code line. Unfinished model/prompt experiments are not silently included in release binaries. See workflow inputs and release notes for the exact source revision.
+Manual releases use the same native packagers and smoke tools on disposable target desktops. `tools/release_assets.py manifest` seals the two files per target with their native receipt; `publish --inputs <directory> --output <new-directory> --tag v<version> --commit <source-sha> --repo renan-brasilio/brotypist` verifies them before draft-first publication. Reduced target sets require explicit `--targets` and list omissions in the manifest/release notes.
 
 ### Source layout
 
-- `runtime.py`, `core.py`: controller, snapshots, acceptance guards.
-- `process_client.py`, `process_worker.py`: isolated inference worker and lifecycle.
-- `providers.py`, `writing.py`, `models.py`: local backends, prompts, pinned downloads.
-- `appkit_ui.py`, `qt_ui.py`, `native/`: platform interfaces and accessibility adapters.
-- `storage.py`, `config.py`, `system.py`: local data, preferences, explicit OS integration.
-- `tools/`, `packaging/`, `.github/workflows/`: development checks, native packaging, releases.
+- `src/inklow/runtime.py`, `core.py`: controller, exact snapshots, acceptance guards.
+- `process_client.py`, `process_worker.py`, `providers.py`, `writing.py`, `models.py`: isolated local inference, prompts, verified downloads.
+- `appkit_ui.py`, `appkit_welcome.py`, `qt_ui.py`, `appkit_overlay.py`: resident native/portable interfaces.
+- `preview.py`: owned-field ephemeral Welcome inference; no global capture or persistent history.
+- `native/`, `system.py`: OS integration, supported accessibility/text-input paths and explicit OS actions.
+- `config.py`, `storage.py`: preferences, encryption and statistics.
+- `tools/`, `packaging/`, `.github/workflows/`: verification, native packaging and releases.
 
-## References and attribution
+The supplied design is adapted to existing capabilities: no fake MLX/Sparkle controls, unmeasured performance counters, unsupported language controls or changed key defaults. Backend/model upgrades are a separate product change.
+
+## Research and attribution
 
 [Implementation verification](evidence/VERIFICATION.md) · [Reference-app research](evidence/[redacted reference].md)
 
-Inklow does not contain [redacted reference]'s proprietary code, models, or assets. The bundled emoji catalogue retains its Unicode license; third-party runtimes/models retain their own licenses. No model weights are committed to the repository or included in installers.
+BroTypist contains no [redacted reference] proprietary code, models or artwork. Unicode emoji data, third-party runtimes and model weights retain their own licenses. No model weights are committed or embedded in installers.

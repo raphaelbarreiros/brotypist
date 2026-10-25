@@ -185,8 +185,8 @@ def test_headless_runtime_import_cannot_load_qt_or_llama():
 
 
 def test_frozen_windows_uses_console_companion_for_real_pipes(monkeypatch, tmp_path):
-    executable = tmp_path / "Inklow.exe"
-    console = tmp_path / "Inklow-cli.exe"
+    executable = tmp_path / "BroTypist.exe"
+    console = tmp_path / "BroTypist-cli.exe"
     console.touch()
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "platform", "win32")

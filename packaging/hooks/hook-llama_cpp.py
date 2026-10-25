@@ -13,4 +13,4 @@ datas, binaries, hiddenimports = collect_all(
 )
 datas += copy_metadata("llama-cpp-python")
 if not binaries:
-    raise RuntimeError("llama-cpp-python has no native libraries; install a native local backend before building Inklow")
+    raise RuntimeError("llama-cpp-python has no native libraries; install a native local backend before building BroTypist")

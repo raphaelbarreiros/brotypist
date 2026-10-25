@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Inklow
+Name=BroTypist
 GenericName=Predictive typing
 Comment=Private, local-first writing assistance
 Exec=@EXEC@
@@ -8,4 +8,4 @@ Icon=@ICON@
 Terminal=false
 Categories=Utility;Office;
 StartupNotify=true
-StartupWMClass=Inklow
+StartupWMClass=BroTypist

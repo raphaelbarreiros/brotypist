@@ -35,13 +35,13 @@ class LinuxBridge(BridgeBase):
             return
         if os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland" or os.environ.get("WAYLAND_DISPLAY"):
             self._set_status(
-                "KDE Wayland requires Inklow to be launched as the explicitly selected native input method. "
-                "Install its entry in Setup, Quit, then choose Inklow in KDE Virtual Keyboard settings. "
+                "KDE Wayland requires BroTypist to be launched as the explicitly selected native input method. "
+                "Install its entry in Privacy or Welcome, Quit, then choose BroTypist in KDE Virtual Keyboard settings. "
                 "Other Wayland compositors and XWayland-only controls are unsupported; X11 sessions use the AT-SPI adapter."
             )
             return
         if not os.environ.get("DISPLAY"):
-            self._set_status("No X11 DISPLAY is available. Start Inklow in an X11 desktop session.")
+            self._set_status("No X11 DISPLAY is available. Start BroTypist in an X11 desktop session.")
             return
         try:
             import pyatspi
@@ -49,7 +49,7 @@ class LinuxBridge(BridgeBase):
         except ImportError as exc:
             self._set_status(
                 f"Linux accessibility dependency missing ({exc.name}). Install your distribution's "
-                "python3-pyatspi and python3-gi packages plus Inklow's linux extra (python-xlib). "
+                "python3-pyatspi and python3-gi packages plus BroTypist's Linux dependency (python-xlib). "
                 "A virtualenv must be created with --system-site-packages to see distro accessibility bindings."
             )
             return
@@ -63,7 +63,7 @@ class LinuxBridge(BridgeBase):
         except Exception as exc:
             self._set_status(
                 f"X11/AT-SPI connection unavailable ({type(exc).__name__}). Enable desktop accessibility, "
-                "ensure at-spi2-core and the session D-Bus are running, and run Inklow as the logged-in desktop user."
+                "ensure at-spi2-core and the session D-Bus are running, and run BroTypist as the logged-in desktop user."
             )
             return
         self._wake_read, self._wake_write = socket.socketpair()

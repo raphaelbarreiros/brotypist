@@ -70,15 +70,15 @@ def inspect_bundle(bundle: Path, version: str) -> tuple[dict, list[dict]]:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     if project["project"]["version"] != version:
         raise ValueError("Requested version differs from pyproject.toml")
-    for name in ("Inklow.exe", "Inklow-cli.exe"):
+    for name in ("BroTypist.exe", "BroTypist-cli.exe"):
         verify_pe_x64(bundle / name)
     if not (bundle / "_internal").is_dir():
         raise ValueError("Expected the entire PyInstaller onedir payload, including _internal")
     result = subprocess.run(
-        [str(bundle / "Inklow-cli.exe"), "--version"], check=True, capture_output=True,
+        [str(bundle / "BroTypist-cli.exe"), "--version"], check=True, capture_output=True,
         text=True, encoding="utf-8", timeout=30,
     )
-    if result.stdout.strip() != f"Inklow {version}":
+    if result.stdout.strip() != f"BroTypist {version}":
         raise ValueError(f"Bundle executable version does not match {version}: {result.stdout!r}")
     files = []
     seen = set()
@@ -177,7 +177,7 @@ def package(bundle: Path, output: Path, version: str, report: Path) -> dict:
     tool_version = subprocess.run([wix, "--version"], check=True, capture_output=True, text=True, timeout=30).stdout.strip()
     if tool_version.split("+")[0] != WIX_VERSION:
         raise RuntimeError(f"Expected WiX {WIX_VERSION}, found {tool_version!r}")
-    stem = f"Inklow-{version}-windows-x86_64"
+    stem = f"BroTypist-{version}-windows-x86_64"
     output.mkdir(parents=True, exist_ok=True)
     destinations = {extension: output / f"{stem}.{extension}" for extension in ("msi", "zip")}
     if any(path.exists() for path in destinations.values()):
@@ -200,7 +200,7 @@ def package(bundle: Path, output: Path, version: str, report: Path) -> dict:
         portable = staging / f"{stem}.zip"
         with zipfile.ZipFile(portable, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
             for item in files:
-                archive.write(bundle / item["path"], f"Inklow/{item['path']}")
+                archive.write(bundle / item["path"], f"BroTypist/{item['path']}")
         # Fail if an input was changed while WiX/ZIP read it, before publishing.
         for item in files:
             if sha256(bundle / item["path"]) != item["sha256"]:
@@ -211,8 +211,8 @@ def package(bundle: Path, output: Path, version: str, report: Path) -> dict:
         "application": APP_ID, "version": version, "source_commit": metadata["source_commit"],
         "platform": "windows", "architecture": "x86_64", "wix_version": WIX_VERSION,
         "signing": "unsigned", "scope": "perUser", "product_code": product_code,
-        "upgrade_code": UPGRADE_CODE, "install_directory": r"%LOCALAPPDATA%\Programs\Inklow",
-        "start_menu_shortcut": r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Inklow.lnk",
+        "upgrade_code": UPGRADE_CODE, "install_directory": r"%LOCALAPPDATA%\Programs\BroTypist",
+        "start_menu_shortcut": r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\BroTypist.lnk",
         "artifacts": {key: {"path": str(path), "sha256": sha256(path)} for key, path in destinations.items()},
         "files": files,
     }
@@ -222,7 +222,7 @@ def package(bundle: Path, output: Path, version: str, report: Path) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--bundle", type=Path, required=True, help="Already built dist/Inklow directory")
+    parser.add_argument("--bundle", type=Path, required=True, help="Already built dist/BroTypist directory")
     parser.add_argument("--output", type=Path, default=ROOT / "release")
     parser.add_argument("--version", required=True)
     parser.add_argument("--report", type=Path, default=ROOT / "reports" / "windows-package.json")

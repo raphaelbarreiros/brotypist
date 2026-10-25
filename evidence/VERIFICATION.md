@@ -1,6 +1,26 @@
 > Historical record: Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations.
 
-# Observed verification — 0.3.0 — 2026-10-24
+# Observed verification
+
+## BroTypist / Ghost Caret — 2026-10-24
+
+The private repository was renamed in place to `renan-brasilio/brotypist`; the GitHub API still reports `private: true`. The public app, CLI and new packaging paths use BroTypist. Established OS/data/credential namespaces are intentionally unchanged.
+
+| Exercised source suite | Passed | Skipped |
+| --- | ---: | ---: |
+| macOS / native AppKit | 289 | 16 |
+| Linux / portable Qt and native-Wayland safety regressions | 317 | 1 |
+
+- **Real macOS windows:** all six settings destinations and six Welcome steps were shown. Actual permission-state gating, the persistent 18×16 template status glyph, existing model/shortcut preservation and normal native-menu Quit were exercised. The current Qwen model produced a real suggestion in the owned Welcome field, and native acceptance inserted its next word. Neither Qt nor `llama_cpp` was imported into the UI process. [Receipt](brotypist/macos-design-smoke.json).
+- **Real KDE Wayland desktop:** the six portable settings routes and six Welcome steps were shown. The actual model generated a suggestion; a Tab event accepted the next word. A selection containing a non-BMP character suppressed insertion without an invalid-cursor error. KDE's watcher registered the actual GUI process with Title `BroTypist`, Status `Active` and an exported `Quit BroTypist` action; closing Settings preserved the agent, and normal Quit stopped it. [Receipt](brotypist/linux-design-smoke.json).
+- **Visual proof:** [Mac settings](brotypist/macos-settings-general.png), [Mac Welcome](brotypist/macos-welcome-1.png), [Mac real prediction](brotypist/macos-welcome-real-prediction.png), [Linux settings](brotypist/linux-settings-general.png), [Linux Welcome](brotypist/linux-welcome-1.png), [Linux real prediction](brotypist/linux-welcome-real-prediction.png). Mac captures use exact owned window IDs, not a full personal desktop; portable captures use owned Qt widgets. Test profiles contain synthetic text and blank custom instructions/rules.
+- **Artwork:** the installed Icon Composer exporter successfully generated the original normal/dark/tinted assets and native system mask; CoreGraphics and `iconutil` generated the Mac raster/ICNS payload without Qt.
+
+Limits: these are source-UI and owned-field prediction checks, not new third-party-input compatibility proof or Windows-native verification. Source-host Mac permission results do not establish a differently signed installed app's grants. The KDE UI smoke did not change the production input-method selection. The redesign preserves the current inference engine, models and acceptance defaults; it is not a new multilingual-quality claim. Historical release assets were not rewritten or republished.
+
+## Historical Inklow 0.3.0 baseline — 2026-10-24
+
+The remaining sections retain the original observations and filenames; they are not presented as reruns of the BroTypist redesign.
 
 Environment: macOS 27.2 arm64, Apple M1 Pro, CPython 3.12.14, PyObjC 12.2.2, llama-cpp-python 0.3.36. Independent Qwen2.5-1.5B-Instruct Q4_K_M weights, not [redacted reference]'s model. All writing in screenshots/tests is synthetic. No personal document or actual password was read.
 

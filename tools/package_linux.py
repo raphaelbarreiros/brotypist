@@ -1,7 +1,7 @@
 """Package an already-built amd64 Linux onedir into .deb and portable .tar.gz.
 
 Requires dpkg-dev (including binutils). Native shared-library dependencies are
-derived from the ELF payload, with bundled SONAMEs supplied by Inklow itself,
+derived from the ELF payload, with bundled SONAMEs supplied by BroTypist itself,
 not guessed from the Python environment. No model download or rebuild.
 """
 from __future__ import annotations
@@ -35,16 +35,16 @@ def validate_bundle(bundle: Path, version: str) -> None:
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         raise ValueError("--version must be a numeric major.minor.patch release")
     if bundle.is_symlink() or not bundle.is_dir():
-        raise ValueError("--bundle must be a real Inklow onedir directory")
+        raise ValueError("--bundle must be a real BroTypist onedir directory")
     marker = bundle / ".inklow-build.json"
     identity = json.loads(marker.read_text(encoding="utf-8"))
     if identity.get("application") != APP_ID or identity.get("platform") != "linux":
-        raise ValueError("Bundle is not marked as an Inklow Linux build")
+        raise ValueError("Bundle is not marked as a BroTypist Linux build")
     source_commit = run(["git", "-C", str(ROOT), "rev-parse", "HEAD"])
     if (identity.get("version") != version or identity.get("architecture") != "x86_64"
             or identity.get("source_commit") != source_commit):
         raise ValueError("Bundle version, architecture, or source differs from the packaging checkout")
-    executable = bundle / "Inklow"
+    executable = bundle / "BroTypist"
     with executable.open("rb") as stream:
         header = stream.read(20)
     if len(header) != 20 or header[:6] != b"\x7fELF\x02\x01" or struct.unpack_from("<H", header, 18)[0] != 62:
@@ -52,7 +52,7 @@ def validate_bundle(bundle: Path, version: str) -> None:
     environment = dict(os.environ)
     for name in ("PYTHONPATH", "PYTHONHOME", "GI_TYPELIB_PATH", "LD_LIBRARY_PATH"):
         environment.pop(name, None)
-    if run([str(executable), "--version"], env=environment) != f"Inklow {version}":
+    if run([str(executable), "--version"], env=environment) != f"BroTypist {version}":
         raise ValueError("--version differs from frozen application metadata")
     for path in bundle.rglob("*"):
         if path.is_symlink() and not path.resolve().is_relative_to(bundle.resolve()):
@@ -70,8 +70,8 @@ def validate_bundle(bundle: Path, version: str) -> None:
 def copy_application(bundle: Path, target: Path) -> None:
     shutil.copytree(bundle, target, symlinks=True)
     # build_app's entries point to its original destination. Portable users run
-    # launch-inklow directly; .deb integration is rendered for installed paths.
-    for entry in (target / "Inklow.desktop", target / "share/applications" / f"{APP_ID}.desktop",
+    # launch-brotypist directly; .deb integration is rendered for installed paths.
+    for entry in (target / "BroTypist.desktop", target / "share/applications" / f"{APP_ID}.desktop",
                   target / "share/applications" / f"{APP_ID}.InputMethod.desktop"):
         entry.unlink(missing_ok=True)
     for path in target.rglob("*"):
@@ -84,8 +84,8 @@ def shared_library_dependencies(app: Path, work: Path) -> str:
     debian = work / "debian"
     debian.mkdir()
     (debian / "control").write_text(
-        "Source: inklow\nSection: utils\nPriority: optional\nMaintainer: Inklow contributors <noreply@localhost>\n\n"
-        "Package: inklow\nArchitecture: amd64\nDescription: Local-first predictive typing\n", encoding="utf-8")
+        "Source: brotypist\nSection: utils\nPriority: optional\nMaintainer: BroTypist contributors <noreply@localhost>\n\n"
+        "Package: brotypist\nArchitecture: amd64\nDescription: Local-first predictive typing\n", encoding="utf-8")
     elfs = []
     library_directories = set()
     for path in app.rglob("*"):
@@ -109,12 +109,12 @@ def shared_library_dependencies(app: Path, work: Path) -> str:
         # private libraries/plugins do not need shlibs dependency information.
         match = re.fullmatch(r"(.+)\.so\.(.+)", soname) or re.fullmatch(r"(.+)-(\d.*)\.so", soname)
         if match:
-            local_shlibs.append(f"{match[1]} {match[2]} inklow\n")
+            local_shlibs.append(f"{match[1]} {match[2]} brotypist\n")
     (debian / "shlibs.local").write_text("".join(local_shlibs), encoding="utf-8")
     # Exclude only this package's own SONAMEs, not entire host library packages.
     # Still scan every bundled ELF for its genuinely external requirements;
     # missing dependency metadata for those must remain a packaging error.
-    command = ["dpkg-shlibdeps", "-xinklow", "-O"]
+    command = ["dpkg-shlibdeps", "-xbrotypist", "-O"]
     command.extend(f"-l{path}" for path in sorted(library_directories))
     command.extend(f"-e{path}" for path in sorted(elfs))
     output = run(command, cwd=work)
@@ -139,27 +139,27 @@ def package(bundle: Path, output: Path, version: str) -> tuple[Path, Path]:
     if output == bundle or output.is_relative_to(bundle):
         raise ValueError("Release output must be outside the application bundle")
     output.mkdir(parents=True, exist_ok=True)
-    stem = f"Inklow-{version}-linux-amd64"
+    stem = f"BroTypist-{version}-linux-amd64"
     deb, archive = output / f"{stem}.deb", output / f"{stem}.tar.gz"
     if deb.exists() or archive.exists():
         raise FileExistsError("Release artifact already exists; choose an empty output directory")
     with tempfile.TemporaryDirectory(prefix=".inklow-package-", dir=output) as temporary:
         work = Path(temporary)
         root = work / "deb-root"
-        app = root / "opt/inklow"
+        app = root / "opt/brotypist"
         app.parent.mkdir(parents=True)
         copy_application(bundle, app)
-        binary = root / "usr/bin/inklow"
+        binary = root / "usr/bin/brotypist"
         binary.parent.mkdir(parents=True)
-        binary.write_text('#!/bin/sh\nexec /opt/inklow/launch-inklow "$@"\n', encoding="utf-8")
+        binary.write_text('#!/bin/sh\nexec /opt/brotypist/launch-brotypist "$@"\n', encoding="utf-8")
         binary.chmod(0o755)
         applications = root / "usr/share/applications"
         applications.mkdir(parents=True)
         template = (ROOT / "packaging/linux" / f"{APP_ID}.desktop.in").read_text(encoding="utf-8")
-        entry = template.replace("@EXEC@", "/usr/bin/inklow").replace("@ICON@", APP_ID)
+        entry = template.replace("@EXEC@", "/usr/bin/brotypist").replace("@ICON@", APP_ID)
         (applications / f"{APP_ID}.desktop").write_text(entry, encoding="utf-8")
         method_template = (ROOT / "packaging/linux" / f"{APP_ID}.InputMethod.desktop.in").read_text(encoding="utf-8")
-        method_entry = method_template.replace("@EXEC@", "/usr/bin/inklow").replace("@ICON@", APP_ID)
+        method_entry = method_template.replace("@EXEC@", "/usr/bin/brotypist").replace("@ICON@", APP_ID)
         (applications / f"{APP_ID}.InputMethod.desktop").write_text(method_entry, encoding="utf-8")
         icons = root / "usr/share/icons/hicolor"
         icons.parent.mkdir(parents=True)
@@ -177,7 +177,7 @@ def package(bundle: Path, output: Path, version: str) -> tuple[Path, Path]:
         # never remove or rewrite users' external models, settings or history.
         staged_deb = work / deb.name
         run(["dpkg-deb", "--build", "--root-owner-group", str(root), str(staged_deb)])
-        portable = work / "portable/Inklow"
+        portable = work / "portable/BroTypist"
         portable.parent.mkdir()
         copy_application(bundle, portable)
         staged_archive = work / archive.name
@@ -186,7 +186,7 @@ def package(bundle: Path, output: Path, version: str) -> tuple[Path, Path]:
             info.uname = info.gname = "root"
             return info
         with tarfile.open(staged_archive, "w:gz", format=tarfile.PAX_FORMAT) as stream:
-            stream.add(portable, arcname="Inklow", filter=root_owner)
+            stream.add(portable, arcname="BroTypist", filter=root_owner)
         staged_deb.rename(deb)
         staged_archive.rename(archive)
     return deb, archive

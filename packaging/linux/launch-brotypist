@@ -1,4 +1,4 @@
 #!/bin/sh
 # Resolve our own directory, not the caller's working directory.
 APP_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1
-exec "$APP_DIR/Inklow" "$@"
+exec "$APP_DIR/BroTypist" "$@"

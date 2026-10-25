@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="18" height="16" viewBox="0 0 18 16">
+  <title>BroTypist, loading</title>
+  <desc>Original 18 by 16 point Ghost Caret contrast glyph. Static loading frame also used with Reduce Motion.</desc>
+  <g color="#16181D" fill="#16181D" stroke="#16181D" stroke-width="1.2" stroke-linejoin="round">
+    <rect x="2" y="2" width="2.4" height="12" rx="1.2"/>
+    <circle cx="8" cy="8" r="1.3"/>
+    <circle cx="11.5" cy="8" r="1.3" opacity=".6"/>
+    <circle cx="15" cy="8" r="1.3" opacity=".3"/>
+  </g>
+  <g color="#FFFFFF" fill="#FFFFFF">
+    <rect x="2" y="2" width="2.4" height="12" rx="1.2"/>
+    <circle cx="8" cy="8" r="1.3"/>
+    <circle cx="11.5" cy="8" r="1.3" opacity=".6"/>
+    <circle cx="15" cy="8" r="1.3" opacity=".3"/>
+  </g>
+</svg>

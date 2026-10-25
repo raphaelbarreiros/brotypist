@@ -74,11 +74,11 @@ def launch_at_login_state() -> bool:
 
 
 def set_launch_at_login(enabled: bool) -> bool:
-    """Change only this user's explicit Inklow login entry; never start a copy."""
+    """Change only this user's explicit BroTypist login entry; never start a copy."""
     if type(enabled) is not bool:
         raise ValueError("Launch at login must be on or off.")
     if os.environ.get("INKLOW_HOME"):
-        raise RuntimeError("Login items cannot be changed from an isolated test profile. Open the normal installed Inklow app.")
+        raise RuntimeError("Login items cannot be changed from an isolated test profile. Open the normal installed BroTypist app.")
     if sys.platform == "win32":
         import winreg
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
@@ -105,7 +105,7 @@ def set_launch_at_login(enabled: bool) -> bool:
         })
     else:
         command = _desktop_command(arguments)
-        content = ("[Desktop Entry]\nType=Application\nName=Inklow\n"
+        content = ("[Desktop Entry]\nType=Application\nName=BroTypist\n"
                    f"Exec={command}\nTerminal=false\nX-Inklow-Owned=true\n").encode("utf-8")
     _atomic_write(path, content)
     return True
@@ -125,7 +125,7 @@ def install_wayland_input_method() -> Path:
         raise RuntimeError(f"A different input-method entry already exists at {path}; it was not overwritten.")
     command = _desktop_command([*_launch_arguments(), "--wayland-input-method"])
     icon = str(Path(__file__).parent / "assets/icons/app-256.png").replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r")
-    content = ("[Desktop Entry]\nType=Application\nName=Inklow\n"
+    content = ("[Desktop Entry]\nType=Application\nName=BroTypist\n"
                "GenericName=Predictive typing input method\n"
                "Comment=Local predictions for supported KDE Wayland text inputs\n"
                f"Exec={command}\nIcon={icon}\nTerminal=false\nNoDisplay=true\n"
@@ -163,7 +163,7 @@ def open_wayland_settings() -> None:
         raise RuntimeError("KDE Wayland settings are available on Linux only.")
     command = shutil.which("kcmshell6")
     if not command:
-        raise RuntimeError("Open KDE System Settings → Keyboard → Virtual Keyboard and choose Inklow.")
+        raise RuntimeError("Open KDE System Settings → Keyboard → Virtual Keyboard and choose BroTypist.")
     subprocess.Popen([command, "kcm_virtualkeyboard"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -190,7 +190,7 @@ def open_permissions(kind: str = "accessibility") -> None:
     elif sys.platform == "win32":
         _open("ms-settings:privacy")
     else:
-        raise RuntimeError("Enable desktop accessibility. X11 uses AT-SPI keyboard access; KDE Wayland requires explicitly selecting Inklow as the native input method in Setup. OS access is never granted automatically.")
+        raise RuntimeError("Enable desktop accessibility. X11 uses AT-SPI keyboard access; KDE Wayland requires explicitly selecting BroTypist as the native input method in Privacy or Welcome. OS access is never granted automatically.")
 
 
 def reveal_models() -> None:

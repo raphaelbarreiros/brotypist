@@ -28,7 +28,7 @@ def create_bridge():
     except Exception as exc:
         return UnavailableBridge(
             f"Native integration could not initialize ({type(exc).__name__}: {exc}). "
-            "Install the platform extras and restart Inklow. Settings remain available."
+            "Install the platform extras and restart BroTypist. Settings remain available."
         )
 
 

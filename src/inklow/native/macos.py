@@ -31,12 +31,12 @@ class MacBridge(BridgeBase):
         if not self.ax.AXIsProcessTrusted():
             self._set_status(
                 "Accessibility permission required: System Settings → Privacy & Security → Accessibility. "
-                "Enable Inklow (or the terminal/Python host launching it), then restart."
+                "Enable BroTypist (or the terminal/Python host launching it), then restart."
             )
         elif self._tap is None:
             self._set_status(
                 "Accessibility available. Global shortcuts require Input Monitoring permission in "
-                "System Settings → Privacy & Security for Inklow or its terminal/Python host. "
+                "System Settings → Privacy & Security for BroTypist or its terminal/Python host. "
                 "Supported targets: writable AXTextField/AXTextArea with an observable caret."
             )
         else:
@@ -384,7 +384,7 @@ class MacBridge(BridgeBase):
                                      1 << q.kCGEventKeyDown, event_callback, None)
             if tap is None:
                 self._set_status(
-                    "Keyboard capture denied. Enable Accessibility and Input Monitoring for Inklow "
+                    "Keyboard capture denied. Enable Accessibility and Input Monitoring for BroTypist "
                     "(or its terminal/Python host) in System Settings → Privacy & Security, then restart."
                 )
                 return

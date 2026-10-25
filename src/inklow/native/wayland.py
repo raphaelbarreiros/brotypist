@@ -173,7 +173,7 @@ class WaylandBridge(LinuxBridge):
             self._available = False
             self._set_status(
                 f"KWin input method unavailable ({type(exc).__name__}: {exc}). "
-                "Start the installed Inklow input-method entry through KDE; the native library, Qt and desktop AT-SPI must be available."
+                "Start the installed BroTypist input-method entry through KDE; the native library, Qt and desktop AT-SPI must be available."
             )
 
     def _native_call(self, name: str, *arguments):
@@ -608,7 +608,7 @@ class WaylandBridge(LinuxBridge):
         regions = [((4, 4, 38, row), "menu", True)]
         align = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
         if self._menu is not None:
-            painter.drawText(QRect(44, 4, width - 52, row), align, "Inklow")
+            painter.drawText(QRect(44, 4, width - 52, row), align, "BroTypist")
             for index, (action, label, enabled) in enumerate(page):
                 y = (index + 1) * row + 4
                 selected = offset + index == self._menu_selected
