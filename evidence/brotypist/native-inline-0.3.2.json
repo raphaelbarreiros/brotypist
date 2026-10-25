@@ -1,0 +1,35 @@
+{
+  "version": "0.3.2",
+  "source_commit": "3077722c09a03e635d0392f92f13f449d0cb509a",
+  "host": "separate native AppKit NSTextView process; synthetic text only",
+  "packaged_real_model_prediction": true,
+  "visible_prediction": "Tuesday at 10 AM in the Cedar room.",
+  "reference": "Synthetic project context in the same window specified Tuesday, 10 AM and the Cedar room.",
+  "visual_proof": "inline-native-0.3.2.png",
+  "visual_provenance": "Actual on-screen input-line rectangle; foreground PID and overlapping-window ownership checked; no compositing",
+  "appearance": "grey host-font text on the same baseline after the caret; no card, border or shadow",
+  "model_test_isolation": "Default app prediction disabled; only the disposable host executable enabled; separate settings profile; history, statistics and clipboard disabled",
+  "protected_sibling_omitted_in_context_probe": true,
+  "native_tab_acceptance_in_controller_probe": true,
+  "packaged_privacy_labels": {
+    "accessibility": "Granted",
+    "input_monitoring": "Granted",
+    "screen_recording": "Granted"
+  },
+  "screen_recording_used_for_prediction_context": false,
+  "installed_app": {
+    "path": "/Applications/BroTypist.app",
+    "display_name": "BroTypist",
+    "menu_bar_item_present": true,
+    "quick_menu_quit_present": true,
+    "quick_menu_quit_terminated_app": true
+  },
+  "limitations": [
+    "Native same-line drawing is a transparent caret-aligned overlay, not text inserted into the host document or native IME pre-edit.",
+    "Chrome on this Mac did not expose a reliable font name; strict completion remained silent, while its Accessibility window reference context was available.",
+    "Wayland ordinary completion is disabled: the tested compositor path did not provide safe inactive pre-edit styling and stale-selection fencing.",
+    "Windows-native execution was not exercised.",
+    "No visible-latency percentile or cross-language quality claim. Earlier event/panel timing measurements are not pixel-visible completion proof.",
+    "Grammarly Desktop and the old installed BroTypist interfered with early tests. Grammarly was temporarily quit with user approval for the final screen check."
+  ]
+}

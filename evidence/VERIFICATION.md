@@ -2,6 +2,26 @@
 
 # Observed verification
 
+## BroTypist 0.3.2 — strict native inline completion
+
+Implementation source: `3077722c09a03e635d0392f92f13f449d0cb509a`. The following replaces, rather than extends, the older popup/Wayland compatibility observations below.
+
+| Exercised source suite | Passed | Skipped |
+| --- | ---: | ---: |
+| macOS / native AppKit | 353 | 20 |
+| Linux / portable Qt and native safety regressions | 390 | 1 |
+
+- **Actual packaged inline rendering:** the signed arm64 app ran its real model against a separate native `NSTextView`. The grey completion used the host font and baseline immediately after the caret, without a card, border or shadow. The same-window synthetic reference specified Tuesday at 10 AM in the Cedar room; the completion used those details. [Actual screen pixels](brotypist/inline-native-0.3.2.png), [receipt and limits](brotypist/native-inline-0.3.2.json). The image is a guarded screen-region capture, not a composite.
+- **Input and privacy:** the native-controller probe accepted the next word through a real external-process Tab event and preserved host focus. Its bounded Accessibility context omitted the synthetic secure sibling. Clipboard work is marshalled to the Qt GUI thread and reauthorizes before/after reading; context jobs cancel and reauthorize before publication.
+- **Packaged permissions and menu:** actual Privacy labels read `Granted` for Accessibility, Input Monitoring and Screen Recording. Prediction context uses Accessibility only, not Screen Recording. The installed app exposed its menu-bar item and `Quit BroTypist`; pressing that actual quick-menu item terminated the installed app normally. It was restarted afterward.
+- **Installer and inference:** the signed 0.3.2 DMG mounted read-only, exposed the drag-install layout, copied a valid signed bundle, printed the correct CLI version, showed a real settings window and quit normally. Its isolated uninstall preserved external user data. The frozen CLI and inference worker both generated real model output and exited successfully. DMG and ZIP were built locally; no new GitHub release was published by this change. The Apple Development signature is not a notarization or Developer ID distribution claim.
+- **Installed preferences:** only the user-approved debounce (`150 ms`), idle retention (`300 seconds`) and Accessibility window-context switch were changed. Other settings, the existing model and login-item configuration were preserved; the prior signed bundle and preferences have a private local rollback.
+- **Artwork:** canonical normal/dark/small SVG artwork from the supplied handoff is retained byte-for-byte. ICNS/ICO/PNG derivatives use that artwork, without the previous additional enclosure/mask rewriting; native small/Retina UI images load the ICNS representation.
+
+**Important limits:** this is transparent caret-aligned native overlay text, not host-document mutation or native IME pre-edit. Chrome on this Mac exposed font size but no trustworthy font name, so strict ordinary completion stayed silent; focused-document Accessibility context still worked. Wayland ordinary completion is disabled after a real nested-compositor test showed unsafe stale-selection behavior and no proven inactive styling; the unsafe pre-edit ABI/path was removed. The Linux suite/build is not Linux-desktop inline compatibility proof. Windows-native execution remains unverified. RTL/composing/unverifiable controls stay silent. No universal-input, visible-latency percentile or multilingual-quality claim is made.
+
+**Test correction:** the old installed BroTypist and Grammarly Desktop were still active during early probes. Grammarly owned an overlapping popup and was temporarily quit with approval for the final isolated check, then reopened. An early manual-run-loop harness checked event/panel flags without reliable drawing; those results and its event timings are not visual acceptance proof. The final renderer check used a real AppKit application loop; the final model screenshot came from the packaged app.
+
 ## BroTypist / Ghost Caret — 2026-10-24
 
 The private repository was renamed in place to `renan-brasilio/brotypist`; the GitHub API still reports `private: true`. The public app, CLI and new packaging paths use BroTypist. Established OS/data/credential namespaces are intentionally unchanged.
