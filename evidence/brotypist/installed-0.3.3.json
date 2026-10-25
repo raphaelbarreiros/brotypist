@@ -1,0 +1,31 @@
+{
+  "installed_version": "0.3.3",
+  "installed_display_name": "BroTypist",
+  "bundle": "/Applications/BroTypist.app",
+  "implementation_source": "a3674a16f34aa29a12a643a9bbe7e943600b1740",
+  "signature": "Apple Development identity-signed; designated signing requirement unchanged",
+  "notarized": false,
+  "frozen_cli_real_inference_exit_code": 0,
+  "frozen_worker_real_inference_exit_code": 0,
+  "installer_smoke": {
+    "read_only_mount": "passed",
+    "drag_install_layout": "passed",
+    "copied_bundle_signature_and_version": "passed",
+    "actual_settings_window_visible": true,
+    "normal_gui_quit_exit_code": 0,
+    "isolated_uninstall_preserves_external_data": true,
+    "detach": "passed"
+  },
+  "post_install": {
+    "running_single_instance": true,
+    "finished_launching": true,
+    "native_menu_bar_item_present": true,
+    "all_settings_bytes_unchanged": true,
+    "startup_configuration_bytes_unchanged": true,
+    "selected_model_file_size_and_mtime_unchanged": true,
+    "private_previous_app_rollback_crc_verified": true
+  },
+  "local_artifacts": ["BroTypist-0.3.3-macos-arm64.dmg", "BroTypist-0.3.3-macos-arm64.zip"],
+  "github_release_published": false,
+  "new_model_installed_or_selected": false
+}
