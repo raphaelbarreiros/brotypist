@@ -970,7 +970,9 @@ class Controller:
             self._candidate = None
             self._client.release()
 
-    def toggle_current_app(self):
+    def toggle_current_app(self, *, app=None, domain=""):
+        if app is not None:
+            return self._toggle_app(app, domain)
         with self._lock:
             try:
                 info = self.bridge.foreground() or {}

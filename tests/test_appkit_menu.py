@@ -68,6 +68,106 @@ def test_menu_dismissal_does_not_enable_an_existing_shortcut_recorder(shell):
 
 
 @pytest.fixture
+def field_menu(shell, monkeypatch):
+    from inklow.config import Config
+    shell, bridge, calls = shell
+    status = {"current_app": "fixture.writer", "current_domain": "writing.example",
+              "current_app_enabled": True, "paused_until": 0}
+    shell.next_tag = 0
+    shell.controller.config = Config()
+    shell.controller.status = lambda: dict(status)
+    shell.controller.toggle_current_app = lambda **context: calls.append(("app_toggle", context))
+    shell.controller.pause = lambda minutes: calls.append(("pause", minutes))
+    monkeypatch.setattr(shell, "_app_name", lambda app: "Fixture Writer" if app else "")
+    monkeypatch.setattr(shell, "show_settings", lambda pane: calls.append(("settings", pane)))
+    shell._build_field_menu()
+    return shell, bridge, calls, status
+
+
+
+
+@pytest.mark.parametrize("app, allowed", [("fixture.writer", False), ("", True)])
+def test_field_app_toggle_shows_disabled_state_and_requires_a_target(field_menu, app, allowed):
+    shell, _, _, status = field_menu
+    status["current_app"] = app
+    status["current_app_enabled"] = allowed
+    menu = shell._accessory_menu()
+    item = menu.itemAtIndex_(0)
+    assert item.state() == A.NSControlStateValueOff
+    assert item.isEnabled() == bool(app)
+
+def test_unsupported_field_badge_does_not_claim_active_or_disable_predictions(field_menu, monkeypatch):
+    shell, _, _, status = field_menu
+    status.update(enabled=True, state="idle", inline_available=False,
+                  inline_message="Unsupported text control")
+    shell.controller.config.backend = "ollama"
+    shell.controls = {}
+    shell.status_item = None
+    shell.last_status = None
+    shell.overlay = SimpleNamespace(configure=lambda *args: None)
+    monkeypatch.setattr(shell, "_permission_state",
+                        lambda: {"accessibility": True, "input_monitoring": True})
+
+    class Control:
+        text = ""
+
+        def setStringValue_(self, value):
+            self.text = value
+
+        def __getattr__(self, name):
+            if name.startswith("set"):
+                return lambda value: None
+            raise AttributeError(name)
+
+    for name in ("status_line", "pause_item", "resume_item", "hour_item", "tomorrow_item",
+                 "attention_item", "menu_badge", "menu_model", "menu_backend", "menu_subtitle", "current_item"):
+        setattr(shell, name, Control())
+    appkit_ui.BroTypistApplication._refresh_status(shell)
+    assert "Active" not in shell.menu_badge.text
+    assert shell.menu_subtitle.text
+    assert shell.controller.config.global_enabled
+
+
+
+def test_field_toggle_keeps_original_app_and_defers_until_tracking_ends(field_menu):
+    shell, bridge, calls, status = field_menu
+    menu = shell._accessory_menu()
+    item = menu.itemAtIndex_(0)
+    shell.menuWillOpen_(menu)
+    status["current_app"] = "another.writer"
+    status["current_domain"] = "another.example"
+    shell.perform_(item)
+    shell.tick_(None)
+    assert calls == []
+    assert not bridge._enabled
+    shell.menuDidClose_(menu)
+    shell.tick_(None)
+    assert calls == [("app_toggle", {"app": "fixture.writer", "domain": "writing.example"}), "capture"]
+    assert bridge._enabled
+
+
+def test_field_pause_is_temporary_and_resume_does_not_toggle_global_setting(field_menu):
+    import time
+    shell, _, calls, status = field_menu
+    menu = shell._accessory_menu()
+    item = menu.itemAtIndex_(1)
+    shell.perform_(item)
+    shell.tick_(None)
+    assert calls == [("pause", 60), "capture"]
+    status["paused_until"] = time.monotonic() + 3600
+    shell._accessory_menu()
+    assert item.title() == "Resume predictions"
+    shell.perform_(item)
+    shell.tick_(None)
+    assert calls[-2:] == [("pause", 0), "capture"]
+    assert shell.controller.config.global_enabled
+    shell.controller.config.global_enabled = False
+    status["paused_until"] = 0
+    shell._accessory_menu()
+    assert not item.isEnabled()
+
+
+@pytest.fixture
 def screen(monkeypatch):
     screen = SimpleNamespace(frame=lambda: A.NSMakeRect(0, 0, 1000, 700),
                              visibleFrame=lambda: A.NSMakeRect(0, 0, 1000, 676))
@@ -81,11 +181,17 @@ def test_accessory_is_above_the_text_line_instead_of_covering_it(screen):
     assert A.NSWidth(frame) == 24
 
 
-def test_top_edge_uses_space_beside_field_not_over_its_words(screen):
+def test_top_edge_hides_accessory_instead_of_moving_onto_the_writing_line(screen):
     field = (10, 20, 900, 32)
-    frame = appkit_overlay._position((10, 20, 900, 18), 24, 24, accessory=True, field_rect=field)
-    assert frame is not None
-    assert A.NSMinX(frame) >= field[0] + field[2] + 6
+    assert appkit_overlay._position(
+        (10, 20, 900, 18), 24, 24, accessory=True, field_rect=field) is None
+
+
+@pytest.mark.parametrize("left", [0, 10])
+def test_left_edge_accessory_cannot_cover_preceding_lines(screen, left):
+    assert appkit_overlay._position(
+        (left, 200, 1, 18), 24, 24, accessory=True,
+        field_rect=(left, 100, 900, 400)) is None
 
 
 def test_accessory_is_hidden_when_no_nonoverlapping_position_exists(screen):

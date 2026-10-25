@@ -81,6 +81,9 @@ class UIController:
     def pause(self, minutes):
         self.actions.append(("pause", minutes))
 
+    def toggle_current_app(self, *, app=None, domain=""):
+        self.actions.append(("app_toggle", app, domain))
+
     def models(self):
         return []
 
@@ -342,7 +345,8 @@ def test_owned_menu_stays_selectable_and_freezes_capture_across_timer_ticks(shel
     else:
         menu = shell.menu
         menu.popup(QPoint(40, 40))
-    enabled = next(action for action in menu.actions() if action.objectName() == "enabled")
+    name = "field_app_toggle" if surface == "accessory" else "enabled"
+    enabled = next(action for action in menu.actions() if action.objectName() == name)
     menu.setActiveAction(enabled)
     ticks = shell.controller.ticks
     shell.controller.events = [{"type": "clear", "hide_accessory": True}]
@@ -359,8 +363,12 @@ def test_owned_menu_stays_selectable_and_freezes_capture_across_timer_ticks(shel
     assert not menu.isVisible()
     assert shell.controller.actions == []
     shell.app.processEvents()
-    assert shell.controller.config.global_enabled
-    assert shell.controller.actions == [("pause", 0)]
+    if surface == "accessory":
+        assert not shell.controller.config.global_enabled
+        assert shell.controller.actions == [("app_toggle", "test.app", "")]
+    else:
+        assert shell.controller.config.global_enabled
+        assert shell.controller.actions == [("pause", 0)]
     assert shell.controller.ticks > ticks
     assert not shell.accessory.isVisible()
     assert shell.controller.bridge._dispatch("toggle")
@@ -396,62 +404,90 @@ def test_clear_does_not_destroy_open_accessory_menu_and_dismissal_applies_hide(s
     assert not shell.accessory.isVisible()
 
 
-@pytest.mark.parametrize("target", ["same", "changed", "protected"])
-def test_accessory_selection_revalidates_fresh_target_only_after_menu_closes(shell, target):
-    from inklow.runtime import Controller
-
-    class FieldBridge(BridgeBase):
-        def __init__(self):
-            super().__init__()
-            self.snapshot = Snapshot("fixture.writer", "body", "Fixture draft", 13,
-                                     caret_rect=(120, 160, 1, 20), field_rect=(40, 100, 240, 160))
-            self.captures = 0
-            self.insertions = []
-
-        def foreground(self):
-            return {"app_id": self.snapshot.app_id, "domain": "", "name": "Fixture"}
-
-        def capture(self):
-            self.captures += 1
-            return self.snapshot
-
-        def insert(self, snapshot, text):
-            if snapshot.key != self.snapshot.key or not snapshot.eligible(1):
-                return False
-            self.insertions.append(text)
-            self.snapshot = replace(snapshot, text=snapshot.prefix + text + snapshot.suffix,
-                                    caret=snapshot.caret + len(text))
-            return True
-
-    bridge = FieldBridge()
-    shell.controller = Controller(Config(min_chars=1000, statistics_enabled=False), bridge)
-    shell.tick()
-    snapshot = bridge.snapshot
-    shell.controller._publish_choices(snapshot, [" tomorrow"], "alternatives", (snapshot.caret, 0))
-    shell.tick()
+@pytest.mark.parametrize("changed_app", ["fixture.writer", "another.writer"])
+def test_field_app_toggle_retains_original_app_after_menu_closes(shell, changed_app):
+    status = {**shell.controller.status(), "current_app": "fixture.writer",
+              "current_domain": "writing.example", "current_app_enabled": True}
+    shell.controller.status = lambda: status
     shell.accessory.button.click()
     menu = shell.accessory.menu
-    choice = next(action for action in menu.actions() if action.objectName() == "choice:1")
-    menu.setActiveAction(choice)
-    captures = bridge.captures
-    if target == "changed":
-        bridge.snapshot = replace(snapshot, field_id="different-field")
-    elif target == "protected":
-        bridge.snapshot = replace(snapshot, protected=True)
-    shell.tick()
-    assert bridge.captures == captures
-    assert not bridge._dispatch("choice:1")
+    action = next(action for action in menu.actions() if action.objectName() == "field_app_toggle")
+    menu.setActiveAction(action)
+    ticks = shell.controller.ticks
+    status["current_app"] = changed_app
+    status["current_domain"] = "another.example"
     QTest.keyClick(menu, Qt.Key.Key_Return)
     assert not menu.isVisible()
-    assert bridge.captures == captures
-    assert bridge.insertions == []
+    assert shell.controller.actions == []
+    assert shell.controller.ticks == ticks
     shell.app.processEvents()
-    assert bridge.captures > captures
-    assert bridge.insertions == ([" tomorrow"] if target == "same" else [])
-    assert not shell.overlay.isVisible()
-    if target == "protected":
-        assert not shell.accessory.isVisible()
+    assert shell.controller.actions == [("app_toggle", "fixture.writer", "writing.example")]
+    assert shell.controller.ticks > ticks
 
+
+
+
+def test_field_pause_and_resume_do_not_change_global_or_app_preferences(shell):
+    shell.controller.config = replace(shell.controller.config, global_enabled=True)
+    status = {**shell.controller.status(), "paused_until": 0}
+    shell.controller.status = lambda: status
+    menu = shell.create_field_menu()
+    pause = next(action for action in menu.actions() if action.objectName() == "field_pause")
+    pause.trigger()
+    assert shell.controller.actions == [("pause", 60)]
+    menu.deleteLater()
+    status["paused_until"] = time.monotonic() + 3600
+    menu = shell.create_field_menu()
+    resume = next(action for action in menu.actions() if action.objectName() == "field_pause")
+    assert resume.text() == "Resume predictions"
+    resume.trigger()
+    assert shell.controller.actions == [("pause", 60), ("pause", 0)]
+    assert shell.controller.config.global_enabled
+    assert shell.controller.saved == []
+    menu.deleteLater()
+
+
+def test_unsupported_field_is_not_labeled_active_or_globally_disabled(shell):
+    shell.controller.config = replace(shell.controller.config, global_enabled=True)
+    shell.controller.status = lambda: {"enabled": True, "state": "idle",
+                                       "inline_available": False, "inline_message": "Unsupported text control",
+                                       "current_app": "fixture.writer", "current_app_enabled": True}
+    shell.refresh_menu()
+    status = next(action for action in shell.menu.actions() if action.objectName() == "status")
+    assert "Active" not in status.text()
+    assert shell.controller.config.global_enabled
+    menu = shell.create_field_menu()
+    toggle = next(action for action in menu.actions() if action.objectName() == "field_app_toggle")
+    assert toggle.isChecked()
+    menu.deleteLater()
+
+
+def test_native_field_menu_uses_same_compact_actions_and_deferred_target(shell, monkeypatch):
+    shell.controller.start()
+    status = {**shell.controller.status(), "current_app": "fixture.writer",
+              "current_domain": "writing.example", "current_app_enabled": True}
+    shell.controller.status = lambda: status
+    rows = []
+    monkeypatch.setattr(shell.controller.bridge, "show_native_menu",
+                        lambda items: rows.extend(items) or True, raising=False)
+    monkeypatch.setattr(shell.controller.bridge, "hide_native", lambda: None, raising=False)
+    shell._native_action("menu")
+    assert len(rows) == 3
+    assert rows[0][1] == "✓ Predictions in fixture.writer: Enabled"
+    assert rows[1][1] == "Pause for 1 hour"
+    assert rows[2][1] == "Settings…"
+    assert shell._menu_session
+    assert not shell.controller.bridge._enabled
+    ticks = shell.controller.ticks
+    status["current_app"] = "another.writer"
+    shell._native_action(rows[0][0])
+    assert shell.controller.actions == []
+    assert shell.controller.ticks == ticks
+    assert not shell.controller.bridge._enabled
+    shell.app.processEvents()
+    assert shell.controller.actions == [("app_toggle", "fixture.writer", "writing.example")]
+    assert shell.controller.ticks > ticks
+    assert shell.controller.bridge._enabled
 
 @pytest.mark.parametrize("shell", [True], indirect=True)
 def test_tray_stays_visible_after_settings_close_and_quit_exits_event_loop(shell):

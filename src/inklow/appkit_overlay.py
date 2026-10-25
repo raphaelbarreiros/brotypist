@@ -140,18 +140,11 @@ def _position(rect, width, height, *, accessory=False, field_rect=None):
     left = x - width - 6 if accessory else x
     bottom = origin_top - y + 6 if accessory else caret_bottom - height - 6
     if accessory:
-        if left < A.NSMinX(visible) + 4:
-            left = max(x, A.NSMinX(visible) + 4)
-            if field_rect:
-                bottom = origin_top - min(y, float(field_rect[1])) + 6
-        if bottom + height > A.NSMaxY(visible) - 4:
-            if field_rect and x - width - 6 >= A.NSMinX(visible) + 4:
-                left = x - width - 6
-            elif field_rect and float(field_rect[0]) + float(field_rect[2]) + width + 6 <= A.NSMaxX(visible) - 4:
-                left = float(field_rect[0]) + float(field_rect[2]) + 6
-            else:
-                return None
-            bottom = max(A.NSMinY(visible) + 4, origin_top - y - height)
+        # Stay outside the field: horizontal clamping could cover earlier lines.
+        if (left < A.NSMinX(visible) + 4 or left + width > A.NSMaxX(visible) - 4
+                or bottom < A.NSMinY(visible) + 4 or bottom + height > A.NSMaxY(visible) - 4):
+            return None
+        return A.NSMakeRect(left, bottom, width, height)
     elif caret_bottom - A.NSMinY(visible) < height + 40:
         bottom = caret_bottom + caret_height + 6
     left = max(A.NSMinX(visible) + 8, min(left, A.NSMaxX(visible) - width - 8))
@@ -182,6 +175,19 @@ class GhostSurface(A.NSView):
             A.NSMakePoint(0, self.baseline + float(self.font.descender())), attributes)
 
 
+def _accessory_image():
+    """An unboxed template glyph, with physical pixels kept separate from points."""
+    size = A.NSMakeSize(18, 16)
+    image = A.NSImage.alloc().initWithSize_(size)
+    for pixels in (18, 36):
+        representation = A.NSBitmapImageRep.imageRepWithContentsOfFile_(
+            str(asset_path(f"tray/active-template-{pixels}.png")))
+        representation.setSize_(size)
+        image.addRepresentation_(representation)
+    image.setTemplate_(True)
+    return image
+
+
 class CaretOverlay:
     """Suggestion and accessory are independent panels; neither steals focus."""
 
@@ -204,10 +210,7 @@ class CaretOverlay:
         button.setAccessibilityLabel_("BroTypist menu")
         button.setToolTip_("BroTypist — typing settings and pause controls")
         button.setContentTintColor_(A.NSColor.secondaryLabelColor())
-        image = A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("tray/active-template-18.png")))
-        image.setTemplate_(True)
-        image.setSize_(A.NSMakeSize(18, 16))
-        button.setImage_(image)
+        button.setImage_(_accessory_image())
         button.setImagePosition_(A.NSImageOnly)
         button.setBordered_(False)
         button.setTag_(100)

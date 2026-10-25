@@ -281,6 +281,18 @@ def test_temporary_pause_resumes_and_app_toggle_never_persists_rule(runtime, tmp
     assert controller.status()["current_app_enabled"]
 
 
+def test_field_menu_toggle_keeps_captured_target_after_focus_moves(runtime, tmp_path):
+    controller, bridge, _ = runtime
+    bridge.info = {"app_id": "settings-host", "name": "Settings", "domain": ""}
+    assert controller.toggle_current_app(app="writer", domain="")
+    assert not controller._allowed("writer", "")
+    assert controller._allowed("settings-host", "")
+    assert controller.config.app_rules == {}
+    assert not (tmp_path / "settings.json").exists()
+    assert controller.toggle_current_app(app="writer", domain="")
+    assert controller._allowed("writer", "")
+
+
 def test_default_disabled_can_be_explicitly_enabled_for_one_app(runtime):
     controller, bridge, _ = runtime
     controller.update_config(replace(controller.config, enabled=False, app_rules={"app:writer": {"enabled": True}}), persist=False)

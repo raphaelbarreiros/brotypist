@@ -457,6 +457,7 @@ class BroTypistApplication(NSObject):
         self.menu.addItem_(A.NSMenuItem.separatorItem())
         self._menu_item(self.menu, "Settings…", "inklow.menu.settings", lambda: self.show_settings("general"), ",")
         self._menu_item(self.menu, "Quit BroTypist", "inklow.menu.quit", lambda: A.NSApplication.sharedApplication().terminate_(None), "q")
+        self._build_field_menu()
         self.menu_binding_limit = self.next_tag
 
     @objc.python_method
@@ -467,12 +468,44 @@ class BroTypistApplication(NSObject):
         self.controller.pause(max(1, int((tomorrow - now).total_seconds() / 60)))
 
     @objc.python_method
+    def _build_field_menu(self):
+        self.field_menu = A.NSMenu.alloc().initWithTitle_("")
+        self.field_menu.setAutoenablesItems_(False)
+        self.field_menu.setDelegate_(self)
+        # These bindings live with the application, like the status menu's.
+        # Opening a field menu only replaces their captured context, not tags.
+        self.field_app_item = self._menu_item(
+            self.field_menu, "", "inklow.field.currentApp", self.controller.toggle_current_app)
+        self.field_pause_item = self._menu_item(
+            self.field_menu, "", "inklow.field.pause", lambda: self.controller.pause(60))
+        self.field_menu.addItem_(A.NSMenuItem.separatorItem())
+        self._menu_item(self.field_menu, "Settings…", "inklow.field.settings",
+                        lambda: self.show_settings("general"))
+
+    @objc.python_method
+    def _refresh_field_menu(self):
+        status = self.controller.status()
+        app = str(status.get("current_app") or "")
+        domain = str(status.get("current_domain") or "")
+        allowed = bool(status.get("current_app_enabled", self.controller.config.enabled))
+        name = self._app_name(app) or "Current App"
+        name = name[:29] + "…" if len(name) > 30 else name
+        self.field_app_item.setTitle_(f"Predictions in {name}: {'Enabled' if allowed else 'Disabled'}")
+        self.field_app_item.setState_(A.NSControlStateValueOn if allowed and app else A.NSControlStateValueOff)
+        self.field_app_item.setEnabled_(bool(app))
+        self.field_app_item.setToolTip_("Changes predictions for this app for the current session only.")
+        self.bindings[int(self.field_app_item.tag())] = (
+            lambda sender: self.controller.toggle_current_app(app=app, domain=domain))
+        paused = float(status.get("paused_until", 0)) > time.monotonic()
+        self.field_pause_item.setTitle_("Resume predictions" if paused else "Pause for 1 hour")
+        self.field_pause_item.setEnabled_(paused or self.controller.config.global_enabled)
+        self.bindings[int(self.field_pause_item.tag())] = (
+            lambda sender: self.controller.pause(0 if paused else 60))
+
+    @objc.python_method
     def _accessory_menu(self):
-        self._refresh_status()
-        self._refresh_menu_stats()
-        menu = self.menu.copy()
-        menu.setDelegate_(self)
-        return menu
+        self._refresh_field_menu()
+        return self.field_menu
 
     def menuWillOpen_(self, menu):
         if not self.tracking_menus and not self.resume_menu_shortcuts:
@@ -480,8 +513,11 @@ class BroTypistApplication(NSObject):
         self.tracking_menus.add(menu)
         self.controller.bridge.set_shortcuts_enabled(False)
         try:
-            self._refresh_status()
-            self._refresh_menu_stats()
+            if menu == getattr(self, "field_menu", None):
+                self._refresh_field_menu()
+            else:
+                self._refresh_status()
+                self._refresh_menu_stats()
         except Exception as exc:
             self.status_line.setTitle_((str(exc)[:41] + "…") if len(str(exc)) > 42 else str(exc))
 
@@ -567,8 +603,10 @@ class BroTypistApplication(NSObject):
         paused = float(status.get("paused_until", 0)) > time.monotonic()
         loading = state in {"loading", "starting", "warming"}
         needs_attention = state in {"error", "permission", "empty"}
+        unavailable = enabled and not paused and not loading and not needs_attention and not status.get("inline_available", True)
         icon_state = "off" if needs_attention else ("loading" if loading and enabled else ("paused" if paused else ("active" if enabled else "off")))
-        badge = "▲ Needs attention" if needs_attention else ("◌ Loading" if loading and enabled else ("■ Paused" if paused else ("● Active" if enabled else "○ Off")))
+        badge = "▲ Needs attention" if needs_attention else ("◌ Loading" if loading and enabled else (
+            "■ Paused" if paused else ("Unavailable here" if unavailable else ("● Active" if enabled else "○ Off"))))
         self.pause_item.setTitle_("Enable predictions")
         self.pause_item.setState_(A.NSControlStateValueOn if self.controller.config.global_enabled else A.NSControlStateValueOff)
         self.resume_item.setHidden_(not paused)
@@ -583,7 +621,7 @@ class BroTypistApplication(NSObject):
             color = _rgb("F0B65A" if _dark(self.menu_badge) else "8A5A00")
         elif loading and enabled:
             color = A.NSColor.systemBlueColor()
-        elif enabled:
+        elif enabled and not unavailable:
             color = _rgb("6FDDB2" if _dark(self.menu_badge) else "0B6B4C")
         self.menu_badge.setTextColor_(color)
         model_name = self._model_name()
@@ -951,7 +989,7 @@ class BroTypistApplication(NSObject):
         login.setState_(A.NSControlStateValueOn if system.launch_at_login_state() else A.NSControlStateValueOff)
         self._switch("global_enabled", "Enable predictions", "Turn off to keep BroTypist running without suggesting anything.")
         self._switch("enabled", "Enable in eligible apps by default", "App and website rules in Privacy can override this default.")
-        self._switch("show_accessory", "Show accessory beside the text field", "Quick access to BroTypist’s menu without leaving your text field.")
+        self._switch("show_accessory", "Show accessory beside the text field", "Current-app predictions, temporary pause and Settings without leaving your text field.")
         self._record("toggle", "Toggle predictions shortcut", "Optional. Pause or resume globally without changing app-specific rules.")
         self._general_activity()
 

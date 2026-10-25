@@ -12,7 +12,7 @@ Local-first predictive typing for macOS, Windows, and Linux. BroTypist lives in 
 
 This repository is **private**. Sign in to a GitHub account with access before downloading release assets or cloning it.
 
-The latest published installers are **0.3.0**, released under the previous **Inklow** name. Those immutable assets keep their original filenames. The BroTypist redesign, download-progress fix, and **0.3.2 strict inline/window-context changes are in source**. An older installer does not contain these changes; use a verified current build until the next release is published.
+The latest published installers are **0.3.0**, released under the previous **Inklow** name. Those immutable assets keep their original filenames. The BroTypist redesign, strict inline/window-context changes, and **0.3.3 minimal field-menu/Retina artwork corrections are in source**. An older installer does not contain these changes; use a verified current build until the next release is published.
 
 | Platform | Published 0.3.0 assets | Current native build outputs |
 | --- | --- | --- |

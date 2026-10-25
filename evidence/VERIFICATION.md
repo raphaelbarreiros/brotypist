@@ -2,6 +2,20 @@
 
 # Observed verification
 
+## BroTypist 0.3.3 — compact field controls and renewed reference review
+
+| Final integrated source suite | Passed | Skipped |
+| --- | ---: | ---: |
+| macOS / native AppKit | 361 | 21 |
+| Linux / portable Qt | 403 | 1 |
+
+- **Actual field menus:** source-native AppKit displayed only current-app predictions, temporary pause/resume and Settings; no custom dashboard header was present and menu-bar Quit remained. [Native capture](brotypist/minimal-field-menu-0.3.3.png). The real portable `QMenu` also displayed those actions in a private offscreen profile. [Portable capture](brotypist/minimal-field-menu-qt-0.3.3.png). These use synthetic fixture context, not personal writing; the portable capture is not native-desktop input proof.
+- **Artwork boundaries:** full-size SVG derivatives retain the I-beam and two pills; compact logical sizes use the stem and one pill. Native field glyphs assemble explicit 1×/2× template representations. A logical-size Qt icon engine separates 32pt@2× from 64pt@1× rather than confusing equal physical raster dimensions. Ten real widget-icon size/DPR cases verify physical resolution and visible pill geometry.
+- **Workflowz review:** named pool `BroTypistReferenceReview` reviewed menu lifecycle/focus, artwork/geometry and reference/model claims independently. Two verified artwork/geometry findings were corrected: the accessory now hides instead of clamping into previous text rows at a left edge, and application-wide small icons retain the compact drawing. The multiline-overlap regression failed before the fix and passed afterward. Menu actions retain the pre-tracking app/domain and execute only after tracking closes.
+- **Fresh original-app evidence:** REA captured the running [redacted reference] General picker selecting/recommending **Gemma 4 E2B (2.8 GB)** and static Gemma4/llama.cpp/GGUF strings. See [reference evidence and model decision]([redacted reference].md#reference-correction-pass--2026-10-25), [sanitized receipt](brotypist/reference-correction-0.3.3.json). Raw records remain private. The original review process was quit normally after inspection; its preferences were not changed.
+
+**Limits:** current BroTypist retains its independently pinned Qwen writer. No Gemma download, adapter or performance/quality benchmark was performed. Upstream llama.cpp support is not validation of the packaged Python binding. Deep decompilation providers were unavailable; original live typing, exact field-menu contents, prompts and runtime model execution remain unproven. Strict native input restrictions, browser-font limitations, unavailable Wayland ordinary completion and unverified Windows-native behavior remain unchanged. This is not complete [redacted reference] parity or a new GitHub release.
+
 ## BroTypist 0.3.2 — strict native inline completion
 
 Implementation source: `3077722c09a03e635d0392f92f13f449d0cb509a`. The following replaces, rather than extends, the older popup/Wayland compatibility observations below.

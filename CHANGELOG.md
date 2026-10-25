@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.3.3 — Unreleased
+
+- Separate the field accessory's minimal current-app, temporary pause/resume and Settings menu from the menu-bar dashboard. Keep Quit in the menu bar.
+- Capture the app/domain before menu tracking so a deferred toggle cannot affect the settings app or a newly focused window.
+- Report unsupported ordinary completion as unavailable here, not Active, without disabling the user's global preference.
+- Add logical-size compact Retina artwork and explicit 1×/2× native field-glyph representations. Keep full-size I-beam/two-pill artwork separate from the compact one-pill variant.
+- Hide the native accessory when it cannot fit above the writing line instead of moving it beside or over text.
+- Repeat the [redacted reference] REA reference pass and confirm Gemma 4 E2B is selected/recommended in the original UI. Document the current Qwen-specific guided prompt as a migration constraint; do not silently change models or claim unmeasured Gemma performance.
+
 ## 0.3.2 — Unreleased
 
 - Rename the public app, CLI, installers and private GitHub repository to BroTypist / `brotypist`. Keep established bundle, startup, credential-store and data identifiers so the visual rebrand does not reset settings, model caches, encrypted history or permission identity.

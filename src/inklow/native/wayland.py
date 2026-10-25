@@ -611,7 +611,7 @@ class WaylandBridge(LinuxBridge):
             painter.setBrush(palette.color(QPalette.ColorRole.Window))
             painter.drawRoundedRect(QRectF(0.5, 0.5, width - 1, height - 1), 9, 9)
         painter.setOpacity(0.45 if self._panel_paused else 1.0)
-        painter.drawPixmap(QRect(10, (row + 8 - 24) // 2, 24, 24), app_icon().pixmap(24 * scale, 24 * scale))
+        painter.drawPixmap(QRect(10, (row + 8 - 24) // 2, 24, 24), app_icon(compact=True).pixmap(24 * scale, 24 * scale))
         painter.setOpacity(1.0)
         painter.setPen(text_color)
         regions = [((4, 4, 38, row), "menu", True)]

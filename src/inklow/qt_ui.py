@@ -195,6 +195,8 @@ def _tray_state(status: dict, config: Config) -> str:
         return "paused"
     if status.get("state") in {"starting", "loading"}:
         return "loading"
+    if not status.get("inline_available", True):
+        return "unavailable"
     return "active"
 
 
@@ -731,7 +733,7 @@ class SettingsWindow(QDialog):
         form.addRow(_label("The system tray icon remains available while BroTypist is running. Closing settings hides this window; Quit in the menu stops BroTypist."))
         self._check(form, "global_enabled", "Enable predictions", "Turn off to keep BroTypist running without suggesting anything.")
         self._check(form, "enabled", "Enable in eligible apps by default", "App and website rules in Privacy can override this default.")
-        self._check(form, "show_accessory", "Show accessory beside the text field", "Quick access to BroTypist's menu without leaving your text field.")
+        self._check(form, "show_accessory", "Show accessory beside the text field", "Current-app predictions, temporary pause and Settings without leaving your text field.")
         self._statistics(layout)
 
     def _ai_models(self, layout) -> None:
@@ -1691,7 +1693,7 @@ class Accessory(QWidget):
         self.button.setFixedSize(24, 24)
         self.button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.button.setStyleSheet("QToolButton { border: none; padding: 3px; }")
-        self.button.setToolTip("BroTypist actions and choices")
+        self.button.setToolTip("BroTypist — app predictions, pause and Settings")
         self.button.setAccessibleName("BroTypist accessory menu")
         self.button.clicked.connect(self._menu)
         layout.addWidget(self.button)
@@ -1703,7 +1705,7 @@ class Accessory(QWidget):
                 return
             self.menu.close()
             self.menu.deleteLater()
-        self.menu = self.shell.create_menu(choices=True)
+        self.menu = self.shell.create_field_menu()
         self.menu.setWindowFlag(Qt.WindowType.WindowDoesNotAcceptFocus, True)
         self.menu.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.menu.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -1776,7 +1778,7 @@ class MenuAgent:
         if not config.setup_completed or missing_model:
             self.show_welcome()
 
-    def create_menu(self, *, choices: bool = False) -> QMenu:
+    def create_menu(self) -> QMenu:
         menu = QMenu()
         self._watch_menu(menu)
         # Plain QActions are intentionally the complete menu: KDE's SNI/DBus
@@ -1811,16 +1813,6 @@ class MenuAgent:
         app_toggle.setEnabled(bool(current.get("current_app")))
         app_toggle.triggered.connect(lambda _checked: self._invoke("app_toggle"))
         menu.addSeparator()
-        if choices:
-            for index, choice in enumerate(self.choices[:9], 1):
-                action = QAction(f"{index}. {choice}".replace("&", "&&"), menu)
-                action.setObjectName(f"choice:{index}")
-                action.triggered.connect(lambda _checked=False, index=index: self._invoke(f"choice:{index}"))
-                menu.addAction(action)
-            menu.addAction("Accept next word", lambda: self._invoke("word")).setObjectName("word")
-            menu.addAction("Accept full completion", lambda: self._invoke("all")).setObjectName("all")
-            menu.addAction("Dismiss suggestion", lambda: self._invoke("dismiss")).setObjectName("dismiss")
-            menu.addSeparator()
         menu.addAction("Request completion", lambda: self._invoke("force")).setObjectName("force")
         menu.addAction("Alternative words", lambda: self._invoke("alternatives")).setObjectName("alternatives")
         synonyms = menu.addAction("Selected-text synonyms", lambda: self._invoke("synonyms"))
@@ -1836,6 +1828,36 @@ class MenuAgent:
         menu.addAction("Quit BroTypist", lambda: self._menu_action(self.quit)).setObjectName("quit")
         self.refresh_menu(menu)
         return menu
+
+    def create_field_menu(self) -> QMenu:
+        """The field accessory is deliberately not a second tray dashboard."""
+        menu = QMenu()
+        self._watch_menu(menu)
+        status = self.controller.status()
+        app = str(status.get("current_app") or "")
+        domain = str(status.get("current_domain") or "")
+        allowed = bool(status.get("current_app_enabled", self.controller.config.enabled))
+        name = app[:29] + "…" if len(app) > 30 else app or "Current App"
+        toggle = menu.addAction(f"Predictions in {name}: {'Enabled' if allowed else 'Disabled'}".replace("&", "&&"))
+        toggle.setObjectName("field_app_toggle")
+        toggle.setCheckable(True)
+        toggle.setChecked(allowed and bool(app))
+        toggle.setEnabled(bool(app))
+        toggle.setToolTip("Changes predictions for this app for the current session only.")
+        toggle.triggered.connect(
+            lambda _checked: self._menu_action(self._toggle_field_app, app, domain))
+        paused = float(status.get("paused_until", 0)) > time.monotonic()
+        pause = menu.addAction("Resume predictions" if paused else "Pause for 1 hour")
+        pause.setObjectName("field_pause")
+        pause.setEnabled(paused or self.controller.config.global_enabled)
+        pause.triggered.connect(
+            lambda _checked=False: self._menu_action(self.controller.pause, 0 if paused else 60))
+        menu.addSeparator()
+        menu.addAction("Settings…", lambda: self._menu_action(self.show_settings, "General")).setObjectName("field_settings")
+        return menu
+
+    def _toggle_field_app(self, app: str, domain: str) -> None:
+        self.controller.toggle_current_app(app=app, domain=domain)
 
     def _set_predictions(self, checked: bool) -> None:
         self.controller.update_config(merge_preferences(self.controller.config, {"global_enabled": checked}))
@@ -1863,27 +1885,21 @@ class MenuAgent:
         if identifier == "menu":
             if self._native_menu_active:
                 return
-            menu = self.create_menu(choices=True)
-            self.refresh_menu(menu)
+            menu = self.create_field_menu()
             self._native_menu = menu
             self._native_actions = {}
             rows = []
 
-            def collect(current: QMenu, prefix: str = "") -> None:
-                for action in current.actions():
-                    if action.isSeparator():
-                        continue
-                    title = action.text().replace("&&", "\0").replace("&", "").replace("\0", "&")
-                    if action.isCheckable():
-                        title = ("✓ " if action.isChecked() else "") + title
-                    if action.menu():
-                        collect(action.menu(), prefix + title + " → ")
-                        continue
-                    key = f"action:{len(self._native_actions)}"
-                    self._native_actions[key] = action
-                    rows.append((key, prefix + title, action.isEnabled()))
-
-            collect(menu)
+            for action in menu.actions():
+                if action.isSeparator():
+                    continue
+                title = action.text().replace("&&", "\0").replace("&", "").replace("\0", "&")
+                if action.isCheckable():
+                    title = ("✓ " if action.isChecked() else "") + title
+                key = f"action:{len(self._native_actions)}"
+                self._native_actions[key] = action
+                rows.append((key, title, action.isEnabled()))
+            self._menu_session = True
             self._native_menu_active = True
             self._sync_shortcuts()
             if not self.controller.bridge.show_native_menu(rows):
@@ -1893,16 +1909,15 @@ class MenuAgent:
         menu, self._native_menu = self._native_menu, None
         self._native_actions = {}
         self._native_menu_active = False
-        self._sync_shortcuts()
         if identifier != "menu_closed":
             self.controller.bridge.hide_native()
         if action is not None and action.isEnabled():
             self._call(action.trigger)
         if menu is not None:
             menu.deleteLater()
-        self.tick()
-        if self._last_overlay:
-            self._suggestion(self._last_overlay)
+        # Native menu callbacks need the same deferred selection boundary as
+        # QMenu: keep capture suspended until the native event has unwound.
+        QTimer.singleShot(0, self._finish_menu_session)
 
 
     def _watch_menu(self, menu: QMenu) -> None:
@@ -1939,12 +1954,12 @@ class MenuAgent:
             self._call(function, *args)
 
     def _finish_menu_session(self) -> None:
-        if self._tracking_menus or not self._menu_session or self._stopped:
+        if self._tracking_menus or self._native_menu_active or not self._menu_session or self._stopped:
             return
         actions, self._deferred_actions = self._deferred_actions, []
         for function, args in actions:
-            # Controller.invoke performs the normal fresh foreground/snapshot
-            # checks after the popup releases focus; never insert from cached UI.
+            # Run only after tracking releases focus. Field preference actions
+            # keep their original app; insertion actions revalidate foreground.
             self._call(function, *args)
             if self._stopped:
                 return
@@ -1988,9 +2003,10 @@ class MenuAgent:
             name = action.objectName()
             if name == "status":
                 label = "Needs attention" if status.get("state") == "error" else {
-                    "active": "Active", "paused": "Paused", "loading": "Loading model", "off": "Predictions off"}[state]
+                    "active": "Active", "paused": "Paused", "loading": "Loading model",
+                    "unavailable": "Unavailable here", "off": "Predictions off"}[state]
                 action.setText(f"BroTypist — {label}")
-                action.setIcon(tray_icon(state))
+                action.setIcon(tray_icon("active" if state == "unavailable" else state))
             elif name == "context":
                 action.setText((f"Resumes at {resume_at}" if paused else
                                 "Warming up model…" if state == "loading" else
@@ -2184,8 +2200,9 @@ class MenuAgent:
             if self._ticks % 40 == 0:
                 status = self.controller.status()
                 state = _tray_state(status, self.controller.config)
-                self.tray.setIcon(tray_icon(state))
-                self.accessory.button.setIcon(tray_icon(state))
+                icon_state = "active" if state == "unavailable" else state
+                self.tray.setIcon(tray_icon(icon_state))
+                self.accessory.button.setIcon(tray_icon(icon_state))
                 description = status.get("message") or _model_name(self.controller.config)
                 if state == "paused":
                     remaining = max(0, float(status.get("paused_until", 0)) - time.monotonic())

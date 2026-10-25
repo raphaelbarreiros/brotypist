@@ -3,7 +3,8 @@
 
 macOS uses CoreGraphics and iconutil without importing Qt. Other platforms use
 Qt SVG rendering and retain the committed ICNS. Logical sizes at or below 32pt
-use the canonical simplified artwork, including Retina representations.
+use the canonical simplified artwork, including explicit @2x PNG representations.
+These are flat derivatives of the handoff SVGs, not compiled Icon Composer assets.
 """
 from __future__ import annotations
 
@@ -31,6 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCES = ROOT / "design" / "icons"
 ASSETS = ROOT / "src" / "inklow" / "assets"
 APP_SIZES = (16, 24, 32, 48, 64, 128, 256, 512, 1024)
+COMPACT_POINTS = (16, 24, 32)
 TRAY_SIZES = (18, 22, 24, 36, 44, 48)
 APP_VARIANTS = ("normal", "dark", "tinted")
 TRAY_STATES = ("active", "paused", "loading", "off")
@@ -298,6 +300,11 @@ def main() -> int:
         for size in APP_SIZES:
             save_png(render_app(size, variant=variant),
                      ASSETS / "icons" / f"app{appearance}-{size}.png")
+        # A 32pt icon at 2× needs the compact drawing, not app-64.png's full
+        # I-beam and two pills. Keep both physical-size representations.
+        for points in COMPACT_POINTS:
+            save_png(render_app(points * 2, variant=variant, points=points),
+                     ASSETS / "icons" / f"app{appearance}-{points}@2x.png")
     save_png(render_app(1024), ASSETS / "app.png")
     for state in TRAY_STATES:
         for contrast in (False, True):
