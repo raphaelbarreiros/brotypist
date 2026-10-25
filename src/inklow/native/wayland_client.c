@@ -426,7 +426,6 @@ static void context_content(void *data, struct zwp_input_method_context_v1 *cont
 static void context_action(void *data, struct zwp_input_method_context_v1 *context, uint32_t button, uint32_t index)
 {
     (void)data; (void)context; (void)button; (void)index;
-    /* No preedit is installed, so there is no composing span to invoke. */
 }
 
 static void context_commit(void *data, struct zwp_input_method_context_v1 *context, uint32_t serial)
@@ -691,11 +690,13 @@ int inklow_wl_commit(struct inklow_wl *w, uint32_t generation, uint32_t serial, 
     if (!inklow_wl_state(w, NULL, NULL) || generation != w->generation || serial != w->serial || !text) return 0;
     size_t length = strnlen(text, MAX_COMMIT + 1);
     if (length > MAX_COMMIT || !utf8(text, length)) return 0;
+    inklow_wl_hide(w);
     zwp_input_method_context_v1_commit_string(w->context, serial, text);
     invalidate(w, true);
     state_event(w);
     return inklow_wl_flush(w) >= 0;
 }
+
 
 static void buffer_release(void *data, struct wl_buffer *buffer)
 {

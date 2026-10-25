@@ -1,21 +1,13 @@
 #!/usr/bin/env python3
-"""Render BroTypist's original Ghost Caret SVGs and Icon Composer documents.
+"""Rasterize the supplied Ghost Caret SVG artwork without added visual effects.
 
-Run with the project's Python: python tools/generate_icons.py
-macOS uses Icon Composer's ictool for the real system icon mask, CoreGraphics
-for PNG processing/tray glyphs, and iconutil for ICNS; Qt is never imported there.
-Other platforms use Qt's portable mask and retain the committed ICNS.
-The serif-free single-pill document is used at 32 points and below, even @2x.
-
-Native document structure follows Xcode's installed macOS Icon Composer Icon
-template and the observed image-name-specializations/group fields documented at
-https://github.com/peterpoliwoda/icon-composer-template. Artwork is authored only
-from the supplied DESIGN.md geometry; no third-party artwork is incorporated.
+macOS uses CoreGraphics and iconutil without importing Qt. Other platforms use
+Qt SVG rendering and retain the committed ICNS. Logical sizes at or below 32pt
+use the canonical simplified artwork, including Retina representations.
 """
 from __future__ import annotations
 
 import argparse
-from functools import cache
 import os
 from pathlib import Path
 import struct
@@ -26,12 +18,12 @@ import xml.etree.ElementTree as ET
 
 if sys.platform == "darwin":
     import Quartz as CG
-    from Foundation import NSData, NSMutableData
+    from Foundation import NSMutableData
 else:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtCore import QRectF, Qt
     from PySide6.QtGui import (
-        QColor, QGuiApplication, QImage, QPainter, QPainterPath, QPen,
+        QGuiApplication, QImage, QPainter,
     )
     from PySide6.QtSvg import QSvgRenderer
 
@@ -44,20 +36,6 @@ APP_VARIANTS = ("normal", "dark", "tinted")
 TRAY_STATES = ("active", "paused", "loading", "off")
 
 
-def tile_path(inset: float = 0) -> QPainterPath:
-    """Portable mask only; native Icon Composer imports remain full bleed."""
-    path = QPainterPath()
-    path.moveTo(30, inset)
-    path.lineTo(70, inset)
-    path.cubicTo(92, inset, 100 - inset, 8, 100 - inset, 30)
-    path.lineTo(100 - inset, 70)
-    path.cubicTo(100 - inset, 92, 92, 100 - inset, 70, 100 - inset)
-    path.lineTo(30, 100 - inset)
-    path.cubicTo(8, 100 - inset, inset, 92, inset, 70)
-    path.lineTo(inset, 30)
-    path.cubicTo(inset, 8, 8, inset, 30, inset)
-    path.closeSubpath()
-    return path
 
 
 def render(size: int, *, tray: bool = False, state: str = "active",
@@ -90,39 +68,12 @@ def render(size: int, *, tray: bool = False, state: str = "active",
     if tray:
         renderer.render(painter, QRectF(0, 0, image.width(), image.height()))
     else:
-        painter.scale(image.width() / 100, image.height() / 100)
-        painter.setClipPath(tile_path())
-        renderer.render(painter, QRectF(0, 0, 100, 100))
-        # One output pixel, not one design unit; keep the hairline inside.
-        width = 100 / size
-        border = QColor("#FFFFFF")
-        border.setAlphaF(0.12 if variant == "dark" else 0.08)
-        painter.setPen(QPen(border, width))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawPath(tile_path(width / 2))
+        renderer.render(painter, QRectF(0, 0, image.width(), image.height()))
     painter.end()
     if scale != 1:
         image = image.scaled(size, height, Qt.AspectRatioMode.IgnoreAspectRatio,
                              Qt.TransformationMode.SmoothTransformation)
     return image
-
-
-@cache
-def icon_composer_tool() -> Path:
-    """Resolve the exporter belonging to the selected Xcode, not actool's alias."""
-    developer = Path(subprocess.check_output(
-        ["/usr/bin/xcode-select", "-p"], text=True).strip())
-    candidates = (
-        developer.parent / "Applications" / "Icon Composer.app" / "Contents"
-        / "Executables" / "ictool",
-        Path("/Applications/Icon Composer.app/Contents/Executables/ictool"),
-    )
-    for candidate in candidates:
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return candidate
-    raise FileNotFoundError(
-        "Icon Composer's ictool is required for macOS system-mask exports. "
-        "Select an Xcode installation containing Icon Composer with xcode-select.")
 
 
 def native_bitmap(width: int, height: int):
@@ -133,6 +84,8 @@ def native_bitmap(width: int, height: int):
         CG.kCGImageAlphaPremultipliedLast | CG.kCGBitmapByteOrder32Big)
     if context is None:
         raise MemoryError(f"Could not allocate {width}×{height} icon bitmap")
+    CG.CGContextSetAllowsAntialiasing(context, True)
+    CG.CGContextSetShouldAntialias(context, True)
     CG.CGContextClearRect(context, ((0, 0), (width, height)))
     return context
 
@@ -148,35 +101,6 @@ def native_png(image) -> bytes:
     return bytes(data)
 
 
-def native_inner_stroke(image, variant: str) -> bytes:
-    """Derive a one-pixel inner hairline from Apple's exported alpha mask."""
-    width, height = CG.CGImageGetWidth(image), CG.CGImageGetHeight(image)
-    bounds = ((0, 0), (width, height))
-    mask_context = native_bitmap(width, height)
-    CG.CGContextSetRGBFillColor(mask_context, 1, 1, 1, 1)
-    CG.CGContextFillRect(mask_context, bounds)
-    CG.CGContextSetBlendMode(mask_context, CG.kCGBlendModeDestinationIn)
-    CG.CGContextDrawImage(mask_context, bounds, image)
-    mask = CG.CGBitmapContextCreateImage(mask_context)
-    eroded_context = native_bitmap(width, height)
-    CG.CGContextDrawImage(eroded_context, bounds, mask)
-    CG.CGContextSetBlendMode(eroded_context, CG.kCGBlendModeDestinationIn)
-    for x, y in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-        CG.CGContextDrawImage(eroded_context, ((x, y), (width, height)), mask)
-        # Drawing a shifted image does not composite outside its destination rect.
-        if x:
-            CG.CGContextClearRect(
-                eroded_context, ((0 if x > 0 else width - 1, 0), (1, height)))
-        else:
-            CG.CGContextClearRect(
-                eroded_context, ((0, 0 if y > 0 else height - 1), (width, 1)))
-    CG.CGContextSetBlendMode(mask_context, CG.kCGBlendModeDestinationOut)
-    CG.CGContextDrawImage(mask_context, bounds, CG.CGBitmapContextCreateImage(eroded_context))
-    output = native_bitmap(width, height)
-    CG.CGContextDrawImage(output, bounds, image)
-    CG.CGContextSetAlpha(output, 0.12 if variant == "dark" else 0.08)
-    CG.CGContextDrawImage(output, bounds, CG.CGBitmapContextCreateImage(mask_context))
-    return native_png(CG.CGBitmapContextCreateImage(output))
 
 
 def render_native_tray(size: int, state: str, contrast: bool) -> bytes:
@@ -251,30 +175,79 @@ def render_native_tray(size: int, state: str, contrast: bool) -> bytes:
 
 def render_app(size: int, *, variant: str = "normal",
                points: int | None = None) -> bytes | QImage:
-    """Use Apple's actual enclosure on macOS; never silently replace its mask."""
+    """Rasterize canonical artwork without adding enclosure lighting or bevels."""
     if sys.platform != "darwin":
         return render(size, variant=variant, points=points)
     if size <= 0 or variant not in APP_VARIANTS:
         raise ValueError("Invalid app icon size or appearance")
     logical_size = points if points is not None else size
-    document = "BroTypist-small.icon" if logical_size <= 32 else "BroTypist.icon"
-    rendition = {"normal": "Default", "dark": "Dark", "tinted": "TintedDark"}[variant]
-    with tempfile.TemporaryDirectory(prefix="brotypist-native-icon-") as directory:
-        output = Path(directory) / "icon.png"
-        subprocess.run([
-            str(icon_composer_tool()), str(SOURCES / document),
-            "--export-image", "--output-file", str(output),
-            "--platform", "macOS", "--rendition", rendition,
-            "--width", str(logical_size), "--height", str(logical_size),
-            "--scale", str(size / logical_size),
-        ], check=True)
-        payload = output.read_bytes()
-        data = NSData.dataWithBytes_length_(payload, len(payload))
-        source = CG.CGImageSourceCreateWithData(data, None)
-        image = CG.CGImageSourceCreateImageAtIndex(source, 0, None) if source else None
-        if image is None or CG.CGImageGetWidth(image) != size or CG.CGImageGetHeight(image) != size:
-            raise ValueError(f"Icon Composer returned an invalid {size}px export")
-    return native_inner_stroke(image, variant)
+    small = "-small" if logical_size <= 32 else ""
+    appearance = "" if variant == "normal" else f"-{variant}"
+    root = ET.parse(SOURCES / f"app-icon{small}{appearance}.svg").getroot()
+    scale = 4 if size < 128 else 1
+    context = native_bitmap(size * scale, size * scale)
+    CG.CGContextTranslateCTM(context, 0, size * scale)
+    CG.CGContextScaleCTM(context, size * scale / 100, -size * scale / 100)
+    gradients = {node.get("id"): node for node in root.iter()
+                 if node.tag.rsplit("}", 1)[-1] == "linearGradient"}
+
+    def rgba(value, alpha=1):
+        value = value.lstrip("#")
+        if len(value) == 3:
+            value = "".join(c * 2 for c in value)
+        return tuple(int(value[n:n + 2], 16) / 255 for n in (0, 2, 4)) + (alpha,)
+
+    def draw(node, inherited=None, opacity=1):
+        style = dict(inherited or {})
+        style.update(node.attrib)
+        opacity *= float(node.get("opacity", 1))
+        tag = node.tag.rsplit("}", 1)[-1]
+        if tag in ("svg", "g"):
+            for child in node:
+                draw(child, style, opacity)
+            return
+        if tag != "rect":
+            return
+        rect = ((float(style.get("x", 0)), float(style.get("y", 0))),
+                (float(style["width"]), float(style["height"])))
+        radius = float(style.get("rx", 0))
+        path = CG.CGPathCreateWithRoundedRect(rect, radius, radius, None)
+        fill = style.get("fill", "#000000")
+        CG.CGContextSaveGState(context)
+        CG.CGContextSetAlpha(context, opacity)
+        if fill.startswith("url(#"):
+            gradient = gradients[fill[5:-1]]
+            stops = list(gradient)
+            components = sum((rgba(stop.get("stop-color"),
+                                   float(stop.get("stop-opacity", 1))) for stop in stops), ())
+            locations = [float(stop.get("offset").rstrip("%")) /
+                         (100 if stop.get("offset").endswith("%") else 1) for stop in stops]
+            colors = CG.CGGradientCreateWithColorComponents(
+                CG.CGColorSpaceCreateWithName(CG.kCGColorSpaceSRGB),
+                components, locations, len(stops))
+            CG.CGContextAddPath(context, path)
+            CG.CGContextClip(context)
+            CG.CGContextDrawLinearGradient(context, colors, (50, 0), (50, 100), 0)
+        elif fill != "none":
+            CG.CGContextSetRGBFillColor(context, *rgba(fill, float(style.get("fill-opacity", 1))))
+            CG.CGContextAddPath(context, path)
+            CG.CGContextFillPath(context)
+        if style.get("stroke", "none") != "none":
+            CG.CGContextSetRGBStrokeColor(context, *rgba(
+                style["stroke"], float(style.get("stroke-opacity", 1))))
+            CG.CGContextSetLineWidth(context, float(style.get("stroke-width", 1)))
+            CG.CGContextAddPath(context, path)
+            CG.CGContextStrokePath(context)
+        CG.CGContextRestoreGState(context)
+
+    draw(root)
+    image = CG.CGBitmapContextCreateImage(context)
+    if scale != 1:
+        output = native_bitmap(size, size)
+        CG.CGContextSetInterpolationQuality(output, CG.kCGInterpolationHigh)
+        CG.CGContextDrawImage(output, ((0, 0), (size, size)), image)
+        image = CG.CGBitmapContextCreateImage(output)
+    return native_png(image)
 
 
 def save_png(image: bytes | QImage, target: Path) -> None:

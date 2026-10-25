@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Callable
 from urllib.parse import urlsplit
 
@@ -41,6 +42,8 @@ class BridgeBase:
         self._enabled = False
         self._stopped = threading.Event()
         self._diagnostic = "Native integration has not started."
+        self._input_revision = 0
+        self._input_time = 0.0
         from ..config import Config
         self._excluded_apps = tuple(item.casefold() for item in Config().excluded_apps if item)
         self._app_rules: dict[str, dict] = {}
@@ -105,8 +108,30 @@ class BridgeBase:
             enabled = self._app_rules.get(key, {}).get("enabled", enabled)
         return enabled
 
+    def input_revision(self) -> int:
+        """A timestamp-free change counter; never retain a key or written text."""
+        return self._input_revision
+
+    def input_timestamp(self) -> float:
+        """Last native input arrival time only; never retain its key or text."""
+        return self._input_time
+
+    def _note_input(self) -> None:
+        self._input_time = time.monotonic()
+        self._input_revision += 1
+
     def foreground(self) -> dict:
         return {"app_id": "", "name": "", "domain": "", "browser": False, "domain_observable": False}
+
+    def context_matches(self, snapshot: Snapshot) -> bool:
+        return False
+
+    def focused_context(self, snapshot: Snapshot, *, authorized: Callable[[], bool],
+                        max_chars: int = 2400) -> dict:
+        """No generic desktop scraping: platform providers must verify the window."""
+        return {"text": "", "provenance": "accessibility", "window_id": snapshot.window_id,
+                "revision": snapshot.window_revision,
+                "status": "unavailable" if authorized() else "blocked"}
 
     def _key_action(self, key: str, modifiers: tuple[str, ...] = (), *, platform: str = "") -> str | None:
         if not key:

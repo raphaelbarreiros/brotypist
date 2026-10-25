@@ -47,12 +47,13 @@ class ProcessClient:
         self._terminating = None
         self._epoch = 0
         self._configured = None
-        self._idle_timeout = 60
+        self._idle_timeout = 300
         self._last_activity = time.monotonic()
         self._state = "idle"
         self._message = ""
         self._loaded = False
         self._initializing = False
+        self.on_event = None
 
     def _start_thread(self):
         if self._thread is None:
@@ -166,6 +167,8 @@ class ProcessClient:
                 while True:
                     try:
                         self._incoming.put((epoch, value), timeout=0.05)
+                        with self._condition:
+                            self._condition.notify_all()
                         break
                     except queue.Full:
                         if self._stopped or epoch != self._epoch:
@@ -205,6 +208,7 @@ class ProcessClient:
     def _run(self):
         try:
             while True:
+                notify = False
                 with self._condition:
                     if self._stopped:
                         return
@@ -267,6 +271,7 @@ class ProcessClient:
                         elif kind == "error":
                             self._state, self._message = "error", event.get("message", "Inference failed.")
                         self._events.append(event)
+                        notify = True
                     if (self._pending is not None and self._active is not None
                             and self._pending[1] != self._configured):
                         self._kill()
@@ -299,7 +304,10 @@ class ProcessClient:
                           and now - self._last_activity >= self._idle_timeout):
                         self._kill()
                         self._state, self._message = "idle", "Model released after inactivity."
-                    self._condition.wait(timeout=0.02)
+                    if not notify:
+                        self._condition.wait(timeout=0.02)
+                if notify and self.on_event is not None:
+                    self.on_event()
         except Exception:
             with self._condition:
                 self._state, self._message = "error", "Cannot start the private inference worker. Check the installation."

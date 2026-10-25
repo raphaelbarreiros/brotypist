@@ -25,7 +25,7 @@ class Config:
     model_path: str = ""
     endpoint: str = "http://127.0.0.1:11434"
     model: str = "qwen3:0.6b"
-    debounce_ms: int = 200
+    debounce_ms: int = 150
     min_chars: int = 8
     max_tokens: int = 24
     context_chars: int = 2000
@@ -43,7 +43,7 @@ class Config:
     show_accessory: bool = True
     complete_inside_text: bool = True
     completion_length: str = "medium"
-    idle_release_seconds: int = 60
+    idle_release_seconds: int = 300
     trailing_space: bool = True
     punctuation_mode: str = "full"
     escape_behavior: str = "pause"

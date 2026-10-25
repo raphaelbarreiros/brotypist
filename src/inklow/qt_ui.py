@@ -5,16 +5,18 @@ objects are created and updated exclusively on the application thread.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 import sys
+import threading
 import time
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QEvent, QPoint, QRectF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QColor, QCursor, QFontDatabase, QIcon, QKeySequence, QPainter, QPainterPath, QPalette, QPen, QPixmap, QShortcut
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRectF, QSize, Qt, QThread, QTimer, Signal, Slot
+from PySide6.QtGui import QAction, QColor, QCursor, QFont, QFontInfo, QFontMetricsF, QFontDatabase, QIcon, QKeySequence, QPainter, QPainterPath, QPalette, QPen, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGroupBox,
@@ -26,11 +28,95 @@ from PySide6.QtWidgets import (
 
 from . import __version__, system
 from .config import Config
+from .core import InlineRender
 from .resources import REPOSITORY_URL, app_icon, configure_identity, tray_icon
 from .runtime import Controller
 from .shortcuts import normalize_shortcut, shortcut_from_event
 
 PANES = ("General", "AI Models", "Autocomplete", "Languages", "Privacy", "About")
+
+_CLIPBOARD_TIMEOUT = 0.25
+
+
+@dataclass
+class _ClipboardRead:
+    authorized: Callable[[], bool]
+    deadline: float
+    done: threading.Event = field(default_factory=threading.Event)
+    cancelled: bool = False
+    text: str = ""
+    failed: bool = False
+
+
+class ClipboardReader(QObject):
+    """One queued GUI read; only the optional-context worker may wait."""
+
+    _requested = Signal(object)
+
+    def __init__(self, app: QApplication):
+        super().__init__(app)
+        self._lock = threading.Lock()
+        self._pending = None
+        self._requested.connect(self._read, Qt.ConnectionType.QueuedConnection)
+
+    def read(self, *, authorized: Callable[[], bool]) -> str:
+        if not authorized():
+            return ""
+        if QThread.currentThread() == self.thread():
+            return system.clipboard_text(authorized=authorized)
+        request = _ClipboardRead(authorized, time.monotonic() + _CLIPBOARD_TIMEOUT)
+        with self._lock:
+            if self._pending is not None:
+                return ""
+            self._pending = request
+        self._requested.emit(request)
+        request.done.wait(max(0, request.deadline - time.monotonic()))
+        with self._lock:
+            completed = request.done.is_set() and time.monotonic() < request.deadline
+            text, failed = request.text, request.failed
+            request.cancelled = True
+            request.text = ""
+        if not completed or not authorized():
+            return ""
+        if failed:
+            raise RuntimeError("Clipboard context could not be read.")
+        return text
+
+    @Slot(object)
+    def _read(self, request):
+        def authorized():
+            with self._lock:
+                active = not request.cancelled and time.monotonic() < request.deadline
+            return active and request.authorized()
+
+        text, failed = "", False
+        try:
+            text = system.clipboard_text(authorized=authorized)
+        except Exception:
+            # Native exception bodies may contain clipboard entries.
+            failed = True
+        finally:
+            with self._lock:
+                if not request.cancelled and time.monotonic() < request.deadline:
+                    request.text, request.failed = text, failed
+                if self._pending is request:
+                    self._pending = None
+                request.done.set()
+
+
+class UiWake(QObject):
+    """Queue worker readiness on the GUI thread without a polling interval."""
+    requested = Signal()
+
+    def __init__(self, app, callback):
+        super().__init__(app)
+        self.callback = callback
+        self.requested.connect(self.dispatch, Qt.ConnectionType.QueuedConnection)
+
+    @Slot()
+    def dispatch(self):
+        self.callback()
+
 
 def _settings_icon(index: int) -> QIcon:
     """Small native-vector symbols, never font-dependent emoji or letter tiles."""
@@ -690,16 +776,15 @@ class SettingsWindow(QDialog):
         layout.addWidget(_label("Additional context is optional. It is read only for an eligible completion, never saved as an image or uploaded. Leave these switches off when working with sensitive content."))
         form = self._group(layout, "Optional local context")
         clipboard = self._check(form, "clipboard_context", "Include clipboard text")
-        screen = self._check(form, "screen_context", "Include foreground screen text (macOS only)", "Foreground-window local OCR is available only in the native macOS application. Windows and Linux can use clipboard and surrounding typed context.")
-        screen.setEnabled(False)
+        screen = self._check(form, "screen_context", "Include focused-window Accessibility text",
+                             "Optional visible text from the active native window only. Protected and hidden controls are excluded; unsupported providers return no context.")
         clipboard.toggled.connect(lambda value: self._context_consent("clipboard_context", value))
         screen.toggled.connect(lambda value: self._context_consent("screen_context", value))
-        permission = QPushButton("Open screen capture permissions")
-        permission.clicked.connect(lambda: self._call(system.open_permissions, "screen_recording"))
-        permission.setEnabled(False)
-        permission.setToolTip("Screen OCR is available only in the native macOS application.")
-        form.addRow(permission)
+        # Accessibility access is shared with native typing; no screen-recording
+        # permission or desktop-wide screenshot is needed for context.
         self._spin(form, "context_chars", "Maximum typed context", 64, 8000, " characters")
+        self.window_context_status = _label("Context not requested")
+        form.addRow("Availability", self.window_context_status)
 
     def _personalization(self, layout) -> None:
         form = self._group(layout, "Custom instructions")
@@ -1075,6 +1160,9 @@ class SettingsWindow(QDialog):
     def refresh_status(self) -> None:
         status = self.controller.status()
         message = str(status.get("message", ""))
+        if status.get("enabled") and status.get("state") in {"idle", "ready"} and not status.get("inline_available", True):
+            message = str(status.get("inline_message") or message)
+        self.window_context_status.setText(str(status.get("context_message") or "Context not requested"))
         self.notice.setText(self.shell.tray_notice or message)
         self.native_diagnostic.setText(str(status.get("native_status", "Native bridge status unavailable.")))
         model = self.controller.config.model_path or "None selected — choose or download a model."
@@ -1232,7 +1320,7 @@ class WelcomeWindow(QDialog):
         layout.addWidget(_label("Text before cursor → local model → suggestion"))
         layout.addWidget(_label("BroTypist reads eligible focused fields through the native bridge. Protected fields and excluded applications are skipped. Some applications cannot provide safe text access or geometry and remain unsupported."))
         layout.addWidget(_label("Local GGUF predictions do not upload your writing. Alternative server backends are restricted to loopback addresses. Model downloads use the network; a local server's own logging and network behavior are controlled by that server."))
-        layout.addWidget(_label("Clipboard context is optional. Screen OCR is unavailable in the Windows/Linux UI. Optional personalization history stores typing in OS-backed encrypted local storage; per-app recording overrides can enable it even when the global default is off. Review and delete it in Privacy."))
+        layout.addWidget(_label("Clipboard and focused-window Accessibility context are optional. Protected or hidden controls are excluded and unavailable providers return no context. Optional personalization history stores typing in OS-backed encrypted local storage; per-app recording overrides can enable it even when the global default is off. Review and delete it in Privacy."))
         privacy = QPushButton("Review Privacy settings…")
         privacy.clicked.connect(lambda: self.shell.show_settings("Privacy"))
         layout.addWidget(privacy)
@@ -1496,6 +1584,7 @@ class CaretOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setAccessibleName("BroTypist completion suggestion")
+        self._ghost = None
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.surface = QFrame()
@@ -1509,10 +1598,6 @@ class CaretOverlay(QWidget):
         self.text.setMaximumWidth(540)
         self.text.setWordWrap(True)
         content.addWidget(self.text)
-        self.keycap = _label("")
-        self.keycap.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
-        self.keycap.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        content.addWidget(self.keycap)
         layout.addWidget(self.surface)
         self.setStyleSheet(
             "QFrame#suggestion_chip { background: palette(toolTipBase); color: palette(toolTipText); "
@@ -1520,19 +1605,15 @@ class CaretOverlay(QWidget):
             "QFrame#suggestion_chip QLabel { color: palette(toolTipText); background: transparent; border: none; }")
 
     def present(self, event: dict, point: QPoint) -> None:
+        if event.get("mode", "completion") == "completion" or not event.get("choices"):
+            self.hide()
+            return
+        self._ghost = None
+        self.surface.show()
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(16777215, 16777215)
         choices = event.get("choices") or []
-        if choices and event.get("mode") != "completion":
-            text = "\n".join(f"{index}. {choice}" for index, choice in enumerate(choices[:9], 1))
-        else:
-            text = str(event.get("text", ""))
-            text = " ".join(text.split())
-            if len(text) > 44:
-                prefix = text[:43].rsplit(" ", 1)[0]
-                text = (prefix or text[:43]) + "…"
-            if event.get("field_anchor"):
-                text = "… " + text
-        self.keycap.setVisible(not choices)
-        self.keycap.setText(str(event.get("accept_key") or "Unassigned"))
+        text = "\n".join(f"{index}. {choice}" for index, choice in enumerate(choices[:9], 1))
         self.text.setText(text)
         self.adjustSize()
         screen = QApplication.screenAt(point)
@@ -1544,6 +1625,52 @@ class CaretOverlay(QWidget):
             point.setY(max(bounds.top(), min(point.y(), bounds.bottom() - self.height() + 1)))
         self.move(point)
         self.show()
+
+
+    def present_inline(self, event: dict, point: QPoint, *, ratio: float) -> None:
+        self.hide()
+        try:
+            render = InlineRender(**event["render"])
+            if not event.get("inline") or not render.valid(event.get("rect")):
+                return
+            font = QFont(render.font_name)
+            font.setPointSizeF(render.font_size)
+            font.setWeight(QFont.Weight(render.font_weight))
+            font.setItalic(render.italic)
+            info, metrics = QFontInfo(font), QFontMetricsF(font)
+            if (info.family().casefold() != render.font_name.casefold()
+                    or abs(metrics.ascent() * ratio - render.ascent) > 1.5
+                    or abs(metrics.descent() * ratio - render.descent) > 1.5):
+                return
+            text = str(event.get("text") or "").split("\n", 1)[0].split("\r", 1)[0]
+            x, y, width, height = render.clip_rect
+            available = (x + width - float(event["rect"][0])) / ratio
+            width = min(metrics.horizontalAdvance(text), available)
+            if not text or width < 1:
+                return
+            import math
+            self.surface.hide()
+            self._ghost = (text, font, render.ascent / ratio)
+            self.setFixedSize(math.ceil(width), math.ceil((render.ascent + render.descent) / ratio))
+            self.move(point)
+            screen = QApplication.screenAt(point)
+            if screen is None or not screen.geometry().contains(self.geometry()):
+                return
+            self.show()
+            self.update()
+        except (KeyError, TypeError, ValueError):
+            self._ghost = None
+
+    def paintEvent(self, event):
+        if self._ghost is None:
+            return super().paintEvent(event)
+        text, font, baseline = self._ghost
+        painter = QPainter(self)
+        painter.setFont(font)
+        painter.setPen(QColor("#909299"))
+        painter.setClipRect(self.rect())
+        painter.drawText(QPointF(0, baseline), text)
+        painter.end()
 
 
 class Accessory(QWidget):
@@ -1588,7 +1715,8 @@ class MenuAgent:
         self.app = app
         self.controller = Controller(config)
         self.controller.show_settings = self.show_settings
-        self.controller.set_clipboard_reader(system.clipboard_text)
+        self._clipboard_reader = ClipboardReader(app)
+        self.controller.set_clipboard_reader(self._clipboard_reader.read)
         self.controller.set_screen_reader(system.screen_text)
         self.controller.set_battery_reader(system.on_battery)
         self._tray_requested = not no_tray
@@ -1623,8 +1751,10 @@ class MenuAgent:
         if self._tray_requested:
             self.tray.show()
         self.timer = QTimer()
-        self.timer.setInterval(100)
+        self.timer.setInterval(25)
         self.timer.timeout.connect(self.tick)
+        self._ui_wake = UiWake(app, self.tick)
+        self.controller.set_wake_callback(self._ui_wake.requested.emit)
         self.app.aboutToQuit.connect(self.stop)
         if self._native_surface:
             self.controller.bridge.bind_ui(self._native_action)
@@ -1864,6 +1994,7 @@ class MenuAgent:
             elif name == "context":
                 action.setText((f"Resumes at {resume_at}" if paused else
                                 "Warming up model…" if state == "loading" else
+                                str(status.get("inline_message") or "Inline unavailable here") if not status.get("inline_available", True) else
                                 f"Predicting in {app_name}" if status.get("current_app") else app_name).replace("&", "&&"))
             elif name == "model":
                 action.setText(f"Model: {_model_name(config)} · {backend}".replace("&", "&&"))
@@ -1955,11 +2086,24 @@ class MenuAgent:
         self.choices = list(event.get("choices") or [])
         rect = (rect[0], rect[1], 0, rect[3]) if event.get("field_anchor") else rect
         point, height = self._position(rect, clamp=False)
-        # No host-font metadata is exposed by these portable native bridges.
-        # Use the honest chip tier instead of painting a misaligned inline suffix.
+        presentation = {**event, "accept_key": self.controller.config.shortcuts.get("word", ""), "line_height": height}
+        if event.get("mode", "completion") == "completion":
+            payload = event.get("render")
+            if not isinstance(payload, dict):
+                self.overlay.hide()
+                self._caret(event)
+                return
+            screen = self.app.screenAt(point)
+            ratio = screen.devicePixelRatio() if screen else 1.0
+            baseline = float(payload.get("baseline", 0))
+            ascent = float(payload.get("ascent", 0))
+            point, _ = self._position((rect[0], baseline - ascent, 0, 1), clamp=False)
+            point.setX(point.x() - 2)
+            self.overlay.present_inline(presentation, point, ratio=ratio)
+            self._caret(event)
+            return
         point.setX(point.x() - 2)
         point.setY(point.y() + height + 6)
-        presentation = {**event, "accept_key": self.controller.config.shortcuts.get("word", ""), "line_height": height}
         self.overlay.present(presentation, point)
         self._caret(event)
 
@@ -2037,7 +2181,7 @@ class MenuAgent:
                 elif kind == "settings":
                     self.show_settings(event.get("pane", "General"))
             self._ticks += 1
-            if self._ticks % 10 == 0:
+            if self._ticks % 40 == 0:
                 status = self.controller.status()
                 state = _tray_state(status, self.controller.config)
                 self.tray.setIcon(tray_icon(state))

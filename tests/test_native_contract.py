@@ -593,3 +593,171 @@ def test_mac_changed_focus_during_range_metadata_never_reads_the_old_value():
     bridge.ax.AXUIElementCopyAttributeValue = change_focus_after_range
     assert bridge.capture() is None
     assert ("field", "AXValue") not in reads
+
+
+# Inline contract matrix: P0 non-EOL/selection/protected/invalid-baseline must
+# remain silent; P1 native attributed run must preserve exact font and baseline.
+# Oracles are observed eligibility and run geometry, not timer/default wiring.
+@pytest.mark.parametrize("changes", [
+    {"text": "Hello world ", "caret": 5},
+    {"selection_length": 1},
+    {"protected": True},
+    {"inline_render": None},
+])
+def test_inline_suffix_refuses_obstructed_or_unverified_host_line(changes):
+    from inklow.core import InlineRender
+    render = InlineRender("HostFont", 13, 56, (0, 0, 400, 200), 16, 4, source="native-run")
+    snapshot = Snapshot("editor", "field", "Hello", 5, caret_rect=(100, 40, 1, 20),
+                        inline_render=render)
+    assert snapshot.inline_safe
+    assert not replace(snapshot, **changes).inline_safe
+
+
+@pytest.mark.parametrize("changes", [
+    {"baseline": 2}, {"clip_rect": (0, 0, 100, 200)}, {"direction": "rtl"},
+    {"clip_rect": (0, 0, 100.5, 200)},
+    {"font_size": float("nan")}, {"ascent": 0}, {"source": ""},
+])
+def test_inline_run_rejects_clipped_or_unreliable_native_metrics(changes):
+    from inklow.core import InlineRender
+    render = InlineRender("HostFont", 13, 56, (0, 0, 400, 200), 16, 4, source="native-run")
+    assert not replace(render, **changes).valid((100, 40, 1, 20))
+
+
+def test_native_preedit_is_eligible_only_at_a_collapsed_safe_line_end():
+    snapshot = Snapshot("editor", "field", "Hello\nnext", 5, native_inline=True,
+                        native_anchor="1:2")
+    assert snapshot.inline_safe
+    assert not replace(snapshot, caret=4).inline_safe
+    assert not replace(snapshot, selection_length=1).inline_safe
+    assert not replace(snapshot, protected=True).inline_safe
+
+
+def test_mac_attributed_run_uses_font_baseline_not_caret_height(monkeypatch):
+    import sys
+    bridge = MacBridge.__new__(MacBridge)
+    font = SimpleNamespace(fontName=lambda: "Host-Regular", ascender=lambda: 16,
+                           descender=lambda: -4)
+    layout = SimpleNamespace(defaultLineHeightForFont_=lambda value: 20,
+                             defaultBaselineOffsetForFont_=lambda value: 16)
+    bridge._attribute = lambda *args: None
+    monkeypatch.setitem(sys.modules, "AppKit", SimpleNamespace(
+        NSFont=SimpleNamespace(fontWithName_size_=lambda name, size:
+                               font if (name, size) == ("Host-Regular", 13) else None),
+        NSLayoutManager=SimpleNamespace(alloc=lambda: SimpleNamespace(init=lambda: layout))))
+    attributed = SimpleNamespace(length=lambda: 1, attributesAtIndex_effectiveRange_=lambda index, out:
+                                 ({"AXFont": {"AXFontName": "Host-Regular", "AXFontSize": 13}}, None))
+    bridge.ax = SimpleNamespace(kAXValueCFRangeType=4, AXValueCreate=lambda kind, value: value,
+                                AXUIElementCopyParameterizedAttributeValue=lambda *args: (0, attributed))
+    bridge._range_bounds = lambda *args: (90, 40, 10, 20)
+    render = bridge._inline_metrics("field", "Hello", 5, 5, (100, 40, 1, 20), (0, 0, 400, 200))
+    assert render.font_name == "Host-Regular"
+    assert render.font_size == 13
+    assert render.baseline == 56
+    # Enlarging the caret cannot silently select a larger guessed font/baseline.
+    assert bridge._inline_metrics("field", "Hello", 5, 5, (100, 40, 1, 30), (0, 0, 400, 200)) is None
+
+
+def test_mac_context_prunes_hidden_and_secure_subtrees_before_values():
+    bridge = MacBridge.__new__(MacBridge)
+    BridgeBase.__init__(bridge)
+    window, field, visible, hidden, secure = (object() for _ in range(5))
+    focused = (field, 1234, "editor", "")
+    bridge._focused = lambda: focused
+    bridge._secure_description = "secure"
+    reads = []
+    attributes = {
+        window: {"AXRole": "AXWindow", "AXChildren": [visible, hidden, secure]},
+        field: {"AXWindow": window},
+        visible: {"AXRole": "AXStaticText", "AXValue": "Relevant reference"},
+        hidden: {"AXRole": "AXGroup", "AXHidden": True},
+        secure: {"AXRole": "AXTextField", "AXSubrole": "AXSecureTextField"},
+    }
+    def attribute(element, name):
+        if name in ("AXValue", "AXChildren") and element in (hidden, secure):
+            pytest.fail("Protected or hidden context subtree was read")
+        if name == "AXValue":
+            reads.append(element)
+        return attributes.get(element, {}).get(name)
+    bridge._attribute = attribute
+    bridge._field_bounds = lambda element: (0, 0, 500, 300)
+    snapshot = Snapshot("editor", f"1234:{hash(field)}", "Writing", 7,
+                        window_id=f"1234:{hash(window)}", window_revision="revision")
+    result = bridge.focused_context(snapshot, authorized=lambda: True)
+    assert result["status"] == "ready"
+    assert result["text"] == "Relevant reference"
+    assert reads == [visible]
+    assert bridge.focused_context(snapshot, authorized=lambda: False)["status"] == "blocked"
+    assert reads == [visible]
+
+
+def test_atspi_without_explicit_ime_state_never_invents_inline_capability():
+    bridge = LinuxBridge.__new__(LinuxBridge)
+    field = SimpleNamespace(queryComponent=lambda: pytest.fail("Unverified IME state queried geometry"))
+    assert bridge._inline_metrics(field, None, "Hello", 5, (100, 40, 1, 20), {}) is None
+
+
+@pytest.mark.parametrize("attribute,value", [(40005, None), (40006, object()),
+                                             (40028, object()), (40028, 1), (40013, object())])
+def test_uia_mixed_or_missing_run_attributes_never_guess_a_host_font(attribute, value, monkeypatch):
+    from inklow.native import windows
+    bridge = windows.WindowsBridge.__new__(windows.WindowsBridge)
+    values = {40005: "Host", 40006: 13, 40007: 400, 40014: False, 40028: 0, 40013: False}
+    values[attribute] = value
+    run = SimpleNamespace(MoveEndpointByRange=lambda *args: None,
+                          MoveEndpointByUnit=lambda *args: -1, GetText=lambda count: "o",
+                          GetAttributeValue=lambda key: values[key])
+    selected = SimpleNamespace(Clone=lambda: run)
+    monkeypatch.setattr(windows.C, "WinDLL", lambda *args: pytest.fail("Missing UIA font metadata guessed"), raising=False)
+    assert bridge._inline_metrics(None, selected, "Hello", 5, (100, 40, 1, 20)) is None
+
+
+def test_partial_acceptance_waits_for_observed_new_caret_before_drawing_remainder():
+    from inklow.core import InlineRender
+    render = InlineRender("HostFont", 13, 56, (0, 0, 400, 200), 16, 4, source="native-run")
+    before = Snapshot("editor", "field", "Hello", 5, caret_rect=(100, 40, 1, 20),
+                      inline_render=render)
+    state = SuggestionState()
+    assert state.offer(state.generation, before, " world tomorrow")
+    assert state.accept(before) == " world "
+    assert state.text == "tomorrow"
+    assert not state.snapshot.inline_safe
+    observed = replace(state.snapshot, caret_rect=(145, 40, 1, 20), inline_render=render)
+    assert state.offer(state.generation, observed, state.text)
+    assert state.snapshot.inline_safe
+
+
+def test_mac_browser_context_reads_focused_document_not_deep_toolbar_tree():
+    bridge = MacBridge.__new__(MacBridge)
+    BridgeBase.__init__(bridge)
+    window, field, document, reference, toolbar = (object() for _ in range(5))
+    groups = [object() for _ in range(10)]
+    bridge._focused = lambda: (field, 1234, "browser", "")
+    bridge._secure_description = "secure"
+    attributes = {
+        window: {"AXRole": "AXWindow", "AXChildren": [groups[0], toolbar]},
+        field: {"AXRole": "AXTextArea", "AXWindow": window, "AXParent": document},
+        document: {"AXRole": "AXWebArea", "AXChildren": [reference, field],
+                   "AXParent": groups[-1]},
+        reference: {"AXRole": "AXStaticText", "AXValue": "Review Tuesday in Cedar"},
+        toolbar: {"AXRole": "AXStaticText", "AXValue": "Unrelated browser toolbar"},
+    }
+    for index, group in enumerate(groups):
+        attributes[group] = {
+            "AXRole": "AXGroup",
+            "AXChildren": [groups[index + 1] if index + 1 < len(groups) else document],
+            "AXParent": groups[index - 1] if index else window,
+        }
+    reads = []
+    def attribute(element, name):
+        if name == "AXValue":
+            reads.append(element)
+        return attributes.get(element, {}).get(name)
+    bridge._attribute = attribute
+    bridge._field_bounds = lambda element: (0, 0, 500, 300)
+    snapshot = Snapshot("browser", f"1234:{hash(field)}", "Our review", 10,
+                        window_id=f"1234:{hash(window)}", window_revision="revision")
+    result = bridge.focused_context(snapshot, authorized=lambda: True)
+    assert result["status"] == "ready"
+    assert result["text"] == "Review Tuesday in Cedar"
+    assert reads == [reference]

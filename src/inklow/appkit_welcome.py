@@ -208,7 +208,7 @@ class WelcomeWindow(NSObject):
     @objc.python_method
     def step_0(self):
         icon = A.NSImageView.alloc().initWithFrame_(A.NSMakeRect(324, 65, 112, 112))
-        icon.setImage_(A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("icons/app-128.png"))))
+        icon.setImage_(A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("app.icns"))))
         self.root.addSubview_(icon)
         self.root.addSubview_(label("Welcome to", 56, 183, 648, 30, size=26, bold=True))
         self.root.subviews()[-1].setAlignment_(A.NSTextAlignmentCenter)
@@ -228,7 +228,7 @@ class WelcomeWindow(NSObject):
         config = self.shell.controller.config
         self.heading("Your writing stays local", "Predictions run on this Mac. BroTypist does not send your writing to a remote inference service.")
         self.card("Text before cursor  →  Local model  →  Suggestion", f"Up to {config.context_chars:,} preceding characters are supplied to the model for an eligible request.", 202)
-        self.card("What BroTypist reads", "Supported, focused text fields only. Password fields and excluded apps are skipped before capture. Clipboard and screen context are optional, explicit choices.", 292, height=94)
+        self.card("What BroTypist reads", "Supported, focused text fields only. Password fields and excluded apps are skipped before capture. Clipboard and focused-window Accessibility context are optional, explicit choices.", 292, height=94)
         self.card("What you control", "Writing history is opt-in and encrypted using OS secure storage. Aggregate statistics contain counts, not writing. Model downloads use the network.", 398, height=94)
 
     @objc.python_method
@@ -237,7 +237,7 @@ class WelcomeWindow(NSObject):
         for key, title, detail, y in (("accessibility", "Accessibility", "Reads supported text near the caret and inserts only after you accept.", 210), ("input_monitoring", "Input Monitoring", "Listens for typing and configured acceptance shortcuts. Secure fields remain protected.", 330)):
             self.card(title, detail, y, height=104)
             self.permission_buttons[key] = self.button("Open System Settings…", 488, y + 9, 200, lambda k=key: system.open_permissions(k), f"inklow.welcome.{key}")
-        self.root.addSubview_(label("Source runs may appear as Python or your terminal. macOS may require a restart after granting access. Screen Recording is optional and configured separately in Privacy.", 72, 455, 616, 46, size=11.5, secondary=True))
+        self.root.addSubview_(label("Source runs may appear as Python or your terminal. macOS may require a restart after granting access. Focused-window context uses Accessibility text; Screen Recording is not required.", 72, 455, 616, 46, size=11.5, secondary=True))
 
     @objc.python_method
     def step_3(self):

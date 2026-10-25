@@ -14,7 +14,7 @@ import os
 import threading
 from dataclasses import replace
 
-from ..core import Snapshot
+from ..core import InlineRender, Snapshot
 from .base import BridgeBase, Shortcut, utf16_to_index, index_to_utf16
 from ..shortcuts import windows_key
 
@@ -66,6 +66,7 @@ class WindowsBridge(BridgeBase):
         self._set_status(
             "Windows UI Automation ready. Supports native Edit and writable UIA TextPattern controls "
             "with observable selection/composition. Password/read-only or incomplete providers are excluded. "
+            "Inline additionally requires observable UIA font/direction, visible glyph bounds and matching native font metrics. "
             "Run target apps at the same privilege level; modern app compatibility depends on their UIA provider. "
             "Browser URLs are not observable through documented window metadata; domain rules cannot apply here."
         )
@@ -87,6 +88,8 @@ class WindowsBridge(BridgeBase):
         u.SendMessageTimeoutW.restype = C.c_ssize_t
         u.ClientToScreen.argtypes = [W.HWND, C.POINTER(W.POINT)]
         u.ClientToScreen.restype = W.BOOL
+        u.GetDpiForWindow.argtypes = [W.HWND]
+        u.GetDpiForWindow.restype = W.UINT
         k.OpenProcess.argtypes = [W.DWORD, W.BOOL, W.DWORD]
         k.OpenProcess.restype = W.HANDLE
         k.QueryFullProcessImageNameW.argtypes = [W.HANDLE, W.DWORD, W.LPWSTR, C.POINTER(W.DWORD)]
@@ -199,7 +202,7 @@ class WindowsBridge(BridgeBase):
                        and self.user.GetClassNameW(hwnd, name, len(name))
                        and (name.value.lower() == "edit" or name.value.lower().startswith("windowsforms10.edit.")))
         if not native_edit:
-            return self._capture_uia(element, pid, app)
+            return self._capture_uia(element, pid, app, automation=automation)
         style = self.user.GetWindowLongW(hwnd, -16)
         if style & (0x0020 | 0x0800) or not self.user.IsWindowEnabled(hwnd):  # ES_PASSWORD | ES_READONLY
             return None
@@ -231,10 +234,21 @@ class WindowsBridge(BridgeBase):
             if self.user.ClientToScreen(hwnd, C.byref(point)):
                 rect = (float(point.x), float(point.y), float(max(1, info.rcCaret.right - info.rcCaret.left)),
                         float(info.rcCaret.bottom - info.rcCaret.top))
-        return Snapshot(app, f"{pid}:{int(hwnd)}", text, caret, selection_end - caret, rect,
-                        multiline=bool(style & 0x0004)), hwnd
+        snapshot = Snapshot(app, f"{pid}:{int(hwnd)}", text, caret, selection_end - caret, rect,
+                            multiline=bool(style & 0x0004),
+                            window_id=f"{pid}:{int(self.user.GetForegroundWindow())}",
+                            window_revision=repr((int(self.user.GetForegroundWindow()),)))
+        try:
+            pattern = element.GetCurrentPattern(10014).QueryInterface(self.uia.IUIAutomationTextPattern)
+            selection = pattern.GetSelection()
+            if selection.Length == 1 and selection_end == caret:
+                snapshot = replace(snapshot, inline_render=self._inline_metrics(
+                    element, selection.GetElement(0), text, caret, rect, automation=automation))
+        except Exception:
+            pass
+        return snapshot, hwnd
 
-    def _capture_uia(self, element, pid: int, app: str):
+    def _capture_uia(self, element, pid: int, app: str, *, automation=None):
         # TextEditPattern is required to establish that no IME composition is
         # active. Merely lacking IMM state is not evidence for TSF-backed apps.
         try:
@@ -287,11 +301,181 @@ class WindowsBridge(BridgeBase):
             if not runtime_id:
                 return None
             field_id = f"{pid}:uia:" + ":".join(str(part) for part in runtime_id)
-            return Snapshot(app, field_id, text, caret, selection_length, rect), None
+            render = self._inline_metrics(element, selected, text, caret, rect, automation=automation) if not selection_length else None
+            return Snapshot(app, field_id, text, caret, selection_length, rect,
+                            inline_render=render,
+                            window_id=f"{pid}:{int(self.user.GetForegroundWindow())}",
+                            window_revision=repr((int(self.user.GetForegroundWindow()),))), None
         except Exception:
             # Missing TextEdit/Text/selection/read-only capability fails closed,
             # never a synthetic empty snapshot or a whole-document write.
             return None
+
+    def _inline_metrics(self, element, selected, text, caret, rect, *, automation=None):
+        if not rect or not caret or (text[caret:] and not text[caret:].startswith(("\r", "\n"))):
+            return None
+        try:
+            import math
+            run = selected.Clone()
+            run.MoveEndpointByRange(1, selected, 0)
+            if run.MoveEndpointByUnit(0, 0, -1) != -1 or run.GetText(8) != text[caret - 1]:
+                return None
+            name, size = run.GetAttributeValue(40005), run.GetAttributeValue(40006)
+            weight, italic = run.GetAttributeValue(40007), run.GetAttributeValue(40014)
+            direction = run.GetAttributeValue(40028)
+            hidden = run.GetAttributeValue(40013)
+            if (not isinstance(name, str) or not isinstance(size, (int, float))
+                    or not isinstance(weight, int) or not isinstance(italic, (int, bool))
+                    or not isinstance(direction, int) or direction != 0
+                    or not isinstance(hidden, (int, bool)) or hidden):
+                return None
+            glyph = tuple(float(value) for value in run.GetBoundingRectangles())
+            bounds = element.CurrentBoundingRectangle
+            clip = (float(bounds.left), float(bounds.top),
+                    float(bounds.right - bounds.left), float(bounds.bottom - bounds.top))
+            if len(glyph) != 4 or not all(math.isfinite(value) for value in glyph):
+                return None
+            if automation is None or element.CurrentIsOffscreen:
+                return None
+            pattern = element.GetCurrentPattern(10014).QueryInterface(self.uia.IUIAutomationTextPattern)
+            visible = pattern.GetVisibleRanges()
+            if not any(visible.GetElement(index).CompareEndpoints(0, run, 0) <= 0
+                       and visible.GetElement(index).CompareEndpoints(1, run, 1) >= 0
+                       for index in range(min(visible.Length, 128))):
+                return None
+            parent = automation.ControlViewWalker.GetParentElement(element)
+            for _ in range(16):
+                if parent is None:
+                    break
+                if parent.CurrentIsOffscreen:
+                    return None
+                bounds = parent.CurrentBoundingRectangle
+                if bounds.right > bounds.left and bounds.bottom > bounds.top:
+                    left, top = max(clip[0], bounds.left), max(clip[1], bounds.top)
+                    right, bottom = min(clip[0] + clip[2], bounds.right), min(clip[1] + clip[3], bounds.bottom)
+                    if right <= left or bottom <= top:
+                        return None
+                    clip = (float(left), float(top), float(right - left), float(bottom - top))
+                if int(parent.CurrentControlType) == 50032:
+                    break
+                parent = automation.ControlViewWalker.GetParentElement(parent)
+            # GDI creates the exact UIA-reported font at the target monitor's DPI.
+            # Its ascent is a font metric; it is not inferred from caret height.
+            class TEXTMETRIC(C.Structure):
+                _fields_ = [(key, W.LONG) for key in (
+                    "tmHeight", "tmAscent", "tmDescent", "tmInternalLeading", "tmExternalLeading",
+                    "tmAveCharWidth", "tmMaxCharWidth", "tmWeight", "tmOverhang",
+                    "tmDigitizedAspectX", "tmDigitizedAspectY")] + [
+                    (key, W.WCHAR) for key in ("tmFirstChar", "tmLastChar", "tmDefaultChar", "tmBreakChar")] + [
+                    (key, C.c_ubyte) for key in ("tmItalic", "tmUnderlined", "tmStruckOut", "tmPitchAndFamily", "tmCharSet")]
+            gdi = C.WinDLL("gdi32")
+            gdi.CreateFontW.restype = W.HANDLE
+            gdi.CreateFontW.argtypes = [C.c_int] * 5 + [W.DWORD] * 8 + [W.LPCWSTR]
+            gdi.CreateCompatibleDC.restype = W.HDC
+            gdi.CreateCompatibleDC.argtypes = [W.HDC]
+            gdi.SelectObject.restype = W.HANDLE
+            gdi.SelectObject.argtypes = [W.HDC, W.HANDLE]
+            gdi.GetTextMetricsW.argtypes = [W.HDC, C.POINTER(TEXTMETRIC)]
+            gdi.GetTextFaceW.argtypes = [W.HDC, C.c_int, W.LPWSTR]
+            gdi.DeleteObject.argtypes = [W.HANDLE]
+            gdi.DeleteDC.argtypes = [W.HDC]
+            dpi = self.user.GetDpiForWindow(self.user.GetForegroundWindow())
+            if not dpi or not 1 <= float(size) <= 300:
+                return None
+            font = gdi.CreateFontW(-round(float(size) * dpi / 72), 0, 0, 0, weight,
+                                   int(italic), 0, 0, 1, 0, 0, 0, 0, name)
+            dc = gdi.CreateCompatibleDC(None)
+            if not font or not dc:
+                if font:
+                    gdi.DeleteObject(font)
+                if dc:
+                    gdi.DeleteDC(dc)
+                return None
+            previous = gdi.SelectObject(dc, font)
+            metrics = TEXTMETRIC()
+            try:
+                if not gdi.GetTextMetricsW(dc, C.byref(metrics)):
+                    return None
+                face = C.create_unicode_buffer(256)
+                if not gdi.GetTextFaceW(dc, len(face), face) or face.value.casefold() != name.casefold():
+                    return None
+            finally:
+                gdi.SelectObject(dc, previous)
+                gdi.DeleteObject(font)
+                gdi.DeleteDC(dc)
+            if (abs(glyph[3] - metrics.tmHeight) > 1 or abs(glyph[1] - rect[1]) > 1
+                    or abs(glyph[0] + glyph[2] - rect[0]) > 1.5):
+                return None
+            render = InlineRender(name, float(size), glyph[1] + metrics.tmAscent, clip,
+                                  float(metrics.tmAscent), float(metrics.tmDescent),
+                                  source="windows-uia-font-run", font_weight=weight, italic=bool(italic))
+            return render if render.valid(rect) else None
+        except Exception:
+            return None
+
+    def context_matches(self, snapshot):
+        try:
+            focus = self._focus()
+            if not focus:
+                return False
+            info, pid = focus
+            if (self._process_name(pid) != snapshot.app_id or not self._allowed(snapshot.app_id)
+                    or f"{pid}:{int(self.user.GetForegroundWindow())}" != snapshot.window_id):
+                return False
+            with self._automation() as automation:
+                element = automation.GetFocusedElement()
+                if (element is None or element.CurrentIsPassword or element.CurrentIsOffscreen
+                        or not element.CurrentIsEnabled or not element.CurrentHasKeyboardFocus):
+                    return False
+                if ":uia:" in snapshot.field_id:
+                    return self._uia_focus_matches(automation, snapshot)
+                return f"{pid}:{int(info.hwndFocus)}" == snapshot.field_id
+        except Exception:
+            return False
+
+    def focused_context(self, snapshot, *, authorized, max_chars=2400):
+        result = {"text": "", "provenance": "accessibility",
+                  "window_id": snapshot.window_id, "revision": snapshot.window_revision,
+                  "status": "unavailable"}
+        if not authorized() or not self.context_matches(snapshot):
+            return {**result, "status": "blocked"}
+        try:
+            import time
+            deadline = time.monotonic() + 0.15
+            with self._automation() as automation:
+                hwnd = self.user.GetForegroundWindow()
+                window = automation.ElementFromHandle(hwnd)
+                walker = automation.ControlViewWalker
+                stack, chunks, remaining = [(window, 0)], [], min(12000, max(0, max_chars))
+                for _ in range(128):
+                    if not stack or remaining <= 0 or time.monotonic() >= deadline:
+                        break
+                    element, depth = stack.pop()
+                    if not authorized() or self.user.GetForegroundWindow() != hwnd:
+                        return {**result, "status": "blocked"}
+                    if element.CurrentIsPassword or element.CurrentIsOffscreen:
+                        continue
+                    role = int(element.CurrentControlType)
+                    if role == 50020:  # Text, not arbitrary editable sibling values.
+                        if not authorized():
+                            return {**result, "status": "blocked"}
+                        value = str(element.CurrentName or "")[:remaining]
+                        if value and value != snapshot.text:
+                            chunks.append(value)
+                            remaining -= len(value) + 1
+                    if depth < 8 and role not in (50004, 50030):
+                        child = walker.GetFirstChildElement(element)
+                        for _child in range(64):
+                            if child is None:
+                                break
+                            stack.append((child, depth + 1))
+                            child = walker.GetNextSiblingElement(child)
+                if not authorized() or not self.context_matches(snapshot):
+                    return {**result, "status": "blocked"}
+                text = "\n".join(chunks)[:max_chars]
+                return {**result, "text": text, "status": "ready" if text else "empty"}
+        except Exception:
+            return {**result, "status": "error"}
 
     def _send_unicode(self, text: str) -> bool:
         if any(self.user.GetAsyncKeyState(key) & 0x8000 for key in (0x11, 0x12, 0x5B, 0x5C)):
@@ -395,6 +579,8 @@ class WindowsBridge(BridgeBase):
         def hook(code, message, pointer):
             if code >= 0 and message in (0x0100, 0x0104):  # WM_KEYDOWN, WM_SYSKEYDOWN
                 event = C.cast(pointer, C.POINTER(KBDLLHOOKSTRUCT)).contents
+                if not event.flags & 0x10:
+                    self._note_input()
                 if (u.GetAsyncKeyState(0xA5) & 0x8000 and u.GetAsyncKeyState(0x11) & 0x8000):
                     return u.CallNextHookEx(None, code, message, pointer)  # AltGr text, not Ctrl+Alt.
                 if not event.flags & 0x10:  # Never intercept injected insertion.

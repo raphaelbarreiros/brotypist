@@ -2,17 +2,22 @@
 
 # Changelog
 
-## Unreleased — BroTypist / Ghost Caret
+## 0.3.2 — Unreleased
 
 - Rename the public app, CLI, installers and private GitHub repository to BroTypist / `brotypist`. Keep established bundle, startup, credential-store and data identifiers so the visual rebrand does not reset settings, model caches, encrypted history or permission identity.
-- Apply the supplied Ghost Caret identity: original Icon Composer documents, normal/dark/tinted artwork, simplified small icons, and active/paused/loading/off template tray glyphs. macOS artwork generation and the shipped native app require no Qt.
+- Use the supplied Ghost Caret SVG artwork directly, including the thicker simplified small-size icon. Rasterize without added enclosure lighting/bevels; remove obsolete Composer exports and keep macOS generation Qt-free.
 - Reorganize native AppKit and portable Qt preferences into General, AI Models, Autocomplete, Languages, Privacy and About, retaining the existing supported settings and configured defaults.
 - Add six-step Welcome with actual OS-access status, explicit existing model management, truthful privacy disclosures and an ephemeral real-model try-it field. Reuse the current provider and acceptance rules; do not record preview text or retain a second preview worker after leaving the field.
-- Style safe, nonactivating suggestion chips with semantic contrast/transparency tokens and display-only word-boundary truncation. Do not infer host typography from caret height; use the chip when a verified host font is unavailable.
+- Replace ordinary suggestion chips with verified host-font, baseline-aligned, transparent grey inline text. Require safe native typography, line-end insertion, visible clipping and no composition/selection; unsupported inputs stay silent without consuming acceptance keys. Keep explicit alternatives separate.
 - Keep source/release links private-access aware and preserve historical Inklow release assets and research evidence. This redesign does not add MLX, Sparkle, new models, new language-quality guarantees or changed acceptance keys.
+- Add bounded, opt-in focused-window Accessibility context with protected/hidden-node pruning, exact field/window checks, relevance/deduplication, provenance and prompt budgets. Prefer the focused browser document over deeply nested browser chrome. Remove unsafe screenshot/OCR capture and its unused frameworks.
+- Separate newest-only context collection from prediction preparation; revalidate policy before sensitive reads and discard revoked/stale results. Expose fixed content-free context and inline capability diagnostics.
+- Default to 150 ms typing delay and five-minute model retention, preserving saved values. Dispatch prepared requests and streamed results onto the UI thread immediately; keep bounded fallback capture and result polling.
+- Marshal Qt clipboard reads to the GUI thread with a bounded wait and fresh authorization; cancelled/timed-out queued reads cannot later access the clipboard.
+- Fix native macOS baseline offset interpretation and reject subpixel-clipped invisible suggestions before acceptance.
 
 - Add a native KWin input-method-v1 client over the compositor-provided private socket, prepared before Qt starts. Keep ordinary X11 operation separate; do not impersonate a screen reader or use raw-device/global input injection.
-- Add compositor-positioned icon, streaming suggestion, and keyboard-navigable quick-menu surfaces with reusable, release-tracked shared-memory buffers. Preserve original keys/modifiers when no eligible action consumes them.
+- Retain compositor-positioned brand and keyboard-navigable manual-menu surfaces with reusable buffers. Remove the new native preedit ABI after real KWin/Qt selection-loss and missing-style failures; Wayland ordinary completion is explicitly unavailable, not a popup fallback.
 - Corroborate native surrounding text with privacy-gated AT-SPI metadata and exact current text/caret before insertion. Separate stable field/context identity from changing revision tokens; retain word-by-word acceptance while rejecting stale snapshots, selections, protected fields, and changed focus.
 - Confirm the resulting target text before reporting an insertion as accepted. Keep atomic replacement, selected-text synonyms, and emoji rewriting disabled on Linux.
 - Add explicit per-user input-method registration and a native KDE selector link without selecting the method, altering the desktop session, or selecting/downloading a model automatically. Document the tested text-input-v3 path and unsupported/incomplete protocol contexts; published 0.3.0 installers remain unchanged.

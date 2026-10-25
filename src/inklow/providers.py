@@ -96,6 +96,39 @@ def _prompt(config: Config, prefix: str, suffix: str, options: dict) -> str:
     return prefix
 
 
+def _prompt_tokens(model, config: Config, prefix: str, suffix: str, options: dict):
+    """Reserve generation space; trim optional references before the user's draft."""
+    budget = 4096 - config.max_tokens - 8
+    draft = prefix[-config.context_chars:]
+    context = options.get("context", "")
+    reduced = options
+    # Reference text has its own actual tokenizer budget, including CJK/emoji.
+    # Keeping the leading provenance label avoids anonymous context fragments.
+    if context:
+        reference_tokens = model.tokenize(context.encode("utf-8"), special=False)
+        if len(reference_tokens) > 768:
+            reduced = dict(options)
+            while context and len(reference_tokens) > 768:
+                context = context[:max(0, int(len(context) * 768 / len(reference_tokens)) - 1)]
+                reference_tokens = model.tokenize(context.encode("utf-8"), special=False)
+            reduced["context"] = context
+    tokens = model.tokenize(_prompt(config, draft, suffix, reduced).encode("utf-8"), special=True)
+    if len(tokens) <= budget:
+        return tokens
+    if reduced is options:
+        reduced = dict(options)
+    while len(tokens) > budget and context:
+        context = context[:max(0, len(context) - max(1, len(context) // 3))]
+        reduced["context"] = context
+        tokens = model.tokenize(_prompt(config, draft, suffix, reduced).encode("utf-8"), special=True)
+    while len(tokens) > budget and draft:
+        draft = draft[len(draft) // 4 + 1:]
+        tokens = model.tokenize(_prompt(config, draft, suffix[:128], reduced).encode("utf-8"), special=True)
+    if len(tokens) > budget:
+        raise RuntimeError("Writing instructions exceed the model context window. Shorten custom instructions.")
+    return tokens
+
+
 def _stream_utility(pieces: Iterable[tuple[str, str | None]], cancel: threading.Event) -> Iterator[str]:
     raw = ""
     for delta, _reason in pieces:
@@ -171,22 +204,9 @@ class GGUFProvider(_StreamingProvider):
             if cancel.is_set():
                 return
             from llama_cpp import StoppingCriteriaList
-            # Token-bound the prompt, not just character-bound: Unicode can expand.
+            # Every request uses the model's tokenizer, not a character estimate.
             options = options or {}
-            draft = prefix[-self.config.context_chars:]
-            budget = 4096 - self.config.max_tokens - 8
-            prompt = _prompt(self.config, draft, suffix, options)
-            tokens = model.tokenize(prompt.encode("utf-8"), special=True)
-            if len(tokens) > budget:
-                # Trim draft/context, never the leading system/role boundary.
-                reduced = dict(options)
-                reduced["context"] = options.get("context", "")[-1000:]
-                while len(tokens) > budget and draft:
-                    draft = draft[len(draft) // 4 + 1:]
-                    prompt = _prompt(self.config, draft, suffix[:128], reduced)
-                    tokens = model.tokenize(prompt.encode("utf-8"), special=True)
-                if len(tokens) > budget:
-                    raise RuntimeError("Writing instructions exceed the model context window. Shorten custom instructions.")
+            tokens = _prompt_tokens(model, self.config, prefix, suffix, options)
             chunks = model.create_completion(
                 prompt=tokens, max_tokens=self.config.max_tokens,
                 temperature=0.2, top_p=0.9,

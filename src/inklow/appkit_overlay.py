@@ -9,6 +9,7 @@ import objc
 from Foundation import NSObject
 
 from .resources import asset_path
+from .core import InlineRender
 
 
 class BroTypistSuggestionPanel(A.NSPanel):
@@ -158,6 +159,29 @@ def _position(rect, width, height, *, accessory=False, field_rect=None):
     return A.NSMakeRect(left, bottom, width, height)
 
 
+class GhostSurface(A.NSView):
+    """Draw only host-font glyphs at the verified baseline; no card or keycap."""
+    @objc.python_method
+    def setup(self, text, font, baseline):
+        self.text, self.font, self.baseline = text, font, baseline
+        self.setAccessibilityElement_(False)
+        return self
+
+    def isOpaque(self):
+        return False
+
+    def hitTest_(self, point):
+        return None
+
+    def drawRect_(self, dirty):
+        attributes = {A.NSFontAttributeName: self.font,
+                      A.NSForegroundColorAttributeName: ghost_color(self)}
+        # NSString's origin is the text line's lower-left (including descent).
+        from Foundation import NSString
+        NSString.stringWithString_(self.text).drawAtPoint_withAttributes_(
+            A.NSMakePoint(0, self.baseline + float(self.font.descender())), attributes)
+
+
 class CaretOverlay:
     """Suggestion and accessory are independent panels; neither steals focus."""
 
@@ -240,7 +264,7 @@ class CaretOverlay:
         choices = [str(s) for s in event.get("choices", []) if str(s)][:9]
         text = str(event.get("text", ""))
         key = (text, tuple(choices), event.get("mode"), tuple(rect),
-               bool(event.get("field_anchor")), self.accept_key)
+               bool(event.get("field_anchor")), self.accept_key, repr(event.get("render")))
         if key == self._event_key:
             return
         self._event_key = key
@@ -248,20 +272,22 @@ class CaretOverlay:
         if not rows:
             self.clear()
             return
-        # Native events have caret geometry, not a verified host font. Use the
-        # chip rather than guessing typography from line height over host text.
+        if event.get("mode") == "completion" or not choices:
+            self._present_inline(event)
+            return
+        self.suggestion.setIgnoresMouseEvents_(False)
+        # Explicit alternatives are a separate interactive surface.
         self.suggestion.setHasShadow_(True)
         visible_rows = [_chip_text(value) for value in rows]
-        key_width = min(120, max(26, len(self.accept_key) * 6 + 12)) if self.accept_key else 0
-        width = min(480, max(180, max(len(value) for value in visible_rows) * 7 + 28 + (key_width + 8 if not choices else 32)))
-        row_height = 30 if choices else 28
-        height = row_height * len(rows) + (8 if choices else 0)
+        width = min(480, max(180, max(len(value) for value in visible_rows) * 7 + 60))
+        row_height = 30
+        height = row_height * len(rows) + 8
         surface = _surface(width, height)
         self.target.actions = {100: "menu"}
         for index, value in enumerate(rows):
             button = BroTypistOverlayButton.alloc().initWithFrame_(
-                A.NSMakeRect(10, height - (index + 1) * row_height - (4 if choices else 0), width - 20 - (0 if choices else key_width + 8), row_height))
-            title = f"{index + 1}   {visible_rows[index]}" if choices else visible_rows[index]
+                A.NSMakeRect(10, height - (index + 1) * row_height - 4, width - 20, row_height))
+            title = f"{index + 1}   {visible_rows[index]}"
             button.setTitle_(title)
             button.setFont_(A.NSFont.systemFontOfSize_(13))
             button.setContentTintColor_(A.NSColor.labelColor())
@@ -269,30 +295,64 @@ class CaretOverlay:
             button.setBordered_(False)
             button.cell().setWraps_(False)
             button.cell().setLineBreakMode_(A.NSLineBreakByTruncatingTail)
-            button.setIdentifier_(f"inklow.suggestion.choice.{index + 1}" if choices else "inklow.suggestion.accept")
-            button.setAccessibilityIdentifier_(f"inklow.suggestion.choice.{index + 1}" if choices else "inklow.suggestion.accept")
-            button.setAccessibilityLabel_(f"Accept choice {index + 1}: {value}" if choices else f"Accept completion: {value}")
+            button.setIdentifier_(f"inklow.suggestion.choice.{index + 1}")
+            button.setAccessibilityIdentifier_(f"inklow.suggestion.choice.{index + 1}")
+            button.setAccessibilityLabel_(f"Accept choice {index + 1}: {value}")
             button.setToolTip_("Click to insert into the original text field")
             tag = index + 1
             button.setTag_(tag)
             button.setTarget_(self.target)
             button.setAction_("pressed:")
-            self.target.actions[tag] = f"choice:{index + 1}" if choices else "all"
+            self.target.actions[tag] = f"choice:{index + 1}"
             surface.addSubview_(button)
-        if not choices:
-            hint = A.NSTextField.labelWithString_(self.accept_key)
-            hint.setFrame_(A.NSMakeRect(width - key_width - 10, 5, key_width, 18))
-            hint.setFont_(A.NSFont.monospacedSystemFontOfSize_weight_(10.5, A.NSFontWeightRegular))
-            hint.setTextColor_(A.NSColor.secondaryLabelColor())
-            hint.setAlignment_(A.NSTextAlignmentCenter)
-            hint.setWantsLayer_(True)
-            hint.layer().setCornerRadius_(6)
-            hint.layer().setBackgroundColor_(A.NSColor.quaternaryLabelColor().CGColor())
-            surface.addSubview_(hint)
         self.suggestion.setContentView_(surface)
         card_rect = (rect[0], rect[1], 0, rect[3]) if event.get("field_anchor") else rect
         self.suggestion.setFrame_display_(_position(card_rect, width, height), True)
         self.suggestion.orderFrontRegardless()
+
+    def _present_inline(self, event):
+        self.suggestion.orderOut_(None)
+        payload, rect = event.get("render"), event.get("rect")
+        if not event.get("inline") or not isinstance(payload, dict) or not rect:
+            return
+        try:
+            render = InlineRender(**payload)
+            if not render.valid(rect):
+                return
+            font = A.NSFont.fontWithName_size_(render.font_name, render.font_size)
+            if font is None or str(font.fontName()) != render.font_name:
+                return
+            text = str(event.get("text") or "").split("\n", 1)[0].split("\r", 1)[0]
+            if not text:
+                return
+            from Foundation import NSString
+            width = float(NSString.stringWithString_(text).sizeWithAttributes_(
+                {A.NSFontAttributeName: font}).width)
+            x = float(rect[0])
+            clip_x, clip_y, clip_w, clip_h = render.clip_rect
+            # Never clamp or wrap a completion to a different host position.
+            width = min(width, clip_x + clip_w - x)
+            top, bottom = render.baseline - render.ascent, render.baseline + render.descent
+            if width <= 0 or top < clip_y or bottom > clip_y + clip_h + 1:
+                return
+            screens = list(A.NSScreen.screens())
+            if not screens:
+                return
+            origin_top = A.NSMaxY(screens[0].frame())
+            height = max(1, math.ceil(bottom - top))
+            frame = A.NSMakeRect(x, origin_top - bottom, max(1, width), height)
+            # A fully clipped/occluded screen row must never become a popup.
+            if not any(A.NSContainsRect(screen.frame(), frame) for screen in screens):
+                return
+            surface = GhostSurface.alloc().initWithFrame_(A.NSMakeRect(0, 0, width, height))
+            surface.setup(text, font, render.descent)
+            self.suggestion.setHasShadow_(False)
+            self.suggestion.setIgnoresMouseEvents_(True)
+            self.suggestion.setContentView_(surface)
+            self.suggestion.setFrame_display_(frame, True)
+            self.suggestion.orderFrontRegardless()
+        except (TypeError, ValueError, KeyError):
+            return
 
     def clear(self, *, hide_accessory=False):
         self.suggestion.orderOut_(None)

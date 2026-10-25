@@ -20,6 +20,9 @@ from inklow.runtime import Controller
 class Accessible:
     def __init__(self, *, children=(), flags=(), role="window", path="/field"):
         self.children = children
+        self.parent = None
+        for child in children:
+            child.parent = self
         self.flags = set(flags)
         self.role = role
         self.path = path
@@ -65,7 +68,7 @@ class NativePeer:
         self.frames = []
         self.present_result = 1
         self.hidden = 0
-        self.field = Accessible(role="entry", flags=("focused", "editable", "enabled", "sensitive"))
+        self.field = Accessible(role="entry", flags=("focused", "editable", "enabled", "sensitive", "visible", "showing"))
         self.field.attributes = []
         self.field.queryEditableText = lambda: SimpleNamespace(
             insertText=lambda *args: pytest.fail("Wayland must not edit through AT-SPI"))
@@ -147,7 +150,7 @@ def native(monkeypatch):
         name: value for name, value in (
             ("ROLE_ENTRY", "entry"), ("ROLE_TEXT", "text"), ("ROLE_PASSWORD_TEXT", "password"),
             *(("STATE_" + flag.upper(), flag) for flag in
-              ("focused", "editable", "enabled", "sensitive", "active", "defunct", "multi_line")))})
+              ("focused", "editable", "enabled", "sensitive", "active", "defunct", "multi_line", "visible", "showing")))})
     bridge._library, bridge._client = peer, object()
     bridge._read_notifier = bridge._write_notifier = None
     bridge._dispatching = bridge._close_pending = False
@@ -157,7 +160,6 @@ def native(monkeypatch):
     bridge._context_synced = (0, 0)
     bridge._context_calls = set()
     bridge._panel_snapshot = None
-    bridge._panel_text = ""
     bridge._panel_paused = bridge._pending_render = False
     bridge._menu = None
     bridge._menu_page, bridge._menu_page_size, bridge._menu_selected = 0, 1, -1
@@ -284,34 +286,29 @@ def test_inactive_sensitive_and_old_generation_keys_never_call_python_consumer(n
     assert calls == [] and peer.commits == []
 
 
-def test_native_controller_consumes_keys_only_for_confirmed_text(native, tmp_path, monkeypatch):
-    # R2/R3: real key routing, Controller and bridge, not an acceptance callback echo.
+def test_unsupported_inline_never_submits_or_intercepts_acceptance(native, tmp_path, monkeypatch):
+    # Real Controller gating, including a stale offer left over from a capable field.
     bridge, peer = native
     monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
     controller = Controller(Config(record_history=False, shortcuts={"word": "Tab", "all": "AboveTab"}), bridge)
     controller.start()
-    def press(name=b"Tab", key=23):
-        return event(bridge, type=2, state=1, generation=peer.revision,
-                     serial=peer.serial, name=name, key=key)
     try:
-        assert press() == 0
-        assert peer.text == "Dear team, the update" and peer.commits == []
         snapshot = bridge.capture()
+        assert snapshot.has_anchor and not snapshot.native_inline and not snapshot.inline_safe
+        assert not controller._submit(snapshot)
         assert controller._suggestion.offer(controller._suggestion.generation, snapshot, " arrives tomorrow")
-        assert press() == 1
-        assert peer.text == "Dear team, the update arrives "
-        assert controller._suggestion.text == "tomorrow"
-        assert press(b"grave", 49) == 1
-        assert peer.text == "Dear team, the update arrives tomorrow"
-        assert peer.commits == [" arrives ", "tomorrow"]
-        assert press() == 0
-        assert peer.text == "Dear team, the update arrives tomorrow"
-        assert controller.stats()["totals"]["characters"] == len(" arrives tomorrow")
+        for name, key in ((b"Tab", 23), (b"grave", 49)):
+            assert event(bridge, type=2, state=1, generation=peer.revision,
+                         serial=peer.serial, name=name, key=key) == 0
+        assert not controller.invoke("force")
+        assert peer.text == "Dear team, the update"
+        assert peer.commits == [] and peer.frames == []
+        assert controller.stats()["totals"] == {"completions": 0, "words": 0, "characters": 0}
     finally:
         controller.stop()
 
 
-def test_filtered_native_commit_leaves_tab_unconsumed_and_statistics_empty(native, tmp_path, monkeypatch):
+def test_filtered_explicit_native_choice_leaves_tab_unconsumed_and_statistics_empty(native, tmp_path, monkeypatch):
     # R1/R3: successful wire submission is not application-level acceptance.
     bridge, peer = native
     monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
@@ -320,16 +317,19 @@ def test_filtered_native_commit_leaves_tab_unconsumed_and_statistics_empty(nativ
     controller.start()
     try:
         snapshot = bridge.capture()
-        assert controller._suggestion.offer(controller._suggestion.generation, snapshot, " arrives tomorrow")
+        controller._choices = [" arrives tomorrow"]
+        controller._choice_snapshot = snapshot
+        controller._replacement = (snapshot.caret, 0)
+        controller._mode = "alternatives"
         assert event(bridge, type=2, state=1, generation=peer.revision,
                      serial=peer.serial, name=b"Tab", key=23) == 0
         assert peer.text == "Dear team, the update"
-        assert peer.commits == [" arrives "]
-        assert controller._suggestion.text == ""
+        assert peer.commits == [" arrives tomorrow"]
+        assert controller._choices == []
         assert controller.stats()["totals"] == {"completions": 0, "words": 0, "characters": 0}
         assert event(bridge, type=2, state=1, generation=peer.revision,
                      serial=peer.serial, name=b"Tab", key=23) == 0
-        assert peer.commits == [" arrives "]
+        assert peer.commits == [" arrives tomorrow"]
     finally:
         controller.stop()
 
@@ -360,14 +360,16 @@ def test_native_busy_buffers_deliver_latest_frame_without_stale_hit_actions(nati
     calls = []
     bridge.configure(Config(shortcuts={"word": "Tab", "all": "AboveTab"}))
     bridge.start_shortcuts(lambda action: calls.append(action) or True)
+    bridge.bind_ui(calls.append)
     bridge.set_shortcuts_enabled(True)
     anchor = bridge.capture().native_anchor
-    assert bridge.present_native(anchor, " first candidate")
-    stale = next(rect for rect, name, active in bridge._regions if name == "all")
+    assert bridge.present_native(anchor, "")
+    assert bridge.show_native_menu([("first", "First manual action", True)])
+    stale = next(rect for rect, name, active in bridge._regions if name == "menu")
     first_frame = peer.frames[-1]
     peer.present_result = 2
-    assert bridge.present_native(anchor, " intermediate candidate")
-    assert bridge.present_native(anchor, " final accepted candidate")
+    assert bridge.show_native_menu([("intermediate", "Intermediate manual action", True)])
+    assert bridge.show_native_menu([("manual", "Final manual action", True)])
     assert bridge._regions == []
     x, y, _, _ = stale
     for pressed in (1, 0):
@@ -376,12 +378,13 @@ def test_native_busy_buffers_deliver_latest_frame_without_stale_hit_actions(nati
     assert calls == []
     final_frame = peer.frames[-1]
     assert first_frame != final_frame
+    assert peer.commits == []
     peer.present_result = 1
     event(bridge, type=5)
     assert peer.frames[-1] == final_frame
     assert not bridge._pending_render
-    click_region(bridge, peer, "all")
-    assert calls == ["all"]
+    click_region(bridge, peer, "manual")
+    assert calls == ["manual"]
 
 
 def test_native_menu_pages_skip_disabled_items_and_restore_shortcuts_on_close(native, qt_app):
@@ -392,7 +395,7 @@ def test_native_menu_pages_skip_disabled_items_and_restore_shortcuts_on_close(na
     bridge.bind_ui(calls.append)
     bridge.start_shortcuts(lambda action: calls.append(action) or True)
     bridge.set_shortcuts_enabled(True)
-    assert bridge.present_native(bridge.capture().native_anchor, " candidate")
+    assert bridge.present_native(bridge.capture().native_anchor, "")
     actions = [(f"item:{index}", f"Synthetic action {index}", index % 2 == 0) for index in range(12)]
     assert bridge.show_native_menu(actions)
     assert event(bridge, type=2, state=1, generation=peer.revision, name=b"End") == 1
@@ -400,7 +403,7 @@ def test_native_menu_pages_skip_disabled_items_and_restore_shortcuts_on_close(na
     assert event(bridge, type=2, state=1, generation=peer.revision, name=b"Return") == 1
     assert calls == ["item:10"]
     assert bridge._menu is None and bridge._panel_snapshot is None
-    assert bridge.present_native(bridge.capture().native_anchor, " candidate")
+    assert bridge.present_native(bridge.capture().native_anchor, "")
     assert bridge.show_native_menu(actions)
     assert event(bridge, type=2, state=1, generation=peer.revision, name=b"Escape") == 1
     assert calls == ["item:10", "menu_closed"]
@@ -475,3 +478,72 @@ def test_initial_context_resync_preserves_capture_isolation(native, qt_app, monk
         assert captured is not None and captured.text == peer.text and captured.native_anchor
     else:
         assert not peer.ready and captured is None and peer.reads == 0
+
+
+@pytest.mark.parametrize("text", [" tomorrow", " tomorrow\nnext line", ""])
+def test_unsupported_inline_only_allows_empty_manual_control(native, qt_app, monkeypatch, text):
+    bridge, peer = native
+    calls = []
+    native_call = bridge._native_call
+    def observe(name, *arguments):
+        calls.append(name)
+        return native_call(name, *arguments)
+    monkeypatch.setattr(bridge, "_native_call", observe)
+    snapshot = bridge.capture()
+    before = peer.text
+    assert not snapshot.native_inline and not snapshot.inline_safe
+    assert bridge.present_native(snapshot.native_anchor, text) is (text == "")
+    assert bool(peer.frames) is (text == "")
+    assert peer.text == before and peer.commits == []
+    assert "preedit" not in calls
+
+
+def test_stale_native_control_anchor_never_displays_or_commits(native, monkeypatch):
+    bridge, peer = native
+    monkeypatch.setattr(bridge, "_render", lambda: pytest.fail("Stale anchor rendered a panel"))
+    snapshot = bridge.capture()
+    peer.serial += 1
+    peer.revision += 1
+    assert not bridge.present_native(snapshot.native_anchor, "")
+    assert peer.commits == []
+
+
+def test_selection_while_manual_control_is_shown_refuses_commit_without_reading_value(native, monkeypatch):
+    bridge, peer = native
+    monkeypatch.setattr(bridge, "_render", lambda: True)
+    snapshot = bridge.capture()
+    assert bridge.present_native(snapshot.native_anchor, "")
+    peer.selection = 1
+    peer.getText = lambda *args: pytest.fail("Selected value was read")
+    assert bridge.capture() is None
+    assert not bridge.insert(snapshot, " tomorrow")
+    assert peer.commits == []
+
+
+def test_wayland_context_worker_never_touches_private_connection(native, monkeypatch):
+    bridge, peer = native
+    snapshot = bridge.capture()
+    monkeypatch.setattr(bridge, "_native_call", lambda *args: pytest.fail("Worker touched compositor connection"))
+    assert not bridge.context_matches(snapshot)
+    assert bridge.focused_context(snapshot, authorized=lambda: True)["status"] == "blocked"
+
+
+@pytest.mark.parametrize("missing", [True, False])
+def test_linux_context_revalidates_window_before_tree_reads(native, monkeypatch, missing):
+    from inklow.native.linux import LinuxBridge
+    bridge, peer = native
+    snapshot = LinuxBridge._capture(bridge, geometry=False)[0]
+    focused = bridge._focused()
+    calls = 0
+    def changed_focus():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return focused
+        if missing:
+            return None
+        return focused[0], focused[1], (123, "/usr/bin/another-writer")
+    monkeypatch.setattr(bridge, "_focused", changed_focus)
+    monkeypatch.setattr(bridge, "context_matches", lambda value: LinuxBridge.context_matches(bridge, value))
+    peer.getText = lambda *args: pytest.fail("Changed focused window's context was read")
+    assert LinuxBridge.focused_context(bridge, snapshot, authorized=lambda: True)["status"] == "blocked"

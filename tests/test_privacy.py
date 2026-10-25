@@ -38,3 +38,77 @@ def test_prediction_sanitization_preserves_leading_space_and_existing_suffix():
 
 def test_generated_tabs_cannot_navigate_to_another_field():
     assert clean_completion(" café\tamanhã", "") == " café amanhã"
+
+
+def test_window_context_is_accessibility_only_and_rejects_wrong_window_identity():
+    from types import SimpleNamespace
+    from inklow.core import Snapshot
+    from inklow.system import screen_text
+    snapshot = Snapshot("writer", "body", "The update", 10,
+                        window_id="writer:window", window_revision="revision-1")
+    calls = []
+    def read(expected, *, authorized, max_chars):
+        assert authorized()
+        calls.append(expected.window_id)
+        return {"text": "The update arrives Friday", "provenance": "accessibility",
+                "window_id": "unrelated-window", "revision": expected.window_revision}
+    bridge = SimpleNamespace(focused_context=read)
+    result = screen_text(snapshot, bridge=bridge, authorized=lambda: True)
+    assert result["status"] == "stale" and result["text"] == ""
+    assert calls == ["writer:window"]
+
+
+def test_window_context_revoked_during_accessibility_read_drops_content():
+    from types import SimpleNamespace
+    from inklow.core import Snapshot
+    from inklow.system import screen_text
+    snapshot = Snapshot("writer", "body", "The update", 10,
+                        window_id="writer:window", window_revision="revision-1")
+    consent = [True]
+    def read(expected, **kwargs):
+        consent[0] = False
+        return {"text": "update private content", "window_id": expected.window_id,
+                "revision": expected.window_revision}
+    result = screen_text(snapshot, bridge=SimpleNamespace(focused_context=read), authorized=lambda: consent[0])
+    assert result["status"] == "blocked"
+    assert result["text"] == ""
+
+
+def test_unverified_window_context_never_calls_native_reader():
+    from types import SimpleNamespace
+    from inklow.core import Snapshot
+    from inklow.system import screen_text
+    calls = []
+    bridge = SimpleNamespace(focused_context=lambda *args, **kwargs: calls.append("private read"))
+    snapshot = Snapshot("writer", "body", "The update", 10)
+    result = screen_text(snapshot, bridge=bridge, authorized=lambda: True)
+    assert calls == []
+    assert result["status"] == "blocked" and not result["text"]
+
+
+@pytest.mark.parametrize("revoke_during_read", [False, True])
+def test_native_mac_clipboard_rechecks_consent_without_qt_or_user_clipboard(monkeypatch, revoke_during_read):
+    import sys
+    from types import SimpleNamespace
+    from inklow import system
+    consent = [True]
+    reads = []
+
+    class PasteboardBoundary:
+        def stringForType_(self, kind):
+            reads.append(kind)
+            if revoke_during_read:
+                consent[0] = False
+            return "Fixture clipboard reference"
+
+    boundary = PasteboardBoundary()
+    monkeypatch.setattr(system.sys, "platform", "darwin")
+    monkeypatch.setitem(sys.modules, "AppKit", SimpleNamespace(
+        NSPasteboard=SimpleNamespace(generalPasteboard=lambda: boundary),
+        NSPasteboardTypeString="fixture-type"))
+    result = system.clipboard_text(authorized=lambda: consent[0])
+    assert result == ("" if revoke_during_read else "Fixture clipboard reference")
+    assert reads == ["fixture-type"]
+    consent[0] = False
+    assert system.clipboard_text(authorized=lambda: consent[0]) == ""
+    assert reads == ["fixture-type"]

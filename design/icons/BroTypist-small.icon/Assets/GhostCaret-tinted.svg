@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 100 100">
-  <title>BroTypist Ghost Caret — original tinted small foreground</title>
-  <desc>Authored from the supplied DESIGN.md 100-unit geometry. Transparent, full-canvas artwork; no copied third-party assets. Background and system mask are owned by icon.json and Icon Composer.</desc>
-  <g fill="#FFFFFF">
-    <rect x="24" y="27" width="6" height="46" rx="3"/>
-  </g>
-  <rect x="40" y="46" width="40" height="8" rx="4" fill="#FFFFFF"/>
-</svg>

@@ -46,3 +46,14 @@ def test_new_configs_enable_global_typing_and_home_override_is_fully_isolated(tm
     assert config_path() == tmp_path / "isolated" / "settings.json"
     assert load_config().app_rules == {"domain:example.com": {"enabled": False}}
     assert not list(config_path().parent.glob(".settings-*"))
+
+
+def test_latency_defaults_never_override_saved_scheduling_or_context_consent(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
+    explicit = {"debounce_ms": 400, "idle_release_seconds": 60,
+                "screen_context": False, "clipboard_context": False}
+    config_path().write_text(json.dumps(explicit))
+    config = load_config()
+    save_config(config)
+    saved = json.loads(config_path().read_text())
+    assert {key: saved[key] for key in explicit} == explicit

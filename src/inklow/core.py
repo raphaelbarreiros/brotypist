@@ -8,6 +8,40 @@ from threading import RLock
 
 
 @dataclass(frozen=True)
+class InlineRender:
+    """Observed host run metrics, in native desktop coordinates (font in points)."""
+    font_name: str
+    font_size: float
+    baseline: float
+    clip_rect: tuple[float, float, float, float]
+    ascent: float
+    descent: float
+    direction: str = "ltr"
+    source: str = ""
+    font_weight: int = 400
+    italic: bool = False
+
+    def valid(self, caret_rect) -> bool:
+        import math
+        if (not isinstance(self.clip_rect, (tuple, list)) or len(self.clip_rect) != 4
+                or not isinstance(caret_rect, (tuple, list)) or len(caret_rect) != 4):
+            return False
+        values = (*self.clip_rect, *caret_rect, self.font_size, self.baseline, self.ascent, self.descent)
+        if (not self.font_name or not self.source or self.direction != "ltr"
+                or not all(math.isfinite(float(value)) for value in values)
+                or not 1 <= self.font_size <= 300 or self.ascent <= 0 or self.descent < 0
+                or self.clip_rect[2] <= 0 or self.clip_rect[3] <= 0 or not caret_rect):
+            return False
+        x, y, width, height = self.clip_rect
+        cx, cy, _, ch = caret_rect
+        return (ch > 0 and x <= cx and x + width - cx >= 1
+                and y <= cy and cy + ch <= y + height + 1
+                and cy < self.baseline <= cy + ch + 1
+                and y <= self.baseline - self.ascent
+                and self.baseline + self.descent <= y + height + 1)
+
+
+@dataclass(frozen=True)
 class Snapshot:
     app_id: str
     field_id: str
@@ -20,10 +54,23 @@ class Snapshot:
     multiline: bool = True
     field_rect: tuple[float, float, float, float] | None = None
     native_anchor: str = ""
+    inline_render: InlineRender | None = None
+    native_inline: bool = False
+    window_id: str = ""
+    window_revision: str = ""
+
+    @property
+    def inline_safe(self) -> bool:
+        """Only an unobstructed line end can carry a same-line suffix."""
+        return (not self.protected and self.selection_length == 0
+                and 0 <= self.caret <= len(self.text)
+                and (not self.suffix or self.suffix.startswith(("\n", "\r")))
+                and ((self.native_inline and bool(self.native_anchor)) or
+                     (self.inline_render is not None and self.inline_render.valid(self.caret_rect))))
 
     @property
     def anchor_rect(self) -> tuple[float, float, float, float] | None:
-        """A native caret supports inline text; field-only bounds support a card."""
+        """An observed caret or field bounds can anchor explicit tools."""
         return self.caret_rect or self.field_rect
 
     @property
@@ -154,5 +201,6 @@ class SuggestionState:
             self.text = remainder
             self.snapshot = replace(
                 current, text=current.prefix + accepted + current.suffix,
-                caret=current.caret + len(accepted))
+                caret=current.caret + len(accepted), caret_rect=None, inline_render=None,
+                native_inline=False, native_anchor="")
             return accepted

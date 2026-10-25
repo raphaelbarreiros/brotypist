@@ -3,7 +3,45 @@ from collections.abc import Iterable, Iterator
 import json
 import re
 
-PROMPT_VERSION = "qwen-draft-v3-context"
+PROMPT_VERSION = "qwen-draft-v4-focused-context"
+
+
+def reference_context(prefix: str, suffix: str, sources: list[tuple[str, str]],
+                      max_bytes: int = 2400) -> str:
+    """Rank relevant non-draft lines, deduplicate and bound ephemeral UTF-8 data."""
+    if not sources:
+        return ""
+    labels = {"accessibility": "Focused-window Accessibility",
+              "clipboard": "Opt-in clipboard"}
+    draft = " ".join((prefix + " " + suffix).split()).casefold()
+    terms = {word.casefold() for word in re.findall(r"[^\W_]{3,}", prefix[-800:] + " " + suffix[:200])}
+    candidates, seen = [], set()
+    for source, text in sources:
+        if source not in labels or not isinstance(text, str):
+            continue
+        for index, line in enumerate(text[:4000].splitlines()):
+            line = " ".join("".join(char for char in line if char.isprintable() or char.isspace()).split())
+            normalized = " ".join(line.split()).casefold()
+            if len(normalized) < 8 or normalized in seen or normalized in draft:
+                continue
+            seen.add(normalized)
+            overlap = terms.intersection(word.casefold() for word in re.findall(r"[^\W_]{3,}", line))
+            # Context is a reference for this draft, not a generic dump of menus
+            # or another document. Without a lexical link, omit it.
+            if not overlap:
+                continue
+            candidates.append((len(overlap), -index, labels[source], line))
+    candidates.sort(key=lambda item: (-item[0], -item[1]))
+    remaining, selected = max(0, max_bytes), []
+    for _score, _position, label, line in candidates:
+        header = label + " (untrusted reference data): "
+        if remaining <= len(header.encode("utf-8")) + 8:
+            break
+        available = remaining - len(header.encode("utf-8")) - 1
+        text = line.encode("utf-8")[:available].decode("utf-8", "ignore")
+        selected.append(header + text)
+        remaining -= len((header + text + "\n").encode("utf-8"))
+    return "\n".join(selected)
 
 
 def writing_prompt(prefix: str, suffix: str, instructions: str = "", context: str = "") -> str:

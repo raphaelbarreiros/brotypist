@@ -5,6 +5,7 @@ owner executes these after the shared Controller and system helpers land.
 """
 from dataclasses import replace
 import sys
+import time
 
 import pytest
 
@@ -33,6 +34,9 @@ class UIController:
         self.saved = []
         self.bridge = BridgeBase()
         self.ticks = 0
+
+    def set_wake_callback(self, callback):
+        self.wake_callback = callback
 
     def set_clipboard_reader(self, reader):
         self.clipboard_reader = reader
@@ -244,10 +248,10 @@ def test_shortcut_recorder_captures_tab_instead_of_focus_navigation(shell):
 
 
 
-def test_main_thread_drain_clears_suggestions_and_privacy_accessory(shell):
+def test_unverified_completion_has_no_popup_and_clear_removes_privacy_accessory(shell):
     shell.controller.events = [{"type": "suggestion", "text": " tomorrow", "rect": [20, 20, 1, 20], "choices": [], "mode": "completion"}]
     shell.tick()
-    assert shell.overlay.isVisible()
+    assert not shell.overlay.isVisible()
     assert shell.accessory.isVisible()
     shell.controller.events = [{"type": "clear", "hide_accessory": True}]
     shell.tick()
@@ -483,20 +487,48 @@ def test_tray_stays_visible_after_settings_close_and_quit_exits_event_loop(shell
 
 @pytest.mark.parametrize("shell", [True], indirect=True)
 def test_tray_recovers_after_host_disappears_without_restarting_agent(shell, monkeypatch):
+    def wait_for_tray(available):
+        deadline = time.monotonic() + 3
+        while shell.tray_available != available and time.monotonic() < deadline:
+            QTest.qWait(25)
+        assert shell.tray_available is available
+
     shell.controller.config.setup_completed = True
     shell.start(background=True)
     monkeypatch.setattr(qt_ui.QSystemTrayIcon, "isSystemTrayAvailable", lambda: False)
-    for _ in range(10):
-        shell.tick()
+    wait_for_tray(False)
     assert not shell.tray_available
     assert shell.settings.isVisible()
     assert not shell.controller.stopped
     monkeypatch.setattr(qt_ui.QSystemTrayIcon, "isSystemTrayAvailable", lambda: True)
-    for _ in range(10):
-        shell.tick()
+    wait_for_tray(True)
     assert shell.tray_available
     assert shell.tray.isVisible()
     shell.settings.close()
     assert not shell.settings.isVisible()
     assert shell.tray.isVisible()
     assert not shell.controller.stopped
+
+
+def test_verified_host_suffix_is_transparent_same_line_and_does_not_take_focus(shell):
+    from dataclasses import asdict
+    from inklow.core import InlineRender
+    from PySide6.QtGui import QFontInfo, QFontMetricsF
+    font = QApplication.font()
+    metrics, info = QFontMetricsF(font), QFontInfo(font)
+    screen = shell.app.primaryScreen()
+    ratio = screen.devicePixelRatio()
+    render = InlineRender(info.family(), font.pointSizeF(), 100 * ratio,
+                          (0, 0, 700 * ratio, 500 * ratio),
+                          metrics.ascent() * ratio, metrics.descent() * ratio, source="verified-host-run")
+    event = {"type": "suggestion", "text": " tomorrow", "choices": [], "mode": "completion",
+             "rect": [100 * ratio, (100 - metrics.ascent()) * ratio, ratio, metrics.height() * ratio],
+             "render": asdict(render), "inline": True}
+    focused = QApplication.focusWidget()
+    shell._suggestion(event)
+    assert shell.overlay.isVisible()
+    assert not shell.overlay.surface.isVisible()
+    assert shell.overlay._ghost[0] == " tomorrow"
+    assert shell.overlay.y() == round(100 - metrics.ascent())
+    assert QApplication.focusWidget() is focused
+    assert shell.overlay.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)

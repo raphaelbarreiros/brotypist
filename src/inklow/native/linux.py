@@ -6,7 +6,7 @@ import select
 import socket
 import threading
 
-from ..core import Snapshot
+from ..core import InlineRender, Snapshot
 from .base import BridgeBase, Shortcut
 
 
@@ -72,6 +72,7 @@ class LinuxBridge(BridgeBase):
         self._available = True
         self._set_status(
             "Linux AT-SPI/X11 ready. Supports focused editable Entry/Text controls exposing Text and EditableText. "
+            "Inline additionally requires explicit inactive IME state, font/direction attributes and matching visible native metrics; unsupported providers stay silent. "
             "Enable toolkit accessibility (GTK: GTK_MODULES=gail:atk-bridge where required; Qt: QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1) "
             "before starting target apps. Password fields are excluded."
             " Browser URLs are not observable through documented window metadata; domain rules cannot apply here."
@@ -206,9 +207,168 @@ class LinuxBridge(BridgeBase):
             except Exception:
                 pass
         object_path = getattr(element, "path", None)
+        window = self._window_ancestor(element)
+        window_id = f"{pid}:{getattr(window, 'path', None) or hash(window)}" if window is not None else ""
+        render = self._inline_metrics(element, text_iface, text, caret, rect, attrs) if geometry and not selection_length else None
         field_id = f"{pid}:{object_path if object_path else hash(element)}"
         return Snapshot(app_id, field_id, text, caret, selection_length, rect,
-                        multiline=state.contains(a.STATE_MULTI_LINE)), editable, text_iface
+                        multiline=state.contains(a.STATE_MULTI_LINE), inline_render=render,
+                        window_id=window_id, window_revision=window_id), editable, text_iface
+
+    def _window_ancestor(self, element):
+        for _ in range(16):
+            if element is None:
+                return None
+            state = element.getState()
+            if state.contains(self.atspi.STATE_ACTIVE):
+                return element
+            element = getattr(element, "parent", None)
+        return None
+
+    def _inline_metrics(self, element, interface, text, caret, rect, attrs):
+        # AT-SPI has no universal IME-state property. Only providers explicitly
+        # advertising an inactive composition can provide a safe overlay.
+        if (not rect or not caret or text[caret - 1] in "\r\n"
+                or (text[caret:] and not text[caret:].startswith(("\r", "\n")))
+                or not any(attrs.get(key, "").casefold() in ("false", "0", "no")
+                           for key in ("preedit", "composing", "composition-active"))):
+            return None
+        try:
+            values, start, end = interface.getAttributeRun(caret - 1, True)
+            run = dict(values) if isinstance(values, dict) else dict(item.split(":", 1) for item in values if ":" in item)
+            if not start <= caret - 1 < end or run.get("direction") != "ltr":
+                return None
+            name, size = run.get("family-name", ""), float(run.get("size", 0))
+            if not name or not 1 <= size <= 300 or run.get("rise", "0") != "0":
+                return None
+            import gi
+            gi.require_version("Pango", "1.0")
+            gi.require_version("PangoCairo", "1.0")
+            from gi.repository import Pango, PangoCairo
+            description = Pango.FontDescription()
+            description.set_family(name)
+            description.set_size(round(size * Pango.SCALE))
+            weight = int(run.get("weight", "400"))
+            italic = run.get("style", "normal") == "italic"
+            description.set_weight(weight)
+            description.set_style(Pango.Style.ITALIC if italic else Pango.Style.NORMAL)
+            context = PangoCairo.FontMap.get_default().create_context()
+            host_font = context.load_font(description)
+            if host_font is None or host_font.describe().get_family().casefold() != name.casefold():
+                return None
+            metrics = context.get_metrics(description, Pango.Language.get_default())
+            ascent, descent = metrics.get_ascent() / Pango.SCALE, metrics.get_descent() / Pango.SCALE
+            glyph = interface.getCharacterExtents(caret - 1, self.atspi.DESKTOP_COORDS)
+            bounds = element.queryComponent().getExtents(self.atspi.DESKTOP_COORDS)
+            clip = tuple(float(getattr(bounds, key)) for key in ("x", "y", "width", "height"))
+            parent = element
+            for _ in range(16):
+                if parent is None:
+                    break
+                state = parent.getState()
+                if (not state.contains(self.atspi.STATE_VISIBLE)
+                        or not state.contains(self.atspi.STATE_SHOWING)):
+                    return None
+                bounds = parent.queryComponent().getExtents(self.atspi.DESKTOP_COORDS)
+                if bounds.width > 0 and bounds.height > 0:
+                    left, top = max(clip[0], bounds.x), max(clip[1], bounds.y)
+                    right = min(clip[0] + clip[2], bounds.x + bounds.width)
+                    bottom = min(clip[1] + clip[3], bounds.y + bounds.height)
+                    if right <= left or bottom <= top:
+                        return None
+                    clip = (float(left), float(top), float(right - left), float(bottom - top))
+                if state.contains(self.atspi.STATE_ACTIVE):
+                    break
+                parent = getattr(parent, "parent", None)
+            if (abs(glyph[3] - ascent - descent) > 1
+                    or abs(glyph[1] - rect[1]) > 1 or abs(glyph[0] + glyph[2] - rect[0]) > 1.5):
+                return None
+            render = InlineRender(name, size, float(glyph[1]) + ascent, clip, ascent, descent,
+                                  source="linux-atspi-font-run", font_weight=weight, italic=italic)
+            return render if render.valid(rect) else None
+        except Exception:
+            return None
+
+    def context_matches(self, snapshot):
+        try:
+            if not self._available or self._stopped.is_set():
+                return False
+            focused = self._focused()
+            if focused is None:
+                return False
+            element, _, (pid, app_id) = focused
+            state, a = element.getState(), self.atspi
+            window = self._window_ancestor(element)
+            identity = f"{pid}:{getattr(element, 'path', None) or hash(element)}"
+            window_id = f"{pid}:{getattr(window, 'path', None) or hash(window)}" if window is not None else ""
+            attrs = dict(item.split(":", 1) for item in element.getAttributes() if ":" in item)
+            protected = any((("password" in key.casefold() or "protected" in key.casefold())
+                             and value.casefold() not in ("false", "0", "no")) or value.casefold() == "password"
+                            for key, value in attrs.items())
+            return (app_id == snapshot.app_id and identity == snapshot.field_id
+                    and window_id == snapshot.window_id and bool(window_id) and not protected
+                    and element.getRole() in (a.ROLE_ENTRY, a.ROLE_TEXT)
+                    and all(state.contains(flag) for flag in
+                            (a.STATE_FOCUSED, a.STATE_EDITABLE, a.STATE_ENABLED, a.STATE_SENSITIVE,
+                             a.STATE_VISIBLE, a.STATE_SHOWING)))
+        except Exception:
+            return False
+
+    def focused_context(self, snapshot, *, authorized, max_chars=2400):
+        result = {"text": "", "provenance": "accessibility",
+                  "window_id": snapshot.window_id, "revision": snapshot.window_revision,
+                  "status": "unavailable"}
+        if not authorized() or not self.context_matches(snapshot):
+            return {**result, "status": "blocked"}
+        try:
+            import time
+            focused = self._focused()
+            if focused is None:
+                return {**result, "status": "blocked"}
+            element, _, (pid, app_id) = focused
+            window = self._window_ancestor(element)
+            field_id = f"{pid}:{getattr(element, 'path', None) or hash(element)}"
+            window_id = f"{pid}:{getattr(window, 'path', None) or hash(window)}" if window is not None else ""
+            if (app_id != snapshot.app_id or field_id != snapshot.field_id
+                    or window_id != snapshot.window_id or not window_id):
+                return {**result, "status": "blocked"}
+            stack, chunks, remaining = [(window, 0)], [], min(12000, max(0, max_chars))
+            deadline, a = time.monotonic() + 0.15, self.atspi
+            for _ in range(128):
+                if not stack or remaining <= 0 or time.monotonic() >= deadline:
+                    break
+                element, depth = stack.pop()
+                if not authorized():
+                    return {**result, "status": "blocked"}
+                state, role = element.getState(), element.getRole()
+                if (role == a.ROLE_PASSWORD_TEXT or state.contains(a.STATE_DEFUNCT)
+                        or not state.contains(a.STATE_VISIBLE) or not state.contains(a.STATE_SHOWING)):
+                    continue
+                attrs = dict(item.split(":", 1) for item in element.getAttributes() if ":" in item)
+                if any((("password" in key.casefold() or "protected" in key.casefold())
+                        and value.casefold() not in ("false", "0", "no")) or value.casefold() == "password"
+                       for key, value in attrs.items()):
+                    continue
+                editable = state.contains(a.STATE_EDITABLE)
+                if not editable and role in (a.ROLE_LABEL, a.ROLE_TEXT):
+                    if not authorized():
+                        return {**result, "status": "blocked"}
+                    try:
+                        value = element.queryText().getText(0, remaining)
+                    except (NotImplementedError, AttributeError):
+                        value = str(element.name or "")[:remaining]
+                    if value and value != snapshot.text:
+                        chunks.append(value)
+                        remaining -= len(value) + 1
+                if depth < 8 and not editable:
+                    stack.extend((element.getChildAtIndex(index), depth + 1)
+                                 for index in range(min(element.childCount, 64)))
+            if not authorized() or not self.context_matches(snapshot):
+                return {**result, "status": "blocked"}
+            text = "\n".join(chunks)[:max_chars]
+            return {**result, "text": text, "status": "ready" if text else "empty"}
+        except Exception:
+            return {**result, "status": "error"}
 
     def capture(self) -> Snapshot | None:
         with self._lock:

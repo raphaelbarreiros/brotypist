@@ -6,7 +6,7 @@ import math
 import threading
 import dataclasses
 
-from ..core import Snapshot
+from ..core import InlineRender, Snapshot
 from .base import BridgeBase, Shortcut, utf16_to_index, index_to_utf16
 from ..shortcuts import mac_key_name
 
@@ -37,10 +37,10 @@ class MacBridge(BridgeBase):
             self._set_status(
                 "Accessibility available. Global shortcuts require Input Monitoring permission in "
                 "System Settings → Privacy & Security for BroTypist or its terminal/Python host. "
-                "Supported targets: writable AXTextField/AXTextArea with an observable caret."
+                "Inline completion requires a writable AXTextField/AXTextArea with a verified attributed font run and baseline."
             )
         else:
-            self._set_status("macOS AX and Quartz ready. Secure, read-only, and unsupported controls are excluded.")
+            self._set_status("macOS AX and Quartz ready. Inline requires verified host font, baseline and visible line-end geometry; unsupported controls stay silent. Secure and read-only controls are excluded.")
 
     def status(self) -> str:
         if not self.ax.AXIsProcessTrusted():
@@ -180,6 +180,10 @@ class MacBridge(BridgeBase):
         end = utf16_to_index(text, location + length)
         rect = self._caret_bounds(field, text, caret, location)
         field_rect = self._field_bounds(field)
+        render = self._inline_metrics(field, text, caret, location, rect, field_rect) if length == 0 else None
+        window = self._attribute(field, "AXWindow")
+        window_id = f"{pid}:{hash(window)}" if window is not None else ""
+        window_revision = repr((window_id, field_rect))
         multiline = self._attribute(field, "AXRole") == "AXTextArea"
         # Re-resolve foreground policy, security, writability and field identity
         # after asynchronous AX calls. Never return a snapshot of stale focus.
@@ -189,7 +193,8 @@ class MacBridge(BridgeBase):
         field_id = f"{pid}:{hash(field)}"
         return Snapshot(app_id, field_id, text, caret, end - caret, rect,
                         domain=domain, multiline=multiline,
-                        field_rect=field_rect), field
+                        field_rect=field_rect, inline_render=render,
+                        window_id=window_id, window_revision=window_revision), field
 
     def _field_bounds(self, field):
         position = self._attribute(field, "AXPosition")
@@ -240,6 +245,160 @@ class MacBridge(BridgeBase):
                 and bounds[0] <= glyph[0] + glyph[2] + 1):
             bounds = (bounds[0], glyph[1], bounds[2], bounds[3])
         return bounds[0], bounds[1], max(1.0, bounds[2]), bounds[3]
+
+    def _inline_metrics(self, field, text, caret, location, rect, field_rect):
+        """Use the attributed host run and native layout baseline, never caret size."""
+        if (not rect or not field_rect or not caret or text[caret - 1] in "\r\n"
+                or (text[caret:] and not text[caret:].startswith(("\r", "\n")))):
+            return None
+        import unicodedata
+        if any(unicodedata.bidirectional(ch) in {"R", "AL", "AN", "RLE", "RLO", "RLI"}
+               for ch in text[text.rfind("\n", 0, caret) + 1:caret]):
+            return None
+        try:
+            from AppKit import NSFont, NSLayoutManager
+            visible = self._attribute(field, "AXVisibleCharacterRange")
+            if visible is not None:
+                valid, span = self.ax.AXValueGetValue(visible, self.ax.kAXValueCFRangeType, None)
+                if not valid or not int(span[0]) < location <= int(span[0]) + int(span[1]):
+                    return None
+            clip = field_rect
+            parent = self._attribute(field, "AXParent")
+            for _ in range(16):
+                if parent is None:
+                    break
+                bounds = self._field_bounds(parent)
+                if bounds:
+                    left, top = max(clip[0], bounds[0]), max(clip[1], bounds[1])
+                    right = min(clip[0] + clip[2], bounds[0] + bounds[2])
+                    bottom = min(clip[1] + clip[3], bounds[1] + bounds[3])
+                    if right <= left or bottom <= top:
+                        return None
+                    clip = (left, top, right - left, bottom - top)
+                parent = self._attribute(parent, "AXParent")
+            glyph_length = 2 if ord(text[caret - 1]) > 0xFFFF else 1
+            value = self.ax.AXValueCreate(self.ax.kAXValueCFRangeType, (location - glyph_length, glyph_length))
+            error, attributed = self.ax.AXUIElementCopyParameterizedAttributeValue(
+                field, "AXAttributedStringForRange", value, None)
+            if error or attributed is None or not attributed.length():
+                return None
+            attributes, _ = attributed.attributesAtIndex_effectiveRange_(0, None)
+            descriptor = attributes.get("AXFont")
+            if not descriptor:
+                return None
+            name, size = str(descriptor.get("AXFontName") or ""), float(descriptor.get("AXFontSize") or 0)
+            font = NSFont.fontWithName_size_(name, size)
+            if font is None or str(font.fontName()) != name:
+                return None
+            # Superscripts, baseline shifts and host IME runs are not plain text.
+            if (any(attributes.get(key) for key in ("AXSuperscript", "NSBaselineOffset", "AXMarkedText"))
+                    or any(key in attributes for key in ("NSMarkedClauseSegment",
+                                                         "NSMarkedClauseSegmentAttributeName"))):
+                return None
+            glyph = self._range_bounds(field, location - glyph_length, glyph_length)
+            layout = getattr(self, "_layout_manager", None)
+            if layout is None:
+                layout = self._layout_manager = NSLayoutManager.alloc().init()
+            line_height = float(layout.defaultLineHeightForFont_(font))
+            baseline_offset = float(layout.defaultBaselineOffsetForFont_(font))
+            if (not glyph or abs(glyph[3] - line_height) > 0.75
+                    or abs(glyph[1] - rect[1]) > 0.75
+                    or abs(glyph[0] + glyph[2] - rect[0]) > 1.5
+                    or abs(rect[3] - line_height) > 0.75):
+                return None
+            # NSLayoutManager reports the baseline's distance from the line top.
+            baseline = glyph[1] + baseline_offset
+            render = InlineRender(name, size, baseline, clip,
+                                  float(font.ascender()), abs(float(font.descender())),
+                                  source="macos-ax-attributed-run")
+            return render if render.valid(rect) else None
+        except Exception:
+            return None
+
+    def context_matches(self, snapshot):
+        try:
+            focused = self._focused()
+            if focused is None:
+                return False
+            field, pid, app_id, domain = focused
+            window = self._attribute(field, "AXWindow")
+            return (app_id == snapshot.app_id and domain == snapshot.domain
+                    and f"{pid}:{hash(field)}" == snapshot.field_id
+                    and window is not None and f"{pid}:{hash(window)}" == snapshot.window_id
+                    and not self._attribute(field, "AXHidden")
+                    and self._field_bounds(field) is not None)
+        except Exception:
+            return False
+
+    def focused_context(self, snapshot, *, authorized, max_chars=2400):
+        result = {"text": "", "provenance": "accessibility",
+                  "window_id": snapshot.window_id, "revision": snapshot.window_revision,
+                  "status": "unavailable"}
+        if not authorized():
+            return {**result, "status": "blocked"}
+        try:
+            focused = self._focused()
+            if focused is None:
+                return result
+            field, pid, app_id, domain = focused
+            window = self._attribute(field, "AXWindow")
+            if (window is None or f"{pid}:{hash(window)}" != snapshot.window_id
+                    or f"{pid}:{hash(field)}" != snapshot.field_id or app_id != snapshot.app_id):
+                return result
+            # Browser chrome can nest the document beyond the traversal budget.
+            # Prefer the focused field's nearest document over unrelated toolbar UI.
+            content_root = window
+            parent = self._attribute(field, "AXParent")
+            for _ in range(16):
+                if parent is None or hash(parent) == hash(window):
+                    break
+                if self._attribute(parent, "AXRole") == "AXWebArea":
+                    content_root = parent
+                    break
+                parent = self._attribute(parent, "AXParent")
+            import time
+            deadline = time.monotonic() + 0.15
+            stack, chunks, remaining, visited = [(content_root, 0)], [], min(12000, max(0, max_chars)), set()
+            for _ in range(128):
+                if not stack or remaining <= 0 or time.monotonic() >= deadline:
+                    break
+                element, depth = stack.pop()
+                if not authorized() or self._focused() != focused:
+                    return {**result, "status": "blocked"}
+                identity = hash(element)
+                if identity in visited:
+                    continue
+                visited.add(identity)
+                role = self._attribute(element, "AXRole")
+                if (self._attribute(element, "AXHidden") or self._attribute(element, "AXProtectedContent")
+                        or self._attribute(element, "AXSubrole") == "AXSecureTextField"
+                        or self._attribute(element, "AXRoleDescription") == self._secure_description):
+                    continue
+                bounds = self._field_bounds(element)
+                window_bounds = self._field_bounds(window)
+                if bounds and window_bounds:
+                    x, y, w, h = bounds
+                    wx, wy, ww, wh = window_bounds
+                    if x + w <= wx or y + h <= wy or x >= wx + ww or y >= wy + wh:
+                        continue
+                if role == "AXStaticText" and bounds:
+                    if not authorized():
+                        return {**result, "status": "blocked"}
+                    value = self._attribute(element, "AXValue")
+                    if isinstance(value, str) and value.strip() and value != snapshot.text:
+                        value = value[:remaining]
+                        chunks.append(value)
+                        remaining -= len(value) + 1
+                # Do not traverse other editable documents or secure subtrees.
+                if depth < 8 and role not in ("AXTextField", "AXTextArea"):
+                    children = self._attribute(element, "AXChildren") or []
+                    stack.extend((child, depth + 1) for child in list(children)[:64])
+            if not authorized() or self._focused() != focused:
+                return {**result, "status": "blocked"}
+            text = "\n".join(chunks)[:max_chars]
+            return {**result, "text": text, "status": "ready" if text else "empty"}
+        except Exception:
+            return {**result, "status": "error"}
 
     def capture(self) -> Snapshot | None:
         with self._lock:
@@ -354,6 +513,7 @@ class MacBridge(BridgeBase):
             flags = q.CGEventGetFlags(event)
             if q.CGEventGetIntegerValueField(event, q.kCGEventSourceUnixProcessID) == os.getpid():
                 return event
+            self._note_input()
             code = q.CGEventGetIntegerValueField(event, q.kCGKeyboardEventKeycode)
             key = mac_key_name(code)
             if flags & q.kCGEventFlagMaskSecondaryFn and not (len(key) > 1 and key.startswith("F")):

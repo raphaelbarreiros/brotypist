@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "brotypist"
-version = "0.3.1"
+version = "0.3.2"
 description = "Local-first predictive typing across macOS, Windows, and Linux"
 requires-python = ">=3.11"
 dependencies = [
@@ -13,8 +13,6 @@ dependencies = [
   "pyobjc-framework-ApplicationServices>=11; sys_platform == 'darwin'",
   "pyobjc-framework-Quartz>=11; sys_platform == 'darwin'",
   "pyobjc-framework-Cocoa>=11; sys_platform == 'darwin'",
-  "pyobjc-framework-Vision>=11; sys_platform == 'darwin'",
-  "pyobjc-framework-ScreenCaptureKit>=11; sys_platform == 'darwin'",
   "keyring>=25.5,<26",
   "cryptography>=44,<47",
   "comtypes>=1.4; sys_platform == 'win32'",

@@ -15,7 +15,6 @@ _AUTOSTART_ID = "com.inklow.Inklow"
 _INPUT_METHOD_ID = _AUTOSTART_ID + ".InputMethod"
 _battery_lock = threading.Lock()
 _battery_cache = (0.0, False)
-_screen_lock = threading.Lock()
 
 
 def _launch_arguments() -> list[str]:
@@ -200,17 +199,27 @@ def reveal_models() -> None:
     _open(str(folder))
 
 
-def clipboard_text() -> str:
-    """Called only after explicit opt-in and safe native field validation."""
+def clipboard_text(*, authorized) -> str:
+    """Authorized native read; Qt callers must marshal onto the GUI thread."""
+    if not authorized():
+        return ""
     if sys.platform == "darwin":
         from AppKit import NSPasteboard, NSPasteboardTypeString
+        if not authorized():
+            return ""
         value = NSPasteboard.generalPasteboard().stringForType_(NSPasteboardTypeString)
-        return str(value or "")[:4000]
+        return str(value or "")[:4000] if authorized() else ""
+    from PySide6.QtCore import QThread
     from PySide6.QtWidgets import QApplication
     app = QApplication.instance()
     if app is None:
         raise RuntimeError("Clipboard context requires the running menu application.")
-    return app.clipboard().text()[:4000]
+    if QThread.currentThread() != app.thread():
+        raise RuntimeError("Clipboard context requires the application thread.")
+    if not authorized():
+        return ""
+    value = app.clipboard().text()
+    return value[:4000] if authorized() else ""
 
 
 def on_battery() -> bool:
@@ -247,107 +256,27 @@ def on_battery() -> bool:
         return value
 
 
-def _screen_field_allowed(snapshot) -> bool:
-    """Recheck current PID/field protection without reading its text value."""
-    import ApplicationServices as AX
-    from AppKit import NSWorkspace, NSAccessibilityRoleDescription
-    app = NSWorkspace.sharedWorkspace().frontmostApplication()
-    if app is None or snapshot.protected:
-        return False
-    pid = int(app.processIdentifier())
-    if not snapshot.field_id.startswith(f"{pid}:") or pid == os.getpid():
-        return False
-    def get(element, attribute):
-        error, value = AX.AXUIElementCopyAttributeValue(element, attribute, None)
-        return value if not error else None
-    field = get(AX.AXUIElementCreateApplication(pid), "AXFocusedUIElement")
-    if field is None or snapshot.field_id != f"{pid}:{hash(field)}":
-        return False
-    return (get(field, "AXRole") in ("AXTextField", "AXTextArea")
-            and get(field, "AXSubrole") != "AXSecureTextField"
-            and not get(field, "AXProtectedContent")
-            and get(field, "AXRoleDescription") != NSAccessibilityRoleDescription("AXTextField", "AXSecureTextField")
-            and bool(get(field, "AXFocused")))
+def screen_text(snapshot, *, bridge, authorized, max_chars=2400) -> dict:
+    """Opt-in focused-window accessibility; never read unverified window pixels."""
+    empty = {"text": "", "provenance": "", "status": "unavailable",
+             "window_id": snapshot.window_id, "revision": snapshot.window_revision}
+    if (not snapshot.window_id or not snapshot.window_revision or not authorized()):
+        return {**empty, "status": "blocked"}
+    reader = getattr(bridge, "focused_context", None)
+    if reader is None:
+        return empty
+    result = reader(snapshot, authorized=authorized, max_chars=min(max_chars, 4000))
+    if not authorized():
+        return {**empty, "status": "blocked"}
+    if not isinstance(result, dict):
+        return empty
+    if (result.get("window_id") != snapshot.window_id
+            or result.get("revision") != snapshot.window_revision):
+        return {**empty, "status": "stale"}
+    text = result.get("text", "")
+    status = result.get("status", "empty")
+    if status == "ready" and isinstance(text, str) and text.strip():
+        return {**empty, "text": text[:max_chars], "provenance": "accessibility", "status": "ready"}
+    return {**empty, "status": status if status in {"empty", "blocked", "unavailable", "error"} else "empty"}
 
 
-def screen_text(snapshot) -> str:
-    """Opt-in OCR of only the still-focused app window; pixels never touch disk."""
-    if sys.platform != "darwin":
-        raise RuntimeError("Screen OCR is currently available on macOS only. Surrounding text and optional clipboard context work on this platform.")
-    import objc
-    with objc.autorelease_pool():
-        return _screen_text_native(snapshot)
-
-
-def _screen_text_native(snapshot) -> str:
-    import Quartz
-    if not Quartz.CGPreflightScreenCaptureAccess():
-        raise RuntimeError("Screen context needs Screen Recording permission. Enable it in Setup, or switch off screen context.")
-    if not _screen_field_allowed(snapshot):
-        return ""
-    # Serialize requests: no backlog of stale screenshots, no concurrent OCR models.
-    if not _screen_lock.acquire(blocking=False):
-        return ""
-    try:
-        import ScreenCaptureKit as SC
-        import Vision
-        pid = int(snapshot.field_id.split(":", 1)[0])
-        rect = snapshot.caret_rect
-        if rect is None:
-            return ""
-        x, y, _, _ = rect
-        candidates = [w for w in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID)
-                      if w.get("kCGWindowOwnerPID") == pid and w.get("kCGWindowLayer") == 0]
-        selected = next((w for w in candidates
-                         if w["kCGWindowBounds"]["X"] <= x <= w["kCGWindowBounds"]["X"] + w["kCGWindowBounds"]["Width"]
-                         and w["kCGWindowBounds"]["Y"] <= y <= w["kCGWindowBounds"]["Y"] + w["kCGWindowBounds"]["Height"]), None)
-        if selected is None:
-            return ""
-        ready, captured = threading.Event(), threading.Event()
-        state = {}
-        def content_done(content, error):
-            state["content"], state["error"] = content, error
-            ready.set()
-        SC.SCShareableContent.getShareableContentExcludingDesktopWindows_onScreenWindowsOnly_completionHandler_(True, True, content_done)
-        if not ready.wait(3):
-            raise RuntimeError("The OS did not return screen context in time. Try again or disable screen context.")
-        if state.get("error") or state.get("content") is None:
-            raise RuntimeError("The OS refused the current application's screen context. Check Screen Recording permission.")
-        window = next((w for w in state["content"].windows() if int(w.windowID()) == selected["kCGWindowNumber"]), None)
-        if window is None or not _screen_field_allowed(snapshot):
-            return ""
-        content_filter = SC.SCContentFilter.alloc().initWithDesktopIndependentWindow_(window)
-        configuration = SC.SCStreamConfiguration.alloc().init()
-        bounds = selected["kCGWindowBounds"]
-        scale = min(1.0, 1600 / max(bounds["Width"], bounds["Height"]))
-        configuration.setWidth_(max(1, int(bounds["Width"] * scale)))
-        configuration.setHeight_(max(1, int(bounds["Height"] * scale)))
-        configuration.setShowsCursor_(False)
-        def image_done(image, error):
-            state["image"], state["error"] = image, error
-            captured.set()
-        SC.SCScreenshotManager.captureImageWithFilter_configuration_completionHandler_(content_filter, configuration, image_done)
-        if not captured.wait(3):
-            raise RuntimeError("Screen capture timed out. Disable screen context to keep suggestions responsive.")
-        image = state.get("image")
-        if image is None or state.get("error"):
-            raise RuntimeError("The OS could not capture this application's window.")
-        if not _screen_field_allowed(snapshot):
-            return ""
-        request = Vision.VNRecognizeTextRequest.alloc().init()
-        request.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelFast)
-        request.setUsesLanguageCorrection_(False)
-        # Captured pixels are upright. nil options avoids OC_PythonDictionary's
-        # missing-key exception in Vision on current macOS/PyObjC.
-        handler = Vision.VNImageRequestHandler.alloc().initWithCGImage_orientation_options_(image, 1, None)
-        success, error = handler.performRequests_error_([request], None)
-        if not success:
-            raise RuntimeError("Local screen text recognition failed. Screen context can be disabled independently.")
-        texts = []
-        for observation in request.results() or []:
-            alternatives = observation.topCandidates_(1)
-            if alternatives:
-                texts.append(str(alternatives[0].string()))
-        return "\n".join(texts)[:4000] if _screen_field_allowed(snapshot) else ""
-    finally:
-        _screen_lock.release()

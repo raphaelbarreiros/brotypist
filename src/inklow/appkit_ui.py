@@ -319,7 +319,7 @@ class BroTypistApplication(NSObject):
     def applicationDidFinishLaunching_(self, notification):
         app = A.NSApplication.sharedApplication()
         app.setActivationPolicy_(A.NSApplicationActivationPolicyAccessory)
-        app.setApplicationIconImage_(A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("app.png"))))
+        app.setApplicationIconImage_(A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("app.icns"))))
         self._build_main_menu()
         self._build_status_menu()
         self.overlay = CaretOverlay(self.controller.invoke, self._accessory_menu, self.controller.config.show_accessory)
@@ -340,8 +340,10 @@ class BroTypistApplication(NSObject):
             self.controller.start()
         except Exception as exc:
             self.last_error = str(exc)
-        self.timer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(0.1, self, "tick:", None, True)
+        self.timer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(0.025, self, "tick:", None, True)
+        self.timer.setTolerance_(0.008)
         NSRunLoop.mainRunLoop().addTimer_forMode_(self.timer, NSRunLoopCommonModes)
+        self.controller.set_wake_callback(self._wake_controller)
         self._refresh_status()
         missing_model = self.controller.config.backend == "gguf" and not (self.controller.config.model_path and Path(self.controller.config.model_path).is_file())
         if self.requested_pane == "welcome" or (not self.requested_pane and (not self.controller.config.setup_completed or missing_model)):
@@ -421,7 +423,7 @@ class BroTypistApplication(NSObject):
         panel = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 300, 150))
         panel.setAccessibilityLabel_(f"{APP_NAME} status and local model")
         icon = A.NSImageView.alloc().initWithFrame_(A.NSMakeRect(14, 12, 28, 28))
-        icon.setImage_(A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("icons/app-32.png"))))
+        icon.setImage_(A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("app.icns"))))
         panel.addSubview_(icon)
         panel.addSubview_(_label(APP_NAME, A.NSMakeRect(52, 10, 160, 20), bold=True))
         self.menu_badge = _label("", A.NSMakeRect(180, 12, 110, 20), small=True)
@@ -488,6 +490,12 @@ class BroTypistApplication(NSObject):
         if not self.tracking_menus:
             self.resume_menu_shortcuts = True
 
+    @objc.python_method
+    def _wake_controller(self):
+        if not self.stopping:
+            with objc.autorelease_pool():
+                self.performSelectorOnMainThread_withObject_waitUntilDone_("tick:", None, False)
+
     def tick_(self, timer):
         if self.stopping or self.tracking_menus:
             return
@@ -511,7 +519,15 @@ class BroTypistApplication(NSObject):
                     self.overlay.clear(hide_accessory=bool(event.get("hide_accessory")))
                 elif kind == "settings":
                     self.show_settings(event.get("pane", "general"))
-            self._refresh_status()
+            now = time.monotonic()
+            if now - getattr(self, "_last_status_refresh", 0) >= 0.1:
+                self._last_status_refresh = now
+                self._refresh_status()
+                if self.window and self.window.isVisible() and self.pane == "privacy":
+                    label = getattr(self, "context_status_label", None)
+                    if label is not None:
+                        status = self.controller.status()
+                        label.setStringValue_("Context: " + str(status.get("context_message") or "Not requested"))
             if self.welcome:
                 self.welcome.tick()
             if self.window and self.window.isVisible() and self.pane == "general" and time.monotonic() - self.last_stats_refresh > 5:
@@ -535,6 +551,8 @@ class BroTypistApplication(NSObject):
         enabled = bool(status.get("enabled"))
         state = str(status.get("state", "idle"))
         message = str(status.get("message") or state.capitalize())
+        if enabled and state in {"idle", "ready"} and not status.get("inline_available", True):
+            message = str(status.get("inline_message") or message)
         if enabled:
             permissions = self._permission_state()
             if not permissions["accessibility"]:
@@ -577,7 +595,7 @@ class BroTypistApplication(NSObject):
             from datetime import datetime, timedelta
             resumes = datetime.now() + timedelta(seconds=max(0, float(status["paused_until"]) - time.monotonic()))
             subtitle = f"Resumes at {resumes:%H:%M}"
-        elif enabled and not needs_attention and not loading:
+        elif enabled and not needs_attention and not loading and status.get("inline_available", True):
             subtitle = f"Predicting in {self._app_name(str(status.get('current_app') or '')) or 'eligible text fields'}"
         self.menu_subtitle.setStringValue_(subtitle)
         app = str(status.get("current_app", ""))
@@ -896,7 +914,7 @@ class BroTypistApplication(NSObject):
         for key, title, detail in (
             ("accessibility", "Accessibility", "Required to read a supported text field and insert at its caret. System Settings → Privacy & Security → Accessibility."),
             ("input_monitoring", "Input Monitoring", "Required for global acceptance shortcuts. System Settings → Privacy & Security → Input Monitoring."),
-            ("screen_recording", "Screen & System Audio Recording", "Optional. Only used after you explicitly enable foreground screen context below. No screenshots are saved."),
+            ("screen_recording", "Screen & System Audio Recording", "Not required. Focused-window context uses Accessibility text and does not capture screenshots. Any existing grant is shown for transparency."),
         ):
             button = self._button("Open Settings…", f"inklow.setup.{key}", lambda k=key: system.open_permissions(k))
             f.row(title, detail, button, height=92, control_width=140)
@@ -1103,7 +1121,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _context_consent(self, field, value):
-        if value and not self._confirm("Use local context?", "BroTypist will read " + ("the clipboard" if field == "clipboard_context" else "the supported foreground app’s screen using local OCR") + " only for eligible suggestion requests. It is not saved or sent to a remote service. You can turn this off at any time."):
+        if value and not self._confirm("Use local context?", "BroTypist will read " + ("the clipboard" if field == "clipboard_context" else "readable Accessibility text from the verified focused window") + " only for eligible suggestion requests. Context is not saved or sent to a remote service. Protected content and excluded apps are skipped. You can turn this off at any time."):
             control = self.controls.get(field)
             if control:
                 control.setState_(A.NSControlStateValueOff)
@@ -1112,9 +1130,14 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _privacy_context(self):
-        self.form.section("Screen Context")
-        self._switch("screen_context", "Use foreground screen context", "Optional, on-device OCR of the eligible foreground app. Permission is required; no screenshot artifacts or unrelated windows are retained.", callback=lambda value: self._context_consent("screen_context", value))
-        self.form.row("Screen recording permission", "Enabling the switch does not grant macOS permission.", self._button("Open Settings…", "inklow.context.permission", lambda: system.open_permissions("screen_recording")), control_width=140)
+        self.form.section("Window Context")
+        self._switch("screen_context", "Use focused-window context", "Optional. Read relevant Accessibility text from the verified focused window. No screenshots or unrelated windows are used. Inaccessible content is skipped.", callback=lambda value: self._context_consent("screen_context", value))
+        self.form.note("Window context uses Accessibility permission, not Screen Recording. A Screen Recording grant alone does not enable context.")
+        status = self.controller.status()
+        self.context_status_label = _label(
+            "Context: " + str(status.get("context_message") or "Not requested"),
+            A.NSMakeRect(0, 0, 552, 36), small=True)
+        self.form.custom(self.context_status_label, 36)
         self.form.section("Clipboard Context")
         self._switch("clipboard_context", "Use clipboard for context", "Optional. Clipboard text is read only for an eligible request and passed to your local model, not stored in history.", callback=lambda value: self._context_consent("clipboard_context", value))
         self.form.note("Restrictions are checked before context is read. Website rules require an observable native URL. If a browser hides its URL while a website is blocked, BroTypist pauses that browser rather than guessing.")
@@ -1489,7 +1512,7 @@ class BroTypistApplication(NSObject):
     @objc.python_method
     def _pane_about(self):
         icon = A.NSImageView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 552, 88))
-        icon.setImage_(A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("icons/app-128.png"))))
+        icon.setImage_(A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("app.icns"))))
         icon.setImageScaling_(A.NSImageScaleProportionallyUpOrDown)
         self.form.custom(icon, 88)
         from .appkit_welcome import wordmark

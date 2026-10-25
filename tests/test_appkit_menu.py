@@ -126,3 +126,33 @@ def test_chip_flips_above_caret_near_visible_screen_bottom(screen):
     assert A.NSMinY(frame) >= 700 - 650 + 6
     assert A.NSMaxX(frame) <= 1000 - 8
     assert A.NSMinX(frame) >= 8
+
+
+def test_native_ghost_uses_verified_host_baseline_without_card_or_mouse_target(screen):
+    from dataclasses import asdict
+    from inklow.core import InlineRender
+    font = A.NSFont.fontWithName_size_("Helvetica", 13)
+    ascent, descent = float(font.ascender()), abs(float(font.descender()))
+    render = InlineRender("Helvetica", 13, 200, (0, 0, 900, 600), ascent, descent,
+                          source="macos-ax-attributed-run")
+    observed = {}
+    panel = SimpleNamespace(
+        orderOut_=lambda sender: observed.update(visible=False),
+        setHasShadow_=lambda value: observed.update(shadow=value),
+        setIgnoresMouseEvents_=lambda value: observed.update(mouse_through=value),
+        setContentView_=lambda value: observed.update(surface=value),
+        setFrame_display_=lambda frame, display: observed.update(frame=frame),
+        orderFrontRegardless=lambda: observed.update(visible=True))
+    overlay = appkit_overlay.CaretOverlay.__new__(appkit_overlay.CaretOverlay)
+    overlay.suggestion = panel
+    event = {"text": " tomorrow", "mode": "completion", "inline": True,
+             "render": asdict(render), "rect": (100, 200 - ascent, 1, ascent + descent)}
+    overlay._present_inline(event)
+    assert observed["visible"]
+    assert observed["shadow"] is False
+    assert observed["mouse_through"] is True
+    assert isinstance(observed["surface"], appkit_overlay.GhostSurface)
+    assert A.NSMinX(observed["frame"]) == 100
+    assert A.NSMinY(observed["frame"]) == pytest.approx(700 - 200 - descent)
+    overlay._present_inline({**event, "render": None})
+    assert observed["visible"] is False

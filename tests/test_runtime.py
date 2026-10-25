@@ -6,16 +6,25 @@ import time
 import pytest
 
 from inklow.config import Config
-from inklow.core import Snapshot
+from inklow.core import InlineRender, Snapshot
 from inklow.runtime import Controller
 from inklow.storage import LocalStorage
+
+
+RENDER = InlineRender("Fixture Sans", 14, 34, (0, 0, 2000, 500), 14, 4, source="test-native")
+
+
+def field_snapshot(text, caret=None, **changes):
+    return Snapshot("writer", "body", text, len(text) if caret is None else caret,
+                    caret_rect=(10, 20, 1, 18), inline_render=RENDER,
+                    window_id="writer:window", window_revision="revision-1", **changes)
 
 
 class Bridge:
     supports_atomic_replacement = True
 
     def __init__(self, text="Dear team, the update"):
-        self.snapshot = Snapshot("writer", "body", text, len(text), caret_rect=(10, 20, 1, 18))
+        self.snapshot = field_snapshot(text)
         self.info = {"app_id": "writer", "name": "Writer", "domain": ""}
         self.captures = 0
         self.insertions = []
@@ -30,6 +39,14 @@ class Bridge:
     def capture(self):
         self.captures += 1
         return self.snapshot
+
+    def context_matches(self, snapshot):
+        current = self.snapshot
+        return (current is not None and not current.protected and current.key == snapshot.key
+                and current.window_id == snapshot.window_id
+                and current.window_revision == snapshot.window_revision
+                and self.info.get("app_id") == snapshot.app_id
+                and self.info.get("domain", "") == snapshot.domain)
 
     def insert(self, snapshot, text):
         if not self.accepts or snapshot.key != self.snapshot.key or not snapshot.eligible(1):
@@ -100,6 +117,7 @@ def runtime(tmp_path, monkeypatch):
     monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
     bridge = Bridge()
     controller = Controller(Config(), bridge)
+    controller._capture_interval = 0
     controller._client = Inference()
     controller._storage = LocalStorage(tmp_path / "data.sqlite3", lambda: b"k" * 32)
     controller.start()
@@ -168,8 +186,8 @@ def test_domain_exclusion_is_checked_before_capture_and_optional_readers(runtime
     controller.update_config(replace(controller.config, clipboard_context=True, screen_context=True,
         app_rules={"domain:private.example": {"enabled": False}}), persist=False)
     calls = []
-    controller.set_clipboard_reader(lambda: calls.append("clipboard") or "sensitive clipboard")
-    controller.set_screen_reader(lambda snapshot: calls.append("screen") or "sensitive screen")
+    controller.set_clipboard_reader(lambda *, authorized: calls.append("clipboard") or "sensitive clipboard")
+    controller.set_screen_reader(lambda snapshot, *, bridge, authorized, max_chars: calls.append("screen") or "sensitive screen")
     bridge.info = {"app_id": "browser", "name": "Browser", "domain": "private.example", "browser": True, "domain_observable": True}
     bridge.snapshot = replace(bridge.snapshot, app_id="browser", domain="private.example")
     controller.tick()
@@ -186,29 +204,37 @@ def test_unobservable_browser_domain_fails_closed_without_treating_rule_as_unmat
     assert not client.requests
 
 
-def test_optional_context_is_off_thread_and_discarded_when_field_changes(runtime):
+def test_blocked_old_context_never_delays_fresh_prediction_or_reappears(runtime):
     controller, bridge, client = runtime
     controller.update_config(replace(controller.config, screen_context=True), persist=False)
-    started, release = threading.Event(), threading.Event()
-    reader_thread = []
-    def read_screen(snapshot):
-        reader_thread.append(threading.get_ident())
-        started.set()
-        release.wait(2)
-        return "synthetic screen context"
+    started, release, finished = threading.Event(), threading.Event(), threading.Event()
+    calls = []
+    def read_screen(snapshot, *, bridge, authorized, max_chars):
+        calls.append(snapshot.field_id)
+        if snapshot.field_id == "body":
+            started.set()
+            assert release.wait(2)
+        try:
+            return {"text": "update obsolete confidential reference", "provenance": "accessibility",
+                    "window_id": snapshot.window_id, "revision": snapshot.window_revision, "status": "ready"}
+        finally:
+            finished.set()
     controller.set_screen_reader(read_screen)
     try:
-        assert controller.force()
         controller.tick()
         assert started.wait(1)
-        assert reader_thread != [threading.get_ident()]
-        bridge.snapshot = replace(bridge.snapshot, field_id="other")
-        controller.tick()
+        bridge.snapshot = replace(bridge.snapshot, field_id="fresh", window_revision="revision-2")
+        # The first reader remains blocked until AFTER the new generation is
+        # submitted. This cannot pass by merely dropping a result afterward.
+        submit_command(controller, "force")
+        assert not release.is_set()
+        assert client.requests[-1][1] == bridge.snapshot.prefix
+        assert "obsolete" not in client.requests[-1][3]["context"]
+        controller.pause(1)
         release.set()
-        deadline = time.monotonic() + 1
-        while controller._prepared and time.monotonic() < deadline:
-            controller.tick()
-        assert not client.requests
+        assert finished.wait(1)
+        assert controller._screen_cache is None
+        assert calls == ["body"]
     finally:
         release.set()
 
@@ -423,7 +449,7 @@ def test_queued_force_is_bound_to_exact_field_and_explicit_force_can_use_short_p
     bridge.snapshot = replace(bridge.snapshot, field_id="other")
     controller.tick()
     assert not client.requests
-    bridge.snapshot = Snapshot("writer", "body", "A", 1, caret_rect=(10, 20, 1, 18))
+    bridge.snapshot = field_snapshot("A")
     submit_command(controller, "force")
     assert client.requests[-1][1] == "A"
 
@@ -471,7 +497,8 @@ def test_caret_geometry_changes_reposition_existing_ghost_without_regenerating(r
     offer(controller, bridge, " arrives tomorrow")
     requests = len(client.requests)
     controller.drain_events()
-    bridge.snapshot = replace(bridge.snapshot, caret_rect=(150, 220, 1, 18))
+    bridge.snapshot = replace(bridge.snapshot, caret_rect=(150, 220, 1, 18),
+                              inline_render=replace(RENDER, baseline=234))
     controller.tick()
     events = controller.drain_events()
     suggestion = next(event for event in events if event["type"] == "suggestion")
@@ -504,14 +531,16 @@ def test_accepting_first_streamed_word_adds_separator_and_rejects_later_old_stre
     assert bridge.insertions == [" arrives "]
 
 
-def test_single_word_before_existing_suffix_does_not_add_an_extra_space(runtime):
-    controller, bridge, _ = runtime
+def test_existing_same_line_suffix_never_intercepts_or_displays_a_completion(runtime):
+    controller, bridge, client = runtime
     original = bridge.snapshot.text
     bridge.snapshot = replace(bridge.snapshot, text=original + " tomorrow")
-    offer(controller, bridge, " arrives")
-    assert controller.invoke("word")
-    assert bridge.insertions == [" arrives"]
-    assert bridge.snapshot.text == original + " arrives tomorrow"
+    assert not controller.invoke("force")
+    controller.tick()
+    assert not controller.invoke("word")
+    assert not bridge.insertions
+    assert not client.requests
+    assert not any(event["type"] == "suggestion" for event in controller.drain_events())
 
 
 def test_rejected_space_adding_acceptance_has_no_counter_or_snapshot_commit(runtime):
@@ -644,25 +673,25 @@ def test_protected_empty_field_never_shows_brand_accessory(runtime):
     assert not client.requests
 
 
-def test_field_bounds_allow_visible_card_and_guarded_acceptance_without_caret(runtime):
-    controller, bridge, _ = runtime
+def test_field_bounds_without_host_metrics_cannot_offer_or_accept_completion(runtime):
+    controller, bridge, client = runtime
     bridge.snapshot = replace(bridge.snapshot, caret_rect=None, field_rect=(100, 200, 400, 50))
-    offer(controller, bridge, " arrives tomorrow")
-    event = next(event for event in controller.drain_events() if event["type"] == "suggestion")
-    assert event["inline"] is False
-    assert event["rect"] == [100, 200, 400, 50]
-    assert controller.invoke("word")
-    assert bridge.snapshot.text == "Dear team, the update arrives "
-    bridge.snapshot = replace(bridge.snapshot, field_rect=None)
-    assert not controller.invoke("all")
-    assert bridge.snapshot.text == "Dear team, the update arrives "
+    controller.tick()
+    assert not controller.force()
+    controller._candidate_since -= 1
+    controller.tick()
+    assert not client.requests
+    assert not controller.status()["inline_available"]
+    assert not controller.invoke("word")
+    assert bridge.insertions == []
+    assert not any(event["type"] == "suggestion" for event in controller.drain_events())
 
 
 def test_native_partial_acceptance_survives_new_revision_without_global_geometry(runtime):
     # R2: same native context, fresh revision/serial, exact remaining acceptance.
     controller, bridge, _ = runtime
     bridge.snapshot = replace(bridge.snapshot, field_id="body:wl:101", caret_rect=None,
-                              native_anchor="7:19")
+                              native_anchor="7:19", native_inline=True)
     offer(controller, bridge, " arrives tomorrow morning")
     assert controller.invoke("word")
     assert bridge.snapshot.text == "Dear team, the update arrives "
@@ -682,9 +711,9 @@ def test_native_partial_acceptance_survives_new_revision_without_global_geometry
 def test_native_typing_through_candidate_keeps_suffix_and_rejects_old_stream(runtime):
     # R2: typed-through text is not counted/inserted again after a native revision.
     controller, bridge, client = runtime
-    prefix, suffix = "The next update is", " on Friday."
+    prefix, suffix = "The next update is", ""
     bridge.snapshot = Snapshot("writer", "body:wl:101", prefix + suffix, len(prefix),
-                               native_anchor="7:19")
+                               native_anchor="7:19", native_inline=True)
     identifier = offer(controller, bridge, " ready for review")
     bridge.snapshot = replace(bridge.snapshot, text=prefix + " ready" + suffix,
                               caret=len(prefix + " ready"), native_anchor="8:20")
@@ -694,7 +723,7 @@ def test_native_typing_through_candidate_keeps_suffix_and_rejects_old_stream(run
     controller.tick()
     assert controller._suggestion.text == " for review"
     assert controller.invoke("all")
-    assert bridge.snapshot.text == "The next update is ready for review on Friday."
+    assert bridge.snapshot.text == "The next update is ready for review"
     assert bridge.insertions == [" for review"]
     assert controller.stats()["totals"]["characters"] == len(" for review")
 
@@ -703,7 +732,7 @@ def test_native_reactivated_context_cannot_accept_identical_old_offer(runtime):
     # R1/R2: unchanged visible text does not make another native lifetime safe.
     controller, bridge, _ = runtime
     bridge.snapshot = replace(bridge.snapshot, field_id="body:wl:101", caret_rect=None,
-                              native_anchor="7:19")
+                              native_anchor="7:19", native_inline=True)
     offer(controller, bridge, " arrives tomorrow")
     bridge.snapshot = replace(bridge.snapshot, field_id="body:wl:102", native_anchor="8:20")
     original = bridge.snapshot
@@ -711,3 +740,318 @@ def test_native_reactivated_context_cannot_accept_identical_old_offer(runtime):
     assert bridge.snapshot == original and bridge.insertions == []
     assert controller._suggestion.text == ""
     assert controller.stats()["totals"]["characters"] == 0
+
+
+@pytest.mark.parametrize("change", ["pause", "disable", "consent", "exclusion", "protected", "window"])
+def test_inflight_context_rechecks_current_policy_before_sensitive_read(runtime, change):
+    # Context safety: revocation between native phases must prevent the read,
+    # not just hide an already-captured private result.
+    controller, bridge, _ = runtime
+    controller.config = replace(controller.config, screen_context=True)
+    snapshot = bridge.snapshot
+    controller._candidate = snapshot
+    token = (object(), snapshot.key, controller._window_key(snapshot))
+    controller._screen_job = token
+    sensitive_reads = []
+
+    def reader(snapshot, *, authorized, **kwargs):
+        if change == "pause":
+            controller.pause(1)
+        elif change == "disable":
+            controller.update_config(replace(controller.config, global_enabled=False), persist=False)
+        elif change == "consent":
+            controller.update_config(replace(controller.config, screen_context=False), persist=False)
+        elif change == "exclusion":
+            controller.update_config(replace(controller.config, excluded_apps=("writer",)), persist=False)
+        elif change == "protected":
+            bridge.snapshot = replace(snapshot, protected=True)
+        else:
+            bridge.snapshot = replace(snapshot, window_id="other-window")
+        if authorized():
+            sensitive_reads.append("private window read")
+        return {"text": "update private reference", "provenance": "accessibility",
+                "status": "ready", "window_id": snapshot.window_id, "revision": snapshot.window_revision}
+
+    controller.set_screen_reader(reader)
+    controller._read_window_context(token, snapshot)
+    assert sensitive_reads == []
+    assert controller._screen_cache is None or controller._screen_cache[3] == ""
+
+
+def test_clipboard_consent_is_checked_again_after_focus_validation(runtime):
+    controller, bridge, _ = runtime
+    controller.config = replace(controller.config, clipboard_context=True, personalization_strength=0)
+    snapshot = bridge.snapshot
+    controller._candidate = snapshot
+    token = (snapshot.key, controller._suggestion.generation, "completion")
+    controller._preparing = token
+    reads = []
+    def matches(expected):
+        controller.config = replace(controller.config, clipboard_context=False)
+        return True
+    bridge.context_matches = matches
+    controller.set_clipboard_reader(lambda *, authorized: reads.append("clipboard") or "update private clipboard")
+    options = controller._options(snapshot, "completion", token)
+    assert reads == []
+    assert options["context"] == ""
+
+
+@pytest.mark.parametrize("change", ["pause", "disable", "consent", "exclusion", "protected", "window"])
+def test_clipboard_result_cannot_survive_inflight_authorization_change(runtime, change):
+    controller, bridge, client = runtime
+    controller.config = replace(controller.config, clipboard_context=True, personalization_strength=0)
+    snapshot = bridge.snapshot
+    controller._candidate = snapshot
+    token = (snapshot.key, controller._suggestion.generation, "completion")
+    controller._preparing = token
+    checks = []
+
+    def reader(*, authorized):
+        assert authorized()
+        if change == "pause":
+            controller.pause(1)
+        elif change == "disable":
+            controller.update_config(replace(controller.config, global_enabled=False), persist=False)
+        elif change == "consent":
+            controller.update_config(replace(controller.config, clipboard_context=False), persist=False)
+        elif change == "exclusion":
+            controller.update_config(replace(controller.config, excluded_apps=("writer",)), persist=False)
+        elif change == "protected":
+            bridge.snapshot = replace(snapshot, protected=True)
+        else:
+            bridge.snapshot = replace(snapshot, window_id="other-window")
+        checks.append(authorized())
+        return "The update includes private clipboard reference."
+
+    controller.set_clipboard_reader(reader)
+    options = controller._options(snapshot, "completion", token)
+    assert checks == [False]
+    assert options["context"] == "" and options["_references"] == []
+    assert controller.status()["context_status"] != "ready"
+    assert client.requests == []
+
+
+def test_clipboard_errors_expose_only_fixed_non_content_diagnostic(runtime):
+    controller, bridge, _ = runtime
+    controller.config = replace(controller.config, clipboard_context=True, personalization_strength=0)
+    snapshot = bridge.snapshot
+    controller._candidate = snapshot
+    token = (snapshot.key, controller._suggestion.generation, "completion")
+    controller._preparing = token
+
+    def reader(*, authorized):
+        assert authorized()
+        raise RuntimeError("Fixture private clipboard content")
+
+    controller.set_clipboard_reader(reader)
+    options = controller._options(snapshot, "completion", token)
+    status = controller.status()
+    assert options["context"] == "" and options["_references"] == []
+    assert status["context_status"] == "error"
+    assert status["context_message"] == "Optional context could not be read. Check Accessibility permissions or turn it off."
+    assert "Fixture private" not in str(status)
+
+
+def test_focused_context_reaches_real_prompt_with_provenance_and_no_unrelated_lines(runtime):
+    from inklow.providers import _prompt
+    controller, bridge, client = runtime
+    controller.config = replace(controller.config, screen_context=True, prompt_style="writing", personalization_strength=0)
+    snapshot = bridge.snapshot
+    controller._candidate = snapshot
+    capture_token = (object(), snapshot.key, controller._window_key(snapshot))
+    controller._screen_job = capture_token
+    controller.set_screen_reader(lambda snapshot, **kwargs: {
+        "text": snapshot.text + "\nThe update arrives Friday after review.\nLunch reservation confirmed.",
+        "provenance": "accessibility", "status": "ready",
+        "window_id": snapshot.window_id, "revision": snapshot.window_revision})
+    controller._read_window_context(capture_token, snapshot)
+    token = (snapshot.key, controller._suggestion.generation, "completion")
+    controller._preparing = token
+    controller._prepare_options(token, snapshot, "completion")
+    controller._consume_prepared()
+    config, prefix, suffix, options = client.requests[-1]
+    prompt = _prompt(config, prefix, suffix, options)
+    assert "Focused-window Accessibility (untrusted reference data)" in prompt
+    assert "The update arrives Friday after review." in prompt
+    assert "Lunch reservation" not in prompt
+    assert prompt.count(snapshot.text) == 1
+    assert not any(key.startswith("_") for key in options)
+
+
+def test_context_cache_rejects_other_window_revision_and_expired_text(runtime, monkeypatch):
+    controller, bridge, _ = runtime
+    controller.config = replace(controller.config, screen_context=True)
+    snapshot = bridge.snapshot
+    clock = [100.0]
+    monkeypatch.setattr("inklow.runtime.time.monotonic", lambda: clock[0])
+    controller._screen_cache = (controller._window_key(snapshot), clock[0],
+                                "accessibility", "The update arrives Friday.", "ready")
+    assert "Friday" in controller._reference_options(snapshot, [])
+    assert controller._reference_options(replace(snapshot, window_id="another"), []) == ""
+    assert controller._reference_options(replace(snapshot, window_revision="revision-2"), []) == ""
+    clock[0] += 2.01
+    assert controller._reference_options(snapshot, []) == ""
+
+
+def test_context_errors_expose_only_fixed_non_content_diagnostic(runtime):
+    controller, bridge, _ = runtime
+    controller.config = replace(controller.config, screen_context=True)
+    snapshot = bridge.snapshot
+    controller._candidate = snapshot
+    token = (object(), snapshot.key, controller._window_key(snapshot))
+    controller._screen_job = token
+    def reader(*args, **kwargs):
+        raise RuntimeError("synthetic private draft and clipboard must not appear")
+    controller.set_screen_reader(reader)
+    controller._read_window_context(token, snapshot)
+    status = controller.status()
+    assert status["context_status"] == "error"
+    assert status["context_message"] == "Optional context could not be read. Check Accessibility permissions or turn it off."
+    assert "synthetic private" not in str(status)
+
+
+def test_fast_event_drain_does_not_multiply_native_capture(runtime, monkeypatch):
+    controller, bridge, client = runtime
+    controller._capture_interval = 0.1
+    clock = [100.0]
+    monkeypatch.setattr("inklow.runtime.time.monotonic", lambda: clock[0])
+    controller.tick()
+    captures = bridge.captures
+    snapshot = bridge.snapshot
+    controller._request = (1, snapshot, controller._suggestion.generation, "completion")
+    client.events.append({"type": "result", "id": 1, "text": " arrives tomorrow", "final": True})
+    for step in (0.025, 0.04, 0.049):
+        clock[0] = 100.0 + step
+        controller.tick()
+    assert bridge.captures == captures
+    event = next(event for event in controller.drain_events() if event["type"] == "suggestion")
+    assert event["text"] == " arrives tomorrow"
+    assert event["inline"] is True
+    assert event["render"]["font_name"] == "Fixture Sans"
+    clock[0] = 100.051
+    controller.tick()
+    assert bridge.captures == captures + 1
+
+
+def test_midline_and_changed_host_metrics_cannot_leave_acceptance_enabled(runtime):
+    controller, bridge, _ = runtime
+    offer(controller, bridge, " arrives tomorrow")
+    bridge.snapshot = replace(bridge.snapshot, inline_render=None)
+    controller.tick()
+    assert not controller.status()["inline_available"]
+    assert not controller.invoke("word")
+    assert bridge.insertions == []
+    bridge.snapshot = field_snapshot("The update on Friday", caret=len("The update"))
+    controller.tick()
+    assert not controller.force()
+    assert not controller.invoke("all")
+
+
+def test_empty_or_excluded_focus_drops_cached_reference_without_new_capture(runtime):
+    controller, bridge, _ = runtime
+    controller.config = replace(controller.config, screen_context=True)
+    snapshot = bridge.snapshot
+    controller._screen_cache = (controller._window_key(snapshot), time.monotonic(),
+                                "accessibility", "The update arrives Friday.", "ready")
+    reads = []
+    controller.set_screen_reader(lambda *args, **kwargs: reads.append("window"))
+    bridge.snapshot = replace(snapshot, text="", caret=0)
+    controller.tick()
+    assert controller._screen_cache is None
+    assert reads == []
+    controller._screen_cache = (controller._window_key(snapshot), time.monotonic(),
+                                "accessibility", "The update arrives Friday.", "ready")
+    bridge.info = {"app_id": "1password", "name": "1Password", "domain": ""}
+    controller.tick()
+    assert controller._screen_cache is None
+    assert reads == []
+
+
+def test_capture_polling_returns_to_idle_and_reaccelerates_on_text_change(runtime, monkeypatch):
+    controller, bridge, _ = runtime
+    controller.config = replace(controller.config, min_chars=1000)
+    controller._capture_interval = 0.1
+    clock = [100.0]
+    monkeypatch.setattr("inklow.runtime.time.monotonic", lambda: clock[0])
+    controller.tick()
+    clock[0] = 102.1
+    controller.tick()
+    captures = bridge.captures
+    clock[0] = 102.15
+    controller.tick()
+    assert bridge.captures == captures
+    bridge.snapshot = replace(bridge.snapshot, text=bridge.snapshot.text + "!", caret=bridge.snapshot.caret + 1)
+    clock[0] = 102.201
+    controller.tick()
+    assert bridge.captures == captures + 1
+    clock[0] = 102.252
+    controller.tick()
+    assert bridge.captures == captures + 2
+
+
+def test_timestamp_only_native_input_hint_triggers_next_tick_capture(runtime, monkeypatch):
+    controller, bridge, _ = runtime
+    controller.config = replace(controller.config, min_chars=1000)
+    controller._capture_interval = 0.1
+    revision = [0]
+    bridge.input_revision = lambda: revision[0]
+    clock = [100.0]
+    monkeypatch.setattr("inklow.runtime.time.monotonic", lambda: clock[0])
+    controller.tick()
+    clock[0] = 102.1
+    controller.tick()
+    captures = bridge.captures
+    bridge.snapshot = replace(bridge.snapshot, text=bridge.snapshot.text + "!", caret=bridge.snapshot.caret + 1)
+    revision[0] += 1
+    clock[0] = 102.125
+    controller.tick()
+    assert bridge.captures == captures + 1
+    assert controller._candidate.text == bridge.snapshot.text
+    clock[0] = 102.15
+    controller.tick()
+    assert bridge.captures == captures + 1
+
+
+def test_partial_acceptance_waits_for_observed_new_caret_before_redrawing_suffix(runtime):
+    controller, bridge, _ = runtime
+    offer(controller, bridge, " arrives tomorrow morning")
+    controller.drain_events()
+    assert controller.invoke("word")
+    assert controller._suggestion.text == "tomorrow morning"
+    assert not any(event["type"] == "suggestion" for event in controller.drain_events())
+    assert controller._capture_after == 0
+    bridge.snapshot = replace(bridge.snapshot, caret_rect=(70, 20, 1, 18))
+    controller.tick()
+    event = next(event for event in controller.drain_events() if event["type"] == "suggestion")
+    assert event["text"] == "tomorrow morning"
+    assert event["rect"] == [70, 20, 1, 18]
+    assert event["render"]["font_name"] == "Fixture Sans"
+
+
+@pytest.mark.parametrize("same_field", [True, False])
+def test_typing_pause_uses_native_input_time_only_for_the_same_field(runtime, monkeypatch, same_field):
+    import threading
+    controller, bridge, client = runtime
+    controller.config = replace(controller.config, debounce_ms=150)
+    clock = [100.0]
+    monkeypatch.setattr("inklow.runtime.time.monotonic", lambda: clock[0])
+    ready = threading.Event()
+    controller.set_wake_callback(ready.set)
+    controller.tick()
+    bridge.input_timestamp = lambda: 100.04
+    text = bridge.snapshot.text + "!"
+    bridge.snapshot = replace(
+        bridge.snapshot, text=text, caret=len(text),
+        field_id=bridge.snapshot.field_id if same_field else "another-field")
+    clock[0] = 100.12  # AX publishes the edit after the native input arrived.
+    controller.tick()
+    assert not client.requests
+    clock[0] = 100.191
+    controller.tick()
+    if same_field:
+        assert ready.wait(1), "The completed typing pause did not schedule preparation"
+        controller.tick()
+        assert client.requests[-1][1] == text
+    else:
+        assert not ready.is_set()
+        assert not client.requests

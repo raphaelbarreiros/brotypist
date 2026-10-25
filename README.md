@@ -12,7 +12,7 @@ Local-first predictive typing for macOS, Windows, and Linux. BroTypist lives in 
 
 This repository is **private**. Sign in to a GitHub account with access before downloading release assets or cloning it.
 
-The latest published installers are **0.3.0**, released under the previous **Inklow** name. Those immutable assets keep their original filenames. The **BroTypist redesign and 0.3.1 download-progress fix are in source**; do not assume that an older installer includes the new UI or native KDE Wayland integration. Build the current source below to use BroTypist before its next installer release.
+The latest published installers are **0.3.0**, released under the previous **Inklow** name. Those immutable assets keep their original filenames. The BroTypist redesign, download-progress fix, and **0.3.2 strict inline/window-context changes are in source**. An older installer does not contain these changes; use a verified current build until the next release is published.
 
 | Platform | Published 0.3.0 assets | Current native build outputs |
 | --- | --- | --- |
@@ -42,7 +42,7 @@ The published 0.3.0 package supports **X11 only**, including its restriction on 
 
 #### KDE Wayland: current source
 
-BroTypist uses KWin's private **input-method-v1** connection, not raw input devices, global injection, or a screen-reader identity. Targets must expose compatible text-input state and corroborating editable AT-SPI metadata. This is **not universal Wayland support**.
+BroTypist uses KWin's private **input-method-v1** connection for its opt-in brand/manual-menu controls, not raw input devices, global injection, or a screen-reader identity. **Ordinary inline completion is currently unavailable on this Wayland path.** A real isolated KWin/Qt test showed that delayed preedit could replace a newly selected range and did not expose inactive styling. The unsafe preedit path was removed; missing native font metrics are not replaced with a suggestion popup.
 
 ```sh
 .venv/bin/python tools/build_wayland.py
@@ -55,7 +55,7 @@ Selecting an input method lets it receive keyboard events and surrounding text f
 
 The exercised Qt target uses **text-input-v3**. A target can request it at its own launch with `QT_WAYLAND_TEXT_INPUT_PROTOCOL=zwp_text_input_v3 QT_IM_MODULE=wayland <application>`. The tested default text-input-v2 path lacked complete context. Do not set those variables globally just to make one application work.
 
-KWin owns panel placement; the macOS/X11 above-line offset is not guaranteed on Wayland. Protected fields, selections, stale contexts, and unmatched metadata are rejected. Atomic cross-app replacement is unavailable on Linux, so selected-text synonyms and emoji/emoticon rewriting remain disabled. GNOME, wlroots, XWayland targets, and arbitrary third-party controls are not verified by this path.
+KWin owns manual-panel placement. Protected fields, selections, stale contexts, and unmatched metadata are rejected. The current Wayland path neither submits ordinary predictions nor consumes their acceptance keys. Background window context, atomic cross-app replacement, selected-text synonyms, and emoji/emoticon rewriting remain unavailable. Restoring Wayland completion requires a proven host/compositor path with observable inactive styling and atomic stale-state fencing; the historical native-panel receipts are not proof of that capability.
 
 ### Verify downloads
 
@@ -85,20 +85,20 @@ The writing preset is **Qwen2.5 1.5B**, approximately 1.12 GB. The approximately
 
 Closing Settings leaves BroTypist running. Normal keys pass through when no eligible suggestion is active. Shortcuts and existing model choices are **not reset by the redesign**. The design document's proposed new defaults do not override saved preferences.
 
-Models load lazily in a separate process and unload after 60 seconds idle by default, on pause, model change or Quit. A later request can require a cold load. Welcome's preview uses the same provider, does not record its text, and closes its worker when the field loses focus or the preview closes. Separately managed loopback servers have their own model lifetimes.
+Models load lazily in a separate process and unload after five minutes idle by default, on pause, model change or Quit. A later request can require a cold load. The new typing-delay default is 150 ms; existing saved values are preserved unless you explicitly change them. UI-thread readiness notifications deliver prepared requests and streamed results without waiting for the fallback polling timer. Welcome's preview uses the same provider, does not record its text, and closes its worker when the field loses focus or the preview closes. Separately managed loopback servers have their own model lifetimes.
 
 ### OS access and suggestion placement
 
-- **macOS:** grant **Accessibility / Device Control and Data Access** and **Input Monitoring** to the installed app in System Settings → Privacy & Security. Source Python/terminal permission is not proof of installed-app permission. Screen Recording is optional and only needed for opted-in screen context. An ad-hoc signature replacement may require manual approval again.
+- **macOS:** grant **Accessibility / Device Control and Data Access** and **Input Monitoring** to the installed app in System Settings → Privacy & Security. Source Python/terminal permission is not proof of installed-app permission. Focused-window context uses Accessibility text and does not require Screen Recording. An ad-hoc signature replacement may require manual approval again.
 - **Windows:** target controls must expose supported UI Automation/native Edit behavior. Elevated apps can require matching integrity privileges; BroTypist does not bypass isolation.
 - **Linux:** run in your user's D-Bus/accessibility session. X11 uses AT-SPI; KDE Wayland additionally needs explicit input-method selection. Some Qt targets need `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1` before starting.
 
-Secure, excluded, composition-ambiguous or unobservable fields are skipped. Host suggestions use a nonactivating chip when the current runtime cannot verify host typography; they do not guess a font from caret height. Display truncation never truncates accepted text. The owned Welcome field can draw its own faint inline suffix reliably.
+Ordinary completions are transparent, mouse-through grey text at the host caret baseline, in a verified host font. They have no card, border, shadow or keycap. Secure, excluded, selected, composing, clipped or unobservable inputs remain silent and do not intercept acceptance keys. **Native-only strict alignment is intentional:** Chromium on macOS currently omits font names, so affected Chrome/Edge/Electron fields are unsupported rather than guessed. Custom line heights, RTL runs and Linux providers without reliable composition/font metadata are also unsupported. Explicit alternative-word tools retain their separate chooser. The menu/settings expose native-inline and context availability; a working owned Welcome preview is not a universal compatibility claim.
 
 ## Privacy and data preservation
 
 - No built-in cloud inference, account requirement, automatic telemetry or cloud sync. Alternative inference endpoints are restricted to literal loopback addresses; their operators control their logging/network behavior.
-- Clipboard and foreground-window OCR context are off by default. OCR is macOS-only and does not save screenshots.
+- Clipboard and focused-window Accessibility context are off by default. Opt-in window context is bounded, relevant visible reference text from the verified focused window/document; protected/hidden content and unrelated editable fields are excluded. No screenshots are taken. Pending reads recheck consent, focus and policy, expire, and cannot supply stale context after revocation. Qt clipboard access is queued on the GUI thread with a bounded timeout and authorization checks before and after the read.
 - Writing history is opt-in, AES-GCM encrypted and requires the OS credential store, with no plaintext fallback. Aggregate statistics contain acceptance counts, not writing. History and statistics have separate deletion controls.
 - Custom instructions are ordinary settings text, not a place to store credentials.
 - Models, preferences and history live outside the installation and are not uninstalled with it.
@@ -143,7 +143,7 @@ uv run python tools/package_linux.py --bundle dist/BroTypist --output release --
 
 The inference smoke needs an explicitly configured existing model. Installers consume complete native builds; they do not download models or cross-compile. Windows packaging needs .NET SDK 8 and WiX **5.0.2** (`dotnet tool install --global wix --version 5.0.2`). Linux needs `dpkg-dev`, GI/AT-SPI/GTK and Qt libraries; the Wayland client additionally needs a C compiler, `pkg-config`, Wayland/xkbcommon development libraries, protocol XMLs and `wayland-scanner`. Use CPython 3.12 on Ubuntu 24.04 for its distro GI ABI. The [CI workflow](.github/workflows/ci.yml) lists exact build prerequisites.
 
-Original artwork sources are in `design/icons/`, including real Icon Composer documents and portable SVG variants. Rebuild with `python tools/generate_icons.py`: macOS uses installed Xcode Icon Composer/CoreGraphics/iconutil without Qt; Windows/Linux use their existing Qt toolkit. Runtime apps load committed raster assets, never the icon authoring tool.
+Canonical artwork is in `design/icons/`. The normal, dark, and small SVGs come directly from the supplied handoff; keep their geometry intact. Rebuild with `python tools/generate_icons.py`: macOS rasterizes the vectors with CoreGraphics and packages ICNS with `iconutil`; Windows/Linux use their existing Qt toolkit. Neither path adds enclosure lighting or a bevel. Runtime apps load committed raster assets and do not require an icon authoring tool.
 
 For stable local Mac permission identity, sign with the **same existing Keychain identity**:
 

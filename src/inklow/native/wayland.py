@@ -116,7 +116,6 @@ class WaylandBridge(LinuxBridge):
         self._context_synced = (0, 0)
         self._context_calls: set = set()
         self._panel_snapshot: Snapshot | None = None
-        self._panel_text = ""
         self._panel_paused = False
         self._menu: list[tuple[str, str, bool]] | None = None
         self._menu_page = 0
@@ -161,9 +160,10 @@ class WaylandBridge(LinuxBridge):
             self._flush()
             if self._client:
                 self._set_status(
-                    "KWin native input method ready. Only text-input-enabled apps with matching editable "
-                    "AT-SPI fields are supported; password fields and selections are excluded. "
-                    "Browser website rules require observable native URL metadata."
+                    "KWin native input method ready for manual controls. Ordinary inline completion "
+                    "is unavailable: this path cannot prove selection-safe, host-rendered inactive text. "
+                    "No preedit or suggestion popup is sent. Password fields and selections are excluded; "
+                    "browser website rules require observable native URL metadata."
                 )
                 self._queue_context_sync()
         except Exception as exc:
@@ -244,7 +244,13 @@ class WaylandBridge(LinuxBridge):
         if not context_id:
             return None
         return replace(snapshot, field_id=f"{snapshot.field_id}:wl:{context_id}",
-                       caret_rect=None, field_rect=None, native_anchor=self._anchor(before))
+                       caret_rect=None, field_rect=None, native_anchor=self._anchor(before),
+                       native_inline=False)
+
+    def context_matches(self, snapshot):
+        # The private input-method connection belongs exclusively to the Qt
+        # thread. A background context worker cannot safely verify its serial.
+        return False
 
     def capture(self) -> Snapshot | None:
         with self._lock:
@@ -373,6 +379,7 @@ class WaylandBridge(LinuxBridge):
         try:
             event = pointer.contents
             if event.type == 1:
+                self._note_input()
                 self._needs_context_state = event.state
                 if self._needs_context_state:
                     self._queue_context_sync()
@@ -382,6 +389,7 @@ class WaylandBridge(LinuxBridge):
                 if state is not None and self._ui_callback:
                     self._ui_callback("context_changed")
             elif event.type == 2 and event.state == 1:
+                self._note_input()
                 state = self._state()
                 if state is None or state[0] != event.generation:
                     return 0
@@ -509,15 +517,16 @@ class WaylandBridge(LinuxBridge):
         self._ui_callback = callback
 
     def present_native(self, native_anchor: str, text: str, paused: bool = False) -> bool:
+        """Present only the manual control; no safe native suffix path is available."""
         with self._lock:
             if self._menu is not None:
                 return False
             current = self.capture()
             if (current is None or not native_anchor or current.native_anchor != native_anchor
-                    or not isinstance(text, str) or "\x00" in text):
+                    or text != ""):
                 self.hide_native()
                 return False
-            self._panel_snapshot, self._panel_text, self._panel_paused = current, text, bool(paused)
+            self._panel_snapshot, self._panel_paused = current, bool(paused)
             if not self._render():
                 self.hide_native()
                 return False
@@ -526,7 +535,6 @@ class WaylandBridge(LinuxBridge):
     def hide_native(self) -> None:
         had_menu = self._menu is not None
         self._panel_snapshot = None
-        self._panel_text = ""
         self._menu = None
         self._menu_page = 0
         self._menu_selected = -1
@@ -584,8 +592,8 @@ class WaylandBridge(LinuxBridge):
             width = min(480, max(210, max((metrics.horizontalAdvance(label) for label in labels), default=140) + 32))
             height = row * (len(page) + 1 + int(paged)) + 8
         else:
-            label = self._panel_text if not self._panel_paused else ""
-            width = min(640, max(174, metrics.horizontalAdvance(label) + 148)) if label else row + 8
+            # Only the brand/manual-menu control is available on this path.
+            width = row + 8
             height = row + 8
         width = min(width, max(44, bounds.width() - 16))
         scale = max(1, min(4, int(round(screen.devicePixelRatio())) if screen else 1))
@@ -598,9 +606,10 @@ class WaylandBridge(LinuxBridge):
         palette = QApplication.palette()
         text_color = palette.color(QPalette.ColorRole.WindowText)
         disabled_color = palette.color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText)
-        painter.setPen(palette.color(QPalette.ColorRole.Mid))
-        painter.setBrush(palette.color(QPalette.ColorRole.Window))
-        painter.drawRoundedRect(QRectF(0.5, 0.5, width - 1, height - 1), 9, 9)
+        if self._menu is not None:
+            painter.setPen(palette.color(QPalette.ColorRole.Mid))
+            painter.setBrush(palette.color(QPalette.ColorRole.Window))
+            painter.drawRoundedRect(QRectF(0.5, 0.5, width - 1, height - 1), 9, 9)
         painter.setOpacity(0.45 if self._panel_paused else 1.0)
         painter.drawPixmap(QRect(10, (row + 8 - 24) // 2, 24, 24), app_icon().pixmap(24 * scale, 24 * scale))
         painter.setOpacity(1.0)
@@ -626,14 +635,6 @@ class WaylandBridge(LinuxBridge):
                     painter.setPen(text_color if active else disabled_color)
                     painter.drawText(QRect(left + 10, y, width // 2 - 18, row), align, title)
                     regions.append(((left, y, width // 2 - 4, row), action, active))
-        elif label:
-            text_width = width - 142
-            painter.drawText(QRect(46, 4, text_width, row), align,
-                             metrics.elidedText(label, Qt.TextElideMode.ElideRight, text_width))
-            painter.setPen(palette.color(QPalette.ColorRole.Link))
-            painter.drawText(QRect(width - 86, 4, 76, row), align, "Accept all")
-            regions.extend([((44, 4, text_width, row), "word", True),
-                            ((width - 90, 4, 86, row), "all", True)])
         painter.end()
         pixels = (ctypes.c_ubyte * image.sizeInBytes()).from_buffer(image.bits())
         result = self._native_call(
