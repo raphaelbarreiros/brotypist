@@ -111,7 +111,7 @@ def publish(args) -> None:
     release_manifest.write_text(json.dumps({
         'tag': args.tag, 'source_commit': source, 'repository': args.repo,
         'created_at': datetime.now(timezone.utc).isoformat(),
-        'signing': 'Windows unsigned; macOS ad-hoc signed, not notarized. No distribution-signing identity is configured by this workflow.',
+        'signing': 'Recorded in each native installer receipt; no distribution-signing or notarization claim.',
         'targets': native,
         'unpublished_targets': sorted(set(TARGET_FILES) - requested),
     }, indent=2) + '\n', encoding='utf-8')
@@ -141,22 +141,24 @@ def publish(args) -> None:
     }
     unpublished = set(TARGET_FILES) - requested
     unavailable_note = ('**Not published in this release:** ' + ', '.join(sorted(unpublished))
-                        + '; native verification remains pending.\n\n') if unpublished else ''
+                        + '; these platform ports/builds are currently held.\n\n') if unpublished else ''
     notes = (
         f'Native installers for BroTypist {app_version}.\n\n'
         '| Platform | Installer | Portable |\n| --- | --- | --- |\n'
         + ''.join(platform_rows[target] for target in TARGET_FILES if target in requested) + '\n'
         + unavailable_note
-        + 'Download an installer under **Assets**. Windows/Linux local inference requires AVX2, FMA, and F16C. '
+        + 'Download an installer under **Assets**. '
         'Models are separate explicit downloads; no model weights, settings, or writing history are bundled. '
         'Upgrades and removal preserve external per-user data.\n\n'
-        '**Signing:** Windows is unsigned. macOS is ad-hoc signed, not Developer ID-signed or notarized. '
+        '**Signing:** consult the native receipt for the actual package signature. '
+        'An identity-signed local build is not a Developer ID or notarization claim. '
         'Do not disable OS security protections globally. Verify downloads against `SHA256SUMS`.\n\n'
         '**Verification:** the published targets passed native regression, settings, source/frozen inference, '
         'and installer mount/install, launch and cleanup checks. See `release-manifest.json` for actual receipts. '
         'These checks are not certification of interactive typing in every third-party application.\n\n'
-        f'Source: `{source}`. This initial installer release uses the verified 0.3 code line; '
-        'unfinished multilingual prediction experiments are not included.\n'
+        f'Source: `{source}`. '
+        f'See the [versioned changelog](https://github.com/{args.repo}/blob/{source}/CHANGELOG.md) '
+        'and README for model, compatibility and platform limitations.\n'
     )
     gh('release', 'create', args.tag, '--repo', args.repo, '--target', source,
        '--verify-tag', '--draft', '--title', f'BroTypist {app_version}', '--notes', notes,

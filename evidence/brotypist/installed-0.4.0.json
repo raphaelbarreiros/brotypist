@@ -1,0 +1,13 @@
+{
+  "version": "0.4.0",
+  "application": "/Applications/BroTypist.app",
+  "source_commit": "312edd696f60951fea74763e5b3b4f821e7239f7",
+  "executable_sha256": "b18b24049085c4e0c68cf11f786ed1a2223fa8d348b783ce549768d25dc669c4",
+  "normal_launch_client_exit_code": 0,
+  "verified_single_running_instance": true,
+  "observed_installed_pid": 31989,
+  "model": {"id": "gemma4-e2b", "label": "Gemma 4 E2B", "canonical_cache": true, "existing_verified_weights_reused_without_network_download": true, "sha256": "8e30dff3ac4c8434c49a7036fa15564bdbb6044e42bf04550bf1a096ad7e6a52", "old_qwen_cache_retained": true},
+  "data_preservation": {"settings_bytes_unchanged_during_bundle_replacement": true, "startup_bytes_unchanged": true, "existing_preference_values_preserved_except_requested_model_selection": true, "legacy_battery_flag_migration": "battery_smaller_model=false -> battery_model=same; equivalent behavior", "screenshot_and_terminal_consent_not_enabled": true, "private_previous_app_and_settings_rollback_retained": true},
+  "disposable_document_cleanup": {"one_document_created": true, "screen_reader_braille_collaborator_and_magnifier_preferences_restored_and_reopened_verified_off": true, "moved_to_trash": true, "permanent_deletion_performed": false, "owned_tab_closed": true},
+  "scope": "Install and selected-model proof. The separate frozen receipt records owned-field typing and its limits. No third-party-input or grammar certification."
+}

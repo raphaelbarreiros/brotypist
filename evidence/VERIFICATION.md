@@ -2,6 +2,19 @@
 
 # Observed verification
 
+## 0.4.0 signed Mac build and installation — 2026-10-26
+
+Application source **`312edd696f60951fea74763e5b3b4f821e7239f7`** was frozen as arm64 0.4.0 and installed at **`/Applications/BroTypist.app`**. The previous signed app/settings have a private rollback. The actual user profile selects the verified public **Gemma 4 E2B Q4_0**, reusing existing cached bytes without a network download; Qwen is retained. Startup bytes are unchanged. Other existing preference values were preserved, with the legacy disabled battery-model flag migrated to equivalent `battery_model=same`. Screenshot/terminal consent was not enabled.
+
+- **Frozen CLI and worker:** actual Gemma generation passed in both, with exit code 0; the worker streamed ` help.` and shut down successfully.
+- **Normal LaunchServices typing:** the exact frozen app, in a fixture-only profile, visibly offered grey same-line ` appreciate it.`. Two real consecutive Tabs produced `Thank you for your help with the report. I really appreciate it`, without a literal Tab. No other prediction app was running and the owned host's OS prediction was disabled. [Actual frozen pixels](brotypist/frozen-inline-0.4.0.png), [frozen runtime/signing/installer receipt](brotypist/frozen-0.4.0.json).
+- **Native surfaces observed:** the field button measured 24×24 points above the field; the registered menu-bar item measured 24×24 at an on-screen position. A later AX extras query was unavailable, so final field-menu tracking/status-menu Quit is not claimed as a live pass. Normal OS Quit stopped the isolated frozen app. Frozen focused-window-context/full acceptance also remains unestablished: a key passed through without an acknowledged offer and a later probe aborted on its foreground guard.
+- **Installer:** actual DMG read-only mount, drag-install layout, copied signature/version/source, visible own-PID settings, normal Quit with exit 0, unchanged isolated settings, data preservation on removal and detach all passed.
+- **Signing:** the existing Apple Development identity/team and exact designated requirement were retained. Deep/strict verification passed; hardened runtime is enabled with only `com.apple.security.automation.apple-events`. This is not Developer ID distribution or notarization. Installed executable SHA-256: `b18b24049085c4e0c68cf11f786ed1a2223fa8d348b783ce549768d25dc669c4`.
+- **Real installation:** one normally launched instance was observed at the canonical unversioned app path with Gemma selected and global/default predictions enabled. [Installed model/data-preservation and disposable-document cleanup receipt](brotypist/installed-0.4.0.json).
+
+These checks are bounded proof, not complete [redacted reference] compatibility, calibrated grammar quality, a visible-latency SLA or RAM superiority. See the explicit Docs/terminal/RTL and held-platform limits below.
+
 ## 0.4.0 source integration — 2026-10-26
 
 This is source/runtime evidence, not a claim that a new frozen bundle is installed or published. The signed application and installer must have their own receipts.
