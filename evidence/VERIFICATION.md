@@ -2,6 +2,23 @@
 
 # Observed verification
 
+## 0.4.1 signed, installed real-messenger verification — 2026-10-26
+
+Runtime source **`0dd98b10e2cf809cf612d720878cd46b388b7ec7`** was frozen, Apple Development-signed and atomically installed at **`/Applications/BroTypist.app`** with the same designated requirement. [Installed receipt](brotypist/installed-0.4.1.json) records the executable hash, isolated acceptance and normal-profile observations.
+
+| Actual application | Rendering observed | Normal saved profile | Installed binary, isolated recording-disabled profile |
+| --- | --- | --- | --- |
+| WhatsApp | Grey text at the attributed native caret row | Visible suggestion; owned draft cleared | Real hardware Tab appended ` appreciate `; no literal Tab |
+| Telegram | Grey text at the final observed LTR glyph edge, fitted system font | Visible suggestion; owned draft cleared | Real hardware Tab appended ` appreciate `; no literal Tab |
+
+The observed continuation was ` appreciate it.` after the synthetic `Thank you for your help with the report. I really`. [Actual normal-profile WhatsApp pixels](brotypist/whatsapp-installed-0.4.1.png) · [Actual normal-profile Telegram pixels](brotypist/telegram-installed-0.4.1.png). Both application drafts were cleared; no messages were sent. Normal-profile checks did not accept text or change saved preferences: settings bytes matched the private pre-install backup after normal Quit. Existing cached models and permission identity were retained; screenshot consent was not enabled.
+
+The packaged private-profile run remained alive after actual HID-level typing and Tab acceptance in both messengers, then exited normally with code 0. The app's own menu-bar item was registered at 24×24 points. AXPress did not establish status-menu tracking/Quit; that path is not reported as passed. The final app was relaunched through LaunchServices using the user's normal profile.
+
+The actual signed DMG passed read-only mount, drag-install layout, copied source/signature/version, visible own-PID settings, normal Quit, unchanged isolated settings, preserved data on removal and detach. Apple Development signing is not Developer ID distribution or notarization.
+
+Cold first-offer observations remain approximately four seconds; warm observations were sub-second. These individual samples are not an SLA or a solved cold-start claim. No universal input, multilingual grammar-quality or RAM-parity claim is made. Linux/Windows product builds remain held.
+
 ## 0.4.1 source repair: real messenger keyboard path — 2026-10-26
 
 The user-reported absence of ordinary predictions was not a model-download failure. A real macOS crash report recorded `EXC_BREAKPOINT` / `SIGTRAP`: the background Quartz callback entered `NSEvent.charactersIgnoringModifiers`, HIToolbox input-source lookup, then `_dispatch_assert_queue_fail`. Keyboard-layout translation now runs on the main queue, publishing a replacement map for the tap. A failing-before/passing-after regression exercises background typing, passthrough and a logical AZERTY→QWERTY shortcut transition.
@@ -11,7 +28,7 @@ Separate native evidence established WhatsApp's `(0,0)` visible-range sentinel, 
 - **Actual source WhatsApp:** hardware-level key events, grey same-line ` appreciate it.`, then real Tab appended ` appreciate `; own draft cleared, no message sent. [Actual cropped pixels](brotypist/whatsapp-source-0.4.1.png).
 - **Actual source Telegram:** the same keyboard/Tab sequence passed in its native Qt composer; own draft cleared, no message sent. [Actual cropped pixels](brotypist/telegram-source-0.4.1.png).
 - **Local integrated suite:** 897 passed, 21 skipped in 16.72 seconds. Hosted CI remains unestablished because of the account-level runner-allocation block recorded below.
-- **Limits:** these are source-runtime observations, not yet proof of a frozen/installed 0.4.1 build. Screenshot consent was off; synthetic observations used a history/statistics-disabled profile. No universal input, multilingual grammar, latency SLA or RAM-parity claim follows.
+- **Limits:** these particular checks are source-runtime observations, not by themselves proof of a frozen/installed build. Screenshot consent was off; synthetic observations used a history/statistics-disabled profile. No universal input, multilingual grammar, latency SLA or RAM-parity claim follows.
 
 ## 0.4.0 signed Mac release and installation — 2026-10-26
 

@@ -1,0 +1,93 @@
+{
+  "version": "0.4.1",
+  "source_commit": "0dd98b10e2cf809cf612d720878cd46b388b7ec7",
+  "installed_path": "/Applications/BroTypist.app",
+  "executable_sha256": "7faa8fcecbd65969fbf4ccafda932b2986fa18a33a2f6e00abaa587f99762fc8",
+  "normal_profile": {
+    "whatsapp": {
+      "app": "net.whatsapp.WhatsApp",
+      "prefix": "Thank you for your help with the report. I really",
+      "messages_sent": 0,
+      "screenshots_enabled_in_product": false,
+      "native_capture": true,
+      "inline_safe": true,
+      "render_source": "macos-ax-attributed-run",
+      "ghost_visible": true,
+      "observed_elapsed_ms": 4355.63,
+      "screenshot": "whatsapp-installed-normal-final.png",
+      "normal_profile_visibility_only": true,
+      "owned_draft_cleared": true
+    },
+    "telegram": {
+      "app": "com.tdesktop.Telegram",
+      "prefix": "Thank you for your help with the report. I really",
+      "messages_sent": 0,
+      "screenshots_enabled_in_product": false,
+      "native_capture": true,
+      "inline_safe": true,
+      "render_source": "macos-ax-caret-row",
+      "ghost_visible": true,
+      "observed_elapsed_ms": 417.04,
+      "screenshot": "telegram-installed-normal-final.png",
+      "normal_profile_visibility_only": true,
+      "owned_draft_cleared": true
+    }
+  },
+  "isolated_profile_tab_acceptance": {
+    "whatsapp": {
+      "app": "net.whatsapp.WhatsApp",
+      "prefix": "Thank you for your help with the report. I really",
+      "messages_sent": 0,
+      "screenshots_enabled_in_product": false,
+      "native_capture": true,
+      "inline_safe": true,
+      "render_source": "macos-ax-attributed-run",
+      "ghost_visible": true,
+      "observed_elapsed_ms": 4216.57,
+      "screenshot": "whatsapp-installed-acceptance-final.png",
+      "accepted_text": "Thank you for your help with the report. I really appreciate ",
+      "tab_accepted_prediction": true,
+      "owned_draft_cleared": true
+    },
+    "telegram": {
+      "app": "com.tdesktop.Telegram",
+      "prefix": "Thank you for your help with the report. I really",
+      "messages_sent": 0,
+      "screenshots_enabled_in_product": false,
+      "native_capture": true,
+      "inline_safe": true,
+      "render_source": "macos-ax-caret-row",
+      "ghost_visible": true,
+      "observed_elapsed_ms": 357.68,
+      "screenshot": "telegram-installed-acceptance-final.png",
+      "accepted_text": "Thank you for your help with the report. I really appreciate ",
+      "tab_accepted_prediction": true,
+      "owned_draft_cleared": true
+    }
+  },
+  "settings_bytes_preserved": true,
+  "same_designated_requirement": true,
+  "menu_bar": {
+    "own_status_item_present": true,
+    "observed_position": [
+      459,
+      2
+    ],
+    "observed_size": [
+      24,
+      24
+    ],
+    "status_menu_tracking_and_quit": "not established; AXPress was unacknowledged",
+    "normal_os_quit_exit_code": 0
+  },
+  "suite": {
+    "passed": 897,
+    "skipped": 21
+  },
+  "limits": [
+    "Cold first request remains approximately four seconds; warm observations are not an SLA.",
+    "No universal input, multilingual grammar or RAM-parity claim.",
+    "Linux and Windows product builds remain held.",
+    "Apple Development signed; not Developer ID signed or notarized."
+  ]
+}
