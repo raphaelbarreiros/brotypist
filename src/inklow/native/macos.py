@@ -316,6 +316,10 @@ class MacBridge(BridgeBase):
             self._refresh_status()
         if self.secure_input_active():
             return SECURE_INPUT_STATUS
+        if self._ime_kind == "unknown":
+            return super().status() + " Keyboard input source is not yet observable; composition safety cannot be verified."
+        if getattr(self, "_capture_error", ""):
+            return self._capture_error
         return super().status()
 
     def secure_input_active(self) -> bool:
@@ -905,7 +909,8 @@ class MacBridge(BridgeBase):
                 return (blank if blank.valid(rect) else None), None
             return None, {**evidence, "suffix": {"text": after, "rect": suffix_rect},
                           "ax_render": dataclasses.asdict(render)}
-        except Exception:
+        except Exception as error:
+            self._capture_error = f"Last native inline-layout failure: {type(error).__name__}. No writing is logged."
             return None, None
 
     def range_rect(self, snapshot: Snapshot, start: int, length: int):
@@ -1044,8 +1049,11 @@ class MacBridge(BridgeBase):
         with self._lock:
             try:
                 result = self._capture()
+                if result is not None and result[0].inline_safe:
+                    self._capture_error = ""
                 return result[0] if result else None
-            except Exception:
+            except Exception as error:
+                self._capture_error = f"Last native capture failure: {type(error).__name__}. No writing is logged."
                 return None
 
     def _post_key(self, code: int, flags: int, unicode: tuple[str, int] | None = None) -> None:

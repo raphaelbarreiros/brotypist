@@ -9,7 +9,7 @@
 - Calibrate native font advances to the actual caret position, not padded AX glyph envelopes. This keeps one-character styling runs usable without relaxing field, clipping or stale-input guards.
 - Support Qt/Telegram document ends whose zero-length caret bounds and font attributes are missing. Derive the insertion point from the observed final LTR glyph and fit a system drawing font; this is not an exact host-font claim and never displaces existing words.
 - Keep screenshot options opt-in and off during messenger verification. Preserve the model, shortcut, consent and profile settings; no popup fallback or new model download.
-- Include metadata-only keyboard input-source classification in `doctor` so packaged capture gating can be diagnosed without printing writing.
+- Expose keyboard input-source classification in `doctor` and fixed, content-free native failure diagnostics in Setup. Exception messages and writing are never included.
 
 ## 0.4.0 — macOS
 
