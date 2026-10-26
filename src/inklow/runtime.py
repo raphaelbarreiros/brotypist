@@ -16,7 +16,7 @@ import time
 import uuid
 import unicodedata
 
-from .config import Config, save_config
+from .config import Config, provider_identity, save_config
 from .core import SuggestionState
 from .features import completion_limits, current_word_only, include_punctuation, mid_word
 from .process_client import ProcessClient
@@ -74,6 +74,7 @@ class Controller:
         self._candidate_since = 0.0
         self._candidate_revision = None
         self._capture_revision = None
+        self._model_activity = None
         self._attempted = None
         self._failed_correction_key = None
         self._request = None
@@ -1081,6 +1082,28 @@ class Controller:
             return False
         return pause[0] == (snapshot.app_id, snapshot.field_id, getattr(snapshot, "domain", ""))
 
+    def _prepare_focused_model(self, snapshot):
+        # Capture has already established current foreground/privacy authority.
+        # Remember activity, not worker state: idle release must remain idle
+        # until a new focus or real input arrives.
+        if (snapshot is None or not self._active() or snapshot.protected
+                or not snapshot.multiline or not snapshot.can_replace
+                or not snapshot.inline_safe or not snapshot.has_anchor
+                or snapshot.selection_length or snapshot.on_demand_only
+                or self._field_paused(snapshot)
+                or (self._on_battery and self.config.battery_on_demand)):
+            # Temporary Escape suppression or unavailable caret geometry is not
+            # an idle-timeout/privacy revocation. Keep the shared worker warm.
+            return
+        activity = (snapshot.app_id, snapshot.field_id, snapshot.domain,
+                    self._capture_revision, hash(snapshot.text), snapshot.caret)
+        if activity == self._model_activity:
+            return
+        self._model_activity = activity
+        config = self._effective_config("completion")
+        if config.backend == "gguf" and Path(config.model_path).expanduser().is_file():
+            self._client.prepare(config)
+
     def _completion_eligible(self, snapshot):
         if not (snapshot.inline_safe and snapshot.eligible(self.config.min_chars)):
             return False
@@ -1175,6 +1198,7 @@ class Controller:
                 self._capture_after = now + (min(self._capture_interval, 0.05) if recent_input else self._capture_interval)
             else:
                 snapshot = self._candidate
+            self._prepare_focused_model(snapshot)
             self._consume_prepared()
             self._consume_results()
             if snapshot is not None and snapshot.has_anchor:
@@ -1663,6 +1687,24 @@ class Controller:
     def force(self):
         return self.invoke("force")
 
+    @staticmethod
+    def _privacy_revoked(old, config):
+        if any(getattr(old, name) and not getattr(config, name) for name in (
+                "enabled", "clipboard_context", "screen_context", "screenshot_context",
+                "record_history", "terminal_completion")):
+            return True
+        if old.personalization_strength and not config.personalization_strength and Controller._recording_configured(old):
+            return True
+        if set(config.excluded_apps) - set(old.excluded_apps):
+            return True
+        for scope in old.app_rules.keys() | config.app_rules.keys():
+            previous = old.app_rules.get(scope, {})
+            current = config.app_rules.get(scope, {})
+            for name in ("enabled", "record_history"):
+                if previous.get(name, getattr(old, name)) and not current.get(name, getattr(config, name)):
+                    return True
+        return False
+
     def update_config(self, config: Config, persist=True):
         config.validate()
         if self._recording_configured(config):
@@ -1690,7 +1732,8 @@ class Controller:
             self.bridge.configure(self._native_config())
             self.bridge.set_shortcuts_enabled(True)
             self._client.set_idle_timeout(config.idle_release_seconds)
-            if not self._active() or any(getattr(old, key) != getattr(config, key) for key in ("backend", "model_path", "endpoint", "model", "acceleration", "prompt_style")):
+            if (not self._active() or provider_identity(old) != provider_identity(config)
+                    or self._privacy_revoked(old, config)):
                 self._client.release()
             if not self._recording_configured(config):
                 self._session_text = ""

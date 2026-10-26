@@ -788,3 +788,25 @@ def test_unverified_native_action_provider_never_mutates_docs_preferences(native
     assert result["status"] == "unknown" and result["diagnostic"] == "docs_native_actions_unverified"
     assert native.actions == []
     assert native.checkbox.attributes["AXValue"] == native.braille.attributes["AXValue"] == 0
+
+
+def test_focus_window_attribute_cannot_disagree_with_ancestry(native):
+    other_window = Peer("AXWindow", native.app, AXDocument=URL)
+    native.field.attributes["AXWindow"] = other_window
+    helper = DocsHelper(native)
+    assert helper.hint() is None
+    assert helper.diagnostic == "docs_focus_outside_document"
+    assert native.actions == []
+    assert not any(name == "AXValue" for _, name in native.reads)
+
+
+def test_outer_scroll_clip_cannot_expose_an_invisible_page_margin(native):
+    native.window.attributes["AXChildren"].remove(native.web)
+    clip = Peer("AXScrollArea", native.window, bounds=(400, 20, 100, 300))
+    clip.attributes["AXChildren"] = [native.web]
+    native.web.attributes["AXParent"] = clip
+    helper = DocsHelper(native)
+    assert helper.hint() is None
+    assert helper.diagnostic == "docs_anchor_unverified"
+    assert native.actions == []
+    assert not any(name == "AXValue" for _, name in native.reads)

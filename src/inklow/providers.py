@@ -160,7 +160,8 @@ def _data_tokens(model, text: str, *, add_bos: bool = False) -> list[int]:
     return tokens
 
 
-def _prompt_tokens(model, config: Config, prefix: str, suffix: str, options: dict):
+def _prompt_tokens(model, config: Config, prefix: str, suffix: str, options: dict, *,
+                   framing_tokens=None, language_prefix: str | None = None):
     """Fit complete framing and mandatory data using the loaded context/tokenizer."""
     utility = options.get("utility", "")
     guided = config.prompt_style == "writing" or bool(utility)
@@ -171,6 +172,10 @@ def _prompt_tokens(model, config: Config, prefix: str, suffix: str, options: dic
     draft = prefix[-config.context_chars:]
     context = options.get("context", "")
     instructions = options.get("instructions", "")
+    language_hint = ""
+    if guided and not utility:
+        from .writing import _draft_language
+        language_hint = _draft_language(prefix if language_prefix is None else language_prefix) or ""
 
     def reference_size(text):
         return len(_data_tokens(model, text))
@@ -191,7 +196,8 @@ def _prompt_tokens(model, config: Config, prefix: str, suffix: str, options: dic
         if utility:
             spans = utility_writing_prompt_spans(utility, instructions, context, family=family)
         elif guided:
-            spans = writing_prompt_spans(draft, suffix, instructions, context, family=family)
+            spans = writing_prompt_spans(draft, suffix, instructions, context,
+                                         family=family, language_hint=language_hint)
         else:
             spans = [(_prompt(config, draft, suffix, dict(options, context=context)), False)]
         tokens = []
@@ -199,8 +205,18 @@ def _prompt_tokens(model, config: Config, prefix: str, suffix: str, options: dic
             # Gemma framing contains one explicit <bos>. Other tokenizers may
             # supply their own BOS, but only for the first span.
             add_bos = index == 0 and not (family or "").startswith("gemma")
-            tokens.extend(model.tokenize(text.encode("utf-8"), add_bos=add_bos, special=True)
-                          if special else _data_tokens(model, text, add_bos=add_bos))
+            if special:
+                key = (text, add_bos)
+                framed = framing_tokens.get(key) if framing_tokens is not None else None
+                if framed is None:
+                    framed = tuple(model.tokenize(text.encode("utf-8"), add_bos=add_bos, special=True))
+                    if framing_tokens is not None:
+                        if len(framing_tokens) >= 32:
+                            framing_tokens.clear()
+                        framing_tokens[key] = framed
+                tokens.extend(framed)
+            else:
+                tokens.extend(_data_tokens(model, text, add_bos=add_bos))
         return tokens
 
     tokens = tokenize()
@@ -359,6 +375,9 @@ class GGUFProvider(_StreamingProvider):
         # One generation at a time; close() waits for the active stream to end.
         self._lock = threading.Lock()
         self._utility_grammar = None
+        # Only trusted fixed framing is reused. Drafts, preferences, quoted
+        # suffixes and reference context are tokenized afresh for every request.
+        self._framing_tokens = {}
 
     def _load(self):
         if self._model is None:
@@ -398,10 +417,14 @@ class GGUFProvider(_StreamingProvider):
                     raise
 
     def stream(self, prefix: str, suffix: str, cancel: threading.Event, *, options: dict | None = None) -> Iterator[str]:
+        if cancel.is_set():
+            return
         if options and options.get("alternatives"):
             yield from self._alternatives(prefix, suffix, cancel, options)
             return
         with self._lock:
+            if cancel.is_set():
+                return
             model = self._load()
             if cancel.is_set():
                 return
@@ -409,9 +432,11 @@ class GGUFProvider(_StreamingProvider):
             # Every request uses the model's tokenizer, not a character estimate.
             options = options or {}
             utility = bool(options.get("utility"))
-            healing = _healing_tail(prefix) if self.config.prompt_style == "writing" and not utility else ""
+            healing = (_healing_tail(prefix)
+                       if self.config.prompt_style == "writing" and not utility else "")
             draft = prefix[:-len(healing)] if healing else prefix
-            tokens = _prompt_tokens(model, self.config, draft, suffix, options)
+            tokens = _prompt_tokens(model, self.config, draft, suffix, options,
+                                    framing_tokens=self._framing_tokens, language_prefix=prefix)
             grammar = None
             if utility or healing:
                 from llama_cpp import LlamaGrammar
@@ -424,7 +449,7 @@ class GGUFProvider(_StreamingProvider):
                     grammar = self._utility_grammar
                 else:
                     grammar = LlamaGrammar.from_string(
-                        "root ::= " + json.dumps(healing, ensure_ascii=False) + ' [^\\n\\r]+',
+                        "root ::= " + json.dumps(healing, ensure_ascii=False) + ' [^\\n\\r]*',
                         verbose=False)
             family = _guided_family(model) if self.config.prompt_style == "writing" or options.get("utility") else None
             # Conservative inline-writing sampling, explicit rather than
@@ -447,6 +472,10 @@ class GGUFProvider(_StreamingProvider):
             # within the loaded context while leaving the insertion budget intact.
             replay_tokens = len(model.tokenize(healing.encode("utf-8"), add_bos=False, special=False)) if healing else 0
             native_limit = min(self.config.max_tokens + replay_tokens, model.n_ctx() - len(tokens) - 1)
+            # Tokenization/grammar construction can outlive the current draft.
+            # Do not enter native prompt evaluation for work cancelled there.
+            if cancel.is_set():
+                return
             chunks = model.create_completion(
                 prompt=tokens, max_tokens=native_limit, grammar=grammar, **sampler,
                 repeat_penalty=1.0 if family else 1.1,
@@ -471,6 +500,8 @@ class GGUFProvider(_StreamingProvider):
             if self._model is not None:
                 self._model.close()
                 self._model = None
+            self._utility_grammar = None
+            self._framing_tokens.clear()
 
 
 def _server_message(value) -> str:

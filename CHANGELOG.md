@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 0.4.2 — Unreleased macOS candidate
+
+- Prepare cached local weights in authorized, inline-capable multiline fields before ordinary prediction is due. Use a configuration-only worker command; never evaluate writing during that preparation or download/select a model automatically. Preserve saved idle release and battery force-only behavior.
+- Reuse model allocations across prompt, length and context-budget changes that do not replace the backend/path/acceleration. Keep pause, privacy revocation and Quit release barriers, including newer preparation racing an older release and typing cancellation.
+- Cache only bounded trusted framing token IDs, not drafts, references or writing preferences. Retain full-cache/prefix reuse rather than trade warm latency for an unproven compact-cache default.
+- Match relevant references with canonical Unicode keys and bounded links for unspaced scripts, without normalizing the user's inserted text. Keep reference data in the actual user task. Optional on-device language evidence is advisory, not a locale override or a grammar guarantee.
+- Preserve lexical token healing for ordinary suffix/append requests; allow native EOS immediately after replay when no insertion is needed. Fix streamed decimal and CJK sentence boundaries.
+- Bind browser suggestions to native window/document identity, reject unsafe ancestry and malformed/stale attributed runs, and stop visual clipping at the owning window rather than nonvisual application metadata.
+- Validate the running Codex process against the exact signed 0.162.1 renderer identity rather than its installation pathname. Tighten native row/clip/attachment leases; retain the existing terminal, other-agent, multiplexer and Docs exclusions.
+- Keep this candidate separate from installed/published 0.4.1 until signed native typing/acceptance is exercised. Headless regression/model checks do not establish complete [redacted reference] compatibility, human-calibrated multilingual quality, desktop latency or RAM parity. Linux/Windows builds and iCloud remain held.
+
 ## 0.4.1 — macOS
 
 - Fix a macOS SIGTRAP while typing: AppKit/HIToolbox logical-key translation now runs on the main queue and publishes a cached key map to the background Quartz tap. Preserve layout-dependent shortcuts and physical Above-Tab behavior.

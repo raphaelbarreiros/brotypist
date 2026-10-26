@@ -157,6 +157,9 @@ class DocsHelper:
         if focus is None or (focused is not None and not focused):
             raise _Unknown("docs_focus_unverified")
         self._pid(focus, pid)
+        focus_window = self._get(focus, "AXWindow")
+        if focus_window is not None and focus_window != window:
+            raise _Unknown("docs_focus_outside_document")
         editor_focus = self._get(focus, "AXRole") == "AXTextArea" or (
             self._get(focus, "AXRole") == "AXGroup"
             and self._get(focus, "AXDOMIdentifier") == "docs-texteventtarget-descendant")
@@ -214,13 +217,17 @@ class DocsHelper:
                         if self._get(node, "AXRole") == "AXWebArea")
         clip = None
         for node in ancestors[ancestors.index(viewport):]:
-            if self._get(node, "AXRole") not in ("AXWebArea", "AXWindow"):
-                continue
+            role = self._get(node, "AXRole")
             bounds = self.bridge._field_bounds(node)
+            if bounds is None and role not in ("AXWebArea", "AXWindow"):
+                continue
             if bounds is None or not all(math.isfinite(v) for v in bounds):
                 raise _Unknown("docs_anchor_unverified")
             x, y, width, height = bounds
-            if width < 80 or height < 80:
+            # Ancestor scroll areas/groups can clip the native web viewport.
+            # This remains a page-margin accessory, never caret geometry.
+            if width <= 0 or height <= 0 or (role in ("AXWebArea", "AXWindow")
+                                            and (width < 80 or height < 80)):
                 raise _Unknown("docs_anchor_unverified")
             if clip is None:
                 clip = bounds
@@ -229,6 +236,10 @@ class DocsHelper:
                 right = min(x + width, clip[0] + clip[2])
                 bottom = min(y + height, clip[1] + clip[3])
                 clip = (left, top, right - left, bottom - top)
+            # The native focused window ends visual clipping ancestry.
+            # AXApplication metadata does not describe a viewport.
+            if node == identity[3]:
+                break
         if clip is None or clip[2] < 80 or clip[3] < 80:
             raise _Unknown("docs_anchor_unverified")
         scope = (identity, tuple(ancestors))

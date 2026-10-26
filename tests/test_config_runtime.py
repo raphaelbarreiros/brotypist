@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from inklow.config import Config, config_path, default_instructions, load_config, save_config
+from inklow.config import Config, config_path, default_instructions, load_config, provider_identity, save_config
 from inklow.models import DEFAULT_PRESET, PRESETS
 
 
@@ -87,3 +87,18 @@ def test_only_new_installs_are_seeded_with_default_model_and_locale_instructions
     config_path().write_text(json.dumps({"model_path": "/custom/own.gguf", "custom_instructions": "Mine."}))
     saved = load_config()
     assert (saved.model_id, saved.custom_instructions) == ("", "Mine.")
+
+
+@pytest.mark.parametrize("backend,changes,reallocated", [
+    ("gguf", {"prompt_style": "writing", "max_tokens": 64, "context_chars": 4000}, False),
+    ("gguf", {"endpoint": "http://127.0.0.1:12345", "model": "unused-server-model"}, False),
+    ("gguf", {"model_path": "/models/other.gguf"}, True),
+    ("gguf", {"acceleration": "cpu"}, True),
+    ("ollama", {"prompt_style": "writing", "model_path": "/unused.gguf", "acceleration": "cpu"}, False),
+    ("openai", {"model": "other-model"}, True),
+    ("ollama", {"endpoint": "http://127.0.0.1:12345"}, True),
+    ("gguf", {"backend": "ollama"}, True),
+])
+def test_model_allocation_identity_ignores_request_only_and_inactive_backend_settings(backend, changes, reallocated):
+    config = replace(Config(), backend=backend)
+    assert (provider_identity(config) != provider_identity(replace(config, **changes))) is reallocated

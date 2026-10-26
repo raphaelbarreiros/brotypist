@@ -86,6 +86,10 @@ class Inference:
         self.requests = []
         self.events = []
         self.released = False
+        self.preparations = []
+
+    def prepare(self, config):
+        self.preparations.append(config)
 
     def submit(self, config, prefix, suffix, **options):
         self.identifier += 1
@@ -1916,3 +1920,99 @@ def test_append_only_fields_still_schedule_and_accept_ordinary_completion(runtim
     controller.tick()
     assert controller.invoke("all")
     assert bridge.insertions == [" arrives"]
+
+
+@pytest.mark.parametrize("before,after,released", [
+    ({}, {"prompt_style": "continuation", "max_tokens": 64, "context_chars": 4000}, False),
+    ({}, {"endpoint": "http://127.0.0.1:12345", "model": "inactive-server-model"}, False),
+    ({}, {"personalization_strength": 0}, False),
+    ({}, {"model_path": "/models/other-synthetic.gguf"}, True),
+    ({}, {"acceleration": "cpu"}, True),
+    ({}, {"global_enabled": False}, True),
+    ({}, {"enabled": False}, True),
+    ({"clipboard_context": True}, {"clipboard_context": False}, True),
+    ({"screen_context": True}, {"screen_context": False}, True),
+    ({"screenshot_context": True}, {"screenshot_context": False}, True),
+    ({"terminal_completion": True}, {"terminal_completion": False}, True),
+    ({"record_history": True}, {"record_history": False}, True),
+    ({"record_history": True}, {"personalization_strength": 0}, True),
+    ({}, {"excluded_apps": ("writer",)}, True),
+    ({"app_rules": {"app:writer": {"enabled": True}}},
+     {"app_rules": {"app:writer": {"enabled": False}}}, True),
+    ({"app_rules": {"app:writer": {"record_history": True}}}, {"app_rules": {}}, True),
+])
+def test_settings_preserve_reusable_models_except_on_lifecycle_or_privacy_revocation(runtime, before, after, released):
+    controller, _bridge, client = runtime
+    controller.update_config(replace(controller.config, **before), persist=False)
+    client.released = False
+    identifier = submit_command(controller, "force")
+    client.events.append({"type": "result", "id": identifier, "text": " obsolete private continuation", "final": True})
+    controller.update_config(replace(controller.config, **after), persist=False)
+    assert client.released is released
+    controller.tick()
+    assert not controller._suggestion.text
+    assert not any(event.get("type") == "suggestion" for event in controller.drain_events())
+
+
+def test_focused_preparation_overlaps_typing_without_idle_reload(runtime, tmp_path):
+    controller, bridge, client = runtime
+    model = tmp_path / "local.gguf"
+    model.touch()
+    controller.config = replace(controller.config, model_path=str(model), min_chars=20)
+    bridge.snapshot = field_snapshot("a")
+    controller.tick()
+    assert len(client.preparations) == 1
+    assert not client.requests
+    for _ in range(3):
+        controller.tick()
+    assert len(client.preparations) == 1
+    # A worker's idle release does not itself create new focus/input activity.
+    client.released = True
+    controller.tick()
+    assert len(client.preparations) == 1
+    bridge.snapshot = field_snapshot("ab")
+    controller.tick()
+    assert len(client.preparations) == 2
+    assert not client.requests
+    bridge.snapshot = None
+    client.released = False
+    controller.tick()
+    assert not client.released
+    # A transient missing native capture is not new user activity, either.
+    bridge.snapshot = field_snapshot("ab")
+    controller.tick()
+    assert len(client.preparations) == 2
+
+
+@pytest.mark.parametrize("changes", [
+    {"multiline": False}, {"protected": True}, {"selection_length": 1},
+    {"on_demand_only": True}, {"can_replace": False}, {"inline_render": None},
+])
+def test_nonordinary_fields_never_prepare_model(runtime, tmp_path, changes):
+    controller, bridge, client = runtime
+    model = tmp_path / "local.gguf"
+    model.touch()
+    controller.config = replace(controller.config, model_path=str(model), min_chars=20)
+    bridge.snapshot = replace(field_snapshot("a"), **changes)
+    controller.tick()
+    assert not client.preparations
+    assert not client.requests
+
+
+def test_battery_force_only_and_pause_revoke_preparation(runtime, tmp_path):
+    controller, bridge, client = runtime
+    model = tmp_path / "local.gguf"
+    model.touch()
+    controller.config = replace(controller.config, model_path=str(model), min_chars=20,
+                                battery_on_demand=True)
+    bridge.snapshot = field_snapshot("a")
+    controller._on_battery = True
+    controller.tick()
+    assert not client.preparations
+    controller._on_battery = False
+    controller.tick()
+    assert len(client.preparations) == 1
+    controller.pause(5)
+    controller.tick()
+    assert client.released
+    assert len(client.preparations) == 1

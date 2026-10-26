@@ -1,9 +1,10 @@
 """Bounded, append-only native terminal input.
 
 Terminal AXValue is scrollback and is never requested. The only recognized
-surface is the source-bound Codex 0.162.1 single-row natural-language composer
-in Terminal.app. Other CLIs, shell input, iTerm copy/broadcast state, wrapping,
-hidden paste elements and unfamiliar layouts remain unsupported.
+surface is the source-bound, signed arm64 Codex 0.162.1 single-row natural-language
+composer in Terminal.app, including relocated official binaries. Other CLIs,
+shell input, iTerm copy/broadcast state, wrapping, hidden paste elements and
+unfamiliar layouts remain unsupported.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ import re
 import stat
 import sys
 import time
+import weakref
 
 import unicodedata
 
@@ -44,6 +46,14 @@ _TIMEOUT = 0.6
 # AEDataModel.h and AppleEvents.h: wait, no interaction/reconnect/recording,
 # and independently prohibit a new TCC consent prompt during a read.
 _READ_OPTIONS = 0x00021093
+# Observed installed 0.162.1 arm64 release, not a pathname/version-string claim.
+# Security.framework validates the RUNNING code against both its Apple trust
+# chain and this exact CodeDirectory hash before any row is read. A different
+# release/build/architecture needs independent renderer and signing evidence.
+_CODEX_REQUIREMENT = (
+    'anchor apple generic and identifier "codex" '
+    'and certificate leaf[subject.OU] = "2DC432GLL2" '
+    'and cdhash H"9ddc61acceef79aa2aad437ba1fe94239f2e0423"')
 
 
 def terminal_policy_exclusions(config) -> tuple[str, ...]:
@@ -92,6 +102,87 @@ class ProcessIdentity:
     @property
     def name(self) -> str:
         return os.path.basename(self.executable)
+
+
+class _CodeIdentity:
+    """Validate running code, never execute a candidate's ``--version``.
+
+    SecCodeCheckValidity is explicitly secure against replacement of the
+    filesystem source (SecCode.h). A pathname or static signature check cannot
+    establish which code the foreground PID actually runs. Only the compiled
+    requirement is cached; dynamic validity is checked again on every read.
+    """
+
+    def __init__(self):
+        self._native = None
+
+    def _load(self):
+        security = ctypes.CDLL("/System/Library/Frameworks/Security.framework/Security")
+        cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        ref, flags, status = ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int32
+        for library, name, args, result in (
+            (cf, "CFStringCreateWithCString", [ref, ctypes.c_char_p, flags], ref),
+            (cf, "CFNumberCreate", [ref, ctypes.c_long, ref], ref),
+            (cf, "CFDictionaryCreate", [ref, ref, ref, ctypes.c_long, ref, ref], ref),
+            (cf, "CFRelease", [ref], None),
+            (security, "SecRequirementCreateWithString", [ref, flags, ref], status),
+            (security, "SecCodeCopyGuestWithAttributes", [ref, ref, flags, ref], status),
+            (security, "SecCodeCheckValidity", [ref, flags, ref], status),
+        ):
+            function = getattr(library, name)
+            function.argtypes, function.restype = args, result
+        pid_key = ref.in_dll(security, "kSecGuestAttributePid").value
+        text = cf.CFStringCreateWithCString(None, _CODEX_REQUIREMENT.encode(), 0x08000100)
+        requirement = ref()
+        if not text or not pid_key:
+            if text:
+                cf.CFRelease(text)
+            raise ValueError("code-requirement-unavailable")
+        try:
+            if security.SecRequirementCreateWithString(text, 0, ctypes.byref(requirement)):
+                if requirement.value:
+                    cf.CFRelease(requirement)
+                raise ValueError("code-requirement-unavailable")
+        finally:
+            cf.CFRelease(text)
+        if not requirement.value:
+            raise ValueError("code-requirement-unavailable")
+        weakref.finalize(self, cf.CFRelease, requirement)
+        self._native = security, cf, pid_key, requirement
+        return self._native
+
+    def accepts(self, process: ProcessIdentity) -> bool:
+        if (sys.platform != "darwin" or not 0 < process.pid < 2 ** 31
+                or process.pid != process.pgid):
+            return False
+        owned = []
+        try:
+            security, cf, pid_key, requirement = self._native or self._load()
+            pid = ctypes.c_int32(process.pid)
+            number = cf.CFNumberCreate(None, 3, ctypes.byref(pid))  # kCFNumberSInt32Type
+            if not number:
+                return False
+            owned.append(number)
+            keys = (ctypes.c_void_p * 1)(pid_key)
+            values = (ctypes.c_void_p * 1)(number)
+            # Null callbacks borrow these references through the synchronous
+            # lookup; number stays alive until after dictionary/code release.
+            attributes = cf.CFDictionaryCreate(None, keys, values, 1, None, None)
+            if not attributes:
+                return False
+            owned.append(attributes)
+            code = ctypes.c_void_p()
+            result = security.SecCodeCopyGuestWithAttributes(
+                None, attributes, 0, ctypes.byref(code))
+            if code.value:
+                owned.append(code)
+            return (result == 0 and bool(code.value)
+                    and security.SecCodeCheckValidity(code, 0, requirement) == 0)
+        except Exception:
+            return False
+        finally:
+            for value in reversed(owned):
+                cf.CFRelease(value)
 
 
 @dataclass(frozen=True)
@@ -335,6 +426,7 @@ class TerminalAdapter:
     def __init__(self):
         self._automation = _Automation()
         self._processes = _Processes()
+        self._code_identity = _CodeIdentity()
         self.diagnostic = "terminal-unverified"
         self._lease = None
 
@@ -463,6 +555,18 @@ class TerminalAdapter:
         return start, length, text[:-1]
 
     @staticmethod
+    def _valid_rect(rect):
+        return (rect is not None and len(rect) == 4
+                and all(math.isfinite(value) for value in rect)
+                and rect[2] > 0 and rect[3] > 0)
+
+    @staticmethod
+    def _contains(outer, inner):
+        return (inner[0] >= outer[0] and inner[1] >= outer[1]
+                and inner[0] + inner[2] <= outer[0] + outer[2] + 0.5
+                and inner[1] + inner[3] <= outer[1] + outer[3] + 0.5)
+
+    @staticmethod
     def _printable(text):
         # Formatting controls (including bidi isolates), surrogates and Unicode
         # line separators are unsafe even when str.isprintable differs by OS.
@@ -480,14 +584,11 @@ class TerminalAdapter:
                 return None
             if metadata.app_id == ITERM:
                 raise ValueError("iterm-copy-and-broadcast-state-unobservable")
-            if metadata.candidate != "agent" or metadata.process is None:
+            if metadata.process is None or metadata.candidate == "multiplexer":
                 raise ValueError("foreground-input-owner-unsupported")
-            # Pin Codex's source renderer, not the incidental OS app release:
-            # native SDEF/range/glyph/window facts must independently validate.
-            if (not metadata.process.executable.endswith(
-                    "/.codex/packages/standalone/releases/"
-                    "0.162.1-aarch64-apple-darwin/bin/codex")
-                    or metadata.process.pid != metadata.process.pgid):
+            # Names remain metadata only. The exact signed running release,
+            # native SDEF/range/glyph/window facts independently establish input.
+            if not self._code_identity.accepts(metadata.process):
                 raise ValueError("agent-renderer-version-unverified")
             field = self._field(bridge, metadata)
             selection = self._range(bridge, bridge._attribute(field, "AXSelectedTextRange"))
@@ -495,7 +596,7 @@ class TerminalAdapter:
                 raise ValueError("terminal-selection-active")
             location = selection[0]
             line = bridge._attribute(field, "AXInsertionPointLineNumber")
-            if not isinstance(line, int) or line < 1:
+            if not isinstance(line, int) or line < 2:
                 raise ValueError("native-cursor-line-unavailable")
             if int(self._parameter(bridge, field, "AXLineForIndex", location)) != line:
                 raise ValueError("native-cursor-line-inconsistent")
@@ -517,9 +618,15 @@ class TerminalAdapter:
                 raise ValueError("codex-nonplain-or-popup-input")
             # In this source renderer main composer rows have blank padding and
             # a distinct status row. Views/search/approvals own a different
-            # cursor; suggestion menus touch the adjacent padding. No transcript
-            # scan or generic prompt/AI detector is used.
+            # cursor; suggestion menus touch the adjacent padding. The source
+            # also reserves a blank separator BELOW remote image rows, so the
+            # last image is two rows above input (composer_layout.rs and
+            # attachment_state.rs::remote_image_lines). Inspect that one bounded
+            # guard, never search the transcript or promote it to model context.
             above = self._row(bridge, field, line - 1, metadata.columns)
+            attachment_guard = self._row(bridge, field, line - 2, metadata.columns)
+            if _CODEX_HIDDEN_ELEMENT.search(attachment_guard[2]):
+                raise ValueError("codex-hidden-attachment-row")
             below = self._row(bridge, field, line + 1, metadata.columns)
             footer = self._row(bridge, field, line + 2, metadata.columns)
             if (above[2].strip() or below[2].strip()
@@ -528,7 +635,8 @@ class TerminalAdapter:
                 raise ValueError("codex-modal-or-layout-unverified")
             # The immediate preceding row must be physically adjacent, not a
             # provider alias to a stale line somewhere in scrollback.
-            if not (above[0] + above[1] == start
+            if not (attachment_guard[0] + attachment_guard[1] == above[0]
+                    and above[0] + above[1] == start
                     and start + length == below[0]
                     and below[0] + below[1] == footer[0]):
                 raise ValueError("native-composer-rows-inconsistent")
@@ -543,22 +651,27 @@ class TerminalAdapter:
             glyph_units = index_to_utf16(text[-1:], 1)
             glyph = bridge._range_bounds(field, location - glyph_units, glyph_units)
             whole = bridge._range_bounds(field, start + 2, location - start - 2)
-            if (not field_rect or not window_bounds or not glyph or not whole
-                    or glyph[2] <= 0 or whole[2] <= 0
+            prefix = bridge._range_bounds(field, start, 2)
+            if (not all(self._valid_rect(value)
+                        for value in (field_rect, window_bounds, glyph, whole, prefix))
+                    or not self._contains(window_bounds, field_rect)
                     or abs(glyph[1] - whole[1]) > 0.5
                     or abs(glyph[3] - whole[3]) > 0.5
+                    or abs(prefix[1] - whole[1]) > 0.5
+                    or abs(prefix[3] - whole[3]) > 0.5
+                    or abs(prefix[0] + prefix[2] - whole[0]) > 0.5
                     or abs(glyph[0] + glyph[2] - whole[0] - whole[2]) > 0.5):
                 raise ValueError("native-glyph-geometry-unverified")
             rect = (glyph[0] + glyph[2], glyph[1], 1.0, glyph[3])
             clip = bridge._visible_clip(field, field_rect)
-            if (clip is None or rect[0] < clip[0] or rect[0] + 1 > clip[0] + clip[2]
-                    or rect[1] < clip[1] or rect[1] + rect[3] > clip[1] + clip[3] + 1):
+            if (not self._valid_rect(clip) or not self._contains(field_rect, clip)
+                    or not all(self._contains(clip, value) for value in (prefix, whole, rect))):
                 raise ValueError("native-input-offscreen")
             identity = hashlib.sha256(repr(
                 (metadata, hash(field), hash(window))).encode()).hexdigest()
             revision = hashlib.sha256(repr(
-                (selection, line, start, length, above, below, footer,
-                 field_rect, window_bounds, rect)).encode()).hexdigest()
+                (selection, line, start, length, above, attachment_guard, below, footer,
+                 field_rect, window_bounds, prefix, whole, rect, clip)).encode()).hexdigest()
             snapshot = Snapshot(metadata.app_id, "terminal:" + identity, text, caret,
                                 caret_rect=rect, multiline=False, field_rect=field_rect,
                                 window_id=f"{metadata.host_pid}:{hash(window)}",
@@ -566,10 +679,12 @@ class TerminalAdapter:
                                 window_bounds=window_bounds, can_replace=False)
             if (self._field(bridge, metadata) != field
                     or self.inspect(bridge, foreground) != metadata
+                    or not self._code_identity.accepts(metadata.process)
                     or self._range(bridge, bridge._attribute(
                         field, "AXSelectedTextRange")) != selection
                     or self._row(bridge, field, line, metadata.columns) != (start, length, row)
                     or self._row(bridge, field, line - 1, metadata.columns) != above
+                    or self._row(bridge, field, line - 2, metadata.columns) != attachment_guard
                     or self._row(bridge, field, line + 1, metadata.columns) != below
                     or self._row(bridge, field, line + 2, metadata.columns) != footer
                     or self._field(bridge, metadata) != field

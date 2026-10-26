@@ -103,6 +103,13 @@ def _preset_ids() -> frozenset[str]:
     return frozenset(preset.id for preset in PRESETS)
 
 
+def provider_identity(config) -> tuple:
+    """Settings that actually select a model allocation, not request framing."""
+    if config.backend == "gguf":
+        return config.backend, config.model_path, config.acceleration
+    return config.backend, config.endpoint, config.model
+
+
 @dataclass
 class Config:
     backend: str = "gguf"

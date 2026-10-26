@@ -477,6 +477,10 @@ class MacBridge(BridgeBase):
         field = self._attribute(app, "AXFocusedUIElement")
         if field is None:
             return None
+        if self._is_browser(app_id):
+            window = self._attribute(field, "AXWindow")
+            if window is None or window != self._attribute(app, "AXFocusedWindow"):
+                return None
         # Security/capability checks precede every read of AXValue.
         role = self._attribute(field, "AXRole")
         subrole = self._attribute(field, "AXSubrole")
@@ -498,6 +502,8 @@ class MacBridge(BridgeBase):
         if ((enabled is not None and not enabled) or (focused is not None and not focused)
                 or self._attribute(field, "AXHidden")):
             return None
+        if self._field_ancestry(field) is None:
+            return None
         if not (self._settable(field, "AXSelectedText") or self._settable(field, "AXValue")):
             return None
         if probe_editor and self._app_rules.get(f"app:{app_id}", {}).get("complete_in_code_editors") is not True:
@@ -509,6 +515,23 @@ class MacBridge(BridgeBase):
                 self._set_status("Code editing stays off; this field is not a recognized stock VS Code chat input.")
                 return None
         return field, pid, app_id, metadata["domain"]
+
+    def _field_identity(self, field, pid, app_id):
+        identity = f"{pid}:{hash(field)}"
+        if not self._is_browser(app_id):
+            return identity
+        # A browser can reuse its focused AX object across same-origin
+        # navigations. Bind capture/acceptance to native document metadata, not
+        # just the field hash, domain, page title or editable address bar.
+        window = self._attribute(field, "AXWindow")
+        document = self._attribute(window, "AXDocument") if window is not None else None
+        if document is not None and hasattr(document, "absoluteString"):
+            document = str(document.absoluteString())
+        if not isinstance(document, str) or not self._domain(document) or not self._document_salt:
+            return None
+        digest = hashlib.blake2s(document.encode("utf-8"),
+                                 key=self._document_salt, digest_size=16).hexdigest()
+        return f"{identity}:{hash(window)}:{digest}"
 
     def _capture(self):
         if self._stopped.is_set() or not self.ax.AXIsProcessTrusted():
@@ -523,6 +546,9 @@ class MacBridge(BridgeBase):
         if focused is None:
             return None
         field, pid, app_id, domain = focused
+        field_id = self._field_identity(field, pid, app_id)
+        if field_id is None:
+            return None
         marked_range = self._attribute(field, "AXMarkedTextRange")
         if marked_range is None:
             # Without the attribute, composition is unobservable: only a plain
@@ -535,12 +561,16 @@ class MacBridge(BridgeBase):
                 return None
         native_range = self._attribute(field, "AXSelectedTextRange")
         if native_range is None:
+            # Marker offsets are not interchangeable with this field's CFRange:
+            # Chromium AXTextMarkerForIndex creates a root-document position.
+            # Never reinterpret marker-only Docs metadata as a writable draft.
             return None
         valid, native_range = self.ax.AXValueGetValue(native_range, self.ax.kAXValueCFRangeType, None)
         if not valid:
             return None
         location, length = int(native_range[0]), int(native_range[1])
-        if self._focused() != focused:
+        if (location < 0 or length < 0 or self._focused() != focused
+                or self._field_identity(field, pid, app_id) != field_id):
             return None
         text = self._attribute(field, "AXValue")
         if not isinstance(text, str) or len(text) > 1_000_000:
@@ -558,7 +588,7 @@ class MacBridge(BridgeBase):
         window_revision = repr((window_id, field_rect))
         multiline = self._attribute(field, "AXRole") == "AXTextArea"
         # CFEqual/hash on AXUIElement retains identity across fresh AX references.
-        field_id = f"{pid}:{hash(field)}"
+        # Browser identities also bind the native document, without exposing URLs.
         self._focused_field_hash = hash(field)
         snapshot = Snapshot(app_id, field_id, text, caret, end - caret, rect,
                             domain=domain, multiline=multiline, field_rect=field_rect,
@@ -569,7 +599,8 @@ class MacBridge(BridgeBase):
             snapshot = dataclasses.replace(snapshot, inline_render=render)
         # Re-resolve foreground policy, security, writability and field identity
         # after asynchronous AX calls. Never return a snapshot of stale focus.
-        if self._focused() != focused:
+        if (self._focused() != focused
+                or self._field_identity(field, pid, app_id) != field_id):
             return None
         return snapshot, field
 
@@ -669,12 +700,37 @@ class MacBridge(BridgeBase):
             bounds = (bounds[0], glyph[1], bounds[2], bounds[3])
         return bounds[0], bounds[1], max(1.0, bounds[2]), bounds[3]
 
+    def _field_ancestry(self, field):
+        """Bounded, non-protected native ancestry; no text or names are read."""
+        chain = []
+        secure_description = getattr(self, "_secure_description", None)
+        for _ in range(32):
+            if field is None:
+                return chain
+            if field in chain:
+                return None
+            if (self._attribute(field, "AXHidden")
+                    or self._attribute(field, "AXProtectedContent")
+                    or self._attribute(field, "AXSubrole") == "AXSecureTextField"
+                    or (secure_description is not None
+                        and self._attribute(field, "AXRoleDescription") == secure_description)):
+                return None
+            chain.append(field)
+            field = self._attribute(field, "AXParent")
+        return None  # A truncated chain is not proof of visibility or protection.
+
     def _visible_clip(self, field, field_rect):
-        """Field bounds intersected with every AX ancestor's bounds."""
+        """Safe ancestry; visual clipping ends at the owning native window."""
+        chain = self._field_ancestry(field)
+        if chain is None:
+            return None
+        window = self._attribute(field, "AXWindow")
+        if window is None:
+            window = next((node for node in chain[1:]
+                           if self._attribute(node, "AXRole") == "AXWindow"), None)
         clip = field_rect
-        parent = self._attribute(field, "AXParent")
-        for _ in range(16):
-            if parent is None:
+        for parent in chain[1:]:
+            if self._attribute(parent, "AXRole") == "AXApplication":
                 break
             bounds = self._field_bounds(parent)
             if bounds:
@@ -684,7 +740,8 @@ class MacBridge(BridgeBase):
                 if right <= left or bottom <= top:
                     return None
                 clip = (left, top, right - left, bottom - top)
-            parent = self._attribute(parent, "AXParent")
+            if parent == window:
+                break
         return clip
 
     def _font_candidates(self, name: str, family: str, size: float):
@@ -802,7 +859,8 @@ class MacBridge(BridgeBase):
                         or location + suffix_units > shown[0] + shown[1]):
                     return None, None
             clip = self._visible_clip(field, field_rect)
-            if clip is None:
+            if (clip is None or rect[0] < clip[0] or rect[0] + 1 > clip[0] + clip[2]
+                    or rect[1] < clip[1] or rect[1] + rect[3] > clip[1] + clip[3] + 1):
                 return None, None
             # A logical paragraph can wrap. AX bounds spanning two visual rows
             # cannot calibrate the caret row; shrink only the leading sample,
@@ -823,12 +881,17 @@ class MacBridge(BridgeBase):
             value = self.ax.AXValueCreate(self.ax.kAXValueCFRangeType, (base, caret_offset + suffix_units))
             error, attributed = self.ax.AXUIElementCopyParameterizedAttributeValue(
                 field, "AXAttributedStringForRange", value, None)
-            if error or attributed is None or attributed.length() < caret_offset + suffix_units:
+            expected_units = caret_offset + suffix_units
+            expected_text = span + after
+            if (error or attributed is None or attributed.length() != expected_units
+                    or str(attributed.string()) != expected_text):
                 return None, None
             attributes, run = attributed.attributesAtIndex_effectiveRange_(caret_offset - 1, None)
             if run is None:
                 return None, None
             run_start, run_end = int(run[0]), int(run[0]) + int(run[1])
+            if not 0 <= run_start <= caret_offset - 1 < run_end <= expected_units:
+                return None, None
             # Calibrate only within the uniform run that ends at the caret.
             if run_start > 0:
                 span = span[utf16_to_index(span, run_start):]
@@ -997,7 +1060,7 @@ class MacBridge(BridgeBase):
                     return False
             window = self._attribute(field, "AXWindow")
             return (app_id == snapshot.app_id and domain == snapshot.domain
-                    and f"{pid}:{hash(field)}" == snapshot.field_id
+                    and self._field_identity(field, pid, app_id) == snapshot.field_id
                     and window is not None and f"{pid}:{hash(window)}" == snapshot.window_id
                     and not self._attribute(field, "AXHidden")
                     and self._field_bounds(field) is not None)
@@ -1017,7 +1080,8 @@ class MacBridge(BridgeBase):
             field, pid, app_id, domain = focused
             window = self._attribute(field, "AXWindow")
             if (window is None or f"{pid}:{hash(window)}" != snapshot.window_id
-                    or f"{pid}:{hash(field)}" != snapshot.field_id or app_id != snapshot.app_id):
+                    or self._field_identity(field, pid, app_id) != snapshot.field_id
+                    or app_id != snapshot.app_id):
                 return result
             # Browser chrome can nest the document beyond the traversal budget.
             # Prefer the focused field's nearest document over unrelated toolbar UI.
@@ -1036,7 +1100,8 @@ class MacBridge(BridgeBase):
                 if not stack or remaining <= 0 or time.monotonic() >= deadline:
                     break
                 element, depth = stack.pop()
-                if not authorized() or self._focused() != focused:
+                if (not authorized() or self._focused() != focused
+                        or self._field_identity(field, pid, app_id) != snapshot.field_id):
                     return {**result, "status": "blocked"}
                 identity = hash(element)
                 if identity in visited:
@@ -1066,7 +1131,8 @@ class MacBridge(BridgeBase):
                 if depth < 8 and role not in ("AXTextField", "AXTextArea"):
                     children = self._attribute(element, "AXChildren") or []
                     stack.extend((child, depth + 1) for child in list(children)[:64])
-            if not authorized() or self._focused() != focused:
+            if (not authorized() or self._focused() != focused
+                    or self._field_identity(field, pid, app_id) != snapshot.field_id):
                 return {**result, "status": "blocked"}
             text = "\n".join(chunks)[:max_chars]
             return {**result, "text": text, "status": "ready" if text else "empty"}

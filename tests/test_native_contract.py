@@ -739,6 +739,11 @@ def test_mac_enhanced_accessibility_is_limited_to_known_chromium_browsers(app_id
     bridge, attributes, _, writes = mac_capture_boundary()
     bridge._foreground = lambda: (1234, "/Editor", {"app_id": app_id, "domain": ""})
     attributes[("application", "AXEnhancedUserInterface")] = False
+    if BridgeBase._is_browser(app_id):
+        bridge._document_salt = b"synthetic-browser-document-salt"
+        attributes[("field", "AXWindow")] = "window"
+        attributes[("application", "AXFocusedWindow")] = "window"
+        attributes[("window", "AXDocument")] = "https://example.com/editor"
     is_settable = bridge.ax.AXUIElementIsAttributeSettable
     bridge.ax.AXUIElementIsAttributeSettable = lambda element, name, output: (
         (0, True) if (element, name) == ("application", "AXEnhancedUserInterface")
@@ -837,11 +842,16 @@ def mac_metrics(monkeypatch, text="Hello world", *, ax_name="Host-Regular", widt
         NSLayoutManager=SimpleNamespace(alloc=lambda: SimpleNamespace(init=lambda: layout))))
     advances = {"Hello world": 60.0, " world": 30.0, " tail": 25.0, **(widths or {})}
     monkeypatch.setattr(macos, "text_width", lambda font, value: advances[value])
-    attributed = SimpleNamespace(length=lambda: len(text), attributesAtIndex_effectiveRange_=lambda index, out:
-                                 ({"AXFont": {"AXFontName": ax_name, "AXFontSize": 13}}, (0, len(text))))
+    def attributed_range(field, name, value, output):
+        start, units = value
+        requested = text[utf16_to_index(text, start):utf16_to_index(text, start + units)]
+        return 0, SimpleNamespace(
+            length=lambda: units, string=lambda: requested,
+            attributesAtIndex_effectiveRange_=lambda index, out:
+                ({"AXFont": {"AXFontName": ax_name, "AXFontSize": 13}}, (0, units)))
     bridge._attribute = lambda *args: None
     bridge.ax = SimpleNamespace(kAXValueCFRangeType=4, AXValueCreate=lambda kind, value: value,
-                                AXUIElementCopyParameterizedAttributeValue=lambda *args: (0, attributed))
+                                AXUIElementCopyParameterizedAttributeValue=attributed_range)
     rows = {(0, 11): (40, 40, 60, 20), (5, 6): (70, 40, 30, 20), (11, 5): (100, 40, 25, 20)}
     bridge._range_bounds = lambda field, location, length: rows.get((location, length))
     return bridge
@@ -853,6 +863,7 @@ def test_mac_font_calibration_uses_caret_advance_not_padded_glyph_box(
     bridge = mac_metrics(monkeypatch, widths={"d": 6.0})
     attributed = SimpleNamespace(
         length=lambda: 11,
+        string=lambda: "Hello world",
         attributesAtIndex_effectiveRange_=lambda index, out:
             ({"AXFont": {"AXFontName": "Host-Regular", "AXFontSize": 13}}, (10, 1)))
     bridge.ax.AXUIElementCopyParameterizedAttributeValue = lambda *args: (0, attributed)
@@ -902,6 +913,7 @@ def test_mac_missing_host_font_still_draws_at_a_safe_line_end_without_repainting
     bridge = mac_metrics(monkeypatch, text)
     attributed = SimpleNamespace(
         length=lambda: len(text),
+        string=lambda: text,
         attributesAtIndex_effectiveRange_=lambda index, out: ({}, (0, len(text))))
     bridge.ax.AXUIElementCopyParameterizedAttributeValue = lambda *args: (0, attributed)
     render, _ = bridge._inline_metrics(
@@ -1363,3 +1375,185 @@ def test_quartz_native_edit_refuses_an_unconfigurable_os_timeout(monkeypatch):
     bridge.finish_input_transaction(gate, False)
     bridge.drain_input_transaction()
     assert [event["code"] for event in posted] == [48]
+
+
+def browser_capture_boundary(text="Hello world"):
+    bridge, attributes, reads, writes = mac_capture_boundary(text)
+    bridge._foreground = lambda: (1234, "/Browser", {
+        "app_id": "com.google.Chrome", "domain": "example.com"})
+    bridge._document_salt = b"synthetic-browser-document-salt"
+    attributes.update({
+        ("application", "AXFocusedWindow"): "window",
+        ("field", "AXWindow"): "window",
+        ("field", "AXParent"): "window",
+        ("window", "AXDocument"): "https://example.com/document/one",
+    })
+    return bridge, attributes, reads, writes
+
+
+def test_mac_browser_same_field_and_text_in_another_document_cannot_accept():
+    bridge, attributes, _, writes = browser_capture_boundary()
+    snapshot = bridge.capture()
+    assert snapshot is not None
+    assert "example.com" not in snapshot.field_id
+    assert "/document/one" not in snapshot.field_id
+    attributes[("window", "AXDocument")] = "https://example.com/document/two"
+    current = bridge.capture()
+    assert current is not None and current.key != snapshot.key
+    assert not bridge.context_matches(snapshot)
+    assert not bridge.insert(snapshot, " next")
+    assert writes == []
+
+
+def test_mac_browser_document_change_during_range_lookup_precedes_value_read():
+    bridge, attributes, reads, _ = browser_capture_boundary()
+    attribute = bridge._attribute
+    def navigate(element, name):
+        result = attribute(element, name)
+        if (element, name) == ("field", "AXSelectedTextRange"):
+            attributes[("window", "AXDocument")] = "https://example.com/document/two"
+        return result
+    bridge._attribute = navigate
+    assert bridge.capture() is None
+    assert ("field", "AXValue") not in reads
+
+
+@pytest.mark.parametrize("document", [None, "", "not a native document URL"])
+def test_mac_browser_missing_document_identity_never_reads_editable_value(document):
+    bridge, attributes, reads, _ = browser_capture_boundary()
+    attributes[("window", "AXDocument")] = document
+    assert bridge.capture() is None
+    assert ("field", "AXValue") not in reads
+
+
+@pytest.mark.parametrize("attribute,value", [
+    ("AXHidden", True), ("AXProtectedContent", True),
+    ("AXSubrole", "AXSecureTextField"), ("AXRoleDescription", "Localized secure role"),
+])
+def test_mac_unsafe_ancestor_is_rejected_before_editable_value(attribute, value):
+    bridge, attributes, reads, _ = mac_capture_boundary("private draft")
+    attributes[("field", "AXParent")] = "parent"
+    attributes[("parent", attribute)] = value
+    assert bridge.capture() is None
+    assert ("field", "AXValue") not in reads
+
+
+@pytest.mark.parametrize("kind", ["cycle", "depth", "hidden", "clipped"])
+def test_mac_visible_clip_rejects_unbounded_hidden_or_disjoint_ancestors(kind):
+    bridge, attributes, _, _ = mac_capture_boundary()
+    attributes[("field", "AXParent")] = "parent0"
+    if kind == "cycle":
+        attributes[("parent0", "AXParent")] = "field"
+    elif kind == "depth":
+        for index in range(40):
+            attributes[(f"parent{index}", "AXParent")] = f"parent{index + 1}"
+    elif kind == "hidden":
+        attributes[("parent0", "AXHidden")] = True
+    else:
+        attributes[("parent0", "AXPosition")] = (900, 900)
+        attributes[("parent0", "AXSize")] = (100, 100)
+    assert bridge._visible_clip("field", (120, 240, 400, 180)) is None
+
+
+def test_mac_visible_clip_intersects_every_observed_ancestor():
+    bridge, attributes, _, _ = mac_capture_boundary()
+    attributes.update({
+        ("field", "AXParent"): "parent",
+        ("parent", "AXPosition"): (150, 250),
+        ("parent", "AXSize"): (200, 100),
+    })
+    assert bridge._visible_clip("field", (120, 240, 400, 180)) == (150, 250, 200, 100)
+
+
+@pytest.mark.parametrize("explicit_owner", [False, True])
+@pytest.mark.parametrize("protected_application", [False, True])
+def test_mac_window_ends_visual_clipping_but_not_ancestry_protection(
+        explicit_owner, protected_application):
+    bridge, attributes, _, _ = mac_capture_boundary()
+    attributes.update({
+        ("field", "AXParent"): "viewport",
+        ("viewport", "AXRole"): "AXScrollArea",
+        ("viewport", "AXParent"): "window",
+        ("viewport", "AXPosition"): (150, 250),
+        ("viewport", "AXSize"): (200, 100),
+        ("window", "AXRole"): "AXWindow",
+        ("window", "AXParent"): "application",
+        ("window", "AXPosition"): (100, 200),
+        ("window", "AXSize"): (500, 300),
+        ("application", "AXRole"): "AXApplication",
+        ("application", "AXPosition"): (0, 0),
+        ("application", "AXSize"): (1, 1),
+        ("application", "AXProtectedContent"): protected_application,
+    })
+    if explicit_owner:
+        attributes[("field", "AXWindow")] = "window"
+    else:
+        attributes.pop(("field", "AXWindow"), None)
+    expected = None if protected_application else (150, 250, 200, 100)
+    assert bridge._visible_clip("field", (120, 240, 400, 180)) == expected
+
+
+@pytest.mark.parametrize("returned_text,run", [
+    ("Other draft", (0, 11)), ("Hello world!", (0, 11)),
+    ("Hello world", (-1, 12)), ("Hello world", (0, 10)),
+    ("Hello world", (0, 12)), ("Hello world", (11, 0)),
+])
+def test_mac_attributed_range_must_match_captured_text_and_contain_caret(
+        monkeypatch, returned_text, run):
+    bridge = mac_metrics(monkeypatch)
+    attributed = SimpleNamespace(
+        length=lambda: len(returned_text), string=lambda: returned_text,
+        attributesAtIndex_effectiveRange_=lambda index, out:
+            ({"AXFont": {"AXFontName": "Host-Regular", "AXFontSize": 13}}, run))
+    bridge.ax.AXUIElementCopyParameterizedAttributeValue = lambda *args: (0, attributed)
+    render, evidence = bridge._inline_metrics(
+        "field", "Hello world", 11, 11, (100, 40, 1, 20), (0, 0, 400, 200))
+    assert render is None and evidence is None
+
+
+@pytest.mark.parametrize("rect", [(100, 40, 1, 20), (410, 40, 1, 20), (100, 190, 1, 20)])
+def test_mac_clipped_caret_never_requests_font_or_pixel_evidence(monkeypatch, rect):
+    bridge = mac_metrics(monkeypatch, ax_name="Downloaded-WebFont")
+    bridge._visible_clip = lambda field, bounds: (0, 60, 400, 140)
+    bridge.ax.AXUIElementCopyParameterizedAttributeValue = lambda *args: pytest.fail(
+        "A clipped caret requested attributed text")
+    render, evidence = bridge._inline_metrics(
+        "field", "Hello world", 11, 11, rect, (0, 0, 400, 200))
+    assert render is None and evidence is None
+
+
+@pytest.mark.parametrize("selection", [(-1, 0), (1, -1)])
+def test_mac_negative_native_ranges_never_read_editable_value(selection):
+    bridge, _, reads, _ = mac_capture_boundary("Hello world", AXSelectedTextRange=selection)
+    assert bridge.capture() is None
+    assert ("field", "AXValue") not in reads
+
+
+def test_mac_marker_only_editor_is_not_reinterpreted_as_field_local_text():
+    bridge, attributes, reads, writes = browser_capture_boundary()
+    attributes[("field", "AXSelectedTextRange")] = None
+    attributes[("field", "AXSelectedTextMarkerRange")] = object()
+    bridge.ax.AXUIElementCopyParameterizedAttributeValue = lambda *args: pytest.fail(
+        "Unmapped document markers were interpreted as field-local positions")
+    assert bridge.capture() is None
+    assert ("field", "AXValue") not in reads
+    assert writes == []
+
+
+def test_mac_browser_window_reparenting_invalidates_the_native_document_identity():
+    bridge, attributes, _, _ = browser_capture_boundary()
+    snapshot = bridge.capture()
+    attributes[("field", "AXWindow")] = "other-window"
+    attributes[("application", "AXFocusedWindow")] = "other-window"
+    attributes[("field", "AXParent")] = "other-window"
+    attributes[("other-window", "AXDocument")] = "https://example.com/document/one"
+    current = bridge.capture()
+    assert current is not None and current.key != snapshot.key
+    assert not bridge.context_matches(snapshot)
+
+
+def test_mac_browser_focus_window_mismatch_never_reads_the_detached_field():
+    bridge, attributes, reads, _ = browser_capture_boundary()
+    attributes[("application", "AXFocusedWindow")] = "other-window"
+    assert bridge.capture() is None
+    assert ("field", "AXValue") not in reads

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "application_version": "0.4.1",
+  "scope": "Normally launched installed app; actual native status-menu tracking and Quit, not an AXPress on a closed status item.",
+  "method": "HID click opened the real native status menu; AXPress invoked its own inklow.menu.quit item.",
+  "observed": {
+    "clicked_actual_status_menu_quit": true,
+    "ax_action_result": 0,
+    "app_stopped": true
+  },
+  "visibility_limit": "Thaw hid the status item in its collapsed group. Temporarily expanding the group exposed the registered item; no global hider preferences were changed. Persistent always-visible placement still needs an unlocked desktop.",
+  "privacy": "No raw menu screenshot published; it contained the active user domain."
+}

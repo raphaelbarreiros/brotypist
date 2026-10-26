@@ -1626,7 +1626,7 @@ class BroTypistApplication(NSObject):
             self._popup("model_preset", "AI model", options, "✓ installed · ↓ needs download. Selecting a downloaded model uses it immediately.", value=selected, callback=self._select_model)
         else:
             f.row("AI model", str(self.controller.config.model))
-        f.row(self._model_name(), str(self.controller.status().get("message") or "Model starts when an eligible request needs inference."), height=80)
+        f.row(self._model_name(), str(self.controller.status().get("message") or "The cached model prepares in supported writing fields before prediction is requested."), height=80)
         f.row("Model files", control=self._button("Reveal in Finder", "inklow.general.revealModels", system.reveal_models), control_width=146)
         self._model_controls(selected)
 
@@ -2151,7 +2151,7 @@ class BroTypistApplication(NSObject):
         self._switch("battery_shorter", "Generate slightly shorter completions", "Reduce generated completion length on battery.")
         f.section("Inference Memory")
         self._number("idle_release_seconds", "Release model after idle (seconds)", "0 keeps the worker ready. 1–3600 releases the entire inference process after inactivity. Pause and Quit release it immediately.", 0, 3600)
-        f.note("BroTypist does not load a model at launch. A worker is started only when an eligible request needs inference.")
+        f.note("The cached model prepares when you focus a supported multiline writing field, so loading can overlap typing. It does not start blindly at launch or download automatically. Your idle timeout is preserved.")
 
     @objc.python_method
     def _refresh_power(self, status):

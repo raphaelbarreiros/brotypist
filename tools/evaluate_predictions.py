@@ -1,86 +1,155 @@
-"""Run synthetic writing cases through actual configured local model backends.
+"""Evaluate synthetic local writing, or attach explicit review labels to saved outputs.
 
-This is an observational sample, not a calibrated quality benchmark. It never
-reads user documents or settings and never downloads weights implicitly.
+Generation uses benchmark_writing's real production provider, private temporary
+profile and exclusive mode-0600 artifact. No user settings/documents are read.
+Review is offline: --review-input REPORT --reviews LABELS --output NEW_REPORT.
+Labels contain reviews with sample_id, reviewer, reviewer_kind (human/assistant),
+labels by rubric dimension, and notes. No automatic semantic quality score exists.
 """
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
+from datetime import datetime, timezone
+import hashlib
 import json
+import os
 from pathlib import Path
-from threading import Event
-from time import perf_counter
+import re
 
-from inklow.config import Config
-from inklow.models import get_preset, is_installed, model_path
-from inklow.providers import create_provider
+QUALITY_CORPUS = Path(__file__).with_name("writing_quality.json")
+REVIEW_LABELS = frozenset({"unreviewed", "acceptable", "unacceptable", "uncertain", "not_applicable"})
 
-CASES = (
-    ("email-en", "Thank you for your", ""),
-    ("reply-en", "I look forward to hearing", ""),
-    ("meeting-en", "Could we schedule a meeting for", ""),
-    ("handoff-en", "The report is attached. Please let me know if", ""),
-    ("context-en", "We need to finish the project before Friday. The next step is to", ""),
-    ("partial-en", "I would appreciate your feed", ""),
-    ("suffix-en", "I look forward to", " tomorrow."),
-    ("fact-en", "The capital of France is", ""),
-    ("email-pt", "Muito obrigado pela sua", ""),
-    ("reply-pt", "Fico no aguardo da sua", ""),
-    ("meeting-pt", "Podemos marcar uma reunião para", ""),
-    ("handoff-pt", "O relatório está em anexo. Por favor, me avise se", ""),
-    ("context-pt", "Precisamos terminar o projeto até sexta-feira. O próximo passo é", ""),
-    ("partial-pt", "Gostaria de agradecer pela aten", ""),
-    ("suffix-pt", "Espero conversar com você", " amanhã."),
-    ("accent-pt", "A colaboração entre as equipes é importante porque", ""),
-)
+
+def quality_corpus() -> dict:
+    return json.loads(QUALITY_CORPUS.read_text(encoding="utf-8"))
+
+
+def quality_observation(case: dict, text: str, choices: list[str] | None = None) -> dict:
+    """Declare literal evidence separately from inspectable, ungraded semantics."""
+    kind = case.get("kind", "completion")
+    insertions = [text] if kind == "completion" else (choices or [])
+    prefix, suffix = case["prefix"], case.get("suffix", "")
+    # Synonyms replace selection; it must not be put back into the assembled draft.
+    assembled = [prefix + insertion + suffix for insertion in insertions]
+    dimensions = case.get("dimensions") or ["grammar", "language", "lexical_join"]
+    if suffix and "suffix_join" not in dimensions:
+        dimensions = [*dimensions, "suffix_join"]
+    if (case.get("context") or case.get("reference_sources")) and "grounding" not in dimensions:
+        dimensions = [*dimensions, "grounding"]
+    literal_checks = []
+    for index, insertion in enumerate(insertions):
+        for rule in case.get("fact_checks", []):
+            contradicted = any(re.search(pattern, insertion) for pattern in rule["contradiction_patterns"])
+            supported = bool(re.search(rule["supported_pattern"], insertion))
+            literal_checks.append({"id": rule["id"], "insertion_index": index,
+                                   "status": "contradiction_observed" if contradicted else
+                                   "supported_literal_observed" if supported else "not_observed",
+                                   "scope": rule["scope"]})
+    identity = {"case": case["id"], "prefix": prefix, "suffix": suffix,
+                "selection": case.get("selection", ""), "kind": kind, "output": text,
+                "context": case.get("context", ""), "reference_sources": case.get("reference_sources", []),
+                "instructions": case.get("instructions", "")}
+    sample_id = hashlib.sha256(json.dumps(identity, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    return {"status": "not_evaluated", "sample_id": sample_id,
+            "reviewer": None, "reviewer_kind": None,
+            "labels": {dimension: "unreviewed" for dimension in dimensions},
+            "criteria": list(case.get("semantic_criteria", [])), "assembled_drafts": assembled,
+            "literal_fact_checks": literal_checks,
+            "availability": "offered" if insertions and any(insertions) else "no_offer",
+            "note": "Literal/mechanical checks are not semantic acceptance. Review exact assembled drafts; assistant labels are not calibrated human validation."}
+
+
+def attach_reviews(report: dict, review_file: dict) -> dict:
+    """Attach labels only to matching output identities, never mutate raw outputs."""
+    rubric = quality_corpus()["rubric"]
+    reviews = {}
+    for review in review_file["reviews"]:
+        identity = review["sample_id"]
+        if identity in reviews:
+            raise ValueError("Duplicate review sample_id")
+        if not isinstance(review.get("reviewer"), str) or not review["reviewer"].strip():
+            raise ValueError("Every review requires an explicit reviewer identity")
+        if review.get("reviewer_kind") not in {"human", "assistant"}:
+            raise ValueError("reviewer_kind must be human or assistant")
+        labels = review.get("labels")
+        if not isinstance(labels, dict) or not labels or any(
+                dimension not in rubric or label not in REVIEW_LABELS for dimension, label in labels.items()):
+            raise ValueError("Invalid rubric dimension or review label")
+        if not isinstance(review.get("notes"), str) or not review["notes"].strip():
+            raise ValueError("Every review requires a reason in notes")
+        reviews[identity] = review
+    rows = [row for session in report.get("sessions", []) for row in session.get("cases", [])]
+    if not rows:
+        rows = report.get("cases", [])
+    known = {row.get("semantic_evaluation", {}).get("sample_id") for row in rows}
+    if set(reviews) - known:
+        raise ValueError("Review sample_id does not match a saved output")
+    for row in rows:
+        semantic = row.get("semantic_evaluation", {})
+        review = reviews.get(semantic.get("sample_id"))
+        if review is None:
+            continue
+        if set(review["labels"]) != set(semantic["labels"]):
+            raise ValueError("Review must label every declared dimension, without adding dimensions")
+        semantic.update({"reviewer": review["reviewer"], "reviewer_kind": review["reviewer_kind"],
+                         "labels": review["labels"], "notes": review["notes"],
+                         "status": "partially_reviewed" if "unreviewed" in review["labels"].values() else "reviewed",
+                         "reviewed_at": datetime.now(timezone.utc).isoformat()})
+    report["review_methodology"] = quality_corpus()["review_policy"]
+    report["semantic_quality_status"] = "review_labels_attached_not_calibrated" if reviews else "not_evaluated"
+    if "summary" in report:
+        report["summary"]["semantic_quality_status"] = report["semantic_quality_status"]
+    return report
+
+
+def write_private_report(path: Path, report: dict) -> None:
+    fd = os.open(path.expanduser(), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as artifact:
+        json.dump(report, artifact, ensure_ascii=False, indent=2)
+        artifact.write("\n")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--preset", choices=["tiny", "balanced"], default="balanced")
+    model = parser.add_mutually_exclusive_group()
+    model.add_argument("--preset", choices=["tiny", "balanced"], default=None)
+    model.add_argument("--model", type=Path, help="Existing GGUF; does not select or download weights.")
     parser.add_argument("--acceleration", choices=["auto", "cpu"], default="auto")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--runs", type=int, default=2)
+    parser.add_argument("--completion-length", choices=["word", "short", "medium", "long"], default="medium")
+    parser.add_argument("--max-tokens", type=int, help="Override ordinary production token cap; utility tasks use 128.")
+    parser.add_argument("--review-input", type=Path, help="Saved v3 report, reviewed offline without inference.")
+    parser.add_argument("--reviews", type=Path, help="Explicit reviewer labels keyed by saved sample_id.")
     args = parser.parse_args()
-    if not 1 <= args.runs <= 10:
-        parser.error("runs must be between 1 and 10")
-    preset = get_preset(args.preset)
-    if not is_installed(preset):
-        parser.error("Model not installed. Explicitly download it with brotypist model download --preset ... --no-select")
-    config = replace(Config(), model_path=str(model_path(preset)), acceleration=args.acceleration, prompt_style=preset.prompt_style)
-    provider = create_provider(config)
-    report = {"preset": preset.id, "sha256": preset.sha256,
-              "acceleration": config.acceleration, "max_tokens": config.max_tokens,
-              "debounce_ms": config.debounce_ms,
-              "prompt_style": config.prompt_style,
-              "limitations": "Synthetic observational samples; no human-calibrated quality score. Timing excludes typing/debounce and includes neither a claim of universal latency nor a factuality guarantee.",
-              "cases": []}
-    try:
-        started = perf_counter()
-        provider.prepare()
-        report["prepare_ms"] = round((perf_counter() - started) * 1000, 2)
-        for run in range(args.runs):
-            for case_id, prefix, suffix in CASES:
-                started = perf_counter()
-                first_ms = None
-                text = ""
-                updates = 0
-                for text in provider.stream(prefix, suffix, Event()):
-                    if text and first_ms is None:
-                        first_ms = round((perf_counter() - started) * 1000, 2)
-                    updates += 1
-                row = {"case": case_id, "run": run + 1, "prefix": prefix, "suffix": suffix,
-                       "suggestion": text, "first_usable_ms": first_ms,
-                       "total_ms": round((perf_counter() - started) * 1000, 2),
-                       "stream_updates": updates}
-                report["cases"].append(row)
-                print(json.dumps(row, ensure_ascii=False), flush=True)
-    finally:
-        provider.close()
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return 0
+    if args.review_input or args.reviews:
+        if not args.review_input or not args.reviews or args.model or args.preset:
+            parser.error("review mode requires --review-input and --reviews, without a model/preset")
+        try:
+            report = json.loads(args.review_input.read_text(encoding="utf-8"))
+            labels = json.loads(args.reviews.read_text(encoding="utf-8"))
+            reviewed = attach_reviews(report, labels)
+            reviewed["review_source_sha256"] = hashlib.sha256(args.review_input.read_bytes()).hexdigest()
+            write_private_report(args.output, reviewed)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            parser.error(str(exc))
+        return 0
+    # Import the inference-facing harness only for generation. Review needs no
+    # llama_cpp, app configuration, desktop framework or third-party evaluator.
+    from benchmark_writing import main as benchmark_main
+    if args.model:
+        path = args.model
+    else:
+        from inklow.models import get_preset, is_installed, model_path
+        preset = get_preset(args.preset or "balanced")
+        if not is_installed(preset):
+            parser.error("Model not installed; download explicitly before evaluation")
+        path = model_path(preset)
+    command = ["--model", str(path), "--output", str(args.output), "--repetitions", str(args.runs),
+               "--acceleration", args.acceleration, "--completion-length", args.completion_length]
+    if args.max_tokens is not None:
+        command.extend(["--max-tokens", str(args.max_tokens)])
+    return benchmark_main(command)
 
 
 if __name__ == "__main__":

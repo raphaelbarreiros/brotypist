@@ -159,9 +159,12 @@ raise SystemExit(main())
         client.submit(config, "old", "")
         until(lambda: any(event.get("type") == "loading" for event in client.poll()))
         pid = client.status()["worker_pid"]
-        for prefix in ("middle one", "middle two", "newest"):
+        for index, prefix in enumerate(("middle one", "middle two", "newest")):
             client.cancel()
-            newest = client.submit(config, prefix, "")
+            # Framing and inactive server settings do not select new weights.
+            current = replace(config, prompt_style="writing" if index % 2 else "continuation",
+                              model="unused-" + str(index), endpoint="http://127.0.0.1:12345")
+            newest = client.submit(current, prefix, "")
             time.sleep(0.15)
             assert client.status()["worker_pid"] == pid
         result, events = final(client, newest)
@@ -250,7 +253,8 @@ raise SystemExit(main())
         client.close()
 
 
-def test_cancellation_arriving_with_ready_cannot_authorize_stale_generation(monkeypatch, tmp_path):
+@pytest.mark.parametrize("action", ["cancel", "release"])
+def test_cancellation_arriving_with_ready_cannot_authorize_stale_generation(monkeypatch, tmp_path, action):
     marker = tmp_path / "stale-generation"
     bootstrap = '''
 import sys
@@ -282,7 +286,7 @@ raise SystemExit(main())
                 time.sleep(0.2)  # Let an incorrectly authorized child start.
             item = super().get_nowait()
             if item[1].get("type") == "ready":
-                client.cancel()
+                getattr(client, action)()
                 canceled.set()
                 self.delay_next = True
             return item
@@ -291,7 +295,9 @@ raise SystemExit(main())
     try:
         client.submit(replace(Config(), idle_release_seconds=0), "obsolete synthetic prefix", "")
         until(canceled.is_set)
-        until(lambda: client.status()["state"] == "ready")
+        until(lambda: client.status()["state"] == ("idle" if action == "release" else "ready"))
+        if action == "release":
+            assert client.status()["worker_pid"] is None
         assert not marker.exists()
     finally:
         client.close()
@@ -333,5 +339,204 @@ raise SystemExit(main())
         result, _ = final(client, client.submit(config, "next draft", ""))
         assert result["text"] == " evaluated next draft"
         assert client.status()["worker_pid"] == pid
+    finally:
+        client.close()
+
+
+def test_explicit_release_barriers_survive_racing_submissions(worker, peer):
+    client, config = worker
+    config = replace(config, idle_release_seconds=0)
+    final(client, client.submit(config, "first synthetic draft", ""))
+    original_pid = client.status()["worker_pid"]
+    assert peer.requests.get(timeout=2)["prompt"] == "first synthetic draft"
+    # Hold only the supervisor: model completion itself uses a real pipe/peer.
+    # Two privacy/pause boundaries must not be cleared by a subsequent submit.
+    with client._condition:
+        client.release()
+        obsolete = client.submit(config, "revoked synthetic draft", "")
+        client.release()
+        latest = client.submit(config, "newly authorized synthetic draft", "")
+    result, events = final(client, latest)
+    assert result["text"] == " first words completed"
+    assert client.status()["worker_pid"] != original_pid
+    assert all(event.get("id") != obsolete for event in events)
+    assert peer.requests.get(timeout=2)["prompt"] == "newly authorized synthetic draft"
+    assert peer.requests.empty()
+
+
+@pytest.mark.parametrize("transition", ["release", "quit", "model"])
+def test_explicit_lifecycle_transition_interrupts_cold_initialization(monkeypatch, tmp_path, transition):
+    bootstrap = '''
+import time
+import inklow.providers as providers
+from inklow.process_worker import main
+class Provider:
+    def prepare(self):
+        if self.config.model_path == "blocked-synthetic.gguf":
+            time.sleep(5)
+    def stream(self, prefix, suffix, cancel, **kwargs):
+        yield " authorized " + prefix
+    def close(self):
+        pass
+providers.create_provider = lambda config: Provider()
+raise SystemExit(main())
+'''
+    monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
+    monkeypatch.setattr("inklow.process_client.worker_command", lambda: [sys.executable, "-u", "-c", bootstrap])
+    client = ProcessClient()
+    try:
+        config = replace(Config(), model_path="blocked-synthetic.gguf", idle_release_seconds=0)
+        old = client.submit(config, "obsolete", "")
+        until(lambda: any(event.get("type") == "loading" for event in client.poll()))
+        pid = client.status()["worker_pid"]
+        if transition == "model":
+            latest = client.submit(replace(config, model_path="ready-synthetic.gguf"), "current", "")
+            result, events = final(client, latest)
+            assert result["text"] == " authorized current"
+            assert client.status()["worker_pid"] != pid
+            assert all(event.get("id") != old for event in events)
+        else:
+            client.close() if transition == "quit" else client.release()
+            until(lambda: client.status()["worker_pid"] is None, timeout=1)
+            assert not client.poll()
+    finally:
+        client.close()
+
+
+def test_completed_native_allocation_survives_request_framing_changes(monkeypatch, tmp_path):
+    bootstrap = '''
+import inklow.providers as providers
+from inklow.process_worker import main
+class Provider:
+    loads = 0
+    def prepare(self):
+        type(self).loads += 1
+    def stream(self, prefix, suffix, cancel, **kwargs):
+        yield " " + self.config.prompt_style + " context " + str(self.config.context_chars) + " loads " + str(type(self).loads)
+    def close(self):
+        pass
+providers.create_provider = lambda config: Provider()
+raise SystemExit(main())
+'''
+    monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
+    monkeypatch.setattr("inklow.process_client.worker_command", lambda: [sys.executable, "-u", "-c", bootstrap])
+    client = ProcessClient()
+    try:
+        config = replace(Config(), idle_release_seconds=0)
+        initial, _ = final(client, client.submit(config, "first synthetic draft", ""))
+        pid = client.status()["worker_pid"]
+        changed = replace(config, prompt_style="writing", context_chars=4000, max_tokens=64)
+        result, _ = final(client, client.submit(changed, "second synthetic draft", ""))
+        assert initial["text"] == " continuation context 2000 loads 1"
+        assert result["text"] == " writing context 4000 loads 1"
+        assert client.status()["worker_pid"] == pid
+    finally:
+        client.close()
+
+
+def test_configuration_preparation_survives_typing_and_never_generates(monkeypatch, tmp_path):
+    bootstrap = '''
+import time
+import inklow.providers as providers
+from inklow.process_worker import main
+class Provider:
+    def prepare(self):
+        time.sleep(0.3)
+    def stream(self, prefix, suffix, cancel, **kwargs):
+        yield "actual:" + prefix
+    def close(self):
+        pass
+providers.create_provider = lambda config: Provider()
+raise SystemExit(main())
+'''
+    model = tmp_path / "local.gguf"
+    model.touch()
+    monkeypatch.setattr("inklow.process_client.worker_command",
+                        lambda: [sys.executable, "-u", "-c", bootstrap])
+    client = ProcessClient()
+    config = replace(Config(), model_path=str(model), idle_release_seconds=1)
+    try:
+        prepared = client.prepare(config)
+        until(lambda: client.status()["worker_pid"])
+        pid = client.status()["worker_pid"]
+        client.cancel()
+        latest = client.submit(config, "current writing", "")
+        result, events = final(client, latest)
+        assert result["text"] == "actual:current writing"
+        assert client.status()["worker_pid"] == pid
+        assert not any(event["type"] == "result" and event["id"] == prepared for event in events)
+        until(lambda: client.status()["worker_pid"] is None)
+        client.prepare(config)
+        until(lambda: client.status()["worker_pid"])
+        client.release()
+        until(lambda: client.status()["worker_pid"] is None, timeout=1)
+        assert not any(event["type"] == "result" for event in client.poll())
+    finally:
+        client.close()
+
+
+def test_preparation_acknowledges_without_proceed_or_generation(monkeypatch, tmp_path):
+    bootstrap = '''
+import inklow.providers as providers
+from inklow.process_worker import main
+class Provider:
+    def prepare(self):
+        pass
+    def stream(self, *args, **kwargs):
+        raise AssertionError("preparation evaluated writing")
+    def close(self):
+        pass
+providers.create_provider = lambda config: Provider()
+raise SystemExit(main())
+'''
+    model = tmp_path / "local.gguf"
+    model.touch()
+    monkeypatch.setattr("inklow.process_client.worker_command",
+                        lambda: [sys.executable, "-u", "-c", bootstrap])
+    client = ProcessClient()
+    try:
+        identifier = client.prepare(replace(Config(), model_path=str(model), idle_release_seconds=0))
+        seen = []
+        def acknowledged():
+            seen.extend(client.poll())
+            return any(event["type"] == "done" for event in seen)
+        until(acknowledged)
+        assert any(event["type"] == "prepared" and event["id"] == identifier for event in seen)
+        assert not any(event["type"] in {"ready", "result", "error"} for event in seen)
+        assert client.status()["model_loaded"]
+    finally:
+        client.close()
+
+
+def test_new_preparation_survives_an_older_release_and_typing_cancel(monkeypatch, tmp_path):
+    bootstrap = '''
+import inklow.providers as providers
+from inklow.process_worker import main
+class Provider:
+    def prepare(self):
+        pass
+    def stream(self, *args, **kwargs):
+        raise AssertionError("configuration-only preparation evaluated writing")
+    def close(self):
+        pass
+providers.create_provider = lambda config: Provider()
+raise SystemExit(main())
+'''
+    model = tmp_path / "local.gguf"
+    model.touch()
+    monkeypatch.setattr("inklow.process_client.worker_command",
+                        lambda: [sys.executable, "-u", "-c", bootstrap])
+    client = ProcessClient()
+    config = replace(Config(), model_path=str(model), idle_release_seconds=0)
+    try:
+        # Queue these transitions atomically so the supervisor sees the exact
+        # settings/pause -> new focus -> typing ordering, without timing sleeps.
+        with client._condition:
+            client.release()
+            client.prepare(config)
+            client.cancel()
+        until(lambda: client.status()["model_loaded"], timeout=2)
+        assert not any(event["type"] in {"ready", "result", "error"}
+                       for event in client.poll())
     finally:
         client.close()

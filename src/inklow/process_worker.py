@@ -14,7 +14,7 @@ import os
 import sys
 import threading
 
-from .config import Config
+from .config import Config, provider_identity
 
 MAX_MESSAGE_BYTES = 256 * 1024
 MAX_RESULT_CHARS = 4096
@@ -93,7 +93,7 @@ def main() -> int:
                     generation_allowed = False
                     cancel = active_cancel = threading.Event()
                 try:
-                    identity = tuple(getattr(config, name) for name in ("backend", "model_path", "endpoint", "model", "acceleration", "prompt_style"))
+                    identity = provider_identity(config)
                     if configured != identity:
                         provider_ready = False
                         if provider is not None:
@@ -105,6 +105,10 @@ def main() -> int:
                         send({"type": "loading", "id": identifier})
                         provider.prepare()
                         provider_ready = True
+                    if payload is None:
+                        if not cancel.is_set():
+                            send({"type": "prepared", "id": identifier, "model_loaded": provider_ready})
+                        continue
                     if cancel.is_set():
                         continue
                     send({"type": "ready", "id": identifier, "model_loaded": provider_ready})
@@ -154,8 +158,16 @@ def main() -> int:
                 if not isinstance(value, dict):
                     raise ValueError("Invalid protocol frame")
                 kind = value.get("type")
-                if kind == "generate":
-                    request = _validate_request(value)
+                if kind in {"generate", "prepare"}:
+                    if kind == "prepare":
+                        if set(value) != {"type", "id", "config"}:
+                            raise ValueError("Preparation accepts configuration only")
+                        identifier, config, _ = _validate_request(value)
+                        if config.backend != "gguf":
+                            raise ValueError("Preparation requires a local model")
+                        request = identifier, config, None
+                    else:
+                        request = _validate_request(value)
                     with condition:
                         active_cancel.set()
                         superseded = pending[0] if pending is not None else None

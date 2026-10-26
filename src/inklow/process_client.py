@@ -10,6 +10,8 @@ import sys
 import threading
 import time
 
+from .config import provider_identity
+
 MAX_MESSAGE_BYTES = 256 * 1024
 _PROVIDER_FIELDS = ("backend", "model_path", "endpoint", "model", "acceleration", "prompt_style", "max_tokens", "context_chars")
 # A cancelled stream stops at its next token; an unresponsive one is killed.
@@ -30,10 +32,6 @@ def worker_command() -> list[str]:
     return [str(executable), "-m", "inklow", "_worker"]
 
 
-def _identity(config) -> tuple:
-    return tuple(getattr(config, key) for key in ("backend", "model_path", "endpoint", "model", "acceleration", "prompt_style"))
-
-
 class ProcessClient:
     def __init__(self):
         self._condition = threading.Condition()
@@ -42,10 +40,13 @@ class ProcessClient:
         self._pending = None
         self._serial = 0
         self._active = None
+        self._prepare_id = None
         self._cancel_since = None
         self._cancel_sent = False
         self._cancel_requested = threading.Event()
-        self._release_requested = threading.Event()
+        # Each explicit release is a lifecycle barrier, unlike superseding
+        # typing. Keep its request watermark even if submit races the supervisor.
+        self._releases = queue.SimpleQueue()
         self._stopped = False
         self._thread = None
         self._process = None
@@ -66,6 +67,27 @@ class ProcessClient:
             self._thread = threading.Thread(target=self._run, daemon=True, name="inklow-worker-supervisor")
             self._thread.start()
 
+    def prepare(self, config) -> int | None:
+        """Load a local provider without sending writing or authorizing evaluation."""
+        if config.backend != "gguf" or not Path(config.model_path).expanduser().is_file():
+            return None
+        with self._condition:
+            if self._stopped:
+                raise RuntimeError("Inference has stopped.")
+            identity = provider_identity(config)
+            if self._pending is not None or self._active is not None or (
+                    self._loaded and self._configured == identity):
+                return None
+            self._serial += 1
+            identifier = self._serial
+            data = json.dumps({"type": "prepare", "id": identifier,
+                               "config": {key: getattr(config, key) for key in _PROVIDER_FIELDS}}).encode() + b"\n"
+            self._pending = (identifier, identity, data, True)
+            self._idle_timeout = config.idle_release_seconds
+            self._start_thread()
+            self._condition.notify()
+            return identifier
+
     def submit(self, config, prefix: str, suffix: str, **options) -> int:
         with self._condition:
             if self._stopped:
@@ -78,10 +100,9 @@ class ProcessClient:
             if len(data) > MAX_MESSAGE_BYTES:
                 raise ValueError("The writing request exceeds the private worker message limit.")
             self._serial = identifier
-            self._pending = (identifier, _identity(config), data)
+            self._pending = (identifier, provider_identity(config), data, False)
             self._idle_timeout = config.idle_release_seconds
             self._cancel_requested.clear()
-            self._release_requested.clear()
             self._events.clear()
             self._start_thread()
             self._condition.notify()
@@ -98,7 +119,7 @@ class ProcessClient:
         self._cancel_requested.set()
 
     def release(self):
-        self._release_requested.set()
+        self._releases.put(self._serial)
 
     def status(self) -> dict:
         with self._condition:
@@ -109,7 +130,7 @@ class ProcessClient:
 
     def poll(self) -> list[dict]:
         with self._condition:
-            result = list(self._events)
+            result = [] if self._cancel_requested.is_set() or not self._releases.empty() else list(self._events)
             self._events.clear()
             return result
 
@@ -127,6 +148,7 @@ class ProcessClient:
         self._terminating = process
         self._process = None
         self._active = None
+        self._prepare_id = None
         self._cancel_since = None
         self._cancel_sent = False
         self._configured = None
@@ -220,20 +242,29 @@ class ProcessClient:
                     if self._stopped:
                         return
                     now = time.monotonic()
-                    if self._release_requested.is_set():
-                        self._release_requested.clear()
-                        self._cancel_requested.clear()
-                        self._serial += 1
-                        self._pending = None
+                    release_through = None
+                    while True:
+                        try:
+                            boundary = self._releases.get_nowait()
+                        except queue.Empty:
+                            break
+                        release_through = boundary if release_through is None else max(release_through, boundary)
+                    if release_through is not None:
+                        if self._serial <= release_through:
+                            self._serial = release_through + 1
+                        if self._pending is not None and self._pending[0] <= release_through:
+                            self._pending = None
                         self._events.clear()
                         self._kill()
                         self._state, self._message = "idle", "Model released."
                     if self._cancel_requested.is_set():
                         self._cancel_requested.clear()
                         self._serial += 1
-                        self._pending = None
+                        if self._pending is not None and not self._pending[3]:
+                            self._pending = None
                         self._events.clear()
-                        if self._active is not None and self._cancel_since is None:
+                        if (self._active is not None and self._active != self._prepare_id
+                                and self._cancel_since is None):
                             self._cancel_since = now
                     while True:
                         try:
@@ -259,20 +290,27 @@ class ProcessClient:
                             self._last_activity = now
                             if self._state != "error":
                                 self._state, self._message = "ready", "Ready."
+                            if identifier == self._prepare_id:
+                                self._prepare_id = None
                         if kind == "result" and identifier == self._active:
                             self._evaluating = False
                         if kind == "loading" and identifier == self._active:
                             self._initializing = True
+                        if kind == "prepared" and identifier == self._active:
+                            self._initializing = False
+                            self._loaded = bool(event.get("model_loaded", True))
+                            self._state, self._message = "ready", "Local model prepared; waiting for writing."
                         if kind == "ready":
                             self._initializing = False
                             self._loaded = bool(event.get("model_loaded", True))
                             if self._cancel_since is not None:
                                 self._cancel_since = now
-                            if (identifier == self._serial and not self._release_requested.is_set()
+                            if (identifier == self._serial and self._releases.empty()
                                     and not self._cancel_requested.is_set()):
                                 self._send(json.dumps({"type": "proceed", "id": identifier}).encode() + b"\n")
                                 self._evaluating = identifier == self._active
-                        if identifier != self._serial:
+                        if (identifier != self._serial or self._cancel_requested.is_set()
+                                or not self._releases.empty()):
                             continue
                         if kind == "ready":
                             self._loaded = bool(event.get("model_loaded", True))
@@ -286,7 +324,8 @@ class ProcessClient:
                     if (self._pending is not None and self._active is not None
                             and self._pending[1] != self._configured):
                         self._kill()
-                    if (self._active is not None and (self._pending is not None or self._active != self._serial)
+                    if (self._active is not None and self._active != self._prepare_id
+                            and (self._pending is not None or self._active != self._serial)
                             and not self._cancel_sent):
                         self._send(b'{"type":"cancel"}\n')
                         self._cancel_sent = True
@@ -298,15 +337,20 @@ class ProcessClient:
                         self._kill()
                         self._state = "idle"
                     if self._pending is not None and self._active is None:
-                        identifier, identity, data = self._pending
+                        identifier, identity, data, preparing = self._pending
                         self._pending = None
                         if self._process is not None and identity != self._configured:
                             self._kill()
+                        if preparing:
+                            self._prepare_id = identifier
                         if self._process is None:
                             self._spawn()
                         self._configured = identity
-                        if (self._stopped or self._release_requested.is_set() or self._cancel_requested.is_set()
-                                or identifier != self._serial):
+                        if (self._stopped or not self._releases.empty()
+                                or (identifier != self._prepare_id and (
+                                    self._cancel_requested.is_set() or identifier != self._serial))):
+                            if not self._stopped and identifier in (self._serial, self._prepare_id):
+                                self._pending = (identifier, identity, data, preparing)
                             continue
                         self._active = identifier
                         self._cancel_sent = False

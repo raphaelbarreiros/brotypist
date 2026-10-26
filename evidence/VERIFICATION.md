@@ -2,6 +2,21 @@
 
 # Observed verification
 
+## 0.4.2 unreleased source candidate
+
+Installed/published **0.4.1 remains unchanged**. This candidate is not a completed native release or a claim of [redacted reference] parity. [Synthetic inputs, real model outputs, source hashes and lifecycle receipt](brotypist/candidate-headless-0.4.2.json).
+
+- **Integrated regressions:** 1,049 passed, 21 skipped in 20.43 seconds. New regressions failed before and passed after fixes for newer preparation racing an older release/cancel, and nonvisual application bounds clipping an otherwise valid native input.
+- **Real cached Gemma worker:** configuration-only preparation took 835.86 ms, produced no writing results, and the same worker subsequently streamed ` appreciate it.` after the synthetic draft `Thank you for your help with the report. I really`. First displayable protocol text arrived 444.54 ms after submission; completion took 531.18 ms. Release stopped the actual process, and saved settings bytes were unchanged. These measurements exclude native capture, debounce and rendering; they are not visible desktop latency.
+- **Real multilingual samples:** 51 authored cases × two rotated rounds, 102 mechanical passes. Mechanical checks do not grade grammar, language or factual correctness. Remaining observed defects include Portuguese `sala` inside an English continuation, `now`/`soon` when the reference time is undecided, and inconsistent plural agreement among Portuguese synonyms. Exact fixtures and outputs remain reviewable; no human-calibrated accuracy is claimed.
+- **Memory decision:** a standalone compact-cache experiment saved approximately 56 MiB but added roughly 180–210 ms to individual warm first-display samples. It was not adopted. Original idle footprint and an active standalone provider are not comparable; no RAM-parity or superiority claim follows.
+- **Native blocker:** the controlled original-app/owned-field comparison found `com.apple.loginwindow` in front. The key guard stopped before sending a key. Original and fixture were quit normally, and installed 0.4.1 was restored. New-build WhatsApp/Telegram typing, focused-window context, acceptance, visible latency and comparable active memory still require the unlocked desktop.
+- **Boundaries:** no automatic unlock, permission bypass, model download/selection, normal-profile preference change, Linux/Windows product build or iCloud work was performed.
+
+### Subsequent installed 0.4.1 status-menu observation
+
+An actual HID click opened the installed app's native status menu; AXPress on its real `inklow.menu.quit` item stopped the app. [Sanitized receipt](brotypist/menu-quit-0.4.1.json). This closes the menu-tracking/Quit unknown recorded in the earlier 0.4.1 receipt below, not the separate always-visible placement question: Thaw's collapsed group hid the registered 24×24 item. The group was temporarily expanded without changing global hider preferences. Persistent placement still needs the unlocked desktop. No raw menu screenshot is published because it contained the active user domain.
+
 ## 0.4.1 signed, installed real-messenger verification — 2026-10-26
 
 Runtime source **`0dd98b10e2cf809cf612d720878cd46b388b7ec7`** was frozen, Apple Development-signed and atomically installed at **`/Applications/BroTypist.app`** with the same designated requirement. [Installed receipt](brotypist/installed-0.4.1.json) records the executable hash, isolated acceptance and normal-profile observations.

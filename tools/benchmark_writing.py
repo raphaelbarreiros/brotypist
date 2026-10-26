@@ -13,7 +13,7 @@ Exit 1 means a mechanical/runtime failure; 2 means invalid command arguments.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import importlib.metadata
@@ -31,6 +31,8 @@ import threading
 import time
 import traceback
 
+
+from evaluate_predictions import QUALITY_CORPUS, quality_corpus, quality_observation
 
 ROOT = Path(__file__).resolve().parents[1]
 PREPARE_TIMEOUT_SECONDS = 300
@@ -53,6 +55,11 @@ class Case:
     semantic_criteria: tuple[str, ...] = ()
     boundary: str = ""
     anchor: str = ""
+    dimensions: tuple[str, ...] = ()
+    fact_checks: tuple[dict, ...] = ()
+    reference_sources: tuple[tuple[str, str], ...] = ()
+    instructions: str = ""
+    allow_no_offer: bool = False
 
 
 def synthetic_cases() -> list[Case]:
@@ -113,7 +120,7 @@ def synthetic_cases() -> list[Case]:
              kind="synonyms", selection="quick",
              semantic_criteria=("Each JSON item replaces quick with a contextual adjective, not a sentence.",)),
     ]
-    return cases
+    return cases + [Case(**row) for row in quality_corpus()["cases"]]
 
 
 def peak_rss_bytes() -> int:
@@ -224,7 +231,8 @@ def mechanical_checks(case: Case, text: str, observations: list[dict], n_ctx: in
     if any(call["architecture"] == "gemma4" for call in observations):
         checks["gemma_exactly_one_bos"] = all(call["bos_token_occurrences"] == 1 for call in observations)
     if case.kind != "alternatives":
-        checks["nonempty_displayable_result"] = bool(text.strip())
+        checks["displayable_result_or_permitted_no_offer"] = (
+            bool(text.strip()) or (case.allow_no_offer and text == ""))
     if case.kind == "completion":
         checks["single_line_printable_insertion"] = all(char.isprintable() for char in text)
         checks["bounded_display_length"] = len(text) <= 512
@@ -277,10 +285,17 @@ def mechanical_checks(case: Case, text: str, observations: list[dict], n_ctx: in
     return {"checks": checks, "pass": all(checks.values())}
 
 
-def stream_case(provider, case, observer, n_ctx, max_tokens, synonym_prompt, parse_choices):
-    options = {"max_words": 8}
+def stream_case(provider, case, observer, n_ctx, max_tokens, synonym_prompt, parse_choices, *, max_words=4):
+    from inklow.writing import reference_context
+    options = {"max_words": max_words}
     if case.context:
         options["context"] = case.context
+    elif case.reference_sources:
+        # Exercise the same ranking/provenance/byte budget as focused-window
+        # production requests, rather than giving the model a privileged fact.
+        options["context"] = reference_context(case.prefix, case.suffix, list(case.reference_sources))
+    if case.instructions:
+        options["instructions"] = case.instructions
     if case.kind == "alternatives":
         options["alternatives"] = True
         options["anchor"] = case.anchor
@@ -309,14 +324,14 @@ def stream_case(provider, case, observer, n_ctx, max_tokens, synonym_prompt, par
         invariants["pass"] = False
         if "choice_availability" in invariants:
             invariants["choice_availability"]["safe_absence"] = False
+    semantic = quality_observation(case.__dict__, text, parse_choices(text) if case.kind != "completion" else None)
     return {"case": case.id, "kind": case.kind, "generated_text": text,
             "assembled_draft": case.prefix + text + case.suffix if case.kind == "completion" else None,
+            "reference_context_used": options.get("context", ""),
+            "requested_limits": {"max_tokens": max_tokens, "max_words": max_words},
             "time_to_first_displayable_text_ms": first_ms, "total_stream_ms": elapsed_ms,
             "stream_updates": updates, "error": error, "native_calls": observer.calls,
-            "mechanical": invariants,
-            "semantic_evaluation": {"status": "not_evaluated", "evaluator": None,
-                                    "criteria": list(case.semantic_criteria),
-                                    "note": "Human review required; mechanical success does not establish grammar, language, grounding or quality."},
+            "mechanical": invariants, "semantic_evaluation": semantic,
             "process_lifetime_peak_rss_bytes_after_case": peak_rss_bytes()}
 
 
@@ -365,7 +380,7 @@ def cancellation_probe(provider, observer, *, pre_cancelled: bool) -> dict:
             "limitation": "Cancellation is requested synchronously at the native first-chunk boundary, exercising the real iterator and cleanup. Does not establish interruption during prefill, desktop worker, focus or stale-result rejection."}
 
 
-def model_worker(messages, model_path: str, round_index: int, max_tokens: int):
+def model_worker(messages, model_path: str, round_index: int, max_tokens: int, max_words=4, acceleration="auto"):
     provider = None
     result = {"round": round_index + 1, "model_path": model_path, "cases": [],
               "cancellation": [], "close": {"status": "not_started"}}
@@ -383,7 +398,7 @@ def model_worker(messages, model_path: str, round_index: int, max_tokens: int):
             from inklow.config import Config
             from inklow.features import parse_choices, synonym_prompt
             from inklow.providers import GGUFProvider
-            config = Config(backend="gguf", model_path=model_path, prompt_style="writing",
+            config = Config(backend="gguf", model_path=model_path, prompt_style="writing", acceleration=acceleration,
                             max_tokens=max_tokens, record_history=False, record_unaccepted=False,
                             clipboard_context=False, screen_context=False, statistics_enabled=False)
             provider = GGUFProvider(config)
@@ -409,8 +424,15 @@ def model_worker(messages, model_path: str, round_index: int, max_tokens: int):
             cases = cases[round_index % len(cases):] + cases[:round_index % len(cases)]
             for case in cases:
                 messages.put({"phase": "case", "case": case.id, "timeout": CASE_TIMEOUT_SECONDS})
-                row = stream_case(provider, case, observer, result["model"]["n_ctx"],
-                                  max_tokens, synonym_prompt, parse_choices)
+                # Runtime._effective_config uses a distinct 128-token utility
+                # budget. Ordinary requests retain their selected short cap.
+                case_tokens = max_tokens if case.kind == "completion" else 128
+                provider.config = replace(config, max_tokens=case_tokens)
+                try:
+                    row = stream_case(provider, case, observer, result["model"]["n_ctx"],
+                                      case_tokens, synonym_prompt, parse_choices, max_words=max_words)
+                finally:
+                    provider.config = config
                 result["cases"].append(row)
                 messages.put({"case_result": row})
             for pre_cancelled in (True, False):
@@ -437,9 +459,9 @@ def model_worker(messages, model_path: str, round_index: int, max_tokens: int):
             messages.put({"result": result})
 
 
-def run_process(context, model_path, round_index, max_tokens) -> dict:
+def run_process(context, model_path, round_index, max_tokens, max_words=4, acceleration="auto") -> dict:
     messages = context.Queue()
-    process = context.Process(target=model_worker, args=(messages, model_path, round_index, max_tokens))
+    process = context.Process(target=model_worker, args=(messages, model_path, round_index, max_tokens, max_words, acceleration))
     process.start()
     deadline = time.monotonic() + PREPARE_TIMEOUT_SECONDS
     phase = "startup"
@@ -494,12 +516,17 @@ def summarize(sessions: list[dict]) -> dict:
         label = session["label"]
         target = by_model.setdefault(label, {"case_samples": 0, "mechanical_passes": 0,
                                            "first_displayable_ms": [], "total_stream_ms": [],
-                                           "cold_prepare_ms": [], "choice_availability": {}})
+                                           "cold_prepare_ms": [], "choice_availability": {},
+                                           "literal_fact_checks": {"supported_literal_observed": 0,
+                                                                   "contradiction_observed": 0,
+                                                                   "not_observed": 0}})
         if "cold_prepare_ms" in session:
             target["cold_prepare_ms"].append(session["cold_prepare_ms"])
         for row in session["cases"]:
             target["case_samples"] += 1
             target["mechanical_passes"] += int(row["mechanical"]["pass"])
+            for check in row["semantic_evaluation"]["literal_fact_checks"]:
+                target["literal_fact_checks"][check["status"]] += 1
             availability = row["mechanical"].get("choice_availability")
             if availability is not None:
                 counts = target["choice_availability"].setdefault(row["kind"], {
@@ -549,18 +576,29 @@ def session_passes(session: dict) -> bool:
             and all(probe["status"] == "pass" for probe in session["cancellation"]))
 
 
-def main() -> int:
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--model", type=Path, required=True, help="Existing candidate GGUF; no download or model selection.")
     parser.add_argument("--baseline-model", type=Path, help="Optional existing GGUF, evaluated with identical settings/cases.")
     parser.add_argument("--output", type=Path, required=True, help="New private JSON artifact; refuses existing files.")
     parser.add_argument("--repetitions", type=int, default=3, help="Fresh-process rounds per model (1–10; default 3).")
-    parser.add_argument("--max-tokens", type=int, default=96, help="Same bounded generation limit for every case/model (24–256).")
-    args = parser.parse_args()
+    parser.add_argument("--completion-length", choices=["word", "short", "medium", "long"], default="medium",
+                        help="Production insertion length; default medium (four words).")
+    parser.add_argument("--max-tokens", type=int, help="Ordinary token cap override (8–256). Default Config cap, bounded by completion length; utilities use 128.")
+    parser.add_argument("--acceleration", choices=["auto", "cpu"], default="auto")
+    args = parser.parse_args(argv)
     if sys.platform != "darwin":
         parser.error("This harness is macOS-only; peak RSS units and inference environment are Darwin-specific.")
-    if not 1 <= args.repetitions <= 10 or not 24 <= args.max_tokens <= 256:
-        parser.error("repetitions must be 1–10 and max-tokens must be 24–256")
+    # Read defaults, never load saved settings. These are the same length and
+    # effective ordinary token-limit rules used by Runtime._effective_config.
+    sys.path.insert(0, str(ROOT / "src"))
+    from inklow.config import Config
+    from inklow.features import completion_limits
+    length_tokens, max_words = completion_limits(args.completion_length)
+    if args.max_tokens is None:
+        args.max_tokens = min(Config().max_tokens, length_tokens)
+    if not 1 <= args.repetitions <= 10 or not 8 <= args.max_tokens <= 256:
+        parser.error("repetitions must be 1–10 and max-tokens must be 8–256")
     models = [("candidate", args.model)]
     if args.baseline_model:
         models.append(("baseline", args.baseline_model))
@@ -575,12 +613,16 @@ def main() -> int:
     except OSError as exc:
         parser.error(f"cannot exclusively create private output: {exc}")
     report = {
-        "schema_version": 2, "suite": "synthetic-writing-v2", "created_at": datetime.now(timezone.utc).isoformat(),
+        "schema_version": 3, "suite": quality_corpus()["suite"], "created_at": datetime.now(timezone.utc).isoformat(),
         "platform": sys.platform, "python": sys.version, "repetitions": args.repetitions,
-        "max_tokens": args.max_tokens, "sessions": [],
+        "max_tokens": args.max_tokens, "max_words": max_words, "completion_length": args.completion_length,
+        "acceleration": args.acceleration, "utility_max_tokens": 128, "sessions": [],
         "source_sha256": {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
-                          for path in (ROOT / "src/inklow/providers.py", ROOT / "src/inklow/writing.py", ROOT / "src/inklow/features.py", Path(__file__).resolve())},
+                          for path in (ROOT / "src/inklow/providers.py", ROOT / "src/inklow/writing.py", ROOT / "src/inklow/features.py",
+                                       Path(__file__).resolve(), Path(__file__).with_name("evaluate_predictions.py"), QUALITY_CORPUS)},
         "cases": [case.__dict__ for case in synthetic_cases()],
+        "semantic_rubric": quality_corpus()["rubric"],
+        "review_policy": quality_corpus()["review_policy"],
         "model_files": {label: {"path": str(path.expanduser().resolve()), "size_bytes": path.expanduser().stat().st_size,
                                  "mtime_ns": path.expanduser().stat().st_mtime_ns} for label, path in models},
         "methodology": {
@@ -589,7 +631,7 @@ def main() -> int:
             "displayable": "First nonblank cumulative provider insertion; utility first parse_choices-compatible array. This is not raw first-token latency.",
             "alternatives": "Zero to three distinct strict insertable caret continuations, excluding the supplied anchor. No output or [] is safe absence only if all mechanical checks pass; actual parsed/reported choice counts and empties are reported separately. Boundary/security checks remain required. Availability is not semantic quality.",
             "memory": "Darwin getrusage(RUSAGE_SELF).ru_maxrss in bytes: process-lifetime peak RSS including Python/native/shared mappings. NOT total GPU/Metal memory; per-case values are cumulative, not incremental allocations.",
-            "fairness": "Same Config, token cap, synthetic cases, per-round case order and production sampler. Fresh processes are joined before any next model. Candidate/baseline order alternates each round. No seed override, cache clearing, external evaluator, quality score or SLA claim. Small samples are descriptive only.",
+            "fairness": "Same Config, per-kind token caps, selected completion length, synthetic cases, per-round order and production sampler. Defaults follow Config and Runtime length/utility limits, not saved user settings; --max-tokens can explicitly reproduce another ordinary cap. Fresh processes are joined before any next model. Candidate/baseline order alternates each round. No seed override, cache clearing, external evaluator, quality score or SLA claim. Small samples are descriptive only.",
             "sampler": "Native create_completion arguments are observed unchanged after prepare, including signature defaults merged with actual keyword arguments. Installed llama-cpp-python version, model metadata and resolved context/batch/thread/GPU-layer parameters are recorded when exposed.",
             "healing_budget": "Native generation may replay a constrained already-typed lexical tail. Its observed token allowance is bounded by the insertion cap plus the UTF-8 byte length of the existing prefix; the actual prompt plus native allowance must fit n_ctx. Replayed text is not displayable insertion.",
             "limits": {"prepare_seconds": PREPARE_TIMEOUT_SECONDS, "each_case_seconds": CASE_TIMEOUT_SECONDS,
@@ -604,7 +646,7 @@ def main() -> int:
         for round_index in range(args.repetitions):
             ordered_models = models if round_index % 2 == 0 else list(reversed(models))
             for label, path in ordered_models:
-                session = run_process(context, str(path.expanduser().resolve()), round_index, args.max_tokens)
+                session = run_process(context, str(path.expanduser().resolve()), round_index, args.max_tokens, max_words, args.acceleration)
                 session["label"] = label
                 session["execution_index"] = len(report["sessions"]) + 1
                 report["sessions"].append(session)

@@ -87,7 +87,9 @@ New installations select **Gemma 4 E2B**, a pinned 2.84 GB public GGUF, with a c
 
 Closing Settings leaves BroTypist running. Normal keys pass through when no eligible suggestion is active. Shortcuts and existing model choices are **not reset by the redesign**. The design document's proposed new defaults do not override saved preferences.
 
-Models load lazily in a separate process and unload after five minutes idle by default, on pause, model change or Quit. A later request can require a cold load. The new typing-delay default is 150 ms; existing saved values are preserved unless you explicitly change them. UI-thread readiness notifications deliver prepared requests and streamed results without waiting for the fallback polling timer. Welcome's preview uses the same provider, does not record its text, and closes its worker when the field loses focus or the preview closes. Separately managed loopback servers have their own model lifetimes.
+In development source, a cached local GGUF model prepares when an authorized, supported multiline writing field is focused, before the typing threshold/debounce needs a prediction. Preparation sends configuration only, not a draft. Small/protected/unsupported fields and battery force-only mode do not trigger it. The published **0.4.1** binary still starts loading only when an eligible prediction request needs inference; source changes are not an installed update.
+
+Models use a separate process and unload after five minutes idle by default, on model replacement, privacy revocation, pause or Quit. Focus preparation does not eliminate loading cost or override your saved idle timeout. Temporary field-scoped Escape suppression keeps the worker warm. The typing-delay default is 150 ms; saved values are preserved. UI-thread readiness notifications deliver prepared requests and streamed results without waiting for the fallback polling timer. Welcome's private preview does not record text and closes its worker on focus loss/close. Separately managed loopback servers have their own lifetimes.
 
 ### OS access and suggestion placement
 
@@ -134,13 +136,27 @@ GGUF builds need Xcode Command Line Tools, Visual Studio C++ Build Tools, or GCC
 
 `brotypist model list` reports the pinned catalogue and licenses. `brotypist model download --preset gemma4-e2b --no-select` downloads without changing selection. Gemma 3 additionally requires `--accept-model-license` or explicit agreement in the native UI. Use `INKLOW_HOME=<disposable-directory>` for the entire smoke sequence instead of changing your normal profile. It isolates settings/data, not the shared model cache.
 
+### Synthetic model checks
+
+Use an existing model; the evaluator does not download weights or change your normal app profile:
+
+```sh
+uv run python tools/benchmark_writing.py \
+  --model /absolute/path/model.gguf \
+  --output /tmp/brotypist-writing.json \
+  --repetitions 2 --max-tokens 32 --completion-length medium
+```
+
+The authored corpus covers multilingual writing, reference facts, Unicode partial words, fixed suffixes, alternatives and synonyms. Reports include actual native call settings, raw/assembled output, cancellation and close observations. Mechanical pass counts and literal fact checks are **not grammar/semantic accuracy**: inspect the per-dimension unreviewed labels and the actual continuations. Match repeated samples by case ID, not list position—the evaluator rotates case order. Provider token-stream times exclude desktop focus/capture/debounce/rendering; installed-app permission, same-line pixels and real acceptance need their own unlocked native smoke.
+
+
 ### Build applications, icons and installers
 
 ```sh
 uv run python tools/build_app.py
 uv run python tools/smoke_bundle.py
 # Run the matching native packager from a committed build:
-uv run python tools/package_macos.py --bundle dist/BroTypist.app --output release --version 0.4.0
+uv run python tools/package_macos.py --bundle dist/BroTypist.app --output release --version 0.4.2
 ```
 
 The inference smoke needs an explicitly configured existing model. Installers consume complete native builds; they do not download models or cross-compile. Windows packaging needs .NET SDK 8 and WiX **5.0.2** (`dotnet tool install --global wix --version 5.0.2`). Linux needs `dpkg-dev`, GI/AT-SPI/GTK and Qt libraries; the Wayland client additionally needs a C compiler, `pkg-config`, Wayland/xkbcommon development libraries, protocol XMLs and `wayland-scanner`. Use CPython 3.12 on Ubuntu 24.04 for its distro GI ABI. The [CI workflow](.github/workflows/ci.yml) lists exact build prerequisites.

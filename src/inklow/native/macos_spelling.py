@@ -13,11 +13,9 @@ from __future__ import annotations
 import threading
 
 from ..spelling import SpellingUnavailable
-
-NATURAL_LANGUAGE = "/System/Library/Frameworks/NaturalLanguage.framework"
+from .macos_language import LanguageUnavailable, identify, language_recognizer
 ACQUIRE_TIMEOUT = 2.0
 MAX_RANGES = 8
-MAX_HYPOTHESES = 5
 
 
 def _utf16_length(text: str) -> int:
@@ -102,31 +100,16 @@ class MacSpellBackend:
     def _language_recognizer(self):
         if self._recognizer is None:
             try:
-                try:
-                    from NaturalLanguage import NLLanguageRecognizer
-                except ImportError:
-                    from Foundation import NSBundle
-                    bundle = NSBundle.bundleWithPath_(NATURAL_LANGUAGE)
-                    loaded = bundle.loadAndReturnError_(None) if bundle is not None else (False, None)
-                    if not (loaded[0] if isinstance(loaded, tuple) else loaded):
-                        raise SpellingUnavailable("Apple NaturalLanguage could not be loaded.")
-                    NLLanguageRecognizer = self._objc.lookUpClass("NLLanguageRecognizer")
-                self._recognizer = NLLanguageRecognizer.alloc().init()
-            except self._objc.error as exc:
-                raise SpellingUnavailable(f"Apple NaturalLanguage is unavailable: {exc}") from exc
+                self._recognizer = language_recognizer()
+            except LanguageUnavailable as exc:
+                raise SpellingUnavailable(str(exc)) from exc
         return self._recognizer
 
     def identify(self, text: str) -> dict[str, float]:
         if not text.strip():
             return {}
         recognizer = self._language_recognizer()
-        recognizer.reset()
-        try:
-            recognizer.processString_(text)
-            hypotheses = recognizer.languageHypothesesWithMaximum_(MAX_HYPOTHESES) or {}
-            return {str(tag): float(probability) for tag, probability in hypotheses.items()}
-        finally:
-            recognizer.reset()
+        return identify(recognizer, text)
 
     def misspelled(self, word: str, language: str) -> list[tuple[int, int]]:
         checker = self._require()

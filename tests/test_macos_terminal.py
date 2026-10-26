@@ -1,9 +1,10 @@
 """Native terminal boundary regressions, with no live terminal or key posting.
 
 The stateful AX fixture exposes bounded physical rows only; it raises if code
-requests scrollback/AXValue. Source-version, cursor/selection, geometry, privacy,
-process-generation, single-use append and cancellation are independent oracles.
-Parent runs these tests and actual disposable Terminal verification.
+requests scrollback/AXValue. Running-code signature, source-version,
+cursor/selection, geometry, privacy, process-generation, single-use append and
+cancellation are independent oracles. Parent runs these tests and actual
+disposable Terminal verification; no test result is implied by these fixtures.
 """
 from dataclasses import replace
 import ctypes
@@ -379,6 +380,7 @@ class InputBridge(Bridge):
         self.reads, self.posts = [], []
         self.cursor_delta = 0
         self.extra_above = ""
+        self.attachment_guard = ""
         self.footer = "  gpt-5.4 default · /private/disposable"
         self.glyph_width = 7.0
         self.allow_commit, self.commits = True, 0
@@ -398,8 +400,8 @@ class InputBridge(Bridge):
             kCGEventFlagMaskAlternate=4)
 
     def rows(self):
-        strings = {19: self.extra_above + "\n", 20: self.prompt + self.text + "\n",
-                   21: "\n", 22: self.footer + "\n"}
+        strings = {18: self.attachment_guard + "\n", 19: self.extra_above + "\n",
+                   20: self.prompt + self.text + "\n", 21: "\n", 22: self.footer + "\n"}
         offset, result = 1000, {}
         for line, string in strings.items():
             length = terminal.index_to_utf16(string, len(string))
@@ -475,6 +477,7 @@ def composer(setup, monkeypatch):
         "/Users/owned/.codex/packages/standalone/releases/"
         "0.162.1-aarch64-apple-darwin/bin/codex"))
     adapter._processes.foreground = lambda *args: process
+    adapter._code_identity = SimpleNamespace(accepts=lambda current: current == process)
     monkeypatch.setattr(adapter, "_register_terminal_font", lambda metadata: None)
     return adapter, bridge, automation, process
 
@@ -813,3 +816,216 @@ def test_fixed_advance_requires_two_consistent_native_cell_spans(composer, consi
     assert evidence[0]["samples"][0]["rect"][2] == 32 * 7.0
     assert evidence[0]["samples"][1]["rect"][2] == 16 * 7.0 + (0 if consistent else 2)
     assert not snapshot.inline_safe  # Advance evidence alone cannot supply a baseline.
+
+
+@pytest.mark.parametrize("failure", [
+    None, "number", "dictionary", "lookup", "missing-code", "signature", "exception",
+])
+def test_running_code_validation_uses_exact_pid_and_releases_all_native_references(
+        monkeypatch, failure):
+    calls, released = [], []
+
+    def number(allocator, kind, value):
+        assert allocator is None and kind == 3 and value._obj.value == 351
+        return 0 if failure == "number" else 101
+
+    def dictionary(allocator, keys, values, count, key_callbacks, value_callbacks):
+        assert allocator is key_callbacks is value_callbacks is None
+        assert count == 1 and keys[0] == 99 and values[0] == 101
+        return 0 if failure == "dictionary" else 102
+
+    def guest(host, attributes, flags, result):
+        calls.append("lookup")
+        assert host is None and attributes == 102 and flags == 0
+        if failure == "exception":
+            raise RuntimeError("native lookup failed")
+        if failure != "missing-code":
+            result._obj.value = 103
+        return -67050 if failure == "lookup" else 0
+
+    def validate(code, flags, requirement):
+        calls.append("validate")
+        assert code.value == 103 and flags == 0 and requirement == 104
+        return -67050 if failure == "signature" else 0
+
+    identity = terminal._CodeIdentity()
+    identity._native = (
+        SimpleNamespace(SecCodeCopyGuestWithAttributes=guest, SecCodeCheckValidity=validate),
+        SimpleNamespace(CFNumberCreate=number, CFDictionaryCreate=dictionary,
+                        CFRelease=lambda ref: released.append(
+                            ref.value if isinstance(ref, ctypes.c_void_p) else ref)),
+        99, 104)
+    monkeypatch.setattr(terminal, "sys", SimpleNamespace(platform="darwin"))
+    process = terminal.ProcessIdentity(351, 350, 351, (1729000000, 19), "/any/codex")
+    assert identity.accepts(process) is (failure is None)
+    expected = ([103] if failure not in {"number", "dictionary", "missing-code", "exception"}
+                else []) + ([102] if failure not in {"number", "dictionary"} else [])
+    expected += [101] if failure != "number" else []
+    assert released == expected
+    assert ("validate" in calls) is (failure in {None, "signature"})
+
+
+@pytest.mark.parametrize("pid,pgid", [(0, 0), (-1, -1), (2 ** 31, 2 ** 31), (351, 350)])
+def test_running_code_identity_never_looks_up_invalid_or_nonleader_pid(monkeypatch, pid, pgid):
+    identity = terminal._CodeIdentity()
+    monkeypatch.setattr(terminal, "sys", SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(identity, "_load", lambda: pytest.fail("Unexpected native lookup"))
+    assert not identity.accepts(
+        terminal.ProcessIdentity(pid, 350, pgid, (1729000000, 19), "/any/codex"))
+
+
+def test_unavailable_security_framework_cannot_fall_back_to_release_path(composer, monkeypatch):
+    adapter, bridge, _, process = composer
+    identity = terminal._CodeIdentity()
+    monkeypatch.setattr(terminal, "sys", SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(identity, "_load", lambda: (_ for _ in ()).throw(OSError("unavailable")))
+    adapter._code_identity = identity
+    assert adapter.capture(bridge, bridge.front) is None
+    assert adapter.diagnostic == "agent-renderer-version-unverified"
+    assert not any(name == "AXStringForRange" for name, _ in bridge.reads)
+    assert not bridge.posts
+
+
+def test_release_path_without_verified_running_signature_is_not_an_owner(composer):
+    adapter, bridge, _, _ = composer
+    adapter._code_identity = SimpleNamespace(accepts=lambda current: False)
+    assert adapter.capture(bridge, bridge.front) is None
+    assert adapter.diagnostic == "agent-renderer-version-unverified"
+    assert not any(name == "AXStringForRange" for name, _ in bridge.reads)
+
+
+@pytest.mark.parametrize("path", ["/opt/homebrew/bin/codex", "/owned/copied/agent-runner"])
+def test_relocated_verified_release_is_not_tied_to_installer_path(composer, path):
+    adapter, bridge, _, process = composer
+    relocated = replace(process, executable=path)
+    adapter._processes.foreground = lambda *args: relocated
+    adapter._code_identity = SimpleNamespace(accepts=lambda current: current == relocated)
+    snapshot = adapter.capture(bridge, bridge.front)[0]
+    assert snapshot.text == bridge.text and adapter.append(bridge, snapshot, " safely")
+    assert "".join(text for text, _ in bridge.posts) == " safely"
+
+
+@pytest.mark.parametrize("stage", ["during-row-read", "before-append", "before-commit"])
+def test_losing_running_signature_validity_discards_capture_or_append(composer, stage):
+    adapter, bridge, _, _ = composer
+    valid = True
+    adapter._code_identity = SimpleNamespace(accepts=lambda current: valid)
+    if stage == "during-row-read":
+        parameter = bridge.parameter
+
+        def revoked(*args):
+            nonlocal valid
+            value = parameter(*args)
+            if args[1] == "AXStringForRange":
+                valid = False
+            return value
+
+        bridge.ax.AXUIElementCopyParameterizedAttributeValue = revoked
+        assert adapter.capture(bridge, bridge.front) is None
+    else:
+        snapshot = adapter.capture(bridge, bridge.front)[0]
+        if stage == "before-append":
+            valid = False
+        else:
+            def revoked():
+                nonlocal valid
+                valid = False
+                return True
+
+            bridge.q.CGPreflightPostEventAccess = revoked
+        assert not adapter.append(bridge, snapshot, " safely")
+    assert not bridge.posts and bridge.commits == 0
+
+
+@pytest.mark.parametrize("surface", ["prefix", "whole", "glyph", "field", "window", "clip"])
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), -float("inf")])
+def test_nonfinite_native_geometry_is_never_a_caret(composer, surface, invalid):
+    adapter, bridge, _, _ = composer
+    bounds, field_bounds = bridge._range_bounds, bridge._field_bounds
+    line_start = bridge.rows()[20][0]
+    location = line_start + bridge.rows()[20][1] - 1
+    targets = {"prefix": (line_start, 2), "whole": (line_start + 2, len(bridge.text)),
+               "glyph": (location - 1, 1)}
+
+    def altered(field, start, length):
+        rect = bounds(field, start, length)
+        return (invalid, *rect[1:]) if (start, length) == targets.get(surface) else rect
+
+    bridge._range_bounds = altered
+    if surface in {"field", "window"}:
+        target = bridge.field if surface == "field" else bridge.window
+        bridge._field_bounds = lambda element: (
+            (invalid, 0, 840, 600) if element is target else field_bounds(element))
+        if surface == "window":
+            bridge._native_window_number = lambda *args: 17
+    elif surface == "clip":
+        bridge._visible_clip = lambda *args: (invalid, 0, 840, 600)
+    assert adapter.capture(bridge, bridge.front) is None
+    assert not bridge.posts
+
+
+@pytest.mark.parametrize("kind", ["prefix-different-row", "prefix-gap", "whole-outside",
+                                  "clip-outside-field", "field-outside-window"])
+def test_entire_prompt_and_input_must_share_real_visible_host_geometry(composer, kind):
+    adapter, bridge, _, _ = composer
+    bounds, field_bounds = bridge._range_bounds, bridge._field_bounds
+    line_start = bridge.rows()[20][0]
+
+    def altered(field, start, length):
+        rect = bounds(field, start, length)
+        if start == line_start and kind.startswith("prefix"):
+            return (rect[0], rect[1] + 15, *rect[2:]) if kind.endswith("row") else (
+                rect[0] - 1, *rect[1:])
+        if kind == "whole-outside" and start == line_start + 2:
+            return (-2, rect[1], rect[2] + rect[0] + 2, rect[3])
+        return rect
+
+    bridge._range_bounds = altered
+    if kind == "clip-outside-field":
+        bridge._visible_clip = lambda *args: (-1, 0, 841, 600)
+    elif kind == "field-outside-window":
+        bridge._field_bounds = lambda element: (
+            (-1, 0, 841, 600) if element is bridge.field else field_bounds(element))
+    assert adapter.capture(bridge, bridge.front) is None
+    assert not bridge.posts and bridge.commits == 0
+
+
+def test_clip_change_invalidates_existing_append_lease(composer):
+    adapter, bridge, _, _ = composer
+    snapshot = adapter.capture(bridge, bridge.front)[0]
+    bridge._visible_clip = lambda field, rect: (1.0, 0.0, 839.0, 600.0)
+    assert not adapter.context_matches(bridge, snapshot)
+    assert not adapter.append(bridge, snapshot, " safely")
+    assert not bridge.posts and bridge.commits == 0
+
+
+@pytest.mark.parametrize("label", ["  [Image #1]", "  [Image #12]  ",
+                                   "  [Pasted Content 1001 chars]"])
+def test_source_remote_attachment_above_blank_separator_is_not_plain_input(composer, label):
+    adapter, bridge, _, _ = composer
+    bridge.attachment_guard = label
+    assert bridge.extra_above == ""  # The old one-row padding guard is insufficient.
+    assert adapter.capture(bridge, bridge.front) is None
+    assert adapter.diagnostic == "codex-hidden-attachment-row"
+    assert not bridge.posts and bridge.commits == 0
+
+
+def test_bounded_adjacent_attachment_guard_is_never_promoted_to_draft(composer):
+    adapter, bridge, _, _ = composer
+    bridge.attachment_guard = "previous synthetic response, not current input"
+    snapshot = adapter.capture(bridge, bridge.front)[0]
+    assert snapshot.text == bridge.text
+    assert "previous synthetic" not in repr(snapshot)
+    bridge.attachment_guard = "[Image #1]"
+    assert not adapter.append(bridge, snapshot, " safely")
+    assert not bridge.posts and bridge.commits == 0
+
+
+@pytest.mark.parametrize("role", ["client", "gateway"])
+def test_mux_metadata_cannot_authorize_even_an_otherwise_verified_binary(composer, role):
+    adapter, bridge, automation, _ = composer
+    automation.metadata.update(tmux_role=role, pane_id="%8")
+    adapter._code_identity = SimpleNamespace(accepts=lambda current: True)
+    assert adapter.capture(bridge, bridge.front) is None
+    assert adapter.diagnostic == "foreground-input-owner-unsupported"
+    assert not any(name == "AXStringForRange" for name, _ in bridge.reads)
