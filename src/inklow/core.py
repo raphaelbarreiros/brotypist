@@ -16,11 +16,12 @@ def _rgb_valid(value) -> bool:
 
 @dataclass(frozen=True)
 class InlineRender:
-    """Observed host run metrics, in native desktop coordinates (font in points).
+    """Native desktop layout and the exact font used to draw the ghost.
 
-    ``font_name`` is the exact drawable font name that was verified against
-    host glyph geometry. macOS private system-font aliases are reproduced
-    through ``system_font``/``system_weight`` rather than a guessed family.
+    AX styling is reproduced when available. A ``macos-ax-caret-row`` source
+    instead fits a system font to observed glyph geometry when the host omits
+    styling; it is end-of-line only and does not claim an exact host-font match.
+    Private system-font aliases use ``system_font``/``system_weight``.
     A non-empty ``suffix`` is the host text from the caret to its line end
     that the overlay may repaint, displaced right of the ghost; it requires
     measured uniform ``background_rgb`` and host ``text_rgb`` colours.

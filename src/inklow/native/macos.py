@@ -304,13 +304,12 @@ class MacBridge(BridgeBase):
             self._set_status(
                 "Accessibility available. Global shortcuts require Input Monitoring permission in "
                 "System Settings → Privacy & Security for BroTypist or its terminal/Python host. "
-                "Inline completion requires a writable text control whose host font, glyph widths "
-                "and baseline can be verified."
+                "Inline completion requires a writable text control with observable caret-row geometry."
             )
         else:
-            self._set_status("macOS AX and Quartz ready. Inline requires verified host font, glyph widths, "
-                             "baseline and visible line geometry; unsupported controls stay silent. "
-                             "Secure and read-only controls are excluded.")
+            self._set_status("macOS AX and Quartz ready. Inline uses visible caret-row geometry and "
+                             "host typography when exposed, or a fitted system font at a safe line end. "
+                             "Secure, read-only and unobservable controls are excluded.")
 
     def status(self) -> str:
         if not self.ax.AXIsProcessTrusted():
@@ -471,7 +470,8 @@ class MacBridge(BridgeBase):
         # AXFocusedUIElement on the foreground application's AX root is the
         # authoritative focus source. Some providers omit the redundant flag;
         # an explicit false still rejects the control.
-        if (enabled is not None and not enabled) or (focused is not None and not focused):
+        if ((enabled is not None and not enabled) or (focused is not None and not focused)
+                or self._attribute(field, "AXHidden")):
             return None
         if not (self._settable(field, "AXSelectedText") or self._settable(field, "AXValue")):
             return None
@@ -614,7 +614,19 @@ class MacBridge(BridgeBase):
     def _caret_bounds(self, field, text, caret, location):
         bounds = self._range_bounds(field, location, 0)
         if bounds is None:
-            return None
+            # Qt omits zero-length bounds at the document end, while exposing
+            # the final glyph's real advance and row. Only that collapsed LTR
+            # endpoint is derivable without guessing or displacing host text.
+            line_start = max(text.rfind("\n", 0, caret), text.rfind("\r", 0, caret)) + 1
+            if (not caret or caret != len(text) or text[caret - 1] in "\r\n"
+                    or unicodedata.combining(text[caret - 1])
+                    or any(unicodedata.bidirectional(char) in _RTL for char in text[line_start:caret])):
+                return None
+            units = 2 if ord(text[caret - 1]) > 0xFFFF else 1
+            glyph = self._range_bounds(field, location - units, units)
+            if glyph is None or glyph[2] <= 0:
+                return None
+            return glyph[0] + glyph[2], glyph[1], 1.0, glyph[3]
         # NSTextView on macOS 27 reports a zero-length range one line above
         # its actual insertion point. Keep that range's exact x, but use an
         # adjacent real glyph's observed row when the metrics agree.
@@ -670,6 +682,35 @@ class MacBridge(BridgeBase):
         return scaled if scaled is not None and str(scaled.fontName()) == str(font.fontName()) else None
 
     @staticmethod
+    def _fitted_system_render(span, whole, rect, clip):
+        """End-of-line display when AX supplies geometry but omits styling.
+
+        This is an explicitly fitted system font, not a claim to reproduce the
+        host font. The native glyph edge anchors the ghost; no host text is
+        erased or repainted, and screenshots are not required.
+        """
+        from AppKit import NSFont
+        if whole is None or not span.strip():
+            return None
+        seed = NSFont.systemFontOfSize_weight_(13.0, 0.0)
+        width = text_width(seed, span)
+        if not math.isfinite(width) or width <= 0:
+            return None
+        size = 13.0 * whole[2] / width
+        if not math.isfinite(size) or not 1 <= size <= 300:
+            return None
+        font = NSFont.systemFontOfSize_weight_(size, 0.0)
+        ascent, descent = float(font.ascender()), abs(float(font.descender()))
+        if ascent + descent > rect[3]:
+            size *= rect[3] / (ascent + descent)
+            font = NSFont.systemFontOfSize_weight_(size, 0.0)
+            ascent, descent = float(font.ascender()), abs(float(font.descender()))
+        baseline = rect[1] + (rect[3] - ascent - descent) / 2 + ascent
+        render = InlineRender(str(font.fontName()), size, baseline, clip, ascent, descent,
+                              source="macos-ax-caret-row", system_font=True)
+        return render if render.valid(rect) else None
+
+    @staticmethod
     def _calibrate(font, text: str, part_text: str, width: float, part_width: float, browser: bool):
         """Scale verified from two host spans, or None when glyph advances disagree.
 
@@ -723,11 +764,32 @@ class MacBridge(BridgeBase):
             visible = self._attribute(field, "AXVisibleCharacterRange")
             if visible is not None:
                 valid, shown = self.ax.AXValueGetValue(visible, self.ax.kAXValueCFRangeType, None)
-                if (not valid or not int(shown[0]) < location
-                        or location + suffix_units > int(shown[0]) + int(shown[1])):
+                if not valid:
+                    return None, None
+                shown = int(shown[0]), int(shown[1])
+                # UIKit advertises this attribute but returns (0, 0) even for
+                # visible non-empty composers. Treat that sentinel as unknown,
+                # not an empty viewport: glyph bounds plus ancestor clipping
+                # must still independently prove the visible caret row below.
+                if shown != (0, 0) and (not shown[0] < location
+                        or location + suffix_units > shown[0] + shown[1]):
                     return None, None
             clip = self._visible_clip(field, field_rect)
             if clip is None:
+                return None, None
+            # A logical paragraph can wrap. AX bounds spanning two visual rows
+            # cannot calibrate the caret row; shrink only the leading sample,
+            # retaining independently observed glyph bounds and font checks.
+            while span:
+                base = index_to_utf16(text, caret - len(span))
+                whole = self._range_bounds(field, base, location - base)
+                if (whole is not None and whole[2] > 0
+                        and abs(whole[1] - rect[1]) <= 1
+                        and whole[3] <= rect[3] + 1
+                        and abs(whole[0] + whole[2] - rect[0]) <= 1.5):
+                    break
+                span = span[(len(span) + 1) // 2:]
+            if not span.strip():
                 return None, None
             base = index_to_utf16(text, caret - len(span))
             caret_offset = location - base
@@ -746,13 +808,17 @@ class MacBridge(BridgeBase):
             if not span.strip():
                 return None, None
             span_location = base + max(0, run_start)
+            whole = (self._range_bounds(field, span_location, location - span_location)
+                     if run_start > 0 else whole)
             descriptor = attributes.get("AXFont")
             # Superscripts, baseline shifts and host IME runs are not plain text.
-            if (not descriptor
-                    or any(attributes.get(key) for key in ("AXSuperscript", "NSBaselineOffset", "AXMarkedText"))
+            if (any(attributes.get(key) for key in ("AXSuperscript", "NSBaselineOffset", "AXMarkedText"))
                     or any(key in attributes for key in ("NSMarkedClauseSegment",
                                                          "NSMarkedClauseSegmentAttributeName"))):
                 return None, None
+            if not descriptor:
+                return ((self._fitted_system_render(span, whole, rect, clip), None)
+                        if not after else (None, None))
             name = str(descriptor.get("AXFontName") or "")
             family = str(descriptor.get("AXFontFamily") or "")
             size = float(descriptor.get("AXFontSize") or 0)
@@ -762,7 +828,6 @@ class MacBridge(BridgeBase):
             part_text = span[half:] if half else ""
             if half and not part_text.strip():
                 return None, None
-            whole = self._range_bounds(field, span_location, location - span_location)
             part = (self._range_bounds(field, span_location + index_to_utf16(span, half),
                                        location - span_location - index_to_utf16(span, half))
                     if half else whole)
@@ -801,7 +866,11 @@ class MacBridge(BridgeBase):
             if abs(height - (ascent + descent)) <= 1.0:
                 candidates.append(top + ascent)
             layout = self._layout()
-            if abs(height - float(layout.defaultLineHeightForFont_(font))) <= 0.75:
+            # Integral AX row edges can round the native line box up by one
+            # point (UIKit/Catalyst). Larger or fractional mismatches still
+            # require the optional pixel measurement.
+            line_tolerance = 1.0 if float(height).is_integer() else 0.75
+            if abs(height - float(layout.defaultLineHeightForFont_(font))) <= line_tolerance:
                 candidates.append(top + float(layout.defaultBaselineOffsetForFont_(font)))
             if browser and not candidates and ascent + descent < height <= 3 * (ascent + descent):
                 candidates.append(top + (height - ascent - descent) / 2 + ascent)

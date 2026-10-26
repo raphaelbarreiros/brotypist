@@ -331,7 +331,7 @@ def test_quartz_timeout_recovers_automatically_then_stops_when_repeated(monkeypa
     assert "timed out" in bridge.status()
 
 
-@pytest.mark.parametrize("guard", ["secure", "protected", "readonly", "disabled", "composition", "unknown",
+@pytest.mark.parametrize("guard", ["secure", "protected", "readonly", "disabled", "hidden", "composition", "unknown",
                                    "secure_input", "dead_key", "unobservable_ime"])
 def test_mac_security_guards_precede_editable_value_access(guard):
     bridge = MacBridge.__new__(MacBridge)
@@ -352,6 +352,8 @@ def test_mac_security_guards_precede_editable_value_access(guard):
         attrs["AXProtectedContent"] = True
     elif guard == "disabled":
         attrs["AXEnabled"] = False
+    elif guard == "hidden":
+        attrs["AXHidden"] = True
     elif guard == "unknown":
         attrs["AXRole"] = "AXUnknown"
     elif guard == "composition":
@@ -813,6 +815,54 @@ def mac_metrics(monkeypatch, text="Hello world", *, ax_name="Host-Regular", widt
     return bridge
 
 
+@pytest.mark.parametrize("text,caret,expected", [
+    ("abc", 3, (100, 60, 1, 20)),
+    ("abc", 2, None),
+    ("abc\n", 4, None),
+    ("אבג", 3, None),
+])
+def test_mac_missing_zero_length_caret_uses_only_an_observed_ltr_document_end(
+        text, caret, expected):
+    bridge = MacBridge.__new__(MacBridge)
+    BridgeBase.__init__(bridge)
+    bridge._range_bounds = lambda field, location, length: (
+        (90, 60, 10, 20) if length == 1 else None)
+    assert bridge._caret_bounds("field", text, caret, caret) == expected
+
+
+@pytest.mark.parametrize("suffix,available", [("", True), (" tail", False)])
+def test_mac_missing_host_font_still_draws_at_a_safe_line_end_without_repainting(
+        monkeypatch, suffix, available):
+    text = "Hello world" + suffix
+    bridge = mac_metrics(monkeypatch, text)
+    attributed = SimpleNamespace(
+        length=lambda: len(text),
+        attributesAtIndex_effectiveRange_=lambda index, out: ({}, (0, len(text))))
+    bridge.ax.AXUIElementCopyParameterizedAttributeValue = lambda *args: (0, attributed)
+    render, _ = bridge._inline_metrics(
+        "field", text, 11, 11, (100, 40, 1, 20), (0, 0, 400, 200))
+    assert (render is not None) is available
+    if render is not None:
+        assert render.baseline == 56
+        assert render.system_font
+        assert render.suffix == ""
+        assert Snapshot("editor", "field", text, 11, caret_rect=(100, 40, 1, 20),
+                        inline_render=render).inline_safe
+
+
+@pytest.mark.parametrize("visible,available", [((0, 0), True), ((0, 5), False), ((0, 11), True)])
+def test_mac_empty_visible_range_uses_observed_glyphs_not_an_empty_viewport(
+        monkeypatch, visible, available):
+    bridge = mac_metrics(monkeypatch)
+    bridge._attribute = lambda field, name: visible if name == "AXVisibleCharacterRange" else None
+    bridge.ax.AXValueGetValue = lambda value, kind, output: (True, value)
+    render, _ = bridge._inline_metrics(
+        "field", "Hello world", 11, 11, (100, 40, 1, 20), (0, 0, 400, 200))
+    assert (render is not None) is available
+    if render is not None:
+        assert render.baseline == 56
+
+
 def test_mac_attributed_run_uses_font_baseline_not_caret_height(monkeypatch):
     bridge = mac_metrics(monkeypatch)
     render, evidence = bridge._inline_metrics("field", "Hello world", 11, 11, (100, 40, 1, 20), (0, 0, 400, 200))
@@ -826,6 +876,39 @@ def test_mac_private_system_font_alias_is_reproduced_not_rejected(monkeypatch):
     bridge = mac_metrics(monkeypatch, ax_name=".AppleSystemUIFont")
     render, _ = bridge._inline_metrics("field", "Hello world", 11, 11, (100, 40, 1, 20), (0, 0, 400, 200))
     assert render.system_font and render.font_name == ".SFNS-Regular" and render.system_weight == 0.0
+
+
+def test_mac_completion_measures_the_caret_row_after_a_soft_wrap(monkeypatch):
+    text = "previous row. Hello world"
+    bridge = mac_metrics(monkeypatch, text, widths={"rld": 15.0})
+    rows = {
+        (0, len(text)): (0, 40, 100, 40),
+        (13, 12): (0, 40, 100, 40),
+        (19, 6): (70, 60, 30, 20),
+        (22, 3): (85, 60, 15, 20),
+    }
+    bridge._range_bounds = lambda field, location, length: rows.get((location, length))
+    render, evidence = bridge._inline_metrics(
+        "field", text, len(text), len(text), (100, 60, 1, 20), (0, 0, 400, 200))
+    assert render is not None
+    assert render.baseline == 76
+    assert evidence is None
+
+
+@pytest.mark.parametrize("row_height,available", [(21, True), (22, False)])
+def test_mac_integral_accessibility_row_rounding_preserves_inline_completion(
+        monkeypatch, row_height, available):
+    bridge = mac_metrics(monkeypatch)
+    font = bridge._font_candidates("Host-Regular", "", 13)[0][0]
+    font.ascender = lambda: 15
+    rows = {(0, 11): (40, 40, 60, row_height),
+            (5, 6): (70, 40, 30, row_height)}
+    bridge._range_bounds = lambda field, location, length: rows.get((location, length))
+    render, _ = bridge._inline_metrics(
+        "field", "Hello world", 11, 11, (100, 40, 1, row_height), (0, 0, 400, 200))
+    assert (render is not None) is available
+    if render is not None:
+        assert render.baseline == 56
 
 
 @pytest.mark.parametrize("ax_name, widths", [("Host-Regular", {" world": 34.0}), ("Downloaded-WebFont", {})])
