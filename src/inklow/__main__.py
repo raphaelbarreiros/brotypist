@@ -103,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
                                   "version": __version__, "acceleration": config.acceleration,
                                   "shell": "AppKit" if sys.platform == "darwin" else "Qt menu utility",
                                   "idle_release_seconds": config.idle_release_seconds,
+                                  "input_source_kind": getattr(bridge, "_ime_kind", None),
                                   "model_file_exists": Path(config.model_path).expanduser().is_file() if config.model_path else False,
                                   "native": bridge.status(), "global_enabled": config.global_enabled}, indent=2))
             finally:
