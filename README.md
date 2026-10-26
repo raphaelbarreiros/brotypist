@@ -11,13 +11,13 @@ Local-first predictive typing. **Current development and release verification fo
 
 This repository is **private**. Sign in to a GitHub account with access before downloading release assets or cloning it.
 
-The latest published installers before this update are **0.3.0**, under the previous **Inklow** name; those immutable filenames are preserved. **0.4.0 is the macOS Gemma/parity update.** Download availability and artifact verification are recorded on its release page; a source checkout alone is not an installed update. Linux/Windows historical installers do not contain the macOS changes.
+**[macOS 0.4.0 is available](https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.0)** with DMG/ZIP, checksums and native receipts. It is the Gemma/native-settings update. Linux/Windows product builds are held; historical Inklow 0.3.0 assets are preserved and do not contain the macOS changes.
 
-| Platform | Published 0.3.0 assets | Current native build outputs |
+| Platform | Download | Status |
 | --- | --- | --- |
-| macOS, Apple Silicon | `Inklow-0.3.0-macos-arm64.dmg` / `.zip` | `BroTypist.app`, versioned `.dmg` / `.zip` |
-| Windows, x86-64 | Not published; native installer verification remains pending | Port/build held; existing packaging definitions retained |
-| Linux, x86-64 | `Inklow-0.3.0-linux-amd64.deb` / `.tar.gz` | Port/build held; historical installers are not macOS-parity builds |
+| macOS, Apple Silicon | `BroTypist-0.4.0-macos-arm64.dmg` / `.zip` | Native/frozen and installer checks exercised; see compatibility limits below |
+| Windows, x86-64 | No published native installer | Port/build held; packaging definitions retained |
+| Linux, x86-64 | Historical `Inklow-0.3.0-linux-amd64.deb` / `.tar.gz` only | Port/build held; not macOS-parity builds |
 
 Packaged applications include Python and their UI runtime. Model weights are separate and download only when requested. Installers never include settings, writing history, credentials, or model weights.
 
@@ -25,7 +25,7 @@ Packaged applications include Python and their UI runtime. Model weights are sep
 
 Build on Apple Silicon with macOS 15 or newer. Drag the built **BroTypist.app** to Applications; the installed app name has no version suffix. Quit the running copy before replacing it. Open **Welcome** or **Settings → Setup** to review live permission state.
 
-GitHub-built macOS distributions are ad-hoc signed and **not notarized**, unless the release explicitly says otherwise. A local Apple Development signature is not Developer ID distribution or notarization. Do not disable Gatekeeper globally.
+The 0.4.0 Mac distribution is **Apple Development identity-signed, not Developer ID-signed or notarized**. Historical/CI-built packages may be ad-hoc signed; read the specific release receipt. Do not disable Gatekeeper globally.
 
 ### Windows — held
 
@@ -162,6 +162,8 @@ The [macOS checks workflow](.github/workflows/ci.yml) runs deterministic regress
 Update both `pyproject.toml` and `src/inklow/__init__.py` and commit before a release build. **Actions → macOS checks** accepts a matching `release_tag=v<version>` to validate/build macOS artifacts; it does not publish a release automatically. Never overwrite published versions or historical assets.
 
 Manual publication still uses native packagers, smoke receipts and `tools/release_assets.py`: `manifest` seals artifacts; `publish --inputs <directory> --output <new-directory> --tag v<version> --commit <source-sha> --repo renan-brasilio/brotypist` verifies them before draft-first publication. A macOS-only release must explicitly select its target and disclose the held platforms. Do not publish unverified Windows/Linux installers or label source-only changes as installed.
+
+Publishing through `gh` requires a GitHub API credential with repository **Contents: write** access; SSH push authorization does not grant Release API access. The 0.4.0 release used the existing authenticated owner browser after the CLI token refused writes. No token, SSH credential or account permission was changed.
 
 ### Source layout
 

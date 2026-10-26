@@ -2,7 +2,7 @@
 
 # Observed verification
 
-## 0.4.0 signed Mac build and installation — 2026-10-26
+## 0.4.0 signed Mac release and installation — 2026-10-26
 
 Application source **`312edd696f60951fea74763e5b3b4f821e7239f7`** was frozen as arm64 0.4.0 and installed at **`/Applications/BroTypist.app`**. The previous signed app/settings have a private rollback. The actual user profile selects the verified public **Gemma 4 E2B Q4_0**, reusing existing cached bytes without a network download; Qwen is retained. Startup bytes are unchanged. Other existing preference values were preserved, with the legacy disabled battery-model flag migrated to equivalent `battery_model=same`. Screenshot/terminal consent was not enabled.
 
@@ -12,6 +12,8 @@ Application source **`312edd696f60951fea74763e5b3b4f821e7239f7`** was frozen as 
 - **Installer:** actual DMG read-only mount, drag-install layout, copied signature/version/source, visible own-PID settings, normal Quit with exit 0, unchanged isolated settings, data preservation on removal and detach all passed.
 - **Signing:** the existing Apple Development identity/team and exact designated requirement were retained. Deep/strict verification passed; hardened runtime is enabled with only `com.apple.security.automation.apple-events`. This is not Developer ID distribution or notarization. Installed executable SHA-256: `b18b24049085c4e0c68cf11f786ed1a2223fa8d348b783ce549768d25dc669c4`.
 - **Real installation:** one normally launched instance was observed at the canonical unversioned app path with Gemma selected and global/default predictions enabled. [Installed model/data-preservation and disposable-document cleanup receipt](brotypist/installed-0.4.0.json).
+- **Published private release:** [`v0.4.0`](https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.0) is published, not draft or pre-release, with exactly DMG, ZIP, `release-manifest.json` and `SHA256SUMS`. All four files were independently downloaded from GitHub. Both package hashes and the manifest hash passed `shasum -a 256 -c SHA256SUMS`; the checksum file itself matched GitHub's recorded digest. Repository visibility remains private. [Publication receipt](brotypist/release-0.4.0.json).
+- **Hosted CI limit:** [run 40313479248](https://github.com/renan-brasilio/brotypist/actions/runs/40313479248) never allocated a runner: the `metadata` job had no steps and `verify` was skipped. The owner-visible annotation says recent account payments failed or the spending limit needs increasing. This is not a failed source-test result, and hosted CI is not claimed green. No billing, spending limit, token permission or account setting was changed; the exercised checks above are local native checks.
 
 These checks are bounded proof, not complete [redacted reference] compatibility, calibrated grammar quality, a visible-latency SLA or RAM superiority. See the explicit Docs/terminal/RTL and held-platform limits below.
 

@@ -1,0 +1,19 @@
+{
+  "tag": "v0.4.0",
+  "url": "https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.0",
+  "application_source_commit": "312edd696f60951fea74763e5b3b4f821e7239f7",
+  "repository_private": true,
+  "is_draft": false,
+  "is_prerelease": false,
+  "latest_badge_observed": true,
+  "published_via": "Existing authenticated owner browser, draft first; CLI credential refused Release API writes; no credentials or permissions changed",
+  "assets": [
+    {"name": "BroTypist-0.4.0-macos-arm64.dmg", "size": 36897162, "sha256": "1f2033ac0b82605b50ed53dd60106ed2ec1d05b239b3e8f4306d48c2cddc5063", "state": "uploaded"},
+    {"name": "BroTypist-0.4.0-macos-arm64.zip", "size": 33389774, "sha256": "cc7ebb66e674461f7cbe3ed6ef19f4492df6986ff5f2bd2f66d6652da0cbf11b", "state": "uploaded"},
+    {"name": "release-manifest.json", "size": 3794, "sha256": "34da9ef5fe402c59e65df96fac564f26db49060d5855cc33e3ec22317d7664be", "state": "uploaded"},
+    {"name": "SHA256SUMS", "size": 284, "sha256": "143685ed905e7267f7c35e389fc56e585f2f5a63a850b487ad5928c958c84d8c", "state": "uploaded"}
+  ],
+  "independent_github_download": {"all_four_assets_downloaded": true, "dmg_zip_manifest_checksum_check": "passed", "checksum_file_matches_recorded_github_digest": true},
+  "unpublished_targets": ["linux-x86_64", "windows-x86_64"],
+  "hosted_ci": {"run": "https://github.com/renan-brasilio/brotypist/actions/runs/40313479248", "metadata_job_started": false, "steps": [], "verify": "skipped", "owner_visible_reason": "GitHub account payment/spending-limit gate", "billing_or_spending_settings_changed": false, "local_native_checks_are_separately_recorded": true}
+}
