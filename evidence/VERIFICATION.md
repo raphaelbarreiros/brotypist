@@ -19,6 +19,8 @@ The actual signed DMG passed read-only mount, drag-install layout, copied source
 
 Cold first-offer observations remain approximately four seconds; warm observations were sub-second. These individual samples are not an SLA or a solved cold-start claim. No universal input, multilingual grammar-quality or RAM-parity claim is made. Linux/Windows product builds remain held.
 
+**Published private release:** [`v0.4.1`](https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.1) is published, not draft or pre-release. Exactly four assets—DMG, ZIP, `release-manifest.json`, `SHA256SUMS`—were independently downloaded. The packages/manifest passed the downloaded checksum file; all four files, including `SHA256SUMS`, matched GitHub's recorded digests. The remote annotated tag resolves to the exact runtime source above. Later `main` commits contain verification documentation only. [Publication and integrity receipt](brotypist/release-0.4.1.json).
+
 ## 0.4.1 source repair: real messenger keyboard path — 2026-10-26
 
 The user-reported absence of ordinary predictions was not a model-download failure. A real macOS crash report recorded `EXC_BREAKPOINT` / `SIGTRAP`: the background Quartz callback entered `NSEvent.charactersIgnoringModifiers`, HIToolbox input-source lookup, then `_dispatch_assert_queue_fail`. Keyboard-layout translation now runs on the main queue, publishing a replacement map for the tap. A failing-before/passing-after regression exercises background typing, passthrough and a logical AZERTY→QWERTY shortcut transition.
