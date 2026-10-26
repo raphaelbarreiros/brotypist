@@ -7,9 +7,24 @@ import unicodedata
 from threading import RLock
 
 
+def _rgb_valid(value) -> bool:
+    import math
+    return (isinstance(value, (tuple, list)) and len(value) == 3
+            and all(isinstance(part, (int, float)) and math.isfinite(float(part))
+                    and 0 <= float(part) <= 1 for part in value))
+
+
 @dataclass(frozen=True)
 class InlineRender:
-    """Observed host run metrics, in native desktop coordinates (font in points)."""
+    """Observed host run metrics, in native desktop coordinates (font in points).
+
+    ``font_name`` is the exact drawable font name that was verified against
+    host glyph geometry. macOS private system-font aliases are reproduced
+    through ``system_font``/``system_weight`` rather than a guessed family.
+    A non-empty ``suffix`` is the host text from the caret to its line end
+    that the overlay may repaint, displaced right of the ghost; it requires
+    measured uniform ``background_rgb`` and host ``text_rgb`` colours.
+    """
     font_name: str
     font_size: float
     baseline: float
@@ -20,20 +35,42 @@ class InlineRender:
     source: str = ""
     font_weight: int = 400
     italic: bool = False
+    system_font: bool = False
+    system_weight: float = 0.0
+    text_rgb: tuple[float, float, float] | None = None
+    background_rgb: tuple[float, float, float] | None = None
+    suffix: str = ""
+    suffix_width: float = 0.0
+    fixed_advance: float = 0.0
 
     def valid(self, caret_rect) -> bool:
         import math
         if (not isinstance(self.clip_rect, (tuple, list)) or len(self.clip_rect) != 4
                 or not isinstance(caret_rect, (tuple, list)) or len(caret_rect) != 4):
             return False
-        values = (*self.clip_rect, *caret_rect, self.font_size, self.baseline, self.ascent, self.descent)
+        values = (*self.clip_rect, *caret_rect, self.font_size, self.baseline, self.ascent,
+                  self.descent, self.system_weight, self.suffix_width, self.fixed_advance)
         if (not self.font_name or not self.source or self.direction != "ltr"
-                or not all(math.isfinite(float(value)) for value in values)
+                or not all(isinstance(value, (int, float)) and math.isfinite(float(value)) for value in values)
                 or not 1 <= self.font_size <= 300 or self.ascent <= 0 or self.descent < 0
+                or not 0 <= self.fixed_advance <= 300
                 or self.clip_rect[2] <= 0 or self.clip_rect[3] <= 0 or not caret_rect):
             return False
+        for colour in (self.text_rgb, self.background_rgb):
+            if colour is not None and not _rgb_valid(colour):
+                return False
         x, y, width, height = self.clip_rect
         cx, cy, _, ch = caret_rect
+        if self.suffix:
+            # Displacement repaints visible host text; it needs exact colours
+            # and a measured single-line suffix that is wholly inside the clip.
+            # Trailing blanks have no ink, so they need no colour repaint.
+            if (any(char in self.suffix for char in "\r\n\t") or self.suffix_width <= 0
+                    or cx + self.suffix_width > x + width
+                    or (self.suffix.strip() and (self.background_rgb is None or self.text_rgb is None))):
+                return False
+        elif self.suffix_width:
+            return False
         return (ch > 0 and x <= cx and x + width - cx >= 1
                 and y <= cy and cy + ch <= y + height + 1
                 and cy < self.baseline <= cy + ch + 1
@@ -58,15 +95,30 @@ class Snapshot:
     native_inline: bool = False
     window_id: str = ""
     window_revision: str = ""
+    window_pid: int = 0
+    window_bounds: tuple[float, float, float, float] | None = None
+    on_demand_only: bool = False
+    can_replace: bool = True
+
+    @property
+    def line_suffix(self) -> str:
+        """Host text after the caret on its own line."""
+        suffix = self.suffix
+        ends = [index for index in (suffix.find("\n"), suffix.find("\r")) if index >= 0]
+        return suffix[:min(ends)] if ends else suffix
 
     @property
     def inline_safe(self) -> bool:
-        """Only an unobstructed line end can carry a same-line suffix."""
-        return (not self.protected and self.selection_length == 0
-                and 0 <= self.caret <= len(self.text)
-                and (not self.suffix or self.suffix.startswith(("\n", "\r")))
-                and ((self.native_inline and bool(self.native_anchor)) or
-                     (self.inline_render is not None and self.inline_render.valid(self.caret_rect))))
+        """A same-line suffix exists only at a line end or a verified displacement."""
+        if (self.protected or self.selection_length != 0
+                or not 0 <= self.caret <= len(self.text)):
+            return False
+        if self.native_inline and bool(self.native_anchor):
+            return not self.line_suffix
+        render = self.inline_render
+        if render is None or not render.valid(self.caret_rect):
+            return False
+        return render.suffix == self.line_suffix
 
     @property
     def anchor_rect(self) -> tuple[float, float, float, float] | None:
@@ -97,7 +149,8 @@ class Snapshot:
     @property
     def key(self) -> tuple:
         return (self.app_id, self.field_id, self.text, self.caret,
-                self.selection_length, self.protected, self.domain, self.multiline)
+                self.selection_length, self.protected, self.domain, self.multiline,
+                self.on_demand_only, self.can_replace)
 
     def eligible(self, min_chars: int = 8) -> bool:
         return (not self.protected and self.selection_length == 0
@@ -167,6 +220,8 @@ class SuggestionState:
                     or current.field_id != previous.field_id
                     or current.domain != previous.domain
                     or current.multiline != previous.multiline
+                    or current.on_demand_only != previous.on_demand_only
+                    or current.can_replace != previous.can_replace
                     or current.caret <= previous.caret):
                 return False
             inserted = current.text[previous.caret:current.caret]
@@ -179,17 +234,29 @@ class SuggestionState:
             return True
 
     def accept(self, current: Snapshot, full: bool = False, trailing_space: bool = True,
-               trailing_punctuation: bool = True) -> str:
+               trailing_punctuation: bool = True, visible: str | None = None) -> str:
+        """Accept from the shown suggestion; ``visible`` bounds it to drawn text.
+
+        Only whitespace may extend past ``visible``: hidden words never insert.
+        """
         with self._lock:
             if (self.snapshot is None or current.key != self.snapshot.key
                     or not current.eligible(1)):
                 self.invalidate()
                 return ""
+            if visible is not None and (not visible or not self.text.startswith(visible)):
+                return ""
+            limit = len(self.text) if visible is None else len(visible)
             if full:
-                end = _accept_end(self.text, len(self.text), trailing_space, trailing_punctuation)
+                end = _accept_end(self.text, limit, trailing_space, trailing_punctuation)
+                if limit < len(self.text) and trailing_space:
+                    while end < len(self.text) and self.text[end].isspace() and self.text[end] not in "\r\n":
+                        end += 1
                 accepted, remainder = self.text[:end], self.text[end:]
             else:
                 accepted, remainder = take_word(self.text, trailing_space, trailing_punctuation)
+                if accepted[limit:].strip():
+                    return ""
             if not trailing_space and not remainder.strip():
                 remainder = ""
             if not accepted:

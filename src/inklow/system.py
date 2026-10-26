@@ -256,27 +256,94 @@ def on_battery() -> bool:
         return value
 
 
-def screen_text(snapshot, *, bridge, authorized, max_chars=2400) -> dict:
-    """Opt-in focused-window accessibility; never read unverified window pixels."""
+def screen_capture_granted() -> bool:
+    """Screen Recording preflight for opt-in screenshot features; never prompts."""
+    if sys.platform != "darwin":
+        return False
+    from .native.macos_vision import capture_granted
+    return capture_granted()
+
+
+def request_screen_capture_permission() -> bool:
+    """Explicit user action only. macOS may show its prompt once and usually needs a relaunch."""
+    if sys.platform != "darwin":
+        return False
+    from .native.macos_vision import request_capture_permission
+    return request_capture_permission()
+
+
+def macos_inline_prediction_enabled() -> bool | None:
+    """Read-only state of macOS inline predictive text; None when unknown."""
+    if sys.platform != "darwin":
+        return None
+    import platform
+    from Foundation import NSUserDefaults
+    domain = NSUserDefaults.standardUserDefaults().persistentDomainForName_("NSGlobalDomain")
+    value = domain.get("NSAutomaticInlinePredictionEnabled") if domain is not None else None
+    if value is not None:
+        return bool(value)
+    try:
+        major = int(platform.mac_ver()[0].split(".")[0])
+    except ValueError:
+        return None
+    return True if major >= 14 else None  # Sonoma introduced it, enabled by default.
+
+
+def screen_text(snapshot, *, bridge, authorized, max_chars=2400, accessibility=True,
+                screenshot_context=False) -> dict:
+    """Opt-in focused-window context: Accessibility first, then on-device OCR.
+
+    Screenshots are used only when separately enabled, Accessibility produced no
+    text, and the exact focused window is still current before and after the
+    capture. Pixels and recognized text are never written, uploaded or logged.
+    """
     empty = {"text": "", "provenance": "", "status": "unavailable",
              "window_id": snapshot.window_id, "revision": snapshot.window_revision}
-    if (not snapshot.window_id or not snapshot.window_revision or not authorized()):
+    if (snapshot.app_id in {"com.apple.Terminal", "com.googlecode.iterm2"}
+            and snapshot.field_id.startswith("terminal:")):
+        # Terminal consent covers the current unsent input, never scrollback.
+        # Appearance may inspect its cropped glyph pixels; context OCR may not.
+        if "inklow.native.macos_vision" in sys.modules:
+            sys.modules["inklow.native.macos_vision"].clear_text_cache()
         return {**empty, "status": "blocked"}
+    consent = bool(authorized())
+    if (not screenshot_context or not consent or snapshot.protected) and "inklow.native.macos_vision" in sys.modules:
+        sys.modules["inklow.native.macos_vision"].clear_text_cache()
+    if (not (accessibility or screenshot_context) or not snapshot.window_id
+            or not snapshot.window_revision or not consent):
+        return {**empty, "status": "blocked"}
+    status = "unavailable"
     reader = getattr(bridge, "focused_context", None)
-    if reader is None:
-        return empty
-    result = reader(snapshot, authorized=authorized, max_chars=min(max_chars, 4000))
+    if accessibility and reader is not None:
+        result = reader(snapshot, authorized=authorized, max_chars=min(max_chars, 4000))
+        if not authorized():
+            return {**empty, "status": "blocked"}
+        if isinstance(result, dict):
+            if (result.get("window_id") != snapshot.window_id
+                    or result.get("revision") != snapshot.window_revision):
+                return {**empty, "status": "stale"}
+            text = result.get("text", "")
+            status = result.get("status", "empty")
+            if status == "ready" and isinstance(text, str) and text.strip():
+                return {**empty, "text": text[:max_chars], "provenance": "accessibility", "status": "ready"}
+            status = status if status in {"empty", "blocked", "unavailable", "error"} else "empty"
+            if status == "blocked":
+                return {**empty, "status": "blocked"}
+    current = getattr(bridge, "context_matches", None)
+    if not screenshot_context or sys.platform != "darwin" or current is None:
+        return {**empty, "status": status}
+    if snapshot.protected:
+        return {**empty, "status": "blocked"}
+    from .native.macos_vision import recognize_window_text
+    result = recognize_window_text(snapshot, authorized=authorized,
+                                   current=lambda: bool(current(snapshot)), max_chars=min(max_chars, 4000))
     if not authorized():
         return {**empty, "status": "blocked"}
-    if not isinstance(result, dict):
-        return empty
-    if (result.get("window_id") != snapshot.window_id
-            or result.get("revision") != snapshot.window_revision):
+    if not current(snapshot):
         return {**empty, "status": "stale"}
-    text = result.get("text", "")
-    status = result.get("status", "empty")
-    if status == "ready" and isinstance(text, str) and text.strip():
-        return {**empty, "text": text[:max_chars], "provenance": "accessibility", "status": "ready"}
-    return {**empty, "status": status if status in {"empty", "blocked", "unavailable", "error"} else "empty"}
+    if result.get("status") == "ready" and result.get("text", "").strip():
+        return {**empty, "text": result["text"][:max_chars], "provenance": "screenshot", "status": "ready"}
+    return {**empty, "status": result.get("status") if result.get("status") in {
+        "empty", "blocked", "stale", "unavailable", "error", "screen_permission"} else "error"}
 
 

@@ -161,12 +161,14 @@ def build(destination: Path, *, replace: bool = False) -> Path:
             "source_commit": source_commit, "architecture": architecture,
         }, indent=2) + "\n", encoding="utf-8")
         if platform == "darwin":
-            # Finalize the sealed ownership marker with the same signing
-            # identity as PyInstaller's executable and collected libraries.
+            # Reseal only the bundle after adding the ownership marker. Retain
+            # PyInstaller's Automation entitlement, designated requirement,
+            # identifier and runtime settings; do not re-sign nested libraries.
             identity = os.environ.get("INKLOW_CODESIGN_IDENTITY") or "-"
-            command = ["/usr/bin/codesign", "--force", "--sign", identity]
-            if identity != "-":
-                command.extend(["--options", "runtime"])
+            command = [
+                "/usr/bin/codesign", "--force", "--sign", identity,
+                "--preserve-metadata=identifier,entitlements,requirements,flags,runtime",
+            ]
             subprocess.run([*command, str(bundle)], check=True)
             subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(bundle)], check=True)
         publish(bundle, destination, replace=replace, platform=platform)

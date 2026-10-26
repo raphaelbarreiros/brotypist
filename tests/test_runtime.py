@@ -116,7 +116,7 @@ class Inference:
 def runtime(tmp_path, monkeypatch):
     monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
     bridge = Bridge()
-    controller = Controller(Config(), bridge)
+    controller = Controller(Config(prompt_style="writing"), bridge)
     controller._capture_interval = 0
     controller._client = Inference()
     controller._storage = LocalStorage(tmp_path / "data.sqlite3", lambda: b"k" * 32)
@@ -187,7 +187,7 @@ def test_domain_exclusion_is_checked_before_capture_and_optional_readers(runtime
         app_rules={"domain:private.example": {"enabled": False}}), persist=False)
     calls = []
     controller.set_clipboard_reader(lambda *, authorized: calls.append("clipboard") or "sensitive clipboard")
-    controller.set_screen_reader(lambda snapshot, *, bridge, authorized, max_chars: calls.append("screen") or "sensitive screen")
+    controller.set_screen_reader(lambda snapshot, *, bridge, authorized, max_chars, **sources: calls.append("screen") or "sensitive screen")
     bridge.info = {"app_id": "browser", "name": "Browser", "domain": "private.example", "browser": True, "domain_observable": True}
     bridge.snapshot = replace(bridge.snapshot, app_id="browser", domain="private.example")
     controller.tick()
@@ -209,7 +209,7 @@ def test_blocked_old_context_never_delays_fresh_prediction_or_reappears(runtime)
     controller.update_config(replace(controller.config, screen_context=True), persist=False)
     started, release, finished = threading.Event(), threading.Event(), threading.Event()
     calls = []
-    def read_screen(snapshot, *, bridge, authorized, max_chars):
+    def read_screen(snapshot, *, bridge, authorized, max_chars, accessibility, screenshot_context):
         calls.append(snapshot.field_id)
         if snapshot.field_id == "body":
             started.set()
@@ -413,14 +413,14 @@ def test_slow_statistics_write_never_holds_the_keyboard_decision_lock(runtime):
         flush.join(3)
 
 
-def test_global_app_domain_and_recorded_vocabulary_reach_real_prompt_at_selected_strength(runtime):
+def test_recorded_vocabulary_reaches_real_prompt_only_under_current_recording_consent(runtime):
     from inklow.providers import _prompt
     controller, bridge, client = runtime
-    controller._storage.record_history("seed", "writer", LONG_SESSION)
-    controller.update_config(replace(controller.config, custom_instructions="Use Portuguese.",
+    controller.update_config(replace(controller.config, record_history=True, custom_instructions="Use Portuguese.",
         personalization_strength=90, app_rules={
             "app:writer": {"custom_instructions": "Keep a professional tone."},
             "domain:work.example": {"custom_instructions": "Prefer short sentences."}}), persist=False)
+    assert controller._storage.record_history("seed", "writer", LONG_SESSION, domain="work.example")
     bridge.info = {"app_id": "writer", "name": "Writer", "domain": "work.example", "browser": True, "domain_observable": True}
     bridge.snapshot = replace(bridge.snapshot, domain="work.example")
     submit_command(controller, "force")
@@ -433,6 +433,15 @@ def test_global_app_domain_and_recorded_vocabulary_reach_real_prompt_at_selected
     prompt = _prompt(config, prefix, suffix, options)
     assert "recurring vocabulary" not in prompt
     assert "professional tone" in prompt
+    # Turning recording off withdraws retrieval too: existing history is not read.
+    controller.update_config(replace(controller.config, record_history=False, personalization_strength=90), persist=False)
+    reads = []
+    vocabulary = controller._storage.vocabulary
+    controller._storage.vocabulary = lambda *args, **kwargs: reads.append(args) or vocabulary(*args, **kwargs)
+    submit_command(controller, "force")
+    config, prefix, suffix, options = client.requests[-1]
+    assert "observability" not in _prompt(config, prefix, suffix, options)
+    assert reads == []
 
 
 def test_trailing_material_can_be_accepted_later_without_counting_punctuation_as_word(runtime):
@@ -930,7 +939,7 @@ def test_fast_event_drain_does_not_multiply_native_capture(runtime, monkeypatch)
     controller.tick()
     captures = bridge.captures
     snapshot = bridge.snapshot
-    controller._request = (1, snapshot, controller._suggestion.generation, "completion")
+    controller._request = (1, snapshot, controller._suggestion.generation, "completion", "medium")
     client.events.append({"type": "result", "id": 1, "text": " arrives tomorrow", "final": True})
     for step in (0.025, 0.04, 0.049):
         clock[0] = 100.0 + step
@@ -1067,3 +1076,843 @@ def test_typing_pause_uses_native_input_time_only_for_the_same_field(runtime, mo
     else:
         assert not ready.is_set()
         assert not client.requests
+
+
+def wait_request(controller, previous):
+    deadline = time.monotonic() + 2
+    while controller._client.identifier == previous and time.monotonic() < deadline:
+        controller.tick()
+        time.sleep(0.005)
+    return controller._client.identifier
+
+
+def test_escape_pause_is_brief_field_scoped_and_keeps_the_worker_warm(runtime):
+    controller, bridge, client = runtime
+    controller.update_config(replace(controller.config, escape_behavior="pause", escape_pause_seconds=30), persist=False)
+    offer(controller, bridge, " arrives tomorrow")
+    assert controller.invoke("escape")
+    assert not client.released and controller.status()["enabled"]
+    assert not controller._suggestion.text
+    assert not controller.invoke("escape")  # Nothing is shown: the host receives it.
+    requests = len(client.requests)
+    bridge.snapshot = field_snapshot(bridge.snapshot.text + " and")
+    controller.tick()
+    controller._candidate_since -= 5
+    controller.tick()
+    assert len(client.requests) == requests
+    bridge.snapshot = replace(bridge.snapshot, field_id="other")
+    previous = client.identifier
+    controller.tick()
+    controller._candidate_since -= 5
+    assert wait_request(controller, previous) > previous
+    assert not client.released
+
+
+def test_escape_over_inflight_prediction_passes_through_and_drops_its_late_result(runtime):
+    controller, bridge, client = runtime
+    controller.tick()
+    identifier = submit_command(controller, "force")
+    assert not controller.invoke("escape")
+    client.events.append({"type": "result", "id": identifier, "text": " arrives tomorrow", "final": True})
+    controller.tick()
+    assert not controller._suggestion.text
+    assert not any(event["type"] == "suggestion" for event in controller.drain_events())
+
+
+def test_escape_app_mode_lasts_until_an_app_switch_without_saving_a_rule(runtime):
+    controller, bridge, client = runtime
+    controller.update_config(replace(controller.config, escape_behavior="app"), persist=False)
+    offer(controller, bridge, " arrives tomorrow")
+    assert controller.invoke("escape")
+    status = controller.status()
+    assert status["escape_suppressed"] and not status["current_app_enabled"]
+    captures = bridge.captures
+    controller.tick()
+    assert bridge.captures == captures and not client.released
+    bridge.info = {"app_id": "other", "name": "Other", "domain": ""}
+    controller.tick()
+    bridge.info = {"app_id": "writer", "name": "Writer", "domain": ""}
+    controller.tick()
+    assert controller.status()["current_app_enabled"]
+    assert controller.config.app_rules == {}
+
+
+def test_app_toggle_expires_after_a_few_minutes_and_scopes_websites(runtime, monkeypatch):
+    controller, bridge, client = runtime
+    clock = [100.0]
+    monkeypatch.setattr("inklow.runtime.time.monotonic", lambda: clock[0])
+    controller.tick()
+    assert controller.toggle_current_app()
+    status = controller.status()
+    assert not status["current_app_enabled"]
+    assert status["temporary_scope"] == "app:writer" and status["temporary_remaining"] == 300
+    assert not client.released and controller.config.app_rules == {}
+    clock[0] += 301
+    controller.tick()
+    assert controller.status()["current_app_enabled"]
+    assert controller.toggle_current_app(app="browser", domain="Work.Example.")
+    assert not controller._allowed("browser", "work.example")
+    assert controller._allowed("browser", "other.example")
+
+
+class FastBridge(Bridge):
+    """Native key path with drawn-presentation acknowledgment (macOS contract)."""
+
+    def __init__(self, text="Dear team, the update"):
+        super().__init__(text)
+        self.revision = 0
+        self.replayed = []
+
+    def user_input_revision(self):
+        return self.revision
+
+    def set_input_callback(self, callback):
+        self.input_callback = callback
+
+    def replay_action(self, action):
+        self.replayed.append(action)
+        return True
+
+
+@pytest.fixture
+def fast_runtime(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
+    bridge = FastBridge()
+    controller = Controller(Config(prompt_style="writing"), bridge)
+    controller._capture_interval = 0
+    controller._client = Inference()
+    controller._storage = LocalStorage(tmp_path / "data.sqlite3", lambda: b"k" * 32)
+    controller.start()
+    yield controller, bridge, controller._client
+    controller.stop()
+
+
+def draw(controller, visible=None):
+    event = [event for event in controller.drain_events() if event["type"] == "suggestion"][-1]
+    controller.presentation_result(event["key"], event["text"] if visible is None else visible, event["mode"])
+    return event
+
+
+def test_fast_keys_insert_only_text_the_overlay_confirmed_it_drew(fast_runtime):
+    controller, bridge, _ = fast_runtime
+    offer(controller, bridge, " arrives tomorrow morning")
+    assert not controller.fast_invoke("word")  # Computed, not yet drawn.
+    assert not controller.fast_invoke("escape")
+    draw(controller, "")  # The draw failed (e.g. off-screen).
+    assert not controller.fast_invoke("all")
+    controller.tick()
+    assert bridge.insertions == [] and bridge.replayed == []
+    controller.presentation_result(controller._suggestion.snapshot.key, " arrives tomorrow", "completion")
+    assert controller.fast_invoke("all")
+    controller.tick()
+    assert [text.strip() for text in bridge.insertions] == ["arrives tomorrow"]
+    assert "morning" not in bridge.snapshot.text
+
+
+def test_fast_key_after_user_input_passes_and_stale_acceptance_replays_once(fast_runtime):
+    controller, bridge, _ = fast_runtime
+    offer(controller, bridge, " arrives tomorrow")
+    draw(controller)
+    bridge.revision += 1  # A click in the field: no text change.
+    assert not controller.fast_invoke("word")
+    controller.tick()
+    draw(controller)
+    original = bridge.snapshot
+    bridge.snapshot = replace(original, text=original.text + "!", caret=original.caret + 1)  # Host autocorrect.
+    assert controller.fast_invoke("word")
+    controller.tick()
+    assert bridge.insertions == []
+    assert bridge.replayed == ["word"]
+
+
+def test_fast_escape_dismisses_drawn_text_keeps_worker_and_second_escape_passes(fast_runtime):
+    controller, bridge, client = fast_runtime
+    offer(controller, bridge, " arrives tomorrow")
+    draw(controller)
+    assert controller.fast_invoke("escape")
+    controller.tick()
+    assert not controller._suggestion.text and not client.released
+    assert not controller.fast_invoke("escape")
+    assert bridge.replayed == []
+
+
+@pytest.mark.parametrize("action", ["escape", "dismiss"])
+def test_fast_passthrough_escape_dismisses_even_after_tap_discards_gate(fast_runtime, action):
+    controller, bridge, client = fast_runtime
+    controller.update_config(replace(controller.config, escape_behavior="passthrough"), persist=False)
+    offer(controller, bridge, " arrives tomorrow")
+    draw(controller)
+    gate = object()
+    bridge.input_transaction = lambda: gate
+    begun = []
+    bridge.begin_input_transaction = lambda token: begun.append(token) or token is None
+    assert not controller.fast_invoke(action)  # Original Escape reaches the host.
+    controller.tick()
+    assert begun == [None]
+    assert not controller._suggestion.text and not client.released
+    assert bridge.insertions == [] and bridge.replayed == []
+
+
+TYPO_TEXT = "Dear team, we will recieve"
+
+
+class Spelling:
+    def __init__(self):
+        self.suspected = True
+        self.closed = False
+
+    def assess(self, snapshot):
+        from types import SimpleNamespace
+        return SimpleNamespace(key=snapshot.key, start=snapshot.text.rfind("recieve"), length=7, word="recieve",
+                               replacement="receive", suspected=self.suspected, language="en",
+                               reason="typo" if self.suspected else "ok", finished=False)
+
+    def close(self):
+        self.closed = True
+
+
+def test_suspected_typo_withholds_completion_until_the_word_is_correct(runtime):
+    controller, bridge, client = runtime
+    controller.update_config(replace(controller.config, typo_suppression=True), persist=False)
+    controller._spelling = spelling = Spelling()
+    bridge.snapshot = field_snapshot(TYPO_TEXT)
+    controller.tick()
+    controller._candidate_since -= 5
+    controller.tick()
+    assert not client.requests
+    spelling.suspected = False
+    assert wait_request(controller, 0) == 1
+    controller.update_config(replace(controller.config, typo_suppression=False), persist=False)
+    assert spelling.closed
+
+
+def test_suggested_fix_is_drawn_on_the_same_line_and_tab_applies_it_atomically(runtime):
+    controller, bridge, client = runtime
+    controller.update_config(replace(controller.config, typo_fixes=True), persist=False)
+    controller._spelling = Spelling()
+    bridge.range_rect = lambda snapshot, start, length: (60, 20, 40, 18)
+    bridge.snapshot = field_snapshot(TYPO_TEXT)
+    controller.tick()
+    event = next(event for event in controller.drain_events() if event["type"] == "suggestion")
+    assert event["mode"] == "correction" and event["text"] == "receive"
+    assert event["correction"]["word"] == "recieve" and event["correction"]["rect"] == [60, 20, 40, 18]
+    assert controller.invoke("word")
+    assert bridge.snapshot.text == "Dear team, we will receive"
+    assert not client.requests
+
+
+@pytest.mark.parametrize("can_replace", [True, False])
+def test_delayed_alternatives_keep_the_completion_and_tab_never_chooses_them(runtime, can_replace):
+    controller, bridge, client = runtime
+    controller.update_config(replace(controller.config, alternatives_enabled=True, alternatives_mode="pause"), persist=False)
+    bridge.snapshot = replace(bridge.snapshot, can_replace=can_replace)
+    offer(controller, bridge, " arrives tomorrow")
+    previous = client.identifier
+    controller._candidate_since -= 5
+    assert wait_request(controller, previous) > previous
+    client.events.append({"type": "result", "id": client.identifier,
+                          "text": '[" is ready", " ships today"]', "final": True})
+    controller.tick()
+    event = [event for event in controller.drain_events() if event["type"] == "suggestion"][-1]
+    assert event["mode"] == "completion" and event["text"] == " arrives tomorrow"
+    assert event["choices"] == [" is ready", " ships today"]
+    assert controller.invoke("word")
+    assert bridge.insertions == [" arrives "]
+    assert not controller._choices
+
+
+def test_current_word_only_finishes_the_word_and_never_starts_the_next(runtime):
+    controller, bridge, client = runtime
+    controller.update_config(replace(controller.config, completion_length="word"), persist=False)
+    bridge.snapshot = field_snapshot("Dear team, the upd")
+    offer(controller, bridge, "ate arrives tomorrow")
+    assert controller._suggestion.text == "ate"
+    bridge.snapshot = field_snapshot("Dear team, the update ")
+    assert not controller.force()
+
+
+def test_battery_is_one_step_shorter_and_uses_only_an_installed_battery_model(runtime, monkeypatch):
+    from inklow.features import completion_limits
+    from inklow.models import get_preset, model_path
+    controller, bridge, client = runtime
+    controller.update_config(replace(controller.config, completion_length="long", battery_shorter=True,
+                                     battery_model="tiny"), persist=False)
+    controller.set_battery_reader(lambda: True)
+    monkeypatch.setattr("inklow.models.is_installed", lambda preset: False)
+    controller.tick()
+    submit_command(controller, "force")
+    config, _, _, options = client.requests[-1]
+    assert options["max_words"] == completion_limits("medium")[1]
+    assert config.model_path == controller.config.model_path
+    assert "battery model" in controller.status()["message"]
+    monkeypatch.setattr("inklow.models.is_installed", lambda preset: True)
+    submit_command(controller, "force")
+    assert client.requests[-1][0].model_path == str(model_path(get_preset("tiny")))
+
+
+def test_screenshot_measured_appearance_needs_its_own_opt_in(runtime):
+    controller, bridge, _ = runtime
+    bridge.snapshot = replace(bridge.snapshot, inline_render=replace(RENDER, source="macos-ax-geometry+vision"))
+    controller.tick()
+    assert not controller.force()
+    controller.update_config(replace(controller.config, screenshot_appearance=True), persist=False)
+    controller.tick()
+    assert controller.force()
+
+
+def test_window_context_sources_follow_their_separate_consents(runtime):
+    controller, bridge, _ = runtime
+    snapshot = bridge.snapshot
+    controller._candidate = snapshot
+    seen = []
+
+    def reader(snapshot, *, accessibility, screenshot_context, **kwargs):
+        seen.append((accessibility, screenshot_context))
+        return {"text": "The update arrives Friday.", "provenance": "screenshot", "status": "ready",
+                "window_id": snapshot.window_id, "revision": snapshot.window_revision}
+
+    controller.set_screen_reader(reader)
+    for screen, screenshots in ((True, False), (False, True)):
+        controller.config = replace(controller.config, screen_context=screen, screenshot_context=screenshots)
+        token = (object(), snapshot.key, controller._window_key(snapshot))
+        controller._screen_job = token
+        controller._read_window_context(token, snapshot)
+        assert ("Friday" in controller._reference_options(snapshot, [])) is screenshots
+    assert seen == [(True, False), (False, True)]
+
+
+def test_website_history_is_recorded_counted_and_deleted_per_domain(runtime):
+    controller, bridge, _ = runtime
+    controller.update_config(replace(controller.config, record_history=True, record_unaccepted=True), persist=False)
+    bridge.info = {"app_id": "browser", "name": "Browser", "domain": "work.example", "browser": True, "domain_observable": True}
+    bridge.snapshot = replace(bridge.snapshot, app_id="browser", domain="work.example",
+                              text=LONG_SESSION, caret=len(LONG_SESSION))
+    controller.tick()
+    bridge.info = {"app_id": "other", "name": "Other", "domain": ""}
+    controller.tick()
+    counts = controller.history_counts()
+    assert counts["available"] and counts["domains"] == {"work.example": 1}
+    controller.delete_history(domain="work.example")
+    assert controller.history_counts()["domains"] == {}
+
+
+@pytest.mark.parametrize("tool", ["synonyms", "emoji", "correction"])
+def test_escape_field_pause_suppresses_every_automatic_tool(runtime, tool):
+    controller, bridge, client = runtime
+    controller.update_config(replace(
+        controller.config, escape_behavior="pause", synonyms_enabled=True, synonyms_mode="selection",
+        emoji_enabled=True, typo_fixes=True, typo_suppression=False), persist=False)
+    controller._spelling = Spelling()
+    bridge.range_rect = lambda snapshot, start, length: (60, 20, 40, 18)
+    if tool == "synonyms":
+        bridge.snapshot = field_snapshot("kind", caret=0, selection_length=4)
+        controller.tick()
+        controller._publish_choices(bridge.snapshot, ["friendly"], "synonyms", (0, 4))
+    elif tool == "emoji":
+        bridge.snapshot = field_snapshot("Hello :-)")
+        controller.tick()
+        controller._publish_choices(bridge.snapshot, ["🙂"], "emoji", (6, 3))
+    else:
+        bridge.snapshot = field_snapshot(TYPO_TEXT)
+        controller.tick()
+    assert controller.invoke("escape")
+    controller.drain_events()
+    controller._candidate_since -= 5
+    for _ in range(3):
+        controller.tick()
+    assert not client.requests
+    assert not [event for event in controller.drain_events() if event["type"] == "suggestion"]
+    assert bridge.insertions == []
+
+
+def test_failed_correction_geometry_does_not_cancel_or_starve_completion(runtime):
+    controller, bridge, client = runtime
+    controller.update_config(replace(controller.config, typo_fixes=True, typo_suppression=False), persist=False)
+    controller._spelling = Spelling()
+    geometry_reads = []
+    bridge.range_rect = lambda *args: geometry_reads.append(args) or None
+    bridge.snapshot = field_snapshot(TYPO_TEXT)
+    controller.tick()
+    request = wait_request(controller, 0)
+    for _ in range(3):
+        controller.tick()
+    client.events.append({"type": "result", "id": request, "text": " the update", "final": True})
+    controller.tick()
+    assert len(geometry_reads) == 1
+    assert controller._suggestion.text == " the update"
+    assert controller.invoke("word")
+    assert bridge.insertions == [" the "]
+
+
+@pytest.mark.parametrize("action", ["force", "synonyms", "app_toggle"])
+@pytest.mark.parametrize("change", ["field", "app", "revision"])
+def test_fast_focus_sensitive_commands_cannot_cross_the_origin(fast_runtime, action, change):
+    controller, bridge, client = fast_runtime
+    controller.update_config(replace(controller.config, synonyms_enabled=True), persist=False)
+    controller.tick()
+    assert controller.fast_invoke(action)
+    if change == "field":
+        bridge.snapshot = replace(bridge.snapshot, field_id="another-field")
+    elif change == "app":
+        bridge.info = {"app_id": "other", "name": "Other", "domain": ""}
+        bridge.snapshot = replace(bridge.snapshot, app_id="other")
+    else:
+        bridge.revision += 1
+    controller.tick()
+    assert not client.requests and controller._temporary_apps == {}
+    assert bridge.replayed == [action]
+
+
+def test_chooser_acknowledgment_never_arms_a_hidden_long_tail(fast_runtime):
+    controller, bridge, _ = fast_runtime
+    bridge.snapshot = field_snapshot("kind", caret=0, selection_length=4)
+    controller.tick()
+    controller._publish_choices(bridge.snapshot, ["short", "a very long invisible tail"], "synonyms", (0, 4))
+    controller.presentation_result(bridge.snapshot.key, "short\na very long…", "synonyms")
+    assert not controller.fast_invoke("choice:2")
+    assert controller.fast_invoke("choice:1")
+    controller.tick()
+    assert bridge.insertions == ["short"]
+
+
+def test_chooser_with_no_fully_displayed_row_does_not_steal_tab_or_escape(fast_runtime):
+    controller, bridge, _ = fast_runtime
+    bridge.snapshot = field_snapshot("kind", caret=0, selection_length=4)
+    controller.tick()
+    controller._publish_choices(bridge.snapshot, ["a very long invisible tail"], "synonyms", (0, 4))
+    controller.presentation_result(bridge.snapshot.key, "a very long…", "synonyms")
+    assert not controller.fast_invoke("word")
+    assert not controller.fast_invoke("choice:1")
+    assert not controller.fast_invoke("escape")
+    assert bridge.insertions == []
+
+
+@pytest.fixture
+def docs_field(fast_runtime):
+    controller, bridge, client = fast_runtime
+    bridge.snapshot = None
+    bridge.info = {"app_id": "browser", "name": "Browser", "domain": "docs.google.com",
+                   "browser": True, "domain_observable": True, "pid": 42,
+                   "window_id": "opaque-window", "document_id": "opaque-document"}
+    hint = {"token": "document-capability", "app_id": "browser", "pid": 42,
+            "window_id": "opaque-window", "document_id": "opaque-document",
+            "anchor": (100, 200, 600, 400), "support": "unknown",
+            "help_url": "https://support.google.com/docs/answer/6282736"}
+    reads, enables = [], []
+    def read_hint():
+        reads.append("hint")
+        if bridge.info.get("app_id") == hint["app_id"] and bridge.info.get("domain") == "docs.google.com":
+            return dict(hint)
+        return None
+    bridge.docs_hint = read_hint
+    bridge.input_revision = lambda: bridge.revision
+    bridge.secure_input_active = lambda: False
+    bridge.enable_docs_accessibility = lambda token: enables.append(token) or {
+        "status": "unknown", "diagnostic": "unconfirmed", "help_url": hint["help_url"]}
+    return controller, bridge, client, hint, reads, enables
+
+
+def test_docs_help_is_metadata_only_deduplicated_and_never_arms_tab(docs_field):
+    controller, bridge, client, hint, _, enables = docs_field
+    controller.tick()
+    controller.tick()
+    events = controller.drain_events()
+    assert [event for event in events if event["type"] == "docs_help"] == [
+        {"type": "docs_help", "hint": hint}]
+    assert not any(event["type"] in {"caret", "suggestion"} for event in events)
+    controller.presentation_result(hint["token"], "Enable accessibility", "docs_help")
+    assert not controller.fast_invoke("word")
+    assert not controller.fast_invoke("all")
+    assert not controller.invoke("word")
+    assert not client.requests and not bridge.insertions and not enables
+    assert controller.invoke("plain_tab")
+    assert bridge.replayed == ["plain_tab"]
+
+
+@pytest.mark.parametrize("loss", ["focus", "domain", "policy", "pause", "disabled", "native", "security"])
+def test_docs_capability_is_revoked_on_focus_privacy_pause_or_native_loss(docs_field, loss):
+    controller, bridge, _, hint, reads, enables = docs_field
+    controller.tick()
+    controller.drain_events()
+    if loss == "focus":
+        bridge.info = {"app_id": "other", "name": "Other", "domain": ""}
+    elif loss == "domain":
+        bridge.info = {**bridge.info, "domain": "private.example"}
+    elif loss == "policy":
+        controller.update_config(replace(controller.config, app_rules={
+            "domain:docs.google.com": {"enabled": False}}), persist=False)
+    elif loss == "pause":
+        controller.pause(10)
+    elif loss == "disabled":
+        controller.update_config(replace(controller.config, global_enabled=False), persist=False)
+    else:
+        bridge.revision += 1  # Native focus/availability changes invalidate capabilities.
+        bridge.docs_hint = lambda: None
+    if loss == "security":
+        bridge.secure_input_active = lambda: True
+    controller.tick()
+    assert {"type": "docs_help", "hint": None} in controller.drain_events()
+    assert controller.enable_docs_accessibility(hint["token"])["status"] == "unknown"
+    assert not enables
+    if loss in {"policy", "pause", "disabled"}:
+        assert reads == ["hint"]
+
+
+@pytest.mark.parametrize("loss", ["pause", "focus", "domain", "disabled"])
+def test_docs_enable_rechecks_policy_even_before_next_capture(docs_field, loss):
+    controller, bridge, _, hint, _, enables = docs_field
+    controller.tick()
+    if loss == "pause":
+        controller.pause(10)
+    elif loss == "focus":
+        bridge.info = {"app_id": "other"}
+    elif loss == "domain":
+        bridge.info = {**bridge.info, "domain": "private.example"}
+    else:
+        controller.update_config(replace(controller.config, global_enabled=False), persist=False)
+    assert controller.enable_docs_accessibility(hint["token"])["status"] == "unknown"
+    assert enables == []
+
+
+def test_docs_enable_is_explicit_single_use_and_unknown_is_not_success(docs_field, monkeypatch):
+    controller, bridge, _, hint, _, enables = docs_field
+    controller.tick()
+    assert enables == []
+    assert controller.enable_docs_accessibility("stale-token")["status"] == "unknown"
+    assert enables == []
+    now = controller._docs_probe_after + 0.01
+    monkeypatch.setattr("inklow.runtime.time.monotonic", lambda: now)
+    controller.tick()
+    result = controller.enable_docs_accessibility(hint["token"])
+    assert result["status"] == "unknown"
+    assert enables == [hint["token"]]
+    assert not controller.fast_invoke("word")
+    assert not bridge.insertions
+    assert controller.enable_docs_accessibility(hint["token"])["status"] == "unknown"
+    assert enables == [hint["token"]]
+
+
+def test_docs_hint_disappears_when_real_capture_returns_without_arming_computed_text(docs_field):
+    controller, bridge, client, _, _, _ = docs_field
+    controller.tick()
+    controller.drain_events()
+    bridge.snapshot = replace(field_snapshot("Dear team, the update"), app_id="browser",
+                              domain="docs.google.com")
+    controller.tick()
+    assert {"type": "docs_help", "hint": None} in controller.drain_events()
+    offer(controller, bridge, " arrives tomorrow")
+    assert not controller.fast_invoke("word")
+    draw(controller)
+    assert controller.fast_invoke("word")
+    controller.tick()
+    assert bridge.insertions == [" arrives "]
+
+
+@pytest.mark.parametrize("positive", [False, True])
+def test_docs_probes_are_bounded_and_typing_does_not_throttle_capture(docs_field, monkeypatch, positive):
+    controller, bridge, _, _, reads, _ = docs_field
+    now = [100.0]
+    monkeypatch.setattr("inklow.runtime.time.monotonic", lambda: now[0])
+    if not positive:
+        bridge.docs_hint = lambda: reads.append("hint")
+    controller.tick()
+    captures = bridge.captures
+    for index in range(1, 20):
+        now[0] = 100.0 + index / 10
+        bridge.revision += 1
+        controller.tick()
+    assert reads == ["hint"]
+    assert bridge.captures >= captures + 19
+    assert controller._docs_help is None  # First input revoked the shown capability.
+    now[0] = 102.11
+    controller.tick()
+    assert reads == ["hint", "hint"]
+
+
+@pytest.mark.parametrize("change", ["revision", "window_id", "document_id", "pid"])
+def test_docs_identity_loss_revokes_action_before_next_capture(docs_field, change):
+    controller, bridge, _, hint, reads, enables = docs_field
+    controller.tick()
+    if change == "revision":
+        bridge.revision += 1
+    else:
+        bridge.info = {**bridge.info, change: "different"}
+    assert controller.enable_docs_accessibility(hint["token"])["status"] == "unknown"
+    assert enables == [] and reads == ["hint"]
+    assert controller._docs_help is None
+
+
+def test_docs_input_during_discovery_does_not_publish_stale_capability(docs_field):
+    controller, bridge, _, hint, _, enables = docs_field
+    def discover_after_focus_change():
+        bridge.revision += 1
+        return dict(hint)
+    bridge.docs_hint = discover_after_focus_change
+    controller.tick()
+    assert controller._docs_help is None
+    assert not any(event.get("hint") for event in controller.drain_events()
+                   if event["type"] == "docs_help")
+    assert controller.enable_docs_accessibility(hint["token"])["status"] == "unknown"
+    assert not enables
+
+
+@pytest.mark.parametrize("backend,style,on_battery,installed,expected", [
+    ("gguf", "continuation", False, False, False),
+    ("gguf", "writing", True, True, False),
+    ("gguf", "writing", True, False, True),
+    ("gguf", "writing", False, True, True),
+    ("ollama", "continuation", True, True, True),
+    ("openai", "continuation", False, False, True),
+])
+def test_synonyms_use_effective_model_capability_without_retrying_selection(
+        runtime, monkeypatch, backend, style, on_battery, installed, expected):
+    controller, bridge, client = runtime
+    controller.update_config(replace(controller.config, backend=backend, prompt_style=style,
+                                     battery_model="tiny", synonyms_mode="selection",
+                                     synonyms_delay_ms=100), persist=False)
+    controller._on_battery = on_battery
+    monkeypatch.setattr("inklow.models.is_installed", lambda preset: installed)
+    bridge.snapshot = field_snapshot("A useful update", caret=2, selection_length=6)
+    controller.tick()
+    controller._candidate_since -= 5
+    for _ in range(3):
+        controller.tick()
+    if expected:
+        if controller._preparing is not None:
+            wait_request(controller, 0)
+        assert client.requests and client.requests[0][3].get("utility")
+    else:
+        assert not controller.invoke("synonyms")
+        assert not controller._submit(bridge.snapshot, "synonyms")
+        assert not controller._preparing and not client.requests
+        assert controller.config.prompt_style == style
+
+
+def test_synonyms_recheck_battery_model_at_actual_dispatch(runtime, monkeypatch):
+    controller, bridge, client = runtime
+    controller.update_config(replace(controller.config, battery_model="tiny"), persist=False)
+    monkeypatch.setattr("inklow.models.is_installed", lambda preset: True)
+    bridge.snapshot = field_snapshot("A useful update", caret=2, selection_length=6)
+    controller.tick()
+    token = (bridge.snapshot.key, controller._suggestion.generation, "synonyms")
+    controller._preparing = token
+    controller._prepared.append((token, bridge.snapshot, {"utility": "guarded selected-word request"}))
+    controller._on_battery = True  # Changed after optional context was prepared.
+    controller._consume_prepared()
+    assert not client.requests and controller._preparing is None
+
+
+@pytest.mark.parametrize("tool", ["completion", "synonyms", "emoji", "correction"])
+def test_on_demand_fields_never_schedule_automatic_tools(runtime, tool):
+    controller, bridge, client = runtime
+    controller.update_config(replace(
+        controller.config, synonyms_mode="selection", typo_fixes=True,
+        alternatives_enabled=True, alternatives_mode="pause"), persist=False)
+    controller._spelling = Spelling()
+    range_reads = []
+    bridge.range_rect = lambda *args: range_reads.append(args) or (60, 20, 40, 18)
+    if tool == "synonyms":
+        snapshot = field_snapshot("A useful update", caret=2, selection_length=6)
+    elif tool == "emoji":
+        snapshot = field_snapshot("Hello :smile")
+    elif tool == "correction":
+        snapshot = field_snapshot(TYPO_TEXT)
+    else:
+        snapshot = bridge.snapshot
+    bridge.snapshot = replace(snapshot, on_demand_only=True)
+    controller.tick()
+    controller._candidate_since -= 10
+    controller.tick()
+    assert not client.requests
+    assert not range_reads
+    assert not [event for event in controller.drain_events() if event["type"] == "suggestion"]
+    assert not bridge.insertions
+
+
+def test_on_demand_append_only_force_requires_drawn_text_and_does_not_schedule_alternatives(fast_runtime):
+    controller, bridge, client = fast_runtime
+    controller.update_config(replace(
+        controller.config, alternatives_enabled=True, alternatives_mode="pause"), persist=False)
+    bridge.snapshot = replace(bridge.snapshot, on_demand_only=True, can_replace=False)
+    offer(controller, bridge, " arrives tomorrow")
+    assert not controller.fast_invoke("word")
+    controller._candidate_since -= 10
+    controller.tick()
+    assert len(client.requests) == 1
+    draw(controller)
+    assert controller.fast_invoke("word")
+    controller.tick()
+    assert bridge.insertions == [" arrives "]
+    assert len(client.requests) == 1
+    assert not bridge.replayed
+
+
+@pytest.mark.parametrize("changes", [
+    {"text": "", "caret": 0},
+    {"caret": -1},
+    {"selection_length": 1},
+    {"protected": True},
+    {"inline_render": None},
+    {"caret_rect": None, "field_rect": None},
+])
+def test_on_demand_force_retains_input_privacy_and_geometry_guards(runtime, changes):
+    controller, bridge, client = runtime
+    bridge.snapshot = replace(bridge.snapshot, on_demand_only=True, can_replace=False, **changes)
+    assert not controller.force()
+    controller.tick()
+    assert not client.requests
+    assert not bridge.insertions
+
+
+@pytest.mark.parametrize("capability", ["on_demand_only", "can_replace"])
+@pytest.mark.parametrize("enabled", [False, True])
+def test_capability_transition_drops_inflight_results_but_allows_fresh_force(runtime, capability, enabled):
+    controller, bridge, client = runtime
+    controller.update_config(replace(controller.config, min_chars=1000), persist=False)
+    bridge.snapshot = replace(bridge.snapshot, **{capability: enabled})
+    identifier = submit_command(controller, "force")
+    bridge.snapshot = replace(bridge.snapshot, **{capability: not enabled})
+    client.events.append({"type": "result", "id": identifier, "text": " stale", "final": True})
+    controller.tick()
+    assert not [event for event in controller.drain_events() if event["type"] == "suggestion"]
+    assert not controller.invoke("all")
+    assert not bridge.insertions
+    offer(controller, bridge, " fresh")
+    assert controller.invoke("all")
+    assert bridge.insertions == [" fresh"]
+
+
+@pytest.mark.parametrize("changes", [{"on_demand_only": True}, {"can_replace": False}])
+@pytest.mark.parametrize("deferred", [False, True])
+def test_capability_transition_revokes_drawn_and_deferred_acceptance(fast_runtime, changes, deferred):
+    controller, bridge, _ = fast_runtime
+    controller.update_config(replace(controller.config, min_chars=1000), persist=False)
+    offer(controller, bridge, " arrives tomorrow")
+    event = draw(controller)
+    bridge.snapshot = replace(bridge.snapshot, **changes)
+    if deferred:
+        assert controller.fast_invoke("word")
+    controller.tick()
+    controller.presentation_result(event["key"], event["text"], event["mode"])
+    assert not controller.fast_invoke("word")
+    assert not bridge.insertions
+    assert bridge.replayed == (["word"] if deferred else [])
+
+
+@pytest.mark.parametrize("tool", ["synonyms", "emoji", "correction"])
+def test_append_only_fields_never_generate_or_draw_replacement_tools(runtime, tool):
+    controller, bridge, client = runtime
+    controller.update_config(replace(
+        controller.config, min_chars=1000, synonyms_mode="selection",
+        typo_fixes=True, typo_suppression=False), persist=False)
+    controller._spelling = Spelling()
+    spelling_reads, range_reads = [], []
+    controller._spelling.assess = lambda snapshot: spelling_reads.append(snapshot)
+    bridge.range_rect = lambda *args: range_reads.append(args) or (60, 20, 40, 18)
+    if tool == "synonyms":
+        bridge.snapshot = field_snapshot("A useful update", caret=2, selection_length=6, can_replace=False)
+    elif tool == "emoji":
+        bridge.snapshot = field_snapshot("Hello :smile", can_replace=False)
+    else:
+        bridge.snapshot = field_snapshot(TYPO_TEXT, can_replace=False)
+    controller.tick()
+    controller._candidate_since -= 10
+    controller.tick()
+    assert not controller.invoke("synonyms")
+    assert not client.requests
+    assert not spelling_reads and not range_reads
+    assert not [event for event in controller.drain_events() if event["type"] == "suggestion"]
+    assert not controller.invoke("word")
+    assert not bridge.insertions
+
+
+@pytest.mark.parametrize("on_demand", [False, True])
+def test_append_only_numbered_alternatives_append_without_rewriting(runtime, on_demand):
+    controller, bridge, client = runtime
+    controller.update_config(replace(
+        controller.config, min_chars=1000, alternatives_enabled=True), persist=False)
+    bridge.snapshot = replace(bridge.snapshot, can_replace=False, on_demand_only=on_demand)
+    original = bridge.snapshot.text
+    submit_command(controller, "alternatives")
+    client.events.append({"type": "result", "id": client.identifier,
+                          "text": '[" arrives", " is ready"]', "final": True})
+    controller.tick()
+    assert not controller.invoke("word")
+    assert controller.invoke("choice:2")
+    assert bridge.snapshot.text == original + " is ready"
+    assert bridge.insertions == [" is ready"]
+
+
+def test_append_only_typo_suppression_withholds_completion_without_offering_a_fix(runtime):
+    controller, bridge, client = runtime
+    controller.update_config(replace(
+        controller.config, typo_fixes=True, typo_suppression=True), persist=False)
+    controller._spelling = spelling = Spelling()
+    bridge.snapshot = field_snapshot(TYPO_TEXT, can_replace=False)
+    controller.tick()
+    controller._candidate_since -= 10
+    controller.tick()
+    assert not client.requests
+    assert not [event for event in controller.drain_events() if event["type"] == "suggestion"]
+    spelling.suspected = False
+    offer(controller, bridge, " the update")
+    assert controller.invoke("all")
+    assert bridge.insertions == [" the update"]
+
+
+@pytest.mark.parametrize("tool", ["synonyms", "emoji", "correction"])
+def test_losing_replacement_capability_before_acceptance_never_rewrites(runtime, tool):
+    controller, bridge, client = runtime
+    controller.update_config(replace(controller.config, min_chars=1000), persist=False)
+    if tool == "synonyms":
+        bridge.snapshot = field_snapshot("A useful update", caret=2, selection_length=6)
+        identifier = submit_command(controller, "synonyms")
+        client.events.append({"type": "result", "id": identifier, "text": '["helpful"]', "final": True})
+        controller.tick()
+    elif tool == "emoji":
+        bridge.snapshot = field_snapshot("Hello :smile")
+        controller.tick()
+    else:
+        controller.update_config(replace(controller.config, typo_fixes=True), persist=False)
+        controller._spelling = Spelling()
+        bridge.range_rect = lambda *args: (60, 20, 40, 18)
+        bridge.snapshot = field_snapshot(TYPO_TEXT)
+        controller.tick()
+    assert any(event["type"] == "suggestion" for event in controller.drain_events())
+    original = bridge.snapshot.text
+    bridge.snapshot = replace(bridge.snapshot, can_replace=False)
+    assert not controller.invoke("word")
+    assert bridge.snapshot.text == original
+    assert not bridge.insertions
+
+
+def test_fast_synonym_shortcut_passes_through_in_append_only_selection(fast_runtime):
+    controller, bridge, client = fast_runtime
+    bridge.snapshot = field_snapshot("A useful update", caret=2, selection_length=6, can_replace=False)
+    controller.tick()
+    assert not controller.fast_invoke("synonyms")
+    controller.tick()
+    assert not client.requests and not bridge.replayed
+
+
+@pytest.mark.parametrize("changes", [{"on_demand_only": True}, {"can_replace": False}])
+def test_queued_force_cannot_cross_a_capability_transition(runtime, changes):
+    controller, bridge, client = runtime
+    controller.update_config(replace(controller.config, min_chars=1000), persist=False)
+    assert controller.force()
+    bridge.snapshot = replace(bridge.snapshot, **changes)
+    controller.tick()
+    assert not client.requests
+    assert not bridge.insertions
+
+
+def test_append_only_fields_still_schedule_and_accept_ordinary_completion(runtime):
+    controller, bridge, client = runtime
+    bridge.snapshot = replace(bridge.snapshot, can_replace=False)
+    controller.tick()
+    controller._candidate_since -= 10
+    identifier = wait_request(controller, 0)
+    client.events.append({"type": "result", "id": identifier, "text": " arrives", "final": True})
+    controller.tick()
+    assert controller.invoke("all")
+    assert bridge.insertions == [" arrives"]

@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 from . import __version__, system
 from .config import Config
 from .core import InlineRender
+from .models import PRESETS
 from .resources import REPOSITORY_URL, app_icon, configure_identity, tray_icon
 from .runtime import Controller
 from .shortcuts import normalize_shortcut, shortcut_from_event
@@ -515,6 +516,9 @@ class RuleEditor(QDialog):
         layout.addWidget(buttons)
         self.result_key = ""
         self.result_rule: dict = {}
+        # Rule fields this dialog does not edit are kept unchanged.
+        self._preserved = {name: value for name, value in rule.items()
+                           if name not in self.options and name != "custom_instructions"}
 
     def _accept(self) -> None:
         value = self.identifier.text().strip()
@@ -538,7 +542,8 @@ class RuleEditor(QDialog):
             _error(self, "Custom instructions must be no longer than 8,000 characters.")
             return
         self.result_key = f"{kind}:{value}"
-        self.result_rule = {name: control.currentData() for name, control in self.options.items() if control.currentData() is not None}
+        self.result_rule = dict(self._preserved)
+        self.result_rule.update({name: control.currentData() for name, control in self.options.items() if control.currentData() is not None})
         if instructions:
             self.result_rule["custom_instructions"] = instructions
         self.accept()
@@ -754,7 +759,7 @@ class SettingsWindow(QDialog):
     def _autocomplete(self, layout) -> None:
         form = self._group(layout, "Suggestions")
         self._check(form, "complete_inside_text", "Complete inside existing text")
-        self._combo(form, "completion_length", "Maximum completion length", (("Short", "short"), ("Medium", "medium"), ("Long", "long")))
+        self._combo(form, "completion_length", "Maximum completion length", (("Current word only", "word"), ("Short", "short"), ("Medium", "medium"), ("Long", "long")))
         self._spin(form, "debounce_ms", "Typing pause before completion", 100, 5000, " ms")
         self._spin(form, "min_chars", "Minimum typed characters", 1, 1000)
         self._shortcuts(layout)
@@ -850,7 +855,8 @@ class SettingsWindow(QDialog):
         layout.addWidget(_label("These limits apply while the system reports battery power. They do not change your normal model or completion preferences."))
         form = self._group(layout, "While on battery")
         self._check(form, "battery_on_demand", "Generate only when requested")
-        self._check(form, "battery_smaller_model", "Use a smaller installed local model", "An alternative model must already be installed; battery mode never downloads one automatically.")
+        self._combo(form, "battery_model", "Model on battery", (("Same as usual", "same"),) + tuple((preset.label, preset.id) for preset in PRESETS))
+        form.addRow(_label("A different model must already be installed; battery mode never downloads one automatically."))
         self._check(form, "battery_shorter", "Prefer shorter completions")
         self.battery_status = _label("")
         form.addRow(self.battery_status)

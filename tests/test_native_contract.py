@@ -21,6 +21,7 @@ import pytest
 from inklow.core import Snapshot, SuggestionState, take_word
 from inklow.native.base import BridgeBase, index_to_utf16, utf16_to_index
 from inklow.native.macos import MacBridge
+from inklow.native import macos
 from inklow.native.linux import LinuxBridge
 from inklow import shortcuts
 from inklow.shortcuts import normalize_shortcut, shortcut_from_event, mac_above_tab_keycode, mac_key_name
@@ -104,7 +105,7 @@ def test_chords_work_without_suggestion_and_false_callback_passes_through():
 @pytest.mark.parametrize("platform", ["windows", "linux"])
 def test_os_alt_tab_is_never_intercepted_even_if_configured(platform):
     bridge = BridgeBase()
-    bridge._shortcuts["word"] = "Alt+Tab"
+    bridge._shortcuts = {**bridge._shortcuts, "word": "Alt+Tab"}
     assert bridge._key_action("Tab", ("Alt",), platform=platform) is None
     assert bridge._key_action("Tab", ("Alt",), platform="macos") == "bypass"
 
@@ -172,7 +173,8 @@ def test_mac_exact_selected_text_replacement_does_not_rewrite_document():
     field = object()
     bridge._capture = lambda: (snapshot, field)
     bridge._settable = lambda element, attribute: attribute == "AXSelectedText"
-    bridge.ax = SimpleNamespace(AXUIElementSetAttributeValue=lambda element, attribute, text:
+    bridge.ax = SimpleNamespace(AXUIElementSetMessagingTimeout=lambda field, seconds: 0,
+                               AXUIElementSetAttributeValue=lambda element, attribute, text:
                                 writes.append((element, attribute, text)) or 0)
     assert bridge.replace_selection(snapshot, "term")
     assert writes == [(field, "AXSelectedText", "term")]
@@ -206,43 +208,69 @@ def test_linux_nonatomic_replacement_refuses_before_deleting_original_text():
     assert not bridge.replace_range(snapshot, 2, 3, "🙂")
 
 
-def test_quartz_keyboard_path_dispatches_configured_force_and_safe_option_tab(monkeypatch):
+def quartz_bridge(monkeypatch, callback):
+    """MacBridge with a recording Quartz double; the tap thread body runs inline."""
     import sys
     from contextlib import nullcontext
     monkeypatch.setitem(sys.modules, "objc", SimpleNamespace(autorelease_pool=nullcontext))
     monkeypatch.setattr(shortcuts, "mac_above_tab_keycode", lambda: 10)
+    monkeypatch.setattr(macos.threading, "Timer", lambda interval, callback:
+                        SimpleNamespace(start=lambda: None, cancel=lambda: None))
     bridge = MacBridge.__new__(MacBridge)
     BridgeBase.__init__(bridge)
-    bridge._tap = bridge._runloop = None
     bridge._refresh_status = lambda: None
+    bridge.ax = SimpleNamespace(AXIsProcessTrusted=lambda: True,
+                                AXUIElementSetMessagingTimeout=lambda field, seconds: 0)
+    bridge.secure_input_active = lambda: False
     bridge._event_type = SimpleNamespace(eventWithCGEvent_=lambda event:
                                          SimpleNamespace(charactersIgnoringModifiers=lambda: "a"))
-    q = SimpleNamespace(
+    posted, enabled = [], []
+    fields = {10: "code", 12: "tag", 13: "repeat"}
+    bridge.q = SimpleNamespace(
         kCGEventTapDisabledByTimeout=-1, kCGEventTapDisabledByUserInput=-2,
-        kCGEventKeyDown=1, kCGEventFlagMaskControl=1, kCGEventFlagMaskAlternate=2,
+        kCGEventKeyDown=1, kCGEventLeftMouseDown=2, kCGEventRightMouseDown=3,
+        kCGEventOtherMouseDown=4, kCGEventScrollWheel=5,
+        kCGEventKeyUp=6, kCGEventFlagsChanged=7, kCGEventLeftMouseUp=8,
+        kCGEventRightMouseUp=9, kCGEventOtherMouseUp=10, kCGEventMouseMoved=11,
+        kCGEventLeftMouseDragged=12, kCGEventRightMouseDragged=13, kCGEventOtherMouseDragged=14,
+        kCGEventFlagMaskControl=1, kCGEventFlagMaskAlternate=2,
         kCGEventFlagMaskShift=4, kCGEventFlagMaskCommand=8, kCGEventFlagMaskSecondaryFn=16,
-        kCGKeyboardEventKeycode=10, kCGEventSourceUnixProcessID=11,
-        kCGSessionEventTap=0, kCGHeadInsertEventTap=0, kCGEventTapOptionDefault=0,
+        kCGKeyboardEventKeycode=10, kCGEventSourceUnixProcessID=11, kCGEventSourceUserData=12,
+        kCGKeyboardEventAutorepeat=13, kCGSessionEventTap=0, kCGHeadInsertEventTap=0,
+        kCGTailAppendEventTap=1, kCGEventTapOptionDefault=0, kCGEventTapOptionListenOnly=1,
         CGEventGetFlags=lambda event: event["flags"],
-        CGEventGetIntegerValueField=lambda event, field: event["code"] if field == 10 else 0,
+        CGEventGetIntegerValueField=lambda event, field: event.get(fields.get(field), 0),
         CGEventSetFlags=lambda event, flags: event.update(flags=flags),
-        CGEventTapEnable=lambda *args: None, CGEventTapCreate=lambda *args: object())
-    bridge.q = q
+        CGEventKeyboardGetUnicodeString=lambda event, size, length, chars:
+            (len(event.get("chars", "x")), event.get("chars", "x")),
+        CGEventTapEnable=lambda tap, value: enabled.append((tap, value)),
+        CGEventTapCreate=lambda location, place, option, mask, callback, refcon: f"tap{option}",
+        CGPreflightPostEventAccess=lambda: True,
+        CGEventCreateCopy=lambda event: dict(event),
+        CGEventCreateKeyboardEvent=lambda source, code, down: {"code": code, "down": down},
+        CGEventSetIntegerValueField=lambda event, field, value: event.update({fields[field]: value}),
+        CGEventPost=lambda location, event: posted.append(event))
     bridge.cf = SimpleNamespace(
         CFMachPortCreateRunLoopSource=lambda *args: object(),
         CFRunLoopGetCurrent=lambda: object(), kCFRunLoopCommonModes=0,
         CFRunLoopAddSource=lambda *args: None, CFRunLoopRun=lambda: None,
         CFRunLoopRemoveSource=lambda *args: None, CFMachPortInvalidate=lambda *args: None)
-    calls = []
-    bridge.start_shortcuts = BridgeBase.start_shortcuts.__get__(bridge)
-    bridge.start_shortcuts(lambda action: calls.append(action) or action in ("force", "bypass"))
+    BridgeBase.start_shortcuts(bridge, callback)
     bridge.set_shortcuts_enabled(True)
     bridge._event_loop()
+    return bridge, posted, enabled
+
+
+def test_quartz_keyboard_path_dispatches_configured_force_and_safe_option_tab(monkeypatch):
+    calls = []
+    bridge, _, _ = quartz_bridge(monkeypatch, lambda action: calls.append(action) or action in ("force", "bypass"))
     callback = bridge._event_callback
     tab = {"code": 48, "flags": 0}
     assert callback(None, 1, tab, None) is tab
     force = {"code": 10, "flags": 1}
     assert callback(None, 1, force, None) is None
+    bridge.finish_input_transaction(bridge.input_transaction(), True)
+    bridge.drain_input_transaction()
     bypass = {"code": 48, "flags": 2}
     assert callback(None, 1, bypass, None) is bypass
     assert bypass["flags"] == 0
@@ -251,16 +279,73 @@ def test_quartz_keyboard_path_dispatches_configured_force_and_safe_option_tab(mo
     assert calls == ["word", "force", "bypass"]
 
 
-@pytest.mark.parametrize("guard", ["secure", "protected", "readonly", "disabled", "composition", "unknown"])
+# Arming/replay map (P0): a consumed shortcut must not invalidate the arming
+# it used, but any passed-through key must; BroTypist's own tagged events are
+# invisible to dispatch and revisions; a deferred failure replays exactly once.
+def test_quartz_revisions_tagged_events_and_single_replay(monkeypatch):
+    calls = []
+    bridge, posted, _ = quartz_bridge(monkeypatch, lambda action: calls.append(action) or action == "word")
+    callback = bridge._event_callback
+    revision = bridge.user_input_revision()
+    assert callback(None, 1, {"code": 48, "flags": 0}, None) is None
+    assert bridge.user_input_revision() == revision
+    synthetic = {"code": 48, "flags": 0, "tag": macos.SYNTHETIC_TAG}
+    assert callback(None, 1, synthetic, None) is synthetic
+    assert calls == ["word"] and bridge.user_input_revision() == revision
+    gate = bridge.input_transaction()
+    up = {"code": 48, "flags": 0}
+    ordinary = {"code": 0, "flags": 0}
+    assert callback(None, bridge.q.kCGEventKeyUp, up, None) is None
+    assert callback(None, 1, ordinary, None) is None
+    bridge.finish_input_transaction(gate, False)
+    bridge.drain_input_transaction()
+    assert [(event["code"], event["tag"]) for event in posted] == [
+        (48, macos.SYNTHETIC_TAG), (48, macos.SYNTHETIC_TAG), (0, macos.SYNTHETIC_TAG)]
+    assert bridge.user_input_revision() > revision
+    assert bridge.input_transaction() is None
+
+
+def test_quartz_key_callback_never_waits_for_accessibility_capture(monkeypatch):
+    import threading
+    bridge, _, _ = quartz_bridge(monkeypatch, lambda action: True)
+    bridge.foreground = lambda: pytest.fail("Key tap performed foreground accessibility work")
+    bridge._front = {"app_id": "editor", "domain": ""}
+    finished = threading.Event()
+    with bridge._lock:  # An in-flight AX capture holds the platform lock.
+        worker = threading.Thread(target=lambda: bridge._event_callback(
+            None, 1, {"code": 48, "flags": 0}, None) is None and finished.set(), daemon=True)
+        worker.start()
+        worker.join(1)
+    assert finished.is_set()
+
+
+def test_quartz_timeout_recovers_automatically_then_stops_when_repeated(monkeypatch):
+    bridge, _, enabled = quartz_bridge(monkeypatch, lambda action: False)
+    bridge._tap = "tap0"
+    enabled.clear()
+    for _ in range(3):
+        bridge._event_callback(None, -1, {}, None)
+    assert enabled == [("tap0", True)] * 3 and bridge._enabled
+    bridge._event_callback(None, -1, {}, None)
+    assert not bridge._enabled and enabled[-1] == ("tap0", False)
+    assert "timed out" in bridge.status()
+
+
+@pytest.mark.parametrize("guard", ["secure", "protected", "readonly", "disabled", "composition", "unknown",
+                                   "secure_input", "dead_key", "unobservable_ime"])
 def test_mac_security_guards_precede_editable_value_access(guard):
     bridge = MacBridge.__new__(MacBridge)
     BridgeBase.__init__(bridge)
     bridge._secure_description = "Localized secure role"
     bridge._foreground = lambda: (1234, "/Editor", {"app_id": "editor", "domain": ""})
     bridge._settable = lambda *args: guard != "readonly"
+    bridge.secure_input_active = lambda: guard == "secure_input"
+    bridge._dead_key = guard == "dead_key"
+    bridge._ime_kind = "unknown" if guard == "unobservable_ime" else "layout"
     attrs = {"AXFocusedUIElement": "field", "AXRole": "AXTextField",
              "AXSubrole": "", "AXRoleDescription": "Text field",
-             "AXProtectedContent": False, "AXEnabled": True, "AXFocused": True}
+             "AXProtectedContent": False, "AXEnabled": True, "AXFocused": True,
+             "AXSelectedTextRange": (0, 0)}
     if guard == "secure":
         attrs["AXSubrole"] = "AXSecureTextField"
     elif guard == "protected":
@@ -283,6 +368,32 @@ def test_mac_security_guards_precede_editable_value_access(guard):
     assert bridge.capture() is None
 
 
+def test_mac_dead_key_blocks_capture_until_a_composed_character_arrives(monkeypatch):
+    bridge, _, _ = quartz_bridge(monkeypatch, lambda action: False)
+    bridge._event_callback(None, 1, {"code": 14, "flags": 2, "chars": ""}, None)
+    assert bridge._dead_key
+    bridge._event_callback(None, 1, {"code": 14, "flags": 0, "chars": "é"}, None)
+    assert not bridge._dead_key
+
+
+@pytest.mark.parametrize("app_id, browser", [
+    ("company.thebrowser.Browser", True), ("company.thebrowser.dia", True),
+    ("app.zen-browser.zen", True), ("com.kagi.kagimacOS", True),
+    ("/usr/bin/arc", False), ("/usr/bin/dia", False), ("/Applications/Orion.app/x/zen", False),
+])
+def test_browser_identity_is_exact_without_short_name_false_positives(app_id, browser):
+    assert BridgeBase._is_browser(app_id) is browser
+
+
+def test_code_editors_stay_silent_unless_the_app_rule_opts_in():
+    bridge = BridgeBase()
+    assert not bridge._allowed("com.microsoft.VSCode")
+    assert not bridge._allowed("com.jetbrains.pycharm")
+    bridge._app_rules = {"app:com.microsoft.VSCode": {"complete_in_code_editors": True}}
+    assert bridge._allowed("com.microsoft.VSCode")
+    assert bridge._allowed("com.apple.TextEdit")
+
+
 def test_policy_default_app_domain_precedence_never_overrides_global_or_exclusions():
     bridge = BridgeBase()
     bridge._default_enabled = False
@@ -290,8 +401,7 @@ def test_policy_default_app_domain_precedence_never_overrides_global_or_exclusio
     assert bridge._allowed("editor")
     assert not bridge._allowed("other")
     assert not bridge._allowed("editor", "secret.example")
-    bridge._app_rules["domain:secret.example"]["enabled"] = True
-    bridge._app_rules["app:editor"]["enabled"] = False
+    bridge._app_rules = {"app:editor": {"enabled": False}, "domain:secret.example": {"enabled": True}}
     assert bridge._allowed("editor", "secret.example")
     bridge._global_enabled = False
     assert not bridge._allowed("editor", "secret.example")
@@ -370,7 +480,7 @@ def test_windows_hook_accepts_exact_control_chord_but_preserves_altgr_and_false_
     BridgeBase.start_shortcuts(bridge, lambda action: calls.append(action) or action == "force")
     bridge._event_loop()
     BridgeBase.set_shortcuts_enabled(bridge, True)
-    bridge._shortcuts["force"] = "Ctrl+Alt+A"
+    bridge._shortcuts = {**bridge._shortcuts, "force": "Ctrl+Alt+A"}
     event = KBDLLHOOKSTRUCT(vkCode=0x41, scanCode=30)
     keys.update((0x11, 0x12, 0xA5))
     assert bridge._hook_callback(0, 0x0100, ctypes.addressof(event)) == 42
@@ -431,6 +541,8 @@ def mac_capture_boundary(text="", **overrides):
     BridgeBase.__init__(bridge)
     bridge._secure_description = "Localized secure role"
     bridge._foreground = lambda: (1234, "/Editor", {"app_id": "editor", "domain": ""})
+    bridge.secure_input_active = lambda: False
+    bridge._ime_kind = "layout"
     attributes = {
         ("application", "AXFocusedUIElement"): "field",
         ("field", "AXRole"): "AXTextArea",
@@ -449,6 +561,7 @@ def mac_capture_boundary(text="", **overrides):
         return (0, value) if value is not None else (-25205, None)
     bridge.ax = SimpleNamespace(
         AXIsProcessTrusted=lambda: True,
+        AXUIElementSetMessagingTimeout=lambda field, seconds: 0,
         AXUIElementCreateApplication=lambda pid: "application",
         AXUIElementCopyAttributeValue=copy_attribute,
         AXUIElementIsAttributeSettable=lambda element, name, output:
@@ -462,6 +575,44 @@ def mac_capture_boundary(text="", **overrides):
         AXUIElementCopyParameterizedAttributeValue=lambda *args: (-25205, None),
     )
     return bridge, attributes, reads, writes
+
+
+@pytest.mark.parametrize("description", [
+    "", "Chat", "Ask AI", "Chat Input.py, editor content", "Search Chat Input",
+    "Chat Input (Agent), edit files in your workspace.py",
+])
+def test_editor_chat_probe_never_reads_code_or_generic_prompt_fields(description):
+    bridge, _, reads, writes = mac_capture_boundary("private source code", AXDescription=description)
+    bridge._foreground = lambda: (1234, "/Code", {"app_id": "com.microsoft.VSCode", "domain": ""})
+    assert bridge.capture() is None
+    assert ("field", "AXValue") not in reads and writes == []
+
+
+@pytest.mark.parametrize("mode", [
+    "Chat Input (Agent), edit files in your workspace..",
+    "Chat Input (Edit), edit files in your workspace. Press Enter to send out the request.",
+    "Chat Input (Ask), ask questions or type / for topics., Local model. ",
+])
+def test_chat_to_code_switch_rejects_stale_acceptance_without_reading_code(mode):
+    bridge, attributes, reads, writes = mac_capture_boundary("Please explain this issue", AXDescription=mode)
+    bridge._foreground = lambda: (1234, "/Code", {"app_id": "com.microsoft.VSCode", "domain": ""})
+    snapshot = bridge.capture()
+    assert snapshot is not None
+    attributes[("field", "AXDescription")] = "main.py, editor content"
+    reads.clear()
+    assert not bridge.insert(snapshot, " in detail")
+    assert ("field", "AXValue") not in reads and writes == []
+
+
+@pytest.mark.parametrize("rule", [{"enabled": False}, {}])
+def test_chat_probe_cannot_bypass_app_disable_or_global_pause(rule):
+    bridge, _, reads, writes = mac_capture_boundary(
+        "private chat", AXDescription="Chat Input (Agent), edit files in your workspace..")
+    bridge._foreground = lambda: (1234, "/Code", {"app_id": "com.microsoft.VSCode", "domain": ""})
+    bridge._app_rules = {"app:com.microsoft.VSCode": rule}
+    bridge._global_enabled = bool(rule)
+    assert bridge.capture() is None
+    assert ("application", "AXFocusedUIElement") not in reads and writes == []
 
 
 def test_mac_empty_field_keeps_native_field_geometry_without_inventing_a_caret():
@@ -633,29 +784,92 @@ def test_native_preedit_is_eligible_only_at_a_collapsed_safe_line_end():
     assert not replace(snapshot, protected=True).inline_safe
 
 
-def test_mac_attributed_run_uses_font_baseline_not_caret_height(monkeypatch):
+# Inline metric map (P0): a font is accepted only when CoreText advances of
+# two host spans match AX geometry; private system aliases reproduce the
+# system font; unverifiable runs return vision evidence instead of a guess;
+# mid-line displacement needs measured colours. Widths are synthetic doubles.
+def mac_metrics(monkeypatch, text="Hello world", *, ax_name="Host-Regular", widths=None):
     import sys
     bridge = MacBridge.__new__(MacBridge)
-    font = SimpleNamespace(fontName=lambda: "Host-Regular", ascender=lambda: 16,
-                           descender=lambda: -4)
-    layout = SimpleNamespace(defaultLineHeightForFont_=lambda value: 20,
-                             defaultBaselineOffsetForFont_=lambda value: 16)
-    bridge._attribute = lambda *args: None
+    BridgeBase.__init__(bridge)
+    fonts = {name: SimpleNamespace(fontName=lambda name=name: name, ascender=lambda: 16, descender=lambda: -4)
+             for name in ("Host-Regular", ".SFNS-Regular")}
+    layout = SimpleNamespace(defaultLineHeightForFont_=lambda font: 20,
+                             defaultBaselineOffsetForFont_=lambda font: 16)
     monkeypatch.setitem(sys.modules, "AppKit", SimpleNamespace(
-        NSFont=SimpleNamespace(fontWithName_size_=lambda name, size:
-                               font if (name, size) == ("Host-Regular", 13) else None),
+        NSFont=SimpleNamespace(
+            fontWithName_size_=lambda name, size: fonts.get(name) if size == 13 and not name.startswith(".") else None,
+            systemFontOfSize_weight_=lambda size, weight: fonts[".SFNS-Regular"] if (size, weight) == (13, 0.0) else None),
         NSLayoutManager=SimpleNamespace(alloc=lambda: SimpleNamespace(init=lambda: layout))))
-    attributed = SimpleNamespace(length=lambda: 1, attributesAtIndex_effectiveRange_=lambda index, out:
-                                 ({"AXFont": {"AXFontName": "Host-Regular", "AXFontSize": 13}}, None))
+    advances = {"Hello world": 60.0, " world": 30.0, " tail": 25.0, **(widths or {})}
+    monkeypatch.setattr(macos, "text_width", lambda font, value: advances[value])
+    attributed = SimpleNamespace(length=lambda: len(text), attributesAtIndex_effectiveRange_=lambda index, out:
+                                 ({"AXFont": {"AXFontName": ax_name, "AXFontSize": 13}}, (0, len(text))))
+    bridge._attribute = lambda *args: None
     bridge.ax = SimpleNamespace(kAXValueCFRangeType=4, AXValueCreate=lambda kind, value: value,
                                 AXUIElementCopyParameterizedAttributeValue=lambda *args: (0, attributed))
-    bridge._range_bounds = lambda *args: (90, 40, 10, 20)
-    render = bridge._inline_metrics("field", "Hello", 5, 5, (100, 40, 1, 20), (0, 0, 400, 200))
-    assert render.font_name == "Host-Regular"
-    assert render.font_size == 13
-    assert render.baseline == 56
-    # Enlarging the caret cannot silently select a larger guessed font/baseline.
-    assert bridge._inline_metrics("field", "Hello", 5, 5, (100, 40, 1, 30), (0, 0, 400, 200)) is None
+    rows = {(0, 11): (40, 40, 60, 20), (5, 6): (70, 40, 30, 20), (11, 5): (100, 40, 25, 20)}
+    bridge._range_bounds = lambda field, location, length: rows.get((location, length))
+    return bridge
+
+
+def test_mac_attributed_run_uses_font_baseline_not_caret_height(monkeypatch):
+    bridge = mac_metrics(monkeypatch)
+    render, evidence = bridge._inline_metrics("field", "Hello world", 11, 11, (100, 40, 1, 20), (0, 0, 400, 200))
+    assert (render.font_name, render.font_size, render.baseline, evidence) == ("Host-Regular", 13, 56, None)
+    # Enlarging the caret cannot move the verified glyph-row baseline.
+    taller, _ = bridge._inline_metrics("field", "Hello world", 11, 11, (100, 40, 1, 30), (0, 0, 400, 200))
+    assert taller.baseline == 56
+
+
+def test_mac_private_system_font_alias_is_reproduced_not_rejected(monkeypatch):
+    bridge = mac_metrics(monkeypatch, ax_name=".AppleSystemUIFont")
+    render, _ = bridge._inline_metrics("field", "Hello world", 11, 11, (100, 40, 1, 20), (0, 0, 400, 200))
+    assert render.system_font and render.font_name == ".SFNS-Regular" and render.system_weight == 0.0
+
+
+@pytest.mark.parametrize("ax_name, widths", [("Host-Regular", {" world": 34.0}), ("Downloaded-WebFont", {})])
+def test_mac_unverified_glyph_advances_never_guess_and_offer_vision_evidence(monkeypatch, ax_name, widths):
+    bridge = mac_metrics(monkeypatch, ax_name=ax_name, widths=widths)
+    render, evidence = bridge._inline_metrics("field", "Hello world", 11, 11, (100, 40, 1, 20), (0, 0, 400, 200))
+    assert render is None
+    assert [sample["text"] for sample in evidence["samples"]] == ["Hello world", " world"]
+    assert evidence["caret_rect"] == (100, 40, 1, 20)
+
+
+def test_mac_mid_line_suffix_displaces_only_with_measured_colours(monkeypatch):
+    import sys
+    import inklow.native as native_package
+    from inklow.core import InlineRender
+    text = "Hello world tail"
+    bridge = mac_metrics(monkeypatch, text)
+    render, evidence = bridge._inline_metrics("field", text, 11, 11, (100, 40, 1, 20), (0, 0, 400, 200))
+    assert render is None and evidence["suffix"]["text"] == " tail"
+    snapshot = Snapshot("editor", "field", text, 11, caret_rect=(100, 40, 1, 20))
+    assert bridge._styled_render(snapshot, None, evidence) is None  # Screenshot appearance is off.
+    vision = SimpleNamespace(request_inline_style=lambda snapshot, evidence, enabled=False, authorized=None: InlineRender(
+        **{**evidence["ax_render"], "source": "macos-ax-attributed-run+vision",
+           "text_rgb": (0.1, 0.1, 0.1), "background_rgb": (1.0, 1.0, 1.0)}))
+    monkeypatch.setattr(native_package, "macos_vision", vision, raising=False)
+    monkeypatch.setitem(sys.modules, "inklow.native.macos_vision", vision)
+    bridge._screenshot_appearance = True
+    styled = bridge._styled_render(snapshot, None, evidence)
+    assert styled.suffix == " tail" and styled.suffix_width == 25
+    assert replace(snapshot, inline_render=styled).inline_safe
+    assert not replace(snapshot, inline_render=replace(styled, background_rgb=None)).inline_safe
+
+
+def test_mac_correction_range_must_share_the_caret_row():
+    bridge = MacBridge.__new__(MacBridge)
+    BridgeBase.__init__(bridge)
+    snapshot = Snapshot("editor", "field", "see teh", 7, caret_rect=(100, 40, 1, 20),
+                        field_rect=(0, 0, 400, 200))
+    bridge._capture = lambda: (snapshot, "field")
+    rows = {(4, 3): (70, 40, 30, 20), (6, 1): (90, 40, 10, 20)}
+    bridge._range_bounds = lambda field, location, length: rows.get((location, length))
+    assert bridge.range_rect(snapshot, 4, 3) == (70, 40, 30, 20)
+    rows[(4, 3)] = (70, 60, 30, 20)  # A wrapped/other visual row is never struck through.
+    assert bridge.range_rect(snapshot, 4, 3) is None
 
 
 def test_mac_context_prunes_hidden_and_secure_subtrees_before_values():
@@ -761,3 +975,243 @@ def test_mac_browser_context_reads_focused_document_not_deep_toolbar_tree():
     assert result["status"] == "ready"
     assert result["text"] == "Review Tuesday in Cedar"
     assert reads == [reference]
+
+
+def test_quartz_gate_is_published_before_consumed_dispatch_and_orders_following_input(monkeypatch):
+    seen = []
+    bridge, posted, _ = quartz_bridge(monkeypatch, lambda action: True)
+
+    def consume(action):
+        gate = bridge.input_transaction()
+        seen.append((action, gate["original"]["code"]))
+        return True
+
+    bridge._callback = consume
+    callback = bridge._event_callback
+    assert callback(None, 1, {"code": 48, "flags": 0}, None) is None
+    gate = bridge.input_transaction()
+    for kind, event in ((6, {"code": 48, "flags": 0}),
+                        (7, {"code": 56, "flags": 4}),
+                        (1, {"code": 0, "flags": 4}),
+                        (2, {"code": 0, "flags": 0})):
+        assert callback(None, kind, event, None) is None
+    assert posted == [] and seen == [("word", 48)]
+    posted.append({"insertion": "word one"})
+    bridge.finish_input_transaction(gate, True)
+    bridge.drain_input_transaction()
+    assert posted[0] == {"insertion": "word one"}
+    assert [(event["code"], event["flags"]) for event in posted[1:]] == [(56, 4), (0, 4), (0, 0)]
+
+
+def test_quartz_rapid_second_tab_waits_until_next_presentation_is_armed(monkeypatch):
+    visible = [True]
+    claimed = []
+    bridge, posted, _ = quartz_bridge(monkeypatch, lambda action: False)
+
+    def consume(action):
+        if not visible[0]:
+            return False
+        visible[0] = False
+        claimed.append(bridge.input_transaction())
+        return True
+
+    bridge._callback = consume
+    callback = bridge._event_callback
+    assert callback(None, 1, {"code": 48, "flags": 0}, None) is None
+    assert callback(None, 6, {"code": 48, "flags": 0}, None) is None
+    assert callback(None, 1, {"code": 48, "flags": 0}, None) is None
+    bridge.finish_input_transaction(claimed[0], True, presentation_key="remainder")
+    bridge.drain_input_transaction()
+    assert len(claimed) == 1 and not posted
+    bridge.acknowledge_input_presentation("old-presentation")
+    assert len(claimed) == 1 and not posted
+    visible[0] = True  # The UI acknowledged the displayed remainder.
+    bridge.acknowledge_input_presentation("remainder")
+    assert len(claimed) == 2 and not posted
+    bridge.finish_input_transaction(claimed[1], True)
+    bridge.drain_input_transaction()
+    assert bridge.input_transaction() is None and not posted
+
+
+@pytest.mark.parametrize("reason", ["timeout", "overflow", "stop"])
+def test_quartz_aborted_acceptance_never_commits_and_replays_original_before_tail(monkeypatch, reason):
+    bridge, posted, _ = quartz_bridge(monkeypatch, lambda action: True)
+    callback = bridge._event_callback
+    assert callback(None, 1, {"code": 48, "flags": 0}, None) is None
+    gate = bridge.input_transaction()
+    assert bridge.begin_input_transaction(gate)
+    count = 257 if reason == "overflow" else 1
+    for index in range(count):
+        assert callback(None, 1, {"code": 0, "flags": 0, "index": index}, None) is None
+    if reason == "timeout":
+        gate["deadline"] = 0
+        bridge.drain_input_transaction()
+    elif reason == "stop":
+        # stop's native gate release, without starting real platform teardown.
+        bridge._abort_input()
+    assert not bridge._commit_input()
+    assert not bridge.begin_input_transaction(gate)
+    assert [event["code"] for event in posted] == [48] + [0] * count
+    assert bridge.input_transaction() is None
+
+
+def test_quartz_old_deadline_cannot_abort_a_new_consumed_event(monkeypatch):
+    bridge, posted, _ = quartz_bridge(monkeypatch, lambda action: True)
+    callback = bridge._event_callback
+    callback(None, 1, {"code": 48, "flags": 0}, None)
+    old = bridge.input_transaction()
+    bridge.finish_input_transaction(old, True)
+    bridge.drain_input_transaction()
+    callback(None, 1, {"code": 48, "flags": 0}, None)
+    current = bridge.input_transaction()
+    bridge._abort_input(old)
+    assert bridge.input_transaction() is current and not posted
+    bridge.finish_input_transaction(current, True)
+    bridge.drain_input_transaction()
+
+
+@pytest.mark.parametrize("abort_during_capture", [False, True])
+def test_quartz_native_insertion_checks_transaction_after_one_authoritative_capture(monkeypatch, abort_during_capture):
+    bridge, posted, _ = quartz_bridge(monkeypatch, lambda action: True)
+    bridge._event_callback(None, 1, {"code": 48, "flags": 0}, None)
+    gate = bridge.input_transaction()
+    assert bridge.begin_input_transaction(gate)
+    snapshot = Snapshot("editor", "field", "Hello", 5)
+    writes, captures = [], []
+
+    def capture():
+        captures.append(snapshot.key)
+        if abort_during_capture:
+            bridge._abort_input()
+        return snapshot, "native-field"
+
+    bridge._capture = capture
+    bridge._settable = lambda field, attribute: True
+    bridge.ax.AXUIElementSetAttributeValue = lambda field, attribute, value: writes.append(value) or 0
+    success = bridge.insert(snapshot, " world")
+    bridge.finish_input_transaction(gate, success)
+    bridge.drain_input_transaction()
+    assert success is not abort_during_capture
+    assert captures == [snapshot.key]
+    assert writes == ([] if abort_during_capture else [" world"])
+    assert [event["code"] for event in posted] == ([48] if abort_during_capture else [])
+
+
+def test_quartz_queued_tab_without_displayed_remainder_passes_before_following_letter(monkeypatch):
+    visible = [True]
+    bridge, posted, _ = quartz_bridge(monkeypatch, lambda action: False)
+
+    def consume(action):
+        if not visible[0]:
+            return False
+        visible[0] = False
+        return True
+
+    bridge._callback = consume
+    bridge._event_callback(None, 1, {"code": 48, "flags": 0}, None)
+    gate = bridge.input_transaction()
+    bridge._event_callback(None, 6, {"code": 48, "flags": 0}, None)
+    bridge._event_callback(None, 1, {"code": 48, "flags": 0}, None)
+    bridge._event_callback(None, 1, {"code": 0, "flags": 0}, None)
+    bridge.finish_input_transaction(gate, True)
+    bridge.drain_input_transaction()
+    assert [event["code"] for event in posted] == [48, 0]
+    assert bridge.input_transaction() is None
+
+
+def test_mac_value_notifications_ignore_unfocused_elements_and_coalesce_bursts(monkeypatch):
+    import sys
+    from contextlib import nullcontext
+    monkeypatch.setitem(sys.modules, "objc", SimpleNamespace(autorelease_pool=nullcontext))
+    monkeypatch.setattr(macos.time, "monotonic", lambda: 100.0)
+    bridge = MacBridge.__new__(MacBridge)
+    BridgeBase.__init__(bridge)
+    bridge._observe_pid = 1234
+    bridge._focused_field_hash = hash("focused")
+    wakes = []
+    bridge.set_input_callback(lambda: wakes.append(bridge.input_revision()))
+    observer = []
+    bridge.ax = SimpleNamespace(
+        AXObserverCreate=lambda pid, callback, refcon: observer.append(callback) or (0, "observer"),
+        AXUIElementCreateApplication=lambda pid: "app",
+        AXObserverAddNotification=lambda *args: 0,
+        AXObserverGetRunLoopSource=lambda observer: "source")
+
+    def run_notifications(*args):
+        for element, name in (("animated-slider", "AXValueChanged"),
+                              ("focused", "AXValueChanged"),
+                              ("focused", "AXSelectedTextChanged")):
+            observer[0]("observer", element, name, None)
+        bridge._stopped.set()
+
+    bridge.cf = SimpleNamespace(
+        CFRunLoopGetCurrent=lambda: "runloop", kCFRunLoopDefaultMode=0,
+        CFRunLoopAddSource=lambda *args: None, CFRunLoopRemoveSource=lambda *args: None,
+        CFRunLoopRunInMode=run_notifications)
+    bridge._observer_loop()
+    assert len(wakes) == 1
+    assert bridge.user_input_revision() == 0
+
+
+def test_quartz_consumed_keyup_is_suppressed_even_when_it_arrives_after_release(monkeypatch):
+    bridge, posted, _ = quartz_bridge(monkeypatch, lambda action: True)
+    callback = bridge._event_callback
+    callback(None, 1, {"code": 48, "flags": 0}, None)
+    gate = bridge.input_transaction()
+    bridge.finish_input_transaction(gate, True)
+    bridge.drain_input_transaction()
+    assert callback(None, 6, {"code": 48, "flags": 0}, None) is None
+    bridge._callback = lambda action: False
+    down, up = {"code": 48, "flags": 0}, {"code": 48, "flags": 0}
+    assert callback(None, 1, down, None) is down
+    assert callback(None, 6, up, None) is up
+    assert posted == []
+
+
+@pytest.mark.parametrize("overrun", ["overflow", "deadline"])
+def test_quartz_inflight_native_edit_preserves_overrun_input_then_disables_interception(monkeypatch, overrun):
+    bridge, posted, _ = quartz_bridge(monkeypatch, lambda action: True)
+    callback = bridge._event_callback
+    callback(None, 1, {"code": 48, "flags": 0}, None)
+    gate = bridge.input_transaction()
+    assert bridge.begin_input_transaction(gate)
+    snapshot = Snapshot("editor", "field", "Hello", 5)
+    bridge._capture = lambda: (snapshot, "native-field")
+    bridge._settable = lambda *args: True
+    timeouts, writes = [], []
+    bridge.ax.AXUIElementSetMessagingTimeout = lambda field, seconds: timeouts.append((field, seconds)) or 0
+    count = 257 if overrun == "overflow" else 1
+
+    def native_write(field, attribute, value):
+        for index in range(count):
+            assert callback(None, 1, {"code": 0, "flags": 0, "index": index}, None) is None
+        if overrun == "deadline":
+            bridge._abort_input(gate)
+        assert posted == []  # No typed input overtakes the issued native edit.
+        writes.append(value)
+        return 0
+
+    bridge.ax.AXUIElementSetAttributeValue = native_write
+    assert bridge.insert(snapshot, " world")
+    bridge.finish_input_transaction(gate, True)
+    assert writes == [" world"]
+    assert timeouts == [("native-field", macos._AX_MUTATION_TIMEOUT)]
+    assert [event["index"] for event in posted] == list(range(count))
+    assert bridge.input_transaction() is None and not bridge._enabled
+    assert "preserved" in bridge.status() and "interception is disabled" in bridge.status()
+
+
+def test_quartz_native_edit_refuses_an_unconfigurable_os_timeout(monkeypatch):
+    bridge, posted, _ = quartz_bridge(monkeypatch, lambda action: True)
+    bridge._event_callback(None, 1, {"code": 48, "flags": 0}, None)
+    gate = bridge.input_transaction()
+    assert bridge.begin_input_transaction(gate)
+    snapshot = Snapshot("editor", "field", "Hello", 5)
+    bridge._capture = lambda: (snapshot, "native-field")
+    bridge._settable = lambda *args: True
+    bridge.ax.AXUIElementSetMessagingTimeout = lambda *args: -25202
+    bridge.ax.AXUIElementSetAttributeValue = lambda *args: pytest.fail("Unbounded native mutation was issued")
+    assert not bridge.insert(snapshot, " world")
+    bridge.finish_input_transaction(gate, False)
+    bridge.drain_input_transaction()
+    assert [event["code"] for event in posted] == [48]

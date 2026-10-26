@@ -19,6 +19,7 @@ def test_outdated_generation_cannot_replace_new_suggestion():
 @pytest.mark.parametrize("changes", [
     {"app_id": "other"}, {"field_id": "subject"}, {"caret": 3},
     {"text": "Let us eat!"}, {"selection_length": 1}, {"protected": True},
+    {"on_demand_only": True}, {"can_replace": False},
 ])
 def test_acceptance_rejects_changed_or_unsafe_field(changes):
     snapshot = Snapshot("writer", "body", "Let us meet", 11)
@@ -36,6 +37,19 @@ def test_repeated_acceptance_preserves_unicode_and_suffix():
     current = replace(snapshot, text="Olá! 🖋 café |", caret=12)
     assert state.accept(current, full=True) == "amanhã"
     assert state.snapshot.text == "Olá! 🖋 café amanhã|"
+    assert state.text == ""
+
+
+@pytest.mark.parametrize("capability", ["on_demand_only", "can_replace"])
+@pytest.mark.parametrize("enabled", [False, True])
+def test_typing_a_suggested_prefix_cannot_carry_it_across_capability_change(capability, enabled):
+    snapshot = Snapshot("writer", "body", "Let us meet", 11, **{capability: enabled})
+    state = SuggestionState()
+    assert state.offer(state.generation, snapshot, " tomorrow morning")
+    current = replace(snapshot, text=snapshot.text + " tomorrow", caret=20,
+                      **{capability: not enabled})
+    assert not state.advance(current)
+    assert state.accept(current, full=True) == ""
     assert state.text == ""
 
 

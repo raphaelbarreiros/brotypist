@@ -2,6 +2,19 @@
 
 # Changelog
 
+## 0.4.0 — macOS
+
+- Keep Ghost Caret ordinary completion as verified same-line grey text, not an ordinary popup. Extend the native path without claiming universal input compatibility.
+- Add independently sourced, revision/checksum-pinned Google Gemma 4 E2B and Gemma 3 writing support alongside the preserved Qwen option. Keep model acquisition/selection explicit; larger catalogue entries are not execution or quality proof.
+- Generate explicit alternatives through the ordinary caret-conditioned native continuation/token-healing path: at most five samples, up to three distinct valid choices, excluding the current anchor. Return fewer choices or none rather than fabricate novelty; retain strict parsing, boundary and control/thought/tool guards.
+- Align the synthetic benchmark with that zero-to-three alternatives contract. Report actual choice counts, empty results and safe absences separately from mechanical pass counts; leave semantic/grammar quality ungraded. Preserve the stricter selected-word synonym contract.
+- Develop an explicit, document-bound Google Docs accessibility helper using metadata only when ordinary capture is unavailable; do not fabricate a writable snapshot, caret or success state.
+- Add opt-in Terminal/iTerm Automation setup with per-host permission state. Bind the Terminal.app adapter to independent native window/session/process identity and the source-verified Codex 0.162.1 single-line composer; verify fixed-cell fonts against real pixels. Do not advertise other agents, iTerm input or multiplexers as working.
+- Record the completed private deep REA investigation, bounded real Google-model samples and synthetic native typing observations with their source identities and limits. No proprietary recovered code/assets/weights enter the app, and Ghidra/Java are analysis tools, not product dependencies.
+- Pause Linux/Windows product builds and publication. Preserve existing settings, cached Qwen weights, startup/data identity and strict input/privacy gates. The new Mac bundle and each release artifact require separate frozen/runtime verification; no universal compatibility, latency/RAM superiority or grammar-parity claim is made.
+- Block Google Docs preference mutation through Aside Browser after live native actions disagreed with persisted preference state. Keep its metadata setup hint and explicit manual instructions rather than claiming success.
+- Preserve the current lexical word when sampling partial-word alternatives, honor alternatives/anchor across the actual worker protocol, reject cross-line healing, and avoid active event-tap mouse-motion churn.
+
 ## 0.3.3 — Unreleased
 
 - Separate the field accessory's minimal current-app, temporary pause/resume and Settings menu from the menu-bar dashboard. Keep Quit in the menu bar.

@@ -4,20 +4,54 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 import json
 from pathlib import Path
+import re
 import threading
+import unicodedata
 from typing import Protocol
 import urllib.error
 import urllib.request
 
 from .config import Config, local_endpoint
-from .writing import short_writing, utility_writing_prompt, writing_prompt
+from .features import current_word_only, mid_word, parse_choices
+from .writing import (short_writing, utility_writing_prompt, utility_writing_prompt_spans,
+                      writing_prompt, writing_prompt_spans)
 
 MAX_SUGGESTION_CHARS = 512
 MAX_RESPONSE_BYTES = 1024 * 1024
-_SENTINELS = ("<|", "</s>", "[INST]")
+_SENTINELS = ("<|", "<turn|>", "<channel|>", "<bos>", "<eos>", "<start_of_turn>",
+              "<end_of_turn>", "</s>", "[INST]", "<think", "</think", "<tool", "</tool")
 # Text after any line or record separator belongs to another paragraph/field.
 _TERMINATORS = ("\n", "\r", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
 _STOP = ["\n", "\r", "<|im_end|>", "<|endoftext|>"]
+_GEMMA_STOP = ["<turn|>", "<|turn>", "<eos>", "<|channel>", "<|tool"]
+# Llama's Python scores array scales with n_batch * n_vocab * float32.
+# 64 rather than the default 512 caps Gemma's 262144-vocabulary array at 64 MiB.
+_N_BATCH = 64
+_N_UBATCH = 32
+
+
+def _safe_pieces(pieces: Iterable[tuple[str, str | None]],
+                 cancel: threading.Event) -> Iterator[tuple[str, str | None]]:
+    """Never publish a structural token, even when split across stream chunks."""
+    pending = ""
+    for delta, reason in pieces:
+        if cancel.is_set():
+            return
+        pending += delta
+        positions = [pending.find(marker) for marker in _SENTINELS if marker in pending]
+        if positions:
+            yield pending[:min(positions)], "stop"
+            return
+        held = max((length for marker in _SENTINELS
+                    for length in range(1, min(len(marker), len(pending)) + 1)
+                    if pending.endswith(marker[:length])), default=0)
+        visible = pending[:-held] if held else pending
+        pending = pending[-held:] if held else ""
+        if visible or reason:
+            yield visible, reason
+        if reason is not None:
+            return
+    # A trailing marker prefix cannot safely become insertable text.
 
 
 class Provider(Protocol):
@@ -63,7 +97,7 @@ def _stream_text(pieces: Iterable[tuple[str, str | None]], suffix: str,
     raw = ""
     shown = ""
     truncated = False
-    for delta, finish_reason in pieces:
+    for delta, finish_reason in _safe_pieces(pieces, cancel):
         if cancel.is_set():
             return
         raw += delta
@@ -96,56 +130,167 @@ def _prompt(config: Config, prefix: str, suffix: str, options: dict) -> str:
     return prefix
 
 
+def _guided_family(model) -> str:
+    metadata = getattr(model, "metadata", {})
+    architecture = metadata.get("general.architecture", "")
+    if architecture in {"qwen3", "qwen3moe"}:
+        template = metadata.get("tokenizer.chat_template", "")
+        return "qwen3" if not template or "enable_thinking" in template else "qwen2"
+    if architecture == "gemma4":
+        return "gemma4-moe" if int(metadata.get("gemma4.expert_count", 0)) > 0 else "gemma4"
+    if architecture in {"qwen2", "gemma3"}:
+        return architecture
+    raise RuntimeError(
+        "Guided writing supports Qwen2.5, Qwen 3, Gemma 3 and Gemma 4 GGUF models. "
+        "Choose a supported model in General, or use Direct continuation for a custom base model.")
+
+
+def _data_tokens(model, text: str, *, add_bos: bool = False) -> list[int]:
+    """Keep literal tags byte-exact without activating USER_DEFINED vocabulary IDs."""
+    tokens, start, first = [], 0, True
+    # parse_special=False alone still recognizes USER_DEFINED tokens in Qwen.
+    # Splitting inside each tag prevents its structural ID without editing text.
+    for match in re.finditer(r"<[^<>\r\n]{1,120}>|\[(?:/?INST|/?SYS)\]", text):
+        cut = match.start() + max(1, len(match.group()) // 2)
+        tokens.extend(model.tokenize(text[start:cut].encode("utf-8"),
+                                     add_bos=add_bos and first, special=False))
+        start, first = cut, False
+    tokens.extend(model.tokenize(text[start:].encode("utf-8"),
+                                 add_bos=add_bos and first, special=False))
+    return tokens
+
+
 def _prompt_tokens(model, config: Config, prefix: str, suffix: str, options: dict):
-    """Reserve generation space; trim optional references before the user's draft."""
-    budget = 4096 - config.max_tokens - 8
+    """Fit complete framing and mandatory data using the loaded context/tokenizer."""
+    utility = options.get("utility", "")
+    guided = config.prompt_style == "writing" or bool(utility)
+    family = _guided_family(model) if guided else None
+    budget = model.n_ctx() - config.max_tokens - 8
+    if budget <= 0:
+        raise RuntimeError("The model context is too small for the requested suggestion length.")
     draft = prefix[-config.context_chars:]
     context = options.get("context", "")
-    reduced = options
-    # Reference text has its own actual tokenizer budget, including CJK/emoji.
-    # Keeping the leading provenance label avoids anonymous context fragments.
-    if context:
-        reference_tokens = model.tokenize(context.encode("utf-8"), special=False)
-        if len(reference_tokens) > 768:
-            reduced = dict(options)
-            while context and len(reference_tokens) > 768:
-                context = context[:max(0, int(len(context) * 768 / len(reference_tokens)) - 1)]
-                reference_tokens = model.tokenize(context.encode("utf-8"), special=False)
-            reduced["context"] = context
-    tokens = model.tokenize(_prompt(config, draft, suffix, reduced).encode("utf-8"), special=True)
-    if len(tokens) <= budget:
+    instructions = options.get("instructions", "")
+
+    def reference_size(text):
+        return len(_data_tokens(model, text))
+
+    if context and reference_size(context) > 768:
+        # Actual tokens, not bytes or a character ratio; retain provenance at
+        # the beginning and never split a Unicode code point.
+        low, high = 0, len(context)
+        while low < high:
+            middle = (low + high + 1) // 2
+            if reference_size(context[:middle]) <= 768:
+                low = middle
+            else:
+                high = middle - 1
+        context = context[:low]
+
+    def tokenize():
+        if utility:
+            spans = utility_writing_prompt_spans(utility, instructions, context, family=family)
+        elif guided:
+            spans = writing_prompt_spans(draft, suffix, instructions, context, family=family)
+        else:
+            spans = [(_prompt(config, draft, suffix, dict(options, context=context)), False)]
+        tokens = []
+        for index, (text, special) in enumerate(spans):
+            # Gemma framing contains one explicit <bos>. Other tokenizers may
+            # supply their own BOS, but only for the first span.
+            add_bos = index == 0 and not (family or "").startswith("gemma")
+            tokens.extend(model.tokenize(text.encode("utf-8"), add_bos=add_bos, special=True)
+                          if special else _data_tokens(model, text, add_bos=add_bos))
         return tokens
-    if reduced is options:
-        reduced = dict(options)
-    while len(tokens) > budget and context:
-        context = context[:max(0, len(context) - max(1, len(context) // 3))]
-        reduced["context"] = context
-        tokens = model.tokenize(_prompt(config, draft, suffix, reduced).encode("utf-8"), special=True)
+
+    tokens = tokenize()
+    if len(tokens) > budget and context:
+        context = ""  # References are optional; draft/suffix are not.
+        tokens = tokenize()
+    if utility and len(tokens) > budget:
+        # The task contains quoted JSON writing. Slicing it would silently
+        # change the task or leave malformed JSON; fail before native inference.
+        raise RuntimeError("Writing choices exceed the model context window. "
+                           "Shorten the selected writing or custom instructions.")
     while len(tokens) > budget and draft:
         draft = draft[len(draft) // 4 + 1:]
-        tokens = model.tokenize(_prompt(config, draft, suffix[:128], reduced).encode("utf-8"), special=True)
+        tokens = tokenize()
     if len(tokens) > budget:
-        raise RuntimeError("Writing instructions exceed the model context window. Shorten custom instructions.")
+        raise RuntimeError("Writing instructions or text after the cursor exceed the model context window. "
+                           "Shorten custom instructions or the text after the cursor.")
     return tokens
+
+
+def _healing_tail(prefix: str) -> str:
+    """Back off one lexical tail, including its preceding space, before sampling."""
+    if not prefix or not (prefix[-1].isalnum() or prefix[-1].isspace()
+                          or unicodedata.category(prefix[-1]).startswith("M")):
+        return ""
+    # \Z, unlike $, never matches before a final newline. Only horizontal
+    # space joins the tail: replay never crosses a line or record separator.
+    match = re.search(r"(?:[^\S\n\r\v\f\x1c-\x1e\x85\u2028\u2029]+[^\s]*|[^\s]+)\Z", prefix)
+    tail = match.group() if match else ""
+    # CJK has no separating spaces; replay its last grapheme, not a paragraph.
+    base = len(tail) - 1
+    while base > 0 and unicodedata.category(tail[base]).startswith("M"):
+        base -= 1
+    if tail and unicodedata.east_asian_width(tail[base]) in {"W", "F"}:
+        tail = tail[base:]
+    # A grammar must not reinterpret typed controls or a large pasted token.
+    if len(tail) > 64 or any(not (char.isalnum() or char.isspace() or char in "'’"
+                                or unicodedata.category(char).startswith("M")) for char in tail):
+        return ""
+    return tail
+
+
+def _without_healing_prefix(pieces: Iterable[tuple[str, str | None]], prefix: str):
+    """Remove only the exact byte-boundary replay constrained by native grammar."""
+    pending = ""
+    for delta, reason in pieces:
+        if prefix:
+            pending += delta
+            if prefix.startswith(pending) and len(pending) < len(prefix):
+                if reason is not None:
+                    return
+                continue
+            if not pending.startswith(prefix):
+                raise RuntimeError("The model could not preserve the typed word boundary.")
+            delta, prefix, pending = pending[len(prefix):], "", ""
+        yield delta, reason
 
 
 def _stream_utility(pieces: Iterable[tuple[str, str | None]], cancel: threading.Event) -> Iterator[str]:
     raw = ""
-    for delta, _reason in pieces:
+    for delta, _reason in _safe_pieces(pieces, cancel):
         if cancel.is_set():
             return
         raw += delta
         if len(raw) > 4096:
             raise RuntimeError("Writing choices exceed the response limit.")
-        stopped = False
-        for marker in _SENTINELS:
-            if marker in raw:
-                raw = raw.split(marker, 1)[0]
-                stopped = True
-                break
         yield "".join(char for char in raw if char.isprintable() or char in "\n\r\t")
-        if stopped:
-            return
+
+
+def _spaced_word(prefix: str, continuation: str) -> str | None:
+    """A continuation's completion of the typed word; None at a word boundary.
+
+    Uses the current-word convention. CJK runs have no detectable word end
+    (healing replays one grapheme there), so they keep ordinary alternatives.
+    """
+    if not mid_word(prefix):
+        return None
+    base = len(prefix) - 1
+    while base > 0 and not prefix[base].isalnum():
+        base -= 1
+    if unicodedata.east_asian_width(prefix[base]) in {"W", "F"}:
+        return None
+    return current_word_only(prefix, continuation)
+
+
+def _following_choice(prefix: str, word: str, following: str) -> str:
+    """The pinned word plus following words, or "" if they would extend it."""
+    if not following or current_word_only(prefix + word, following):
+        return ""
+    return word + following
 
 
 class _StreamingProvider:
@@ -157,6 +302,55 @@ class _StreamingProvider:
             pass
         return text
 
+    def _sample(self, prefix, suffix, cancel, options) -> str | None:
+        text = ""
+        for text in self.stream(prefix, suffix, cancel, options=options):
+            if cancel.is_set():
+                return None
+        return None if cancel.is_set() else text
+
+    def _alternatives(self, prefix, suffix, cancel, options):
+        """Use the proven caret-conditioned path, not JSON sentence generation.
+
+        Inside a typed word, every choice keeps one completion of that word:
+        the visible anchor's, else one conservative continuation's. Sampling
+        is conditioned on the completed word and only following words vary.
+        """
+        sample = {key: value for key, value in options.items() if key not in {"alternatives", "anchor"}}
+        sample["max_words"] = 8
+        anchor = str(options.get("anchor") or "")
+        seen = {anchor.strip().casefold()} if anchor.strip() else set()
+        choices = []
+
+        def offer(choice):
+            valid = parse_choices(json.dumps([choice], ensure_ascii=False)) if choice else []
+            if valid and valid[0].strip().casefold() not in seen:
+                choices.append(valid[0])
+                seen.add(valid[0].strip().casefold())
+
+        attempts = 5
+        word = _spaced_word(prefix, anchor) if anchor else None
+        if word is None and not anchor and _spaced_word(prefix, "") is not None:
+            # No visible completion: take the word from one ordinary
+            # conservative continuation; never fabricate one.
+            text = self._sample(prefix, suffix, cancel, sample)
+            attempts -= 1
+            if not text:
+                return
+            word = _spaced_word(prefix, text)
+            offer(_following_choice(prefix, word, text[len(word):]))
+        # The pinned word counts as one of the choice's eight words.
+        diverse = dict(sample, _diverse=True, max_words=7 if word else 8)
+        for _ in range(attempts):
+            if len(choices) == 3 or cancel.is_set():
+                break
+            text = self._sample(prefix + (word or ""), suffix, cancel, diverse)
+            if text is None:
+                return
+            offer(text if word is None else _following_choice(prefix, word, text))
+        if choices and not cancel.is_set():
+            yield json.dumps(choices, ensure_ascii=False)
+
 
 class GGUFProvider(_StreamingProvider):
     def __init__(self, config: Config) -> None:
@@ -164,6 +358,7 @@ class GGUFProvider(_StreamingProvider):
         self._model = None
         # One generation at a time; close() waits for the active stream to end.
         self._lock = threading.Lock()
+        self._utility_grammar = None
 
     def _load(self):
         if self._model is None:
@@ -178,11 +373,15 @@ class GGUFProvider(_StreamingProvider):
                 raise RuntimeError("Install local inference support: uv sync --extra local") from error
             gpu = self.config.acceleration == "auto" and llama_cpp.llama_supports_gpu_offload()
             self._model = llama_cpp.Llama(model_path=str(path), n_ctx=4096,
+                                          n_batch=_N_BATCH, n_ubatch=_N_UBATCH,
                                           n_gpu_layers=-1 if gpu else 0, verbose=False)
-            if self.config.prompt_style == "writing" and self._model.metadata.get("general.architecture") != "qwen2":
-                self._model.close()
-                self._model = None
-                raise RuntimeError("Guided writing uses a Qwen2.5 instruction model. Choose Balanced in Models, or use Direct continuation for a custom base model.")
+            if self.config.prompt_style == "writing":
+                try:
+                    _guided_family(self._model)
+                except RuntimeError:
+                    self._model.close()
+                    self._model = None
+                    raise
         return self._model
 
     def prepare(self) -> None:
@@ -199,6 +398,9 @@ class GGUFProvider(_StreamingProvider):
                     raise
 
     def stream(self, prefix: str, suffix: str, cancel: threading.Event, *, options: dict | None = None) -> Iterator[str]:
+        if options and options.get("alternatives"):
+            yield from self._alternatives(prefix, suffix, cancel, options)
+            return
         with self._lock:
             model = self._load()
             if cancel.is_set():
@@ -206,16 +408,55 @@ class GGUFProvider(_StreamingProvider):
             from llama_cpp import StoppingCriteriaList
             # Every request uses the model's tokenizer, not a character estimate.
             options = options or {}
-            tokens = _prompt_tokens(model, self.config, prefix, suffix, options)
+            utility = bool(options.get("utility"))
+            healing = _healing_tail(prefix) if self.config.prompt_style == "writing" and not utility else ""
+            draft = prefix[:-len(healing)] if healing else prefix
+            tokens = _prompt_tokens(model, self.config, draft, suffix, options)
+            grammar = None
+            if utility or healing:
+                from llama_cpp import LlamaGrammar
+                if utility:
+                    if self._utility_grammar is None:
+                        self._utility_grammar = LlamaGrammar.from_json_schema(json.dumps({
+                            "type": "array", "items": {"type": "string", "minLength": 1},
+                            "minItems": 3, "maxItems": 5,
+                        }), verbose=False)
+                    grammar = self._utility_grammar
+                else:
+                    grammar = LlamaGrammar.from_string(
+                        "root ::= " + json.dumps(healing, ensure_ascii=False) + ' [^\\n\\r]+',
+                        verbose=False)
+            family = _guided_family(model) if self.config.prompt_style == "writing" or options.get("utility") else None
+            # Conservative inline-writing sampling, explicit rather than
+            # inheriting changing backend defaults. Gemma disables min-p.
+            sampler = {"temperature": 0.35 if options.get("_diverse") else 0.2,
+                       "top_p": 0.9, "top_k": 40, "min_p": 0.05}
+            if (family or "").startswith("gemma"):
+                sampler.update(top_p=0.95, top_k=64, min_p=0.0)
+            elif family == "qwen3":
+                sampler.update(top_p=0.8, top_k=20, min_p=0.0)
+            if family in {"gemma4", "gemma4-moe"}:
+                stop = _GEMMA_STOP
+            elif family == "gemma3":
+                stop = ["<end_of_turn>", "<eos>", "<start_of_turn>"]
+            else:
+                stop = ["<|im_end|>", "<|endoftext|>", "<think>", "</think>", "<tool_call>"]
+            if not options.get("utility"):
+                stop = ["\n", "\r"] + stop
+            # Healing replays a few already-typed tokens. Keep the native budget
+            # within the loaded context while leaving the insertion budget intact.
+            replay_tokens = len(model.tokenize(healing.encode("utf-8"), add_bos=False, special=False)) if healing else 0
+            native_limit = min(self.config.max_tokens + replay_tokens, model.n_ctx() - len(tokens) - 1)
             chunks = model.create_completion(
-                prompt=tokens, max_tokens=self.config.max_tokens,
-                temperature=0.2, top_p=0.9,
-                repeat_penalty=1.0 if self.config.prompt_style == "writing" else 1.1,
-                stop=["<|im_end|>", "<|endoftext|>"] if options.get("utility") else _STOP, echo=False,
-                stream=True, stopping_criteria=StoppingCriteriaList([lambda _ids, _logits: cancel.is_set()]))
+                prompt=tokens, max_tokens=native_limit, grammar=grammar, **sampler,
+                repeat_penalty=1.0 if family else 1.1,
+                stop=stop, echo=False, stream=True,
+                stopping_criteria=StoppingCriteriaList([lambda _ids, _logits: cancel.is_set()]))
             try:
                 pieces = ((chunk["choices"][0]["text"], chunk["choices"][0]["finish_reason"])
                           for chunk in chunks)
+                if healing:
+                    pieces = _without_healing_prefix(pieces, healing)
                 if options.get("utility"):
                     yield from _stream_utility(pieces, cancel)
                 else:
@@ -326,6 +567,9 @@ class ServerProvider(_StreamingProvider):
 
     def stream(self, prefix: str, suffix: str, cancel: threading.Event, *, options: dict | None = None) -> Iterator[str]:
         options = options or {}
+        if options.get("alternatives"):
+            yield from self._alternatives(prefix, suffix, cancel, options)
+            return
         prefix = _prompt(self.config, prefix[-self.config.context_chars:], suffix, options)
         stop = ["<|im_end|>", "<|endoftext|>"] if options.get("utility") else _STOP
         if self.config.backend == "ollama":
@@ -334,12 +578,14 @@ class ServerProvider(_StreamingProvider):
             payload = {"model": self.config.model, "prompt": prefix, "raw": True,
                        "stream": True, "keep_alive": 0,
                        "options": {"num_predict": self.config.max_tokens,
-                                   "temperature": 0.2, "repeat_penalty": 1.0 if self.config.prompt_style == "writing" else 1.1,
+                                   "temperature": 0.35 if options.get("_diverse") else 0.2,
+                                   "repeat_penalty": 1.0 if self.config.prompt_style == "writing" else 1.1,
                                    "stop": stop}}
         else:
             path = self._v1 + "/completions"
             payload = {"model": self.config.model, "prompt": prefix,
-                       "max_tokens": self.config.max_tokens, "temperature": 0.2,
+                       "max_tokens": self.config.max_tokens,
+                       "temperature": 0.35 if options.get("_diverse") else 0.2,
                        "stop": stop, "stream": True}
         if cancel.is_set():
             return

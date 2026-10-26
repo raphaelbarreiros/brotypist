@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import asdict, replace
+import math
+from pathlib import Path
 import re
 import sqlite3
 import sys
@@ -16,10 +18,12 @@ import unicodedata
 
 from .config import Config, save_config
 from .core import SuggestionState
+from .features import completion_limits, current_word_only, include_punctuation, mid_word
 from .process_client import ProcessClient
 from .storage import LocalStorage
 
 _CONTEXT_TTL = 2.0
+_DOCS_PROBE_INTERVAL = 2.0
 _CONTEXT_MESSAGES = {
     "off": "Optional context is off.",
     "pending": "Reading eligible text from the focused window.",
@@ -29,7 +33,16 @@ _CONTEXT_MESSAGES = {
     "blocked": "Optional context was blocked by current focus or privacy policy.",
     "stale": "Focused-window context changed and was discarded.",
     "error": "Optional context could not be read. Check Accessibility permissions or turn it off.",
+    "screen_permission": "Screen Recording permission is needed for screenshot context.",
 }
+# The per-app/website shortcut toggle is a brief override, not a saved rule.
+_TEMPORARY_TOGGLE_SECONDS = 300
+# Renders whose font, baseline or colours were measured from an on-device
+# window screenshot carry this marker (native.macos_vision sources).
+_VISION_SOURCE_MARKER = "+vision"
+_CHOOSER_MODES = frozenset({"alternatives", "synonyms", "emoji"})
+_COMMAND_ACTIONS = frozenset({"force", "alternatives", "synonyms", "toggle", "app_toggle", "settings"})
+_SHORTER = {"long": "medium", "medium": "short", "short": "short", "word": "word"}
 
 
 class Controller:
@@ -42,16 +55,27 @@ class Controller:
         self.bridge = bridge
         self._rewrites_supported = bool(getattr(
             bridge, "supports_atomic_replacement", not sys.platform.startswith("linux")))
+        # A native key path that can replay a consumed shortcut also promises
+        # drawn-presentation acknowledgments: keys are consumed only for text
+        # the overlay confirmed it drew (macOS AppKit).
+        self._fast_keys = callable(getattr(bridge, "replay_action", None))
         self._client = ProcessClient()
         self._storage = LocalStorage()
         self._lock = threading.RLock()
+        self._arm_lock = threading.Lock()
+        self._armed = {}
+        self._presented = {}
+        self._deferred = deque(maxlen=32)
         self._events = deque(maxlen=128)
         self._notifications = deque(maxlen=128)
         self._records = deque(maxlen=128)
         self._suggestion = SuggestionState()
         self._candidate = None
         self._candidate_since = 0.0
+        self._candidate_revision = None
+        self._capture_revision = None
         self._attempted = None
+        self._failed_correction_key = None
         self._request = None
         self._preparing = None
         self._prepared = deque(maxlen=1)
@@ -69,16 +93,27 @@ class Controller:
         self._context_status = "off"
         self._choices = []
         self._choice_snapshot = None
+        self._choices_anchor = None
         self._replacement = None
+        self._correction = None
+        self._advance = None
+        self._spelling = None
         self._mode = "completion"
         self._completion_counted = False
         self._started = False
         self._stopped = False
         self._browser_apps = set()
         self._temporary_apps = {}
+        self._escape_app = ""
+        self._field_pause = None
         self._paused_until = 0.0
         self._app = ""
         self._domain = ""
+        self._docs_help = None
+        self._docs_domain = ""
+        self._docs_scope = None
+        self._docs_revision = None
+        self._docs_probe_after = 0.0
         self._on_battery = False
         self._battery_checked = 0.0
         self._clipboard_reader = None
@@ -115,7 +150,10 @@ class Controller:
             if self._started or self._stopped:
                 return
             self.bridge.configure(self._native_config())
-            self.bridge.start_shortcuts(self.invoke)
+            self.bridge.start_shortcuts(self.fast_invoke if self._fast_keys else self.invoke)
+            input_callback = getattr(self.bridge, "set_input_callback", None)
+            if input_callback is not None:
+                input_callback(self._notify_ui)
             self.bridge.set_shortcuts_enabled(True)
             self._started = True
         if self._recording_configured(self.config):
@@ -140,30 +178,61 @@ class Controller:
             self._events.clear()
             return events
 
+    @staticmethod
+    def _domain_key(domain):
+        return domain.casefold().rstrip(".") if domain else ""
+
     def _rules(self, app, domain):
         app_rule = self.config.app_rules.get("app:" + app, {})
-        domain_rule = self.config.app_rules.get("domain:" + domain.casefold().rstrip("."), {}) if domain else {}
+        domain_rule = self.config.app_rules.get("domain:" + self._domain_key(domain), {}) if domain else {}
         return app_rule, domain_rule
 
+    def _overrides(self):
+        now = time.monotonic()
+        overrides = {scope: enabled for scope, (enabled, expires) in self._temporary_apps.items() if now < expires}
+        if self._escape_app:
+            overrides["app:" + self._escape_app] = False
+        return overrides
+
     def _native_config(self):
-        if not self._temporary_apps:
+        overrides = self._overrides()
+        if not overrides:
             return self.config
         rules = {key: dict(value) for key, value in self.config.app_rules.items()}
-        for app, enabled in self._temporary_apps.items():
-            rules.setdefault("app:" + app, {})["enabled"] = enabled
+        for scope, enabled in overrides.items():
+            rules.setdefault(scope, {})["enabled"] = enabled
         return replace(self.config, app_rules=rules)
+
+    def _temporary(self, scope, now):
+        entry = self._temporary_apps.get(scope)
+        return entry[0] if entry is not None and now < entry[1] else None
+
+    def _policy_exclusions(self):
+        if sys.platform == "darwin":
+            from .native.macos_terminal import terminal_policy_exclusions
+            return terminal_policy_exclusions(self.config)
+        return self.config.excluded_apps
 
     def _allowed(self, app, domain, name=""):
         if not app:
             return False
         identifiers = (app.casefold(), name.casefold())
-        if any(exclusion.casefold() in identifier for exclusion in self.config.excluded_apps for identifier in identifiers):
+        if any(exclusion.casefold() in identifier for exclusion in self._policy_exclusions() for identifier in identifiers):
             return False
-        if self._temporary_apps.get(app) is False:
+        if app == self._escape_app:
+            return False
+        now = time.monotonic()
+        app_override = self._temporary("app:" + app, now)
+        if app_override is False:
             return False
         app_rule, domain_rule = self._rules(app, domain)
-        enabled = self._temporary_apps.get(app, app_rule.get("enabled", self.config.enabled))
-        return domain_rule.get("enabled", enabled)
+        enabled = app_rule.get("enabled", self.config.enabled) if app_override is None else app_override
+        enabled = domain_rule.get("enabled", enabled)
+        if domain:
+            domain_override = self._temporary("domain:" + self._domain_key(domain), now)
+            if domain_override is not None:
+                enabled = domain_override
+        return enabled
 
     def _record_allowed(self, app, domain):
         if (not domain and app in self._browser_apps and any(
@@ -183,22 +252,33 @@ class Controller:
         try:
             info = self.bridge.foreground() or {}
         except Exception:
+            self._clear_docs_help()
             return None
         app = str(info.get("app_id", ""))
         domain = str(info.get("domain", "")).casefold().rstrip(".")
         if app:
+            if self._escape_app and app != self._escape_app:
+                # Escape's "until you switch apps" suppression ends on a switch.
+                self._escape_app = ""
+                self.bridge.configure(self._native_config())
             self._app, self._domain = app, domain
             if info.get("browser"):
                 self._browser_apps.add(app)
         if (info.get("browser") and (not domain or not info.get("domain_observable", bool(domain))) and any(
                 key.startswith("domain:") and rule.get("enabled") is False
                 for key, rule in self.config.app_rules.items())):
+            self._clear_docs_help()
             return None
-        return info if self._allowed(app, domain, str(info.get("name", ""))) else None
+        allowed = self._allowed(app, domain, str(info.get("name", "")))
+        if (not allowed or (self._docs_help is not None
+                            and (app != self._docs_help["app_id"] or domain != self._docs_domain))):
+            self._clear_docs_help()
+        return info if allowed else None
 
     @staticmethod
     def _selected_word(snapshot):
-        if (snapshot is None or snapshot.protected or not 0 < snapshot.selection_length <= 80
+        if (snapshot is None or snapshot.protected or not snapshot.can_replace
+                or not 0 < snapshot.selection_length <= 80
                 or snapshot.caret < 0 or snapshot.caret + snapshot.selection_length > len(snapshot.text)):
             return ""
         text = snapshot.text[snapshot.caret:snapshot.caret + snapshot.selection_length]
@@ -206,9 +286,19 @@ class Controller:
         return text if re.fullmatch(
             r"[^\W\d_]+(?:[’'-][^\W\d_]+)*(?: [^\W\d_]+(?:[’'-][^\W\d_]+)*){0,4}", normalized, re.UNICODE) else ""
 
+    def _user_revision(self):
+        """O(1) count of user input (not our own insertions); None disables arming."""
+        reader = getattr(self.bridge, "user_input_revision", None)
+        try:
+            value = reader() if reader is not None else None
+        except Exception:
+            return None
+        return value if type(value) is int else None
+
     def _capture(self):
         if self._foreground() is None or not self._active():
             return None
+        revision = self._user_revision()
         try:
             snapshot = self.bridge.capture()
         except Exception:
@@ -223,9 +313,105 @@ class Controller:
             return None
         if not (0 <= snapshot.caret <= len(snapshot.text)):
             return None
+        render = snapshot.inline_render
+        if (render is not None and _VISION_SOURCE_MARKER in render.source
+                and not self.config.screenshot_appearance):
+            # Screenshot-derived appearance needs its own explicit opt-in.
+            snapshot = replace(snapshot, inline_render=None)
+        self._capture_revision = revision
         return snapshot
 
+    def _clear_docs_help(self):
+        if self._docs_help is not None:
+            self._docs_help = None
+            self._docs_domain = ""
+            self._emit({"type": "docs_help", "hint": None})
+
+    def _docs_paused(self):
+        pause = self._field_pause
+        return bool(pause is not None and time.monotonic() < pause[1]
+                    and pause[0][0] == self._app and pause[0][2] == self._domain)
+
+    def _docs_context(self, info):
+        """Revoke capabilities cheaply; never perform Docs discovery here."""
+        revision_reader = getattr(self.bridge, "input_revision", None)
+        secure_reader = getattr(self.bridge, "secure_input_active", None)
+        try:
+            revision = revision_reader() if revision_reader else self._user_revision()
+            secure = bool(secure_reader()) if secure_reader else False
+        except Exception:
+            revision, secure = None, True
+        scope = (tuple(info.get(key) for key in (
+            "app_id", "domain", "pid", "window_id", "document_id")), id(self.config)) if info else None
+        if scope != self._docs_scope or revision != self._docs_revision or secure:
+            if self._docs_help is not None:
+                self._docs_probe_after = max(
+                    self._docs_probe_after, time.monotonic() + _DOCS_PROBE_INTERVAL)
+            self._clear_docs_help()
+        self._docs_scope, self._docs_revision = scope, revision
+        eligible = bool(info and not secure and self._active() and not self._docs_paused())
+        if not eligible:
+            self._clear_docs_help()
+        return eligible
+
+    def _refresh_docs_help(self, snapshot, info):
+        # Discovery has its own positive/negative TTL, not the typing capture
+        # cadence. Input invalidates the visible token, never this probe budget.
+        reader = getattr(self.bridge, "docs_hint", None)
+        if snapshot is not None or reader is None or not self._docs_context(info):
+            self._clear_docs_help()
+            return
+        now = time.monotonic()
+        if now < self._docs_probe_after:
+            return
+        self._docs_probe_after = now + _DOCS_PROBE_INTERVAL
+        scope, revision = self._docs_scope, self._docs_revision
+        try:
+            hint = reader()
+        except Exception:
+            hint = None
+        if (not self._docs_context(info) or self._docs_scope != scope
+                or self._docs_revision != revision):
+            return
+        if (not isinstance(hint, dict) or not hint.get("token")
+                or hint.get("app_id") != self._app or hint.get("support") != "unknown"):
+            self._clear_docs_help()
+            return
+        if hint != self._docs_help or self._domain != self._docs_domain:
+            self._docs_help = dict(hint)
+            self._docs_domain = self._domain
+            self._emit({"type": "docs_help", "hint": dict(hint)})
+
+    def enable_docs_accessibility(self, token):
+        """Consume an explicit current-document action, never a typing shortcut."""
+        with self._lock:
+            hint = self._docs_help
+            unknown = {"status": "unknown", "diagnostic": "stale-capability", "help_url": ""}
+            info = self._foreground()
+            if (not self._docs_context(info) or hint is None or token != hint["token"]
+                    or self._docs_help is not hint):
+                self._clear_docs_help()
+                return unknown
+            enable = getattr(self.bridge, "enable_docs_accessibility", None)
+            self._clear_docs_help()
+            self._capture_after = 0.0
+            if enable is None:
+                return unknown
+            try:
+                result = enable(token)
+            except Exception:
+                return unknown
+            if not isinstance(result, dict) or result.get("status") not in {"enabled", "already_enabled", "unknown"}:
+                return unknown
+            return result
+
+    def _disarm(self, *kinds):
+        with self._arm_lock:
+            self._armed = {kind: entry for kind, entry in self._armed.items() if kinds and kind not in kinds}
+        self._presented = {kind: entry for kind, entry in self._presented.items() if kinds and kind not in kinds}
+
     def _clear(self, *, hide_accessory=False, cancel=True, cancel_context=True):
+        self._clear_docs_help()
         if cancel:
             self._client.cancel()
         self._request = None
@@ -235,12 +421,27 @@ class Controller:
         if cancel_context:
             self._screen_pending = None
             self._screen_job = None
-            self._context_status = "blocked" if self.config.screen_context or self.config.clipboard_context else "off"
+            self._context_status = "blocked" if self._window_context_enabled() or self.config.clipboard_context else "off"
         self._suggestion.invalidate()
         self._choices = []
         self._choice_snapshot = None
+        self._choices_anchor = None
         self._replacement = None
+        self._correction = None
+        self._advance = None
+        self._disarm()
         self._emit({"type": "clear", "hide_accessory": hide_accessory})
+
+    def _clear_choices(self):
+        if not self._choices:
+            return
+        self._choices = []
+        self._choice_snapshot = None
+        self._choices_anchor = None
+        self._replacement = None
+        self._mode = "completion"
+        self._disarm("choices")
+        self._emit({"type": "clear", "panel": "chooser"})
 
     def _finish_session(self):
         if self._session_key and (self._session_accepted or self.config.record_unaccepted):
@@ -284,14 +485,21 @@ class Controller:
         previous = self._candidate
         if previous is not None and previous.key == snapshot.key:
             self._candidate = snapshot
-            if (previous.caret_rect != snapshot.caret_rect or previous.field_rect != snapshot.field_rect
-                    or previous.native_anchor != snapshot.native_anchor
-                    or previous.inline_render != snapshot.inline_render
-                    or previous.native_inline != snapshot.native_inline):
+            previous_revision, self._candidate_revision = self._candidate_revision, self._capture_revision
+            geometry_changed = (previous.caret_rect != snapshot.caret_rect or previous.field_rect != snapshot.field_rect
+                                or previous.native_anchor != snapshot.native_anchor
+                                or previous.inline_render != snapshot.inline_render
+                                or previous.native_inline != snapshot.native_inline)
+            # User input (e.g. a click) without a text change disarmed the drawn
+            # text; redraw it so the overlay can confirm it for the new revision.
+            rearm = self._fast_keys and previous_revision != self._candidate_revision and bool(self._presented)
+            if geometry_changed or rearm:
                 if ((snapshot.has_anchor and not previous.has_anchor)
                         or (snapshot.inline_safe and not previous.inline_safe)):
                     self._attempted = None
-                if self._suggestion.snapshot is not None:
+                if self._correction is not None:
+                    self._publish_correction(snapshot, self._correction[1])
+                elif self._suggestion.snapshot is not None:
                     self._suggestion.offer(self._suggestion.generation, snapshot, self._suggestion.text)
                     self._publish_completion()
                 elif self._choices:
@@ -315,7 +523,8 @@ class Controller:
                 self._candidate_since = input_at
         self._attempted = None
         self._candidate = snapshot
-        if self._suggestion.advance(snapshot):
+        self._candidate_revision = self._capture_revision
+        if self._correction is None and self._suggestion.advance(snapshot):
             self._client.cancel()
             self._request = None
             self._publish_completion()
@@ -337,15 +546,28 @@ class Controller:
         return (snapshot.app_id, getattr(snapshot, "domain", ""),
                 snapshot.window_id, snapshot.window_revision)
 
+    def _window_context_enabled(self):
+        return bool(self.config.screen_context or self.config.screenshot_context)
+
+    def _provenance_allowed(self, provenance):
+        return (provenance == "" or (provenance == "accessibility" and self.config.screen_context)
+                or (provenance == "screenshot" and self.config.screenshot_context))
+
     def _context_current(self, token, snapshot, kind):
         expected = self._screen_job if kind == "screen" else self._preparing
-        return (token is not None and expected == token and self._active()
-                and bool(self.config.personalization_strength if kind == "personalization"
-                         else getattr(self.config, ("screen" if kind.startswith("screen") else "clipboard") + "_context"))
+        domain = getattr(snapshot, "domain", "")
+        if kind == "personalization":
+            # History is read only under the recording consent that applies now.
+            enabled = bool(self.config.personalization_strength) and self._record_allowed(snapshot.app_id, domain)
+        elif kind.startswith("screen"):
+            enabled = self._window_context_enabled()
+        else:
+            enabled = self.config.clipboard_context
+        return (token is not None and expected == token and self._active() and enabled
                 and not snapshot.protected
                 and self._candidate is not None and self._candidate.key == snapshot.key
                 and self._window_key(self._candidate) == self._window_key(snapshot)
-                and self._allowed(snapshot.app_id, getattr(snapshot, "domain", "")))
+                and self._allowed(snapshot.app_id, domain))
 
     def _context_allowed(self, token, snapshot, kind):
         # Re-read consent/exclusions after asynchronous waits and on each native
@@ -362,7 +584,7 @@ class Controller:
             return bool(safe and self._context_current(token, snapshot, kind))
 
     def _queue_window_context(self, snapshot):
-        if not self.config.screen_context:
+        if not self._window_context_enabled():
             if not self.config.clipboard_context:
                 self._context_status = "off"
             return
@@ -421,9 +643,13 @@ class Controller:
         if not guard():
             blocked()
             return
+        with self._lock:
+            accessibility = bool(self.config.screen_context)
+            screenshots = bool(self.config.screenshot_context)
         try:
             result = self._screen_reader(
-                snapshot, bridge=self.bridge, authorized=guard, max_chars=2400)
+                snapshot, bridge=self.bridge, authorized=guard, max_chars=2400,
+                accessibility=accessibility, screenshot_context=screenshots)
             if not isinstance(result, dict):
                 raise ValueError("Invalid context adapter result")
             status = result.get("status", "empty")
@@ -434,7 +660,7 @@ class Controller:
                 status = "stale"
             text = result.get("text", "") if status == "ready" else ""
             provenance = result.get("provenance", "")
-            if not isinstance(text, str) or provenance not in {"", "accessibility"}:
+            if not isinstance(text, str) or provenance not in {"", "accessibility", "screenshot"}:
                 status, text, provenance = "error", "", ""
         except Exception:
             # Fixed content-free status only: native exception bodies can quote
@@ -446,6 +672,10 @@ class Controller:
         with self._lock:
             if not self._context_current(token, snapshot, "screen"):
                 return
+            if not self._provenance_allowed(provenance):
+                # The source consent changed (or the adapter used one it lacked).
+                blocked()
+                return
             self._screen_cache = (self._window_key(snapshot), time.monotonic(),
                                   provenance, text[:2400], status)
             self._context_status = status
@@ -455,21 +685,27 @@ class Controller:
         from .writing import reference_context
         references = list(references)
         cached = self._screen_cache
-        if (use_window and self.config.screen_context and cached is not None
-                and cached[0] == self._window_key(snapshot)
+        if (use_window and self._window_context_enabled() and cached is not None
+                and cached[0] == self._window_key(snapshot) and self._provenance_allowed(cached[2])
                 and time.monotonic() - cached[1] <= _CONTEXT_TTL and cached[4] == "ready"):
             references.append((cached[2], cached[3]))
         return reference_context(snapshot.prefix, snapshot.suffix, references)
 
-    def _options(self, snapshot, mode, token):
-        app_rule, domain_rule = self._rules(snapshot.app_id, getattr(snapshot, "domain", ""))
+    def _length(self):
+        length = self.config.completion_length
+        return _SHORTER[length] if self._on_battery and self.config.battery_shorter else length
+
+    def _options(self, snapshot, mode, token, anchor=""):
+        domain = getattr(snapshot, "domain", "")
+        app_rule, domain_rule = self._rules(snapshot.app_id, domain)
         instructions = "\n".join(value for value in (
             self.config.custom_instructions, app_rule.get("custom_instructions", ""), domain_rule.get("custom_instructions", "")) if value)
         warning = ""
-        if self.config.personalization_strength:
+        strength = self.config.personalization_strength
+        if strength:
             try:
-                if self._storage.history_info()["count"] and self._context_allowed(token, snapshot, "personalization"):
-                    vocabulary = self._storage.vocabulary(self.config.personalization_strength, snapshot.app_id)
+                if self._context_allowed(token, snapshot, "personalization"):
+                    vocabulary = self._storage.vocabulary(strength, snapshot.app_id, domain)
                     if vocabulary and self._context_allowed(token, snapshot, "personalization"):
                         instructions += "\n" + vocabulary
             except (RuntimeError, OSError, sqlite3.Error):
@@ -491,60 +727,87 @@ class Controller:
                         self._context_status = "error"
         with self._lock:
             reference = self._reference_options(snapshot, context)
-        length = "short" if self._on_battery and self.config.battery_shorter else self.config.completion_length
+            length = self._length()
         options = {"instructions": instructions[:26000], "context": reference, "_references": context,
-                   "max_words": {"short": 4, "medium": 8, "long": 16}[length]}
+                   "max_words": completion_limits(length)[1]}
         if warning:
             options["_warning"] = warning
-        if mode != "completion":
-            from .features import utility_prompt
-            selected = self._selected_word(snapshot) if mode == "synonyms" else ""
-            suffix = snapshot.text[snapshot.caret + snapshot.selection_length:] if selected else snapshot.suffix
-            options["utility"] = utility_prompt(mode, snapshot.prefix, suffix, selected)
+        if mode == "alternatives":
+            options.update(alternatives=True, anchor=anchor)
+        elif mode == "synonyms":
+            from .features import synonym_prompt
+            selected = self._selected_word(snapshot)
+            suffix = snapshot.text[snapshot.caret + snapshot.selection_length:]
+            options["utility"] = synonym_prompt(snapshot.prefix, suffix, selected)
         return options
 
     def _effective_config(self, mode):
-        length = "short" if self._on_battery and self.config.battery_shorter else self.config.completion_length
-        limit = {"short": 16, "medium": 32, "long": 64}[length]
-        config = replace(self.config, max_tokens=min(self.config.max_tokens, limit))
+        config = replace(self.config, max_tokens=min(self.config.max_tokens, completion_limits(self._length())[0]))
         if mode != "completion":
             config.max_tokens = 128
-        if self._on_battery and self.config.battery_smaller_model and config.backend == "gguf":
+        battery_model = self.config.battery_model
+        if self._on_battery and battery_model != "same" and config.backend == "gguf":
             from .models import get_preset, is_installed, model_path
-            tiny = get_preset("tiny")
-            if is_installed(tiny):
-                config = replace(config, model_path=str(model_path(tiny)), prompt_style=tiny.prompt_style)
+            try:
+                preset = get_preset(battery_model)
+            except ValueError:
+                preset = None
+            if preset is not None and is_installed(preset):
+                config = replace(config, model_path=str(model_path(preset)), prompt_style=preset.prompt_style,
+                                 model_id=preset.id)
             else:
-                self._error = "Battery smaller-model mode needs the Tiny model installed in Setup; the selected model is still used."
+                self._error = "The battery model is not installed; the selected model is still used."
         return config
 
-    def _submit(self, snapshot, mode="completion"):
+    def _synonyms_available(self, config=None):
+        config = self._effective_config("synonyms") if config is None else config
+        return config.backend != "gguf" or config.prompt_style == "writing"
+
+    def _can_replace(self, snapshot):
+        return self._rewrites_supported and snapshot.can_replace
+
+    def _submit(self, snapshot, mode="completion", anchor=""):
         if mode == "completion" and not snapshot.inline_safe:
             return False
-        if mode in {"emoji", "synonyms"} and not self._rewrites_supported:
+        if mode in {"emoji", "synonyms"} and not self._can_replace(snapshot):
             return False
-        self._clear(cancel_context=False)
+        if mode == "synonyms" and not self._synonyms_available():
+            self._attempted = (snapshot.key, mode)
+            return False
+        anchored = bool(mode == "alternatives" and anchor and self._suggestion.snapshot is not None
+                        and self._suggestion.snapshot.key == snapshot.key and self._suggestion.text)
+        if anchored:
+            # Alternatives for the visible completion keep that completion on screen.
+            self._client.cancel()
+            self._request = None
+            self._preparing = None
+            self._context_pending = None
+            self._prepared.clear()
+            self._clear_choices()
+        else:
+            self._clear(cancel_context=False)
+            self._completion_counted = False
         self._error = ""
         self._mode = mode
-        self._completion_counted = False
+        self._choices_anchor = snapshot.key if anchored else None
         self._attempted = (snapshot.key, mode)
         token = (snapshot.key, self._suggestion.generation, mode)
         self._preparing = token
 
         self._queue_window_context(snapshot)
-        self._context_pending = (token, snapshot, mode)
+        self._context_pending = (token, snapshot, mode, anchor if anchored else "")
         if self._context_thread is None:
             self._context_thread = threading.Thread(target=self._context_loop, daemon=True, name="inklow-optional-context")
             self._context_thread.start()
         self._context_wake.set()
         return True
 
-    def _prepare_options(self, token, snapshot, mode):
+    def _prepare_options(self, token, snapshot, mode, anchor=""):
         try:
             with self._lock:
                 if self._preparing != token or not self._active():
                     return
-            options = self._options(snapshot, mode, token)
+            options = self._options(snapshot, mode, token, anchor)
         except Exception:
             options = None
         with self._lock:
@@ -591,51 +854,175 @@ class Controller:
             self._preparing = None
             self._error = options.pop("_warning", "")
             mode = token[2]
+            length = self._length()
             try:
-                identifier = self._client.submit(self._effective_config(mode), snapshot.prefix,
-                                                 snapshot.suffix, **options)
+                config = self._effective_config(mode)
+                if mode == "synonyms" and not self._synonyms_available(config):
+                    continue
+                identifier = self._client.submit(config, snapshot.prefix, snapshot.suffix, **options)
             except (RuntimeError, ValueError) as error:
                 self._error = str(error)
                 continue
-            self._request = (identifier, snapshot, token[1], mode)
+            self._request = (identifier, snapshot, token[1], mode, length)
+
+    def _anchored_choices(self):
+        snapshot = self._suggestion.snapshot
+        return bool(self._choices and self._choices_anchor is not None and snapshot is not None
+                    and self._suggestion.text and self._choices_anchor == snapshot.key)
 
     def _publish_completion(self):
         snapshot, text = self._suggestion.snapshot, self._suggestion.text
-        if snapshot is None or not text or not snapshot.inline_safe:
+        # Any new or moved drawing must be acknowledged again before keys act on it.
+        self._disarm("completion")
+        geometry, advance = snapshot, self._advance
+        if (snapshot is not None and not snapshot.inline_safe and advance is not None
+                and advance[0] == snapshot.key):
+            # Just after a word was inserted the host has not reported its new
+            # caret yet: keep drawing the remainder from the verified run,
+            # shifted by the accepted text, instead of flickering it away.
+            geometry = advance[1]
+        else:
+            advance = self._advance = None
+        if snapshot is None or not text or not geometry.inline_safe:
+            self._clear_choices()
             self._emit({"type": "clear"})
             return
-        self._emit({"type": "suggestion", "text": text,
-                    "rect": list(snapshot.anchor_rect) if snapshot.anchor_rect else None,
-                    "native_anchor": snapshot.native_anchor, "choices": [],
-                    "field_rect": list(snapshot.field_rect) if snapshot.field_rect else None,
-                    "field_anchor": snapshot.caret_rect is None,
-                    "mode": "completion",
-                    "inline": True,
-                    "render": asdict(snapshot.inline_render) if snapshot.inline_render else None})
+        if self._choices and not self._anchored_choices():
+            self._clear_choices()
+        choices = list(self._choices) if self._choices else []
+        event = {"type": "suggestion", "text": text, "key": snapshot.key,
+                 "rect": list(geometry.anchor_rect) if geometry.anchor_rect else None,
+                 "native_anchor": geometry.native_anchor, "choices": choices,
+                 "field_rect": list(geometry.field_rect) if geometry.field_rect else None,
+                 "field_anchor": geometry.caret_rect is None,
+                 "mode": "completion",
+                 "inline": True,
+                 "render": asdict(geometry.inline_render) if geometry.inline_render else None}
+        if choices:
+            event["choices_mode"] = "alternatives"
+        if advance is not None:
+            event["advance"] = advance[2]
+        self._emit(event)
 
     def _publish_choices(self, snapshot, choices, mode, replacement):
-        if mode in {"emoji", "synonyms"} and not self._rewrites_supported:
+        if ((mode in {"emoji", "synonyms"} or replacement != (snapshot.caret, 0))
+                and not self._can_replace(snapshot)):
             return
-        self._suggestion.invalidate()
+        anchored = bool(mode == "alternatives" and self._choices_anchor is not None
+                        and self._choices_anchor == snapshot.key
+                        and self._suggestion.snapshot is not None
+                        and self._suggestion.snapshot.key == snapshot.key and self._suggestion.text)
+        if not anchored:
+            self._suggestion.invalidate()
+            self._choices_anchor = None
+            self._advance = None
+            self._disarm("completion")
         self._choices = choices[:5]
         self._choice_snapshot = snapshot
         self._replacement = replacement
         self._mode = mode
+        self._disarm("choices")
+        if anchored:
+            self._publish_completion()
+            return
         self._completion_counted = False
         if snapshot.has_anchor and self._choices:
-            self._emit({"type": "suggestion", "text": self._choices[0],
+            self._emit({"type": "suggestion", "text": self._choices[0], "key": snapshot.key,
                         "rect": list(snapshot.anchor_rect) if snapshot.anchor_rect else None,
                         "native_anchor": snapshot.native_anchor,
                         "field_rect": list(snapshot.field_rect) if snapshot.field_rect else None,
                         "field_anchor": snapshot.caret_rect is None,
                         "choices": list(self._choices), "mode": mode})
 
+    def _typo_active(self, snapshot):
+        return bool(self.config.typo_suppression
+                    or (self.config.typo_fixes and self._can_replace(snapshot)))
+
+    def _assess(self, snapshot):
+        """Latest-only local spelling result for this exact snapshot, or None while pending."""
+        service = self._spelling
+        if service is None:
+            from .spelling import SpellingService
+            service = self._spelling = SpellingService(wake=self._notify_ui)
+        try:
+            result = service.assess(snapshot)
+        except Exception:
+            return None
+        return result if result is not None and result.key == snapshot.key else None
+
+    def _completion_blocked(self, snapshot):
+        """A suspected typo in the current word withholds the ordinary completion."""
+        if not self._typo_active(snapshot):
+            return False
+        if self._correction is not None and self._correction[0].key == snapshot.key:
+            return True
+        result = self._assess(snapshot)
+        return result is None or (result.suspected and bool(self.config.typo_suppression))
+
+    @staticmethod
+    def _rect(value):
+        try:
+            rect = tuple(float(item) for item in value)
+        except (TypeError, ValueError):
+            return None
+        return rect if len(rect) == 4 and all(math.isfinite(item) for item in rect) and rect[2] > 0 and rect[3] > 0 else None
+
+    def _publish_correction(self, snapshot, result, rect=None):
+        """Show a strike-through fix on the same line only with verified range geometry."""
+        if not self._can_replace(snapshot):
+            return False
+        if rect is None:
+            reader = getattr(self.bridge, "range_rect", None)
+            try:
+                rect = self._rect(reader(snapshot, result.start, result.length)) if reader is not None else None
+            except Exception:
+                rect = None
+        if (rect is None or not snapshot.inline_safe or not snapshot.inline_render
+                or result.key != snapshot.key):
+            if self._correction is not None:
+                self._correction = None
+                self._disarm("correction")
+                self._emit({"type": "clear"})
+            return False
+        self._correction = (snapshot, result)
+        self._disarm("correction")
+        self._emit({"type": "suggestion", "mode": "correction", "key": snapshot.key, "text": result.replacement,
+                    "rect": list(snapshot.anchor_rect) if snapshot.anchor_rect else None,
+                    "native_anchor": snapshot.native_anchor, "choices": [],
+                    "field_rect": list(snapshot.field_rect) if snapshot.field_rect else None,
+                    "field_anchor": False, "inline": True,
+                    "render": asdict(snapshot.inline_render),
+                    "correction": {"start": result.start, "length": result.length, "word": result.word,
+                                   "replacement": result.replacement, "language": result.language,
+                                   "rect": list(rect)}})
+        return True
+
+    def _show_correction(self, snapshot, result):
+        if not (self.config.typo_fixes and result.replacement and self._can_replace(snapshot)):
+            return False
+        if self._correction is not None and self._correction[0].key == snapshot.key:
+            return True
+        if self._failed_correction_key == snapshot.key:
+            return False
+        reader = getattr(self.bridge, "range_rect", None)
+        try:
+            rect = self._rect(reader(snapshot, result.start, result.length)) if reader is not None else None
+        except Exception:
+            rect = None
+        if (rect is None or not snapshot.inline_safe or not snapshot.inline_render
+                or result.key != snapshot.key):
+            self._failed_correction_key = snapshot.key
+            return False
+        self._clear()
+        self._attempted = (snapshot.key, "correction")
+        return self._publish_correction(snapshot, result, rect)
+
     def _consume_results(self):
         for event in self._client.poll():
             request = self._request
             if request is None or event.get("id") != request[0]:
                 continue
-            _, snapshot, generation, mode = request
+            _, snapshot, generation, mode, length = request
             current = self._candidate
             if current is None or current.key != snapshot.key or not self._active():
                 continue
@@ -646,7 +1033,10 @@ class Controller:
             elif event.get("type") == "result":
                 text = event.get("text", "")
                 if mode == "completion":
-                    if self._suggestion.offer(generation, snapshot, text):
+                    if length == "word":
+                        text = current_word_only(snapshot.prefix, text)
+                    if (not self._completion_blocked(snapshot)
+                            and self._suggestion.offer(generation, snapshot, text)):
                         self._publish_completion()
                 elif event.get("final"):
                     from .features import parse_choices
@@ -677,10 +1067,38 @@ class Controller:
                     self._storage.record_acceptance(app, text, completion=completion)
                 else:
                     _, identifier, app, domain, text = record
-                    self._storage.record_history(identifier, app, text)
+                    self._storage.record_history(identifier, app, text, domain=domain)
             except (RuntimeError, OSError, sqlite3.Error) as error:
                 with self._lock:
                     self._error = str(error)
+
+    def _field_paused(self, snapshot):
+        pause = self._field_pause
+        if pause is None:
+            return False
+        if time.monotonic() >= pause[1]:
+            self._field_pause = None
+            return False
+        return pause[0] == (snapshot.app_id, snapshot.field_id, getattr(snapshot, "domain", ""))
+
+    def _completion_eligible(self, snapshot):
+        if not (snapshot.inline_safe and snapshot.eligible(self.config.min_chars)):
+            return False
+        same_line = re.split(r"[\r\n]", snapshot.suffix, maxsplit=1)[0]
+        if same_line.strip() and not self.config.complete_inside_text:
+            return False
+        if self.config.completion_length == "word" and not mid_word(snapshot.prefix):
+            return False
+        return not self._field_paused(snapshot)
+
+    def _expire_temporary(self):
+        now = time.monotonic()
+        expired = [scope for scope, (_, expires) in self._temporary_apps.items() if now >= expires]
+        for scope in expired:
+            del self._temporary_apps[scope]
+        if expired:
+            self._attempted = None
+            self.bridge.configure(self._native_config())
 
     def tick(self):
         settings_callbacks = []
@@ -689,6 +1107,7 @@ class Controller:
         with self._lock:
             if self._stopped:
                 return
+            self._run_deferred()
             commands = list(self._commands)
             self._commands.clear()
         for command in commands:
@@ -708,14 +1127,19 @@ class Controller:
                     if snapshot is not None:
                         if isinstance(command, tuple) and snapshot.key != command[1]:
                             continue
+                        if isinstance(command, tuple) and len(command) > 2 and self._user_revision() != command[2]:
+                            continue
                         if not snapshot.has_anchor:
                             continue
                         mode = "completion" if action == "force" else action
                         if ((mode == "completion" and snapshot.eligible(1))
                                 or (mode == "alternatives" and snapshot.eligible(1))
                                 or (mode == "synonyms" and self._selected_word(snapshot))):
+                            anchor = self._suggestion.text if (
+                                mode == "alternatives" and self._suggestion.snapshot is not None
+                                and self._suggestion.snapshot.key == snapshot.key) else ""
                             self._observe(snapshot)
-                            self._submit(snapshot, mode)
+                            self._submit(snapshot, mode, anchor)
         now = time.monotonic()
         if self._battery_reader is not None and now - self._battery_checked >= 5:
             self._battery_checked = now
@@ -724,6 +1148,9 @@ class Controller:
             except Exception:
                 self._on_battery = False
         with self._lock:
+            self._expire_temporary()
+            if self._screen_cache is not None and now - self._screen_cache[1] > _CONTEXT_TTL:
+                self._screen_cache = None
             revision_reader = getattr(self.bridge, "input_revision", None)
             try:
                 revision = revision_reader() if revision_reader is not None else None
@@ -733,12 +1160,16 @@ class Controller:
                 if revision != self._input_revision:
                     self._capture_after = 0.0
                 self._input_revision = revision
-            if not self._active() or self._foreground() is None:
+            foreground = self._foreground()
+            self._docs_context(foreground)
+            if not self._active() or foreground is None:
                 snapshot = None
+                self._clear_docs_help()
                 self._observe(None)
             elif now >= self._capture_after:
                 snapshot = self._capture()
                 self._observe(snapshot)
+                self._refresh_docs_help(snapshot, foreground)
                 recent_input = (snapshot is not None and (
                     now - self._candidate_since < 2 or self._preparing is not None or self._request is not None))
                 self._capture_after = now + (min(self._capture_interval, 0.05) if recent_input else self._capture_interval)
@@ -747,32 +1178,7 @@ class Controller:
             self._consume_prepared()
             self._consume_results()
             if snapshot is not None and snapshot.has_anchor:
-                selected = self._selected_word(snapshot)
-                mode = "synonyms" if selected else "completion"
-                delay = self.config.synonyms_delay_ms if selected else self.config.debounce_ms
-                eligible = (bool(selected) and self._rewrites_supported and self.config.synonyms_enabled and self.config.synonyms_mode == "selection") or (
-                    snapshot.inline_safe and snapshot.eligible(self.config.min_chars) and (self.config.complete_inside_text or not snapshot.suffix))
-                emoji_query = False
-                if self._rewrites_supported and not selected and snapshot.eligible(1):
-                    from .features import emoji_choices
-                    result = emoji_choices(snapshot.prefix, self.config)
-                    if result is not None:
-                        emoji_query = True
-                        suffix, choices = result
-                        if suffix and snapshot.prefix.endswith(suffix) and self._attempted != (snapshot.key, "emoji"):
-                            self._clear()
-                            self._attempted = (snapshot.key, "emoji")
-                            self._publish_choices(snapshot, choices, "emoji", (snapshot.caret - len(suffix), len(suffix)))
-                        eligible = False
-                if not emoji_query and not selected and self.config.alternatives_enabled and self.config.alternatives_mode == "pause" and snapshot.eligible(1):
-                    if now - self._candidate_since >= self.config.alternatives_delay_ms / 1000:
-                        mode, delay, eligible = "alternatives", self.config.alternatives_delay_ms, True
-                if self._on_battery and self.config.battery_on_demand:
-                    eligible = False
-                if (eligible and now - self._candidate_since >= delay / 1000
-                        and self._attempted != (snapshot.key, mode)
-                        and (mode != "completion" or not self._suggestion.text)):
-                    self._submit(snapshot, mode)
+                self._schedule(snapshot, now)
             notifications = list(self._notifications)
             self._notifications.clear()
         self._flush_records()
@@ -783,6 +1189,59 @@ class Controller:
         for callback in settings_callbacks:
             if callback is not None:
                 callback()
+        drain = getattr(self.bridge, "drain_input_transaction", None)
+        if drain is not None:
+            drain()
+
+    def _schedule(self, snapshot, now):
+        """Automatic work for the current field: chooser, correction or completion."""
+        if snapshot.on_demand_only or self._field_paused(snapshot):
+            return
+        selected = self._selected_word(snapshot)
+        mode = "synonyms" if selected else "completion"
+        delay = self.config.synonyms_delay_ms if selected else self.config.debounce_ms
+        eligible = ((bool(selected) and self._can_replace(snapshot) and self.config.synonyms_enabled
+                     and self.config.synonyms_mode == "selection")
+                    or (not selected and self._completion_eligible(snapshot)))
+        emoji_query = False
+        if self._can_replace(snapshot) and not selected and snapshot.eligible(1):
+            from .features import emoji_choices
+            result = emoji_choices(snapshot.prefix, self.config)
+            if result is not None:
+                emoji_query = True
+                suffix, choices = result
+                if suffix and snapshot.prefix.endswith(suffix) and self._attempted != (snapshot.key, "emoji"):
+                    self._clear()
+                    self._attempted = (snapshot.key, "emoji")
+                    self._publish_choices(snapshot, choices, "emoji", (snapshot.caret - len(suffix), len(suffix)))
+                eligible = False
+        if not emoji_query and not selected and self._typo_active(snapshot) and snapshot.eligible(1):
+            assessment = self._assess(snapshot)
+            if assessment is None:
+                eligible = False  # Wait for the local spelling result for this exact text.
+            elif assessment.suspected:
+                if self._show_correction(snapshot, assessment):
+                    eligible = False
+                if self.config.typo_suppression:
+                    eligible = False
+                    if self._suggestion.text and self._suggestion.snapshot is not None:
+                        self._clear()
+                        self._attempted = (snapshot.key, "completion")
+        if (not emoji_query and not selected and self.config.alternatives_enabled
+                and self.config.alternatives_mode == "pause" and self._request is None
+                and self._preparing is None and self._suggestion.text and self._correction is None
+                and self._suggestion.snapshot is not None and self._suggestion.snapshot.key == snapshot.key
+                and (not self._fast_keys or "completion" in self._presented)
+                and self._attempted != (snapshot.key, "alternatives")
+                and now - self._candidate_since >= self.config.alternatives_delay_ms / 1000):
+            self._submit(snapshot, "alternatives", self._suggestion.text)
+            return
+        if self._on_battery and self.config.battery_on_demand:
+            eligible = False
+        if (eligible and now - self._candidate_since >= delay / 1000
+                and self._attempted != (snapshot.key, mode)
+                and (mode != "completion" or (not self._suggestion.text and self._correction is None))):
+            self._submit(snapshot, mode)
 
     def _accepted(self, current, text, resulting_text):
         if self.config.statistics_enabled:
@@ -795,41 +1254,91 @@ class Controller:
             self._session_accepted = True
             self._records.append(("history", self._session_id, current.app_id, self._session_domain, resulting_text))
 
-    def _accept(self, full=False, choice=None):
+    def _drawn(self, kind, key, claimed):
+        """What the overlay confirmed it drew for key: None = no acknowledgment protocol."""
+        if claimed is not None:
+            claimed_kind, entry = claimed
+            return entry if claimed_kind == kind and entry[0] == key else ()
+        if not self._fast_keys:
+            return None
+        entry = self._presented.get(kind)
+        return entry if entry is not None and entry[0] == key else ()
+
+    def _accept(self, full=False, choice=None, claimed=None):
         current = self._capture()
         if current is None or not current.has_anchor:
             self._clear(hide_accessory=True)
             return False
-        if self._choices:
-            index = 0 if choice is None else choice
-            if (self._choice_snapshot is None or current.key != self._choice_snapshot.key
-                    or not 0 <= index < len(self._choices)):
-                self._clear()
-                return False
-            text = self._choices[index]
-            start, length = self._replacement
-            if self._mode == "synonyms":
-                success = self.bridge.replace_selection(current, text)
-            elif start == current.caret and length == 0:
-                success = self.bridge.insert(current, text)
-            else:
-                success = self.bridge.replace_range(current, start, length, text)
-            if not success:
-                self._clear()
-                return False
-            resulting = current.text[:start] + text + current.text[start + length:]
-            self._accepted(current, text, resulting)
+        if choice is not None:
+            return self._accept_choice(current, choice, claimed)
+        if self._correction is not None:
+            return self._apply_correction(current, claimed)
+        if self._choices and not self._anchored_choices():
+            # Tab/AboveTab never choose an alternative; only its number does.
+            return False if self._mode == "alternatives" else self._accept_choice(current, 0, claimed)
+        return self._accept_completion(current, full, claimed)
+
+    def _accept_choice(self, current, index, claimed):
+        if (not self._choices or self._choice_snapshot is None or current.key != self._choice_snapshot.key
+                or not 0 <= index < len(self._choices)):
             self._clear()
-            self._attempted = (current.key, self._mode)
-            return True
-        if (choice is not None or self._suggestion.snapshot is None or current.key != self._suggestion.snapshot.key
+            return False
+        drawn = self._drawn("choices", current.key, claimed)
+        if drawn is not None and (not drawn or drawn[4] != self._mode or index >= drawn[3]):
+            return False
+        text = self._choices[index]
+        start, length = self._replacement
+        if ((self._mode in {"emoji", "synonyms"} or (start, length) != (current.caret, 0))
+                and not self._can_replace(current)):
+            self._clear()
+            return False
+        if self._mode == "synonyms":
+            success = self.bridge.replace_selection(current, text)
+        elif start == current.caret and length == 0:
+            success = self.bridge.insert(current, text)
+        else:
+            success = self.bridge.replace_range(current, start, length, text)
+        if not success:
+            self._clear()
+            return False
+        mode = self._mode
+        resulting = current.text[:start] + text + current.text[start + length:]
+        self._accepted(current, text, resulting)
+        self._clear()
+        self._attempted = (current.key, mode)
+        return True
+
+    def _apply_correction(self, current, claimed):
+        snapshot, result = self._correction
+        if (not self._can_replace(current)
+                or current.key != snapshot.key or result.key != current.key):
+            self._clear()
+            return False
+        drawn = self._drawn("correction", current.key, claimed)
+        if drawn is not None and (not drawn or drawn[1] != result.replacement):
+            return False
+        if not self.bridge.replace_range(current, result.start, result.length, result.replacement):
+            self._clear()
+            return False
+        resulting = current.text[:result.start] + result.replacement + current.text[result.start + result.length:]
+        self._accepted(current, result.replacement, resulting)
+        self._clear()
+        self._attempted = None
+        self._capture_after = 0.0
+        return True
+
+    def _accept_completion(self, current, full, claimed):
+        if (self._suggestion.snapshot is None or current.key != self._suggestion.snapshot.key
                 or not current.eligible(1) or not current.inline_safe):
             self._clear()
             return False
-        include_punctuation = self.config.punctuation_mode == "always" or (self.config.punctuation_mode == "full" and full)
+        drawn = self._drawn("completion", current.key, claimed)
+        if drawn is not None and not drawn:
+            return False  # Nothing confirmed drawn: never accept hidden text.
         text = self._suggestion.accept(
             current, full=full, trailing_space=self.config.trailing_space,
-            trailing_punctuation=include_punctuation)
+            trailing_punctuation=include_punctuation(self.config.punctuation_mode, full),
+            visible=drawn[1] if drawn else None)
         updated = self._suggestion.snapshot
         # Compute the pure state transition under the decision lock, but commit
         # no statistics/history until the native adapter confirms insertion.
@@ -838,16 +1347,249 @@ class Controller:
             return False
         self._client.cancel()
         self._request = None
+        self._preparing = None
         self._accepted(current, text, updated.text)
         self._candidate = updated
+        self._candidate_revision = self._capture_revision
         self._capture_after = 0.0
         self._attempted = (updated.key, "completion")
+        self._disarm()
         if not self._suggestion.text:
             self._suggestion.invalidate()
+            self._clear_choices()
             self._emit({"type": "clear"})
         else:
+            self._advance = (updated.key, current, text) if self._fast_keys else None
             self._publish_completion()
         return True
+
+    def _dismiss(self, key, action, kind):
+        self._clear()
+        self._attempted = (key, "correction" if kind == "correction" else "completion")
+        if action == "bypass":
+            return
+        if self.config.escape_behavior == "pause":
+            # Brief, field-scoped pause; the warm worker is only cancelled.
+            self._field_pause = ((key[0], key[1], key[6]), time.monotonic() + self.config.escape_pause_seconds)
+        elif self.config.escape_behavior == "app":
+            self._escape_app = key[0]
+            self.bridge.configure(self._native_config())
+
+    def _drop_inflight(self):
+        """Escape over nothing drawn passes through but cancels work for this field."""
+        if self._request is not None or self._preparing is not None:
+            self._clear()
+            if self._candidate is not None:
+                self._attempted = (self._candidate.key, "completion")
+
+    def _visible_kind(self):
+        if self._fast_keys:
+            for kind, expected in (("correction", self._correction[0] if self._correction else None),
+                                   ("completion", self._suggestion.snapshot if self._suggestion.text else None),
+                                   ("choices", self._choice_snapshot if self._choices else None)):
+                entry = self._presented.get(kind)
+                if expected is not None and entry is not None and entry[0] == expected.key:
+                    return kind, expected
+            return None
+        if self._correction is not None:
+            return "correction", self._correction[0]
+        snapshot = self._suggestion.snapshot
+        if self._suggestion.text and snapshot is not None and snapshot.inline_safe:
+            return "completion", snapshot
+        if self._choices and self._choice_snapshot is not None:
+            return "choices", self._choice_snapshot
+        return None
+
+    def presentation_result(self, key, visible_text, mode="completion"):
+        """UI-thread acknowledgment of exactly what the overlay drew for key."""
+        if not isinstance(visible_text, str) or not isinstance(mode, str):
+            return
+        kind = "choices" if mode in _CHOOSER_MODES else mode
+        if kind not in {"completion", "choices", "correction"}:
+            return
+        with self._lock:
+            if self._stopped:
+                return
+            entry = None
+            if visible_text:
+                if kind == "completion":
+                    snapshot = self._suggestion.snapshot
+                    valid = (snapshot is not None and snapshot.key == key
+                             and self._suggestion.text.startswith(visible_text))
+                elif kind == "correction":
+                    valid = (self._correction is not None and self._correction[0].key == key
+                             and visible_text == self._correction[1].replacement)
+                else:
+                    valid = (bool(self._choices) and self._choice_snapshot is not None
+                             and self._choice_snapshot.key == key and self._mode == mode)
+                if valid:
+                    count = 0
+                    if kind == "choices":
+                        for shown, choice in zip(visible_text.split("\n"), self._choices):
+                            if shown != choice:
+                                break
+                            count += 1
+                    revision = (self._candidate_revision if self._candidate is not None
+                                and self._candidate.key == key else None)
+                    if kind != "choices" or count:
+                        entry = (key, visible_text, revision, count, mode)
+            presented = dict(self._presented)
+            if entry is None:
+                presented.pop(kind, None)
+            else:
+                presented[kind] = entry
+            self._presented = presented
+            with self._arm_lock:
+                armed = dict(self._armed)
+                if entry is None or entry[2] is None or not self._fast_keys:
+                    armed.pop(kind, None)
+                else:
+                    armed[kind] = entry
+                self._armed = armed
+            acknowledge = getattr(self.bridge, "acknowledge_input_presentation", None)
+            if acknowledge is not None and kind == "completion":
+                acknowledge(key)
+
+    def _claim(self, kinds, index=None, chooser_modes=_CHOOSER_MODES):
+        revision = self._user_revision()
+        if revision is None:
+            return None
+        with self._arm_lock:
+            for kind in kinds:
+                entry = self._armed.get(kind)
+                if (entry is None or entry[2] != revision
+                        or (kind == "choices" and (entry[4] not in chooser_modes
+                                                   or (index is not None and index >= entry[3])))):
+                    continue
+                # One key consumes the armed presentation; nothing else can reuse it.
+                self._armed = {}
+                return kind, entry
+        return None
+
+    def _defer(self, action, claimed):
+        transaction = getattr(self.bridge, "input_transaction", None)
+        gate = transaction() if transaction else None
+        if action in {"escape", "dismiss", "bypass"} and (
+                claimed is None or (action != "bypass" and self.config.escape_behavior == "passthrough")):
+            gate = None
+        self._deferred.append((action, claimed, gate))
+        self._notify_ui()
+
+    def fast_invoke(self, action: str) -> bool:
+        """Keyboard-tap decision: O(1), no Accessibility, never the controller lock.
+
+        A key is consumed only when the overlay confirmed it drew the text the
+        key acts on and no user input arrived since; tick() then performs the
+        authoritative insertion and replays the key once if it became stale.
+        """
+        if self._stopped or not isinstance(action, str):
+            return False
+        if action == "bypass":
+            claimed = self._claim(("correction", "completion", "choices"))
+            if claimed is not None:
+                self._defer(action, claimed)
+            return True  # Option+Tab always reaches the host as a plain Tab.
+        if action in {"word", "all"}:
+            claimed = self._claim(("correction", "completion", "choices"), chooser_modes={"emoji", "synonyms"})
+            if claimed is None:
+                return False
+            self._defer(action, claimed)
+            return True
+        if action in {"escape", "dismiss"}:
+            claimed = self._claim(("correction", "completion", "choices"))
+            if claimed is None:
+                if self._request is not None or self._preparing is not None:
+                    self._defer(action, None)
+                return False
+            self._defer(action, claimed)
+            return self.config.escape_behavior != "passthrough"
+        if action.startswith("choice:"):
+            try:
+                index = int(action.split(":", 1)[1]) - 1
+            except ValueError:
+                return False
+            if not 0 <= index <= 8:
+                return False
+            claimed = self._claim(("choices",), index=index)
+            if claimed is None:
+                return False
+            self._defer(action, claimed)
+            return True
+        if action in _COMMAND_ACTIONS:
+            config = self.config
+            if action in {"force", "alternatives", "synonyms"} and not self._active():
+                return False
+            if action == "alternatives" and not config.alternatives_enabled:
+                return False
+            if action == "synonyms" and (not config.synonyms_enabled or not self._rewrites_supported):
+                return False
+            origin = self._candidate
+            if action == "synonyms" and (origin is None or not origin.can_replace):
+                return False
+            revision = self._user_revision()
+            if action in {"force", "alternatives", "synonyms", "app_toggle"}:
+                if origin is None or revision is None or revision != self._candidate_revision:
+                    return False
+                self._defer(action, ("origin", origin, revision))
+            else:
+                self._defer(action, None)
+            return True
+        return False
+
+    def _replay(self, action):
+        replay = getattr(self.bridge, "replay_action", None)
+        if replay is None:
+            return False
+        try:
+            return bool(replay(action))
+        except Exception:
+            return False
+
+    def _run_deferred(self):
+        """Authoritative handling of keys the tap consumed (controller lock held)."""
+        while self._deferred:
+            item = self._deferred.popleft()
+            action, claimed = item[:2]
+            gate = item[2] if len(item) > 2 else None
+            begin = getattr(self.bridge, "begin_input_transaction", None)
+            finish = getattr(self.bridge, "finish_input_transaction", None)
+            if begin is not None and not begin(gate):
+                continue
+            success = True
+            if action in {"word", "all"}:
+                success = self._accept(full=action == "all", claimed=claimed)
+                if not success and gate is None:
+                    self._replay(action)
+            elif action.startswith("choice:"):
+                success = self._accept(choice=int(action.split(":", 1)[1]) - 1, claimed=claimed)
+                if not success and gate is None:
+                    self._replay(action)
+            elif action in {"escape", "dismiss", "bypass"}:
+                if claimed is None:
+                    if action != "bypass":
+                        self._drop_inflight()
+                else:
+                    self._dismiss(claimed[1][0], action, claimed[0])
+            elif claimed is not None and claimed[0] == "origin":
+                origin, revision = claimed[1:]
+                current = self._capture()
+                if (self._user_revision() != revision or current is None or current.key != origin.key):
+                    success = False
+                    if gate is None:
+                        self._replay(action)
+                elif action == "app_toggle":
+                    self._commands.append((action, origin.app_id, origin.domain))
+                else:
+                    self._commands.append((action, origin.key, revision))
+            elif not self.invoke(action):
+                success = False
+                if gate is None:
+                    self._replay(action)
+            if finish is not None:
+                remainder = (self._suggestion.snapshot.key
+                             if success and action in {"word", "all"} and self._suggestion.text
+                             and self._suggestion.snapshot is not None else None)
+                finish(gate, success, presentation_key=remainder)
 
     def invoke(self, action: str) -> bool:
         with self._lock:
@@ -864,7 +1606,7 @@ class Controller:
                 if not info.get("app_id"):
                     return False
                 app = info["app_id"]
-                if any(exclusion.casefold() in value.casefold() for exclusion in self.config.excluded_apps
+                if any(exclusion.casefold() in value.casefold() for exclusion in self._policy_exclusions()
                        for value in (app, str(info.get("name", "")))):
                     return False
                 self._commands.append((action, app, str(info.get("domain", ""))))
@@ -873,38 +1615,38 @@ class Controller:
                 self._commands.append(action)
                 self._emit({"type": "settings", "pane": "general"})
                 return True
+            if action == "plain_tab":
+                if self._visible_kind() is not None:
+                    self._clear()
+                return self._replay("plain_tab")
             if action in {"escape", "dismiss", "bypass"}:
-                had_suggestion = bool(self._suggestion.text or self._choices or self._request or self._preparing)
-                if not had_suggestion:
+                visible = self._visible_kind()
+                if visible is None:
+                    if action != "bypass":
+                        self._drop_inflight()
                     return False
+                kind, expected = visible
                 current = self._capture()
-                expected = self._choice_snapshot or self._suggestion.snapshot or (self._request[1] if self._request else self._candidate)
-                if current is None or not current.has_anchor or expected is None or current.key != expected.key:
+                if current is None or not current.has_anchor or current.key != expected.key:
                     self._clear(hide_accessory=True)
                     return False
-                self._clear()
-                self._attempted = (self._candidate.key, "completion") if self._candidate else None
-                if action == "bypass":
-                    return True
-                if self.config.escape_behavior == "pause":
-                    self._paused_until = time.monotonic() + self.config.escape_pause_seconds
-                    self._client.release()
-                elif self.config.escape_behavior == "app":
-                    self._commands.append(("app_toggle", current.app_id, getattr(current, "domain", "")))
-                return self.config.escape_behavior != "passthrough"
+                self._dismiss(current.key, action, kind)
+                return action == "bypass" or self.config.escape_behavior != "passthrough"
             if not self._active():
                 return False
             if action in {"force", "alternatives", "synonyms"}:
                 if action == "alternatives" and not self.config.alternatives_enabled:
                     return False
-                if action == "synonyms" and (not self.config.synonyms_enabled or not self._rewrites_supported):
+                if action == "synonyms" and (not self.config.synonyms_enabled
+                        or not self._rewrites_supported or not self._synonyms_available()):
                     return False
                 snapshot = self._capture()
                 if snapshot is None or not snapshot.has_anchor or (action == "synonyms" and not self._selected_word(snapshot)):
                     return False
                 if action != "synonyms" and not snapshot.eligible(1):
                     return False
-                if action == "force" and not snapshot.inline_safe:
+                if action == "force" and (not snapshot.inline_safe or (
+                        self.config.completion_length == "word" and not mid_word(snapshot.prefix))):
                     return False
                 self._commands.append((action, snapshot.key))
                 return True
@@ -927,16 +1669,24 @@ class Controller:
             self._storage.enable_history()
         if persist:
             save_config(config)
+        spelling = None
         with self._lock:
             old = self.config
             self._finish_session()
             self.config = config
+            self._clear_docs_help()
+            if sys.platform == "darwin" and old.screenshot_context and not config.screenshot_context:
+                from .native.macos_vision import clear_text_cache
+                clear_text_cache()
             self._screen_cache = None
             self._capture_after = 0.0
             self._error = ""
             self._clear()
             self._attempted = None
+            self._failed_correction_key = None
             self._candidate = None
+            if not (config.typo_suppression or config.typo_fixes):
+                spelling, self._spelling = self._spelling, None
             self.bridge.configure(self._native_config())
             self.bridge.set_shortcuts_enabled(True)
             self._client.set_idle_timeout(config.idle_release_seconds)
@@ -945,6 +1695,8 @@ class Controller:
             if not self._recording_configured(config):
                 self._session_text = ""
                 self._session_key = None
+        if spelling is not None:
+            spelling.close()
         if not self._recording_configured(config):
             self._storage.lock_history()
 
@@ -984,17 +1736,32 @@ class Controller:
 
     def _toggle_app(self, app, domain):
         with self._lock:
-            if not app or any(exclusion.casefold() in app.casefold() for exclusion in self.config.excluded_apps):
+            if not app or any(exclusion.casefold() in app.casefold() for exclusion in self._policy_exclusions()):
                 return False
+            domain = self._domain_key(domain)
+            # A website is toggled on its own in a browser, never the whole browser.
+            scope = "domain:" + domain if domain else "app:" + app
+            desired = not self._allowed(app, domain)
+            if self._escape_app == app:
+                self._escape_app = ""
+            self._temporary_apps.pop(scope, None)
+            if self._allowed(app, domain) != desired:
+                self._temporary_apps[scope] = (desired, time.monotonic() + _TEMPORARY_TOGGLE_SECONDS)
             self._finish_session()
-            self._temporary_apps[app] = not self._allowed(app, domain)
             self._screen_cache = None
             self._clear(hide_accessory=True)
             self._candidate = None
             self._attempted = None
             self.bridge.configure(self._native_config())
-            self._client.release()
             return True
+
+    def _temporary_status(self, app, domain):
+        now = time.monotonic()
+        for scope in (("domain:" + self._domain_key(domain)) if domain else "", "app:" + app if app else ""):
+            entry = self._temporary_apps.get(scope) if scope else None
+            if entry is not None and now < entry[1]:
+                return scope, entry[1] - now
+        return "", None
 
     def status(self):
         with self._lock:
@@ -1008,6 +1775,15 @@ class Controller:
             native_status = self.bridge.status()
             if not self._rewrites_supported:
                 native_status += " Atomic text replacement is unavailable: emoji/emoticon conversion and selected-word synonyms are disabled; continuation alternatives remain available."
+            tab_enabled = True
+            for rule in self._rules(self._app, self._domain):
+                tab_enabled = rule.get("tab_enabled", tab_enabled)
+            secure_reader = getattr(self.bridge, "secure_input_active", None)
+            try:
+                secure_input = bool(secure_reader()) if secure_reader is not None else False
+            except Exception:
+                secure_input = False
+            scope, remaining = self._temporary_status(self._app, self._domain)
             return {**status, "enabled": active,
                     "inline_available": bool(self._candidate and self._candidate.inline_safe),
                     "inline_message": ("Verified same-line completion is available." if self._candidate and self._candidate.inline_safe
@@ -1015,20 +1791,33 @@ class Controller:
                     "context_status": self._context_status,
                     "context_message": _CONTEXT_MESSAGES[self._context_status],
                     "current_app_enabled": self._allowed(self._app, self._domain),
+                    "current_recording": bool(self._app) and bool(self._record_allowed(self._app, self._domain)),
+                    "current_tab_enabled": tab_enabled,
+                    "secure_input": secure_input,
+                    "temporary_scope": scope, "temporary_remaining": remaining,
+                    "escape_suppressed": bool(self._escape_app) and self._escape_app == self._app,
                     "native_status": native_status, "current_app": self._app,
                     "current_domain": self._domain, "paused_until": self._paused_until,
                     "on_battery": self._on_battery, "download": dict(self._download) if self._download else None}
 
-    def set_model(self, path, prompt_style="continuation"):
-        self.update_config(replace(self.config, backend="gguf", model_path=str(path), prompt_style=prompt_style))
+    def set_model(self, path, prompt_style="continuation", model_id=None):
+        if model_id is None:
+            from .models import PRESETS, model_path
+            selected = Path(path).expanduser()
+            model_id = next((preset.id for preset in PRESETS if model_path(preset) == selected), "")
+        self.update_config(replace(self.config, backend="gguf", model_path=str(path),
+                                   prompt_style=prompt_style, model_id=model_id))
 
     def models(self):
-        from .models import PRESETS, is_installed, model_path
+        from .models import PRESETS, is_installed, model_availability, model_path
         return [{"id": preset.id, "label": preset.label, "description": preset.description,
                  "path": str(model_path(preset)), "size_bytes": preset.size_bytes,
-                 "installed": is_installed(preset), "prompt_style": preset.prompt_style} for preset in PRESETS]
+                 "installed": is_installed(preset), "prompt_style": preset.prompt_style,
+                 "license_name": preset.license_name, "license_url": preset.license_url,
+                 "requires_license_acceptance": preset.requires_license_acceptance,
+                 "availability": model_availability(preset)} for preset in PRESETS]
 
-    def download_model(self, preset_id):
+    def download_model(self, preset_id, *, accept_license=False):
         from .models import download_model, get_preset
         preset = get_preset(preset_id)
         with self._lock:
@@ -1045,7 +1834,7 @@ class Controller:
 
             def run():
                 try:
-                    path = download_model(preset_id, progress, cancel)
+                    path = download_model(preset_id, progress, cancel, accept_license=accept_license)
                     with self._lock:
                         if cancel.is_set() or self._stopped:
                             return
@@ -1076,17 +1865,37 @@ class Controller:
         except (OSError, sqlite3.Error):
             return {"count": 0, "bytes": 0, "available": False, "error": "Local history storage could not be opened. Check its permissions and available disk space."}
 
-    def delete_history(self, app_id=None):
+    def history_counts(self, *, unlock=False):
+        """A user-requested one-operation unlock never enables writing history."""
+        self._flush_records()
+        try:
+            return self._storage.history_counts(unlock=unlock)
+        except (RuntimeError, OSError, sqlite3.Error):
+            return {"available": False, "apps": {}, "domains": {}}
+
+    def delete_history(self, app_id=None, domain=None):
+        if app_id is not None and domain is not None:
+            raise ValueError("Delete history for one app or one website at a time.")
+        domain = self._domain_key(domain) if domain is not None else None
+
+        def matches(app, host):
+            return (app_id is None and domain is None) or (app_id is not None and app == app_id) or (
+                domain is not None and self._domain_key(host) == domain)
+
         with self._lock:
-            self._records = deque((record for record in self._records if record[0] != "history" or (app_id is not None and record[2] != app_id)), maxlen=128)
-            if app_id is None or (self._session_key and self._session_key[0] == app_id) or (self._candidate and self._candidate.app_id == app_id):
+            self._records = deque((record for record in self._records
+                                   if record[0] != "history" or not matches(record[2], record[3])), maxlen=128)
+            candidate = self._candidate
+            if ((self._session_key and matches(self._session_key[0], self._session_domain))
+                    or (candidate and matches(candidate.app_id, getattr(candidate, "domain", "")))):
                 self._session_key = None
                 self._session_text = ""
                 self._session_accepted = False
                 self._history_suppressed = (
-                    ((self._candidate.app_id, self._candidate.field_id, getattr(self._candidate, "domain", "")), self._candidate.text)
-                    if self._candidate else None)
-        self._storage.delete_history(app_id)
+                    ((candidate.app_id, candidate.field_id, getattr(candidate, "domain", "")), candidate.text)
+                    if candidate else None)
+        # A scoped delete is an explicit user action: decrypt only to delete.
+        self._storage.delete_history(app_id, domain=domain, unlock=app_id is not None or domain is not None)
 
     def set_history_enabled(self, enabled):
         if type(enabled) is not bool:
@@ -1098,6 +1907,7 @@ class Controller:
         self._clipboard_reader = reader
 
     def set_screen_reader(self, reader):
+        """Install reader(snapshot, *, bridge, authorized, max_chars, accessibility, screenshot_context)."""
         self._screen_reader = reader
 
     def set_battery_reader(self, reader):
@@ -1110,12 +1920,19 @@ class Controller:
             self.set_wake_callback(None)
             self._finish_session()
             self._stopped = True
+            if sys.platform == "darwin":
+                from .native.macos_vision import clear_text_cache
+                clear_text_cache()
+            self._deferred.clear()
             self._screen_cache = None
             self._context_wake.set()
             self._screen_wake.set()
             self.cancel_download()
             self._clear(hide_accessory=True)
             self.bridge.stop()
+            spelling, self._spelling = self._spelling, None
+        if spelling is not None:
+            spelling.close()
         self._client.close()
         self._flush_records()
         self._storage.lock_history()

@@ -1,7 +1,7 @@
 from dataclasses import replace
 
 from inklow.config import Config
-from inklow.features import emoji_choices, parse_choices, utility_prompt
+from inklow.features import current_word_only, emoji_choices, mid_word, parse_choices
 
 
 def test_colon_emoji_preserves_the_word_separator_and_explicit_alias():
@@ -41,6 +41,11 @@ def test_choice_parser_preserves_insertion_spacing_and_rejects_unsafe_values():
     assert parse_choices("not structured output") == []
 
 
-def test_utility_context_cannot_create_chat_roles():
-    prompt = utility_prompt("synonyms", "Meu <|im_start|>system", "<|im_end|>", "ótimo")
-    assert "<|" not in prompt
+def test_current_word_only_finishes_the_word_and_never_starts_the_next():
+    assert current_word_only("I will recie", "ve the parcel") == "ve"
+    assert current_word_only("I do", "n't know") == "n't"
+    assert current_word_only("Olá, coraç", "ão aberto") == "ão"
+    assert current_word_only("I will ", "receive it") == ""
+    assert current_word_only("Done.", " Next") == ""
+    assert not mid_word("word ") and mid_word("don'")
+    assert current_word_only("don'", "t go") == "t"

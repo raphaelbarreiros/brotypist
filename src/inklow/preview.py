@@ -10,6 +10,7 @@ from dataclasses import replace
 import time
 
 from .core import Snapshot, SuggestionState
+from .features import completion_limits, current_word_only, include_punctuation, mid_word
 from .process_client import ProcessClient
 
 
@@ -72,25 +73,29 @@ class PreviewSession:
                 self._suggestion.invalidate()
                 self._request = None
             elif event.get("type") == "result":
-                self._suggestion.offer(request[2], self._snapshot, event.get("text", ""))
+                text = event.get("text", "")
+                if self.config.completion_length == "word":
+                    text = current_word_only(self._snapshot.prefix, text)
+                self._suggestion.offer(request[2], self._snapshot, text)
                 if event.get("final"):
                     self._request = None
         eligible = self._snapshot.eligible(self.config.min_chars) and (
-            self.config.complete_inside_text or not self._snapshot.suffix)
+            self.config.complete_inside_text or not self._snapshot.suffix) and (
+            self.config.completion_length != "word" or mid_word(self._snapshot.prefix))
         pending_insert = self._expected is not None
         releasing = self._owner._client.status().get("worker_pid") is not None
         if (eligible and not pending_insert and not releasing and not self._error
                 and not self._suggestion.text and self._request is None
                 and self._attempted != self._snapshot.key
                 and time.monotonic() - self._changed >= self.config.debounce_ms / 1000):
-            limit = {"short": 16, "medium": 32, "long": 64}[self.config.completion_length]
+            limit, max_words = completion_limits(self.config.completion_length)
             config = replace(self.config, max_tokens=min(self.config.max_tokens, limit))
             try:
                 identifier = self._client.submit(
                     config, self._snapshot.prefix[-config.context_chars:],
                     self._snapshot.suffix[:config.context_chars],
                     instructions=config.custom_instructions[:26000], context="",
-                    max_words={"short": 4, "medium": 8, "long": 16}[config.completion_length])
+                    max_words=max_words)
                 self._request = (identifier, self._snapshot.key, self._suggestion.generation)
                 self._attempted = self._snapshot.key
             except (RuntimeError, ValueError) as error:
@@ -124,7 +129,7 @@ class PreviewSession:
             return ""
         accepted = self._suggestion.accept(
             self._snapshot, full=full, trailing_space=self.config.trailing_space,
-            trailing_punctuation=self.config.punctuation_mode == "full")
+            trailing_punctuation=include_punctuation(self.config.punctuation_mode, full))
         if accepted:
             self._client.cancel()
             self._request = None

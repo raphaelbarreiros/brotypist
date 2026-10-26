@@ -12,6 +12,11 @@ import time
 
 MAX_MESSAGE_BYTES = 256 * 1024
 _PROVIDER_FIELDS = ("backend", "model_path", "endpoint", "model", "acceleration", "prompt_style", "max_tokens", "context_chars")
+# A cancelled stream stops at its next token; an unresponsive one is killed.
+_CANCEL_GRACE = 0.3
+# Prompt evaluation yields no token to check cancellation against. Waiting for
+# it is far cheaper than killing the warm model and paying a cold load.
+_PROMPT_EVALUATION_GRACE = 3.0
 
 
 def worker_command() -> list[str]:
@@ -53,6 +58,7 @@ class ProcessClient:
         self._message = ""
         self._loaded = False
         self._initializing = False
+        self._evaluating = False
         self.on_event = None
 
     def _start_thread(self):
@@ -126,6 +132,7 @@ class ProcessClient:
         self._configured = None
         self._loaded = False
         self._initializing = False
+        self._evaluating = False
         self._epoch += 1
         if process is not None:
             self._condition.release()
@@ -244,6 +251,7 @@ class ProcessClient:
                             continue
                         if kind == "done" and identifier == self._active:
                             self._initializing = False
+                            self._evaluating = False
                             self._loaded = bool(event.get("model_loaded", self._loaded))
                             self._active = None
                             self._cancel_since = None
@@ -251,6 +259,8 @@ class ProcessClient:
                             self._last_activity = now
                             if self._state != "error":
                                 self._state, self._message = "ready", "Ready."
+                        if kind == "result" and identifier == self._active:
+                            self._evaluating = False
                         if kind == "loading" and identifier == self._active:
                             self._initializing = True
                         if kind == "ready":
@@ -261,6 +271,7 @@ class ProcessClient:
                             if (identifier == self._serial and not self._release_requested.is_set()
                                     and not self._cancel_requested.is_set()):
                                 self._send(json.dumps({"type": "proceed", "id": identifier}).encode() + b"\n")
+                                self._evaluating = identifier == self._active
                         if identifier != self._serial:
                             continue
                         if kind == "ready":
@@ -282,7 +293,8 @@ class ProcessClient:
                         if self._cancel_since is None:
                             self._cancel_since = now
                     if (not self._initializing and self._cancel_since is not None
-                            and now - self._cancel_since >= 0.3):
+                            and now - self._cancel_since >= (
+                                _PROMPT_EVALUATION_GRACE if self._evaluating else _CANCEL_GRACE)):
                         self._kill()
                         self._state = "idle"
                     if self._pending is not None and self._active is None:

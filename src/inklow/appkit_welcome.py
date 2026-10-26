@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 
 import AppKit as A
 import objc
@@ -118,6 +119,8 @@ class WelcomeWindow(NSObject):
         self.actions = {}
         self.next_tag = 0
         self.permission_buttons = {}
+        self.context_buttons = {}
+        self.last_inline_check = 0.0
         style = A.NSWindowStyleMaskTitled | A.NSWindowStyleMaskClosable | A.NSWindowStyleMaskFullSizeContentView
         self.window = A.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(A.NSMakeRect(0, 0, 760, 580), style, A.NSBackingStoreBuffered, False)
         self.window.setTitle_(f"Welcome to {APP_NAME}")
@@ -164,6 +167,7 @@ class WelcomeWindow(NSObject):
         self.stop_preview()
         self.actions = {}
         self.permission_buttons = {}
+        self.context_buttons = {}
         self.root = WelcomeView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 760, 580))
         self.window.setContentView_(self.root)
         self.root.addSubview_(label(f"Step {self.step + 1} of 6", 440, 18, 108, 18, size=11, secondary=True))
@@ -182,7 +186,7 @@ class WelcomeWindow(NSObject):
         titles = ("Get started", "Continue", "Continue", "Continue", "Finish", "Start typing")
         self.primary = self.button(titles[self.step], 580, 534, 148, self.advance, "inklow.welcome.next")
         self.primary.setKeyEquivalent_("\r")
-        hints = ("Takes about two minutes", "Local inference. Your choice of context.", "Allow both permissions to continue", "Choose a local model to continue", "Use your configured acceptance keys", "Find BroTypist in the menu bar")
+        hints = ("Takes about two minutes", "Optional context stays off unless you turn it on", "Allow both permissions to continue", "Choose a local model to continue", "Use your configured acceptance keys", "Find BroTypist in the menu bar")
         self.hint = label(hints[self.step], 138, 541, 424, 22, size=12, secondary=True)
         self.hint.setAlignment_(A.NSTextAlignmentRight)
         self.root.addSubview_(self.hint)
@@ -226,27 +230,55 @@ class WelcomeWindow(NSObject):
     @objc.python_method
     def step_1(self):
         config = self.shell.controller.config
-        self.heading("Your writing stays local", "Predictions run on this Mac. BroTypist does not send your writing to a remote inference service.")
-        self.card("Text before cursor  →  Local model  →  Suggestion", f"Up to {config.context_chars:,} preceding characters are supplied to the model for an eligible request.", 202)
-        self.card("What BroTypist reads", "Supported, focused text fields only. Password fields and excluded apps are skipped before capture. Clipboard and focused-window Accessibility context are optional, explicit choices.", 292, height=94)
-        self.card("What you control", "Writing history is opt-in and encrypted using OS secure storage. Aggregate statistics contain counts, not writing. Model downloads use the network.", 398, height=94)
+        self.heading("Your writing stays local", "Predictions run on this Mac. BroTypist does not send your writing to a remote inference service, and writing history stays off unless you enable it in Personalization.")
+        self.card("Text before cursor  →  Local model  →  Suggestion", f"Up to {config.context_chars:,} preceding characters from a supported, focused field. Password fields and excluded apps are skipped before capture.", 192, height=72)
+        self.root.addSubview_(label("Optional context — each choice asks for confirmation and can be changed later in Context.", 56, 278, 648, 20, size=12, bold=True))
+        for index, (field, title) in enumerate((
+            ("screen_context", "Use focused-window text (Accessibility)"),
+            ("clipboard_context", "Use the clipboard"),
+            ("screenshot_context", "Use screenshots for context (Screen Recording)"),
+            ("screenshot_appearance", "Use screenshots to improve suggestion appearance (Screen Recording)"),
+        )):
+            button = self.button(title, 64, 306 + index * 34, 620, lambda f=field: self.set_context(f, self.context_buttons[f]), f"inklow.welcome.{field}")
+            button.setButtonType_(A.NSButtonTypeSwitch)
+            button.setState_(A.NSControlStateValueOn if getattr(config, field) else A.NSControlStateValueOff)
+            self.context_buttons[field] = button
+        self.root.addSubview_(label("Screenshots are processed in memory on this Mac and discarded immediately; they are never saved or uploaded. Accessibility text is always tried first.", 72, 446, 616, 46, size=11.5, secondary=True))
+
+    @objc.python_method
+    def set_context(self, field, button):
+        try:
+            self.shell._context_consent(field, bool(button.state()))
+        finally:
+            # The switch always shows the saved choice, including after Cancel or an error.
+            button.setState_(A.NSControlStateValueOn if getattr(self.shell.controller.config, field) else A.NSControlStateValueOff)
 
     @objc.python_method
     def step_2(self):
         self.heading("Two macOS permissions", "Approve BroTypist in System Settings. These cards show the actual permission state, not a saved preference.")
-        for key, title, detail, y in (("accessibility", "Accessibility", "Reads supported text near the caret and inserts only after you accept.", 210), ("input_monitoring", "Input Monitoring", "Listens for typing and configured acceptance shortcuts. Secure fields remain protected.", 330)):
-            self.card(title, detail, y, height=104)
+        for key, title, detail, y in (("accessibility", "Accessibility", "Reads supported text near the caret and inserts only after you accept.", 196), ("input_monitoring", "Input Monitoring", "Listens for typing and configured acceptance shortcuts. Secure fields remain protected.", 292)):
+            self.card(title, detail, y, height=86)
             self.permission_buttons[key] = self.button("Open System Settings…", 488, y + 9, 200, lambda k=key: system.open_permissions(k), f"inklow.welcome.{key}")
-        self.root.addSubview_(label("Source runs may appear as Python or your terminal. macOS may require a restart after granting access. Focused-window context uses Accessibility text; Screen Recording is not required.", 72, 455, 616, 46, size=11.5, secondary=True))
+        self.card("Screen & System Audio Recording (optional)", "Needed only if you turned on a screenshot option. Not required for typing.", 388, height=72)
+        self.permission_buttons["screen_recording"] = self.button("Request Access…", 488, 397, 200, self.request_screen_recording, "inklow.welcome.screen_recording")
+        self.root.addSubview_(label("Source runs may appear as Python or your terminal. macOS may require a restart after granting access.", 72, 470, 616, 40, size=11.5, secondary=True))
+
+    @objc.python_method
+    def request_screen_recording(self):
+        self.shell._request_screen_recording()
 
     @objc.python_method
     def step_3(self):
-        self.heading("Choose your local model", "Use the existing verified GGUF catalog, choose a GGUF file, or configure a local loopback server in AI Models. Nothing downloads until you ask.")
-        self.card("Selected model", self.shell._model_name(), 206, height=86)
-        self.model_status = label("", 72, 310, 616, 54, secondary=True)
+        self.heading("Choose your local model", "Use the verified GGUF catalogue, choose a GGUF file, or configure a local loopback server in General. Nothing downloads until you ask.")
+        if self.shell.controller.config.backend == "gguf":
+            from .models import recommended_preset
+            recommended = recommended_preset()
+            self.card("Recommended for this Mac", f"{recommended.label.split(' — ', 1)[-1]} ({float(recommended.size_bytes) / 1_000_000_000:.1f} GB), chosen from this Mac’s memory.", 196, height=66)
+        self.card("Selected model", self.shell._model_name(), 272, height=66)
+        self.model_status = label("", 72, 346, 616, 44, secondary=True)
         self.root.addSubview_(self.model_status)
-        self.button("Open Model Manager…", 56, 382, 210, lambda: self.shell.show_settings("models"), "inklow.welcome.models")
-        self.root.addSubview_(label("Return here when your model is selected. The manager supports real download progress, cancellation and local files. This step never silently changes the backend or model.", 56, 436, 648, 53, size=12, secondary=True))
+        self.button("Open Model Settings…", 56, 396, 210, lambda: self.shell.show_settings("general"), "inklow.welcome.models")
+        self.root.addSubview_(label("Return here when your model is selected. Settings show real download progress, cancellation and local files. This step never silently changes the backend or model.", 56, 440, 648, 53, size=12, secondary=True))
 
     @objc.python_method
     def step_4(self):
@@ -283,16 +315,21 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def step_5(self):
-        self.heading("You’re all set", "BroTypist lives in your menu bar. Click its caret glyph to pause predictions, resume, manage models or open Settings.")
-        image = A.NSImageView.alloc().initWithFrame_(A.NSMakeRect(336, 199, 88, 78))
+        self.heading("You’re all set", "BroTypist lives in your menu bar. Click its caret glyph to pause predictions, control the current app, or open Settings.")
+        image = A.NSImageView.alloc().initWithFrame_(A.NSMakeRect(342, 186, 76, 64))
         glyph = A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("tray/active-template-36.png")))
         glyph.setTemplate_(True)
         image.setImage_(glyph)
         image.setImageScaling_(A.NSImageScaleProportionallyUpOrDown)
         self.root.addSubview_(image)
         config = self.shell.controller.config
-        self.card("Your typing setup", f"Model: {self.shell._model_name()}\nNext word: {config.shortcuts.get('word') or 'Unassigned'}   ·   Full suggestion: {config.shortcuts.get('all') or 'Unassigned'}", 302, height=104)
-        self.login = self.button("Launch BroTypist at login", 56, 435, 270, self.toggle_login, "inklow.welcome.launchAtLogin")
+        self.card("Your typing setup", f"Model: {self.shell._model_name()}\nNext word: {config.shortcuts.get('word') or 'Unassigned'}   ·   Full suggestion: {config.shortcuts.get('all') or 'Unassigned'}", 262, height=86)
+        self.card("macOS inline predictive text", "", 360, height=78)
+        self.inline_status = label("", 72, 396, 400, 36, size=12, secondary=True)
+        self.root.addSubview_(self.inline_status)
+        self.button("Keyboard Settings…", 488, 369, 200, lambda: system.open_permissions("keyboard"), "inklow.welcome.keyboard")
+        self.last_inline_check = 0.0
+        self.login = self.button("Launch BroTypist at login", 56, 456, 270, self.toggle_login, "inklow.welcome.launchAtLogin")
         self.login.setButtonType_(A.NSButtonTypeSwitch)
         self.login.setState_(A.NSControlStateValueOn if system.launch_at_login_state() else A.NSControlStateValueOff)
 
@@ -344,9 +381,15 @@ class WelcomeWindow(NSObject):
             return
         if self.step == 2:
             permissions = self.shell._permission_state()
-            for key, button in self.permission_buttons.items():
+            for key in ("accessibility", "input_monitoring"):
+                button = self.permission_buttons[key]
                 button.setTitle_("✓ Allowed" if permissions[key] else "Open System Settings…")
                 button.setEnabled_(not permissions[key])
+            config = self.shell.controller.config
+            wanted = config.screenshot_context or config.screenshot_appearance
+            button = self.permission_buttons["screen_recording"]
+            button.setTitle_("✓ Allowed" if permissions["screen_recording"] else ("Request Access…" if wanted else "Not needed"))
+            button.setEnabled_(wanted and not permissions["screen_recording"])
             self.primary.setEnabled_(permissions["accessibility"] and permissions["input_monitoring"])
         elif self.step == 3:
             config = self.shell.controller.config
@@ -355,9 +398,20 @@ class WelcomeWindow(NSObject):
             status = self.shell.controller.status()
             download = status.get("download") or {}
             message = str(download.get("error") or download.get("message") or "")
+            if download.get("state") == "downloading" and download.get("total"):
+                message = f"Downloading… {int(float(download.get('received', 0)) * 100 / float(download['total']))}%"
             if not message:
-                message = ("Local model file ready." if config.backend == "gguf" else "Local server configured. Try it next to check inference.") if ready else "No model file selected. Open Model Manager to download or choose one."
+                message = ("Local model file ready." if config.backend == "gguf" else "Local server configured. Try it next to check inference.") if ready else "No model file selected. Open Model Settings to download or choose one."
             self.model_status.setStringValue_(f"{self.shell._model_name()}\n{message}")
+        elif self.step == 5:
+            now = time.monotonic()
+            if now - self.last_inline_check >= 1:
+                self.last_inline_check = now
+                enabled = system.macos_inline_prediction_enabled()
+                self.inline_status.setStringValue_(
+                    "Enabled — its grey text competes with BroTypist. Turn off Show inline predictive text in Keyboard → Text Input → Edit…." if enabled
+                    else ("Disabled — no conflict." if enabled is False else "Couldn’t be detected. BroTypist only reads this setting and never changes it."))
+                self.inline_status.setTextColor_(A.NSColor.systemOrangeColor() if enabled else A.NSColor.secondaryLabelColor())
         elif self.step == 4:
             if not self.window.isKeyWindow() or self.window.firstResponder() != self.editor:
                 self.stop_preview()

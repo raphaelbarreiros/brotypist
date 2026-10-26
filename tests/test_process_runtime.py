@@ -295,3 +295,43 @@ raise SystemExit(main())
         assert not marker.exists()
     finally:
         client.close()
+
+
+def test_cancel_during_prompt_evaluation_keeps_the_warm_worker(monkeypatch, tmp_path):
+    # Escape or a new keystroke cancels while the model evaluates a long prompt
+    # (no token yet to observe cancellation). That must not cost a cold reload.
+    bootstrap = '''
+import time
+import inklow.providers as providers
+from inklow.process_worker import main
+class Provider:
+    def prepare(self):
+        pass
+    def stream(self, prefix, suffix, cancel, **kwargs):
+        if prefix == "long synthetic prompt":
+            time.sleep(1.0)
+            if cancel.is_set():
+                return
+        yield " evaluated " + prefix
+    def close(self):
+        pass
+providers.create_provider = lambda config: Provider()
+raise SystemExit(main())
+'''
+    monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
+    monkeypatch.setattr("inklow.process_client.worker_command", lambda: [sys.executable, "-u", "-c", bootstrap])
+    client = ProcessClient()
+    config = replace(Config(), idle_release_seconds=0)
+    try:
+        final(client, client.submit(config, "warm-up", ""))
+        pid = client.status()["worker_pid"]
+        client.submit(config, "long synthetic prompt", "")
+        until(lambda: client.status()["state"] == "generating")
+        client.cancel()
+        time.sleep(0.6)
+        assert client.status()["worker_pid"] == pid
+        result, _ = final(client, client.submit(config, "next draft", ""))
+        assert result["text"] == " evaluated next draft"
+        assert client.status()["worker_pid"] == pid
+    finally:
+        client.close()

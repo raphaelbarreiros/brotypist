@@ -164,7 +164,9 @@ def native(monkeypatch):
     bridge._menu = None
     bridge._menu_page, bridge._menu_page_size, bridge._menu_selected = 0, 1, -1
     bridge._regions, bridge._pressed = [], None
-    monkeypatch.setattr("inklow.native.linux.os.readlink", lambda path: peer.executable)
+    from inklow.native import linux
+    monkeypatch.setattr(linux, "os", SimpleNamespace(**{**vars(linux.os),
+                                                      "readlink": lambda path: peer.executable}))
     return bridge, peer
 
 
@@ -308,7 +310,7 @@ def test_unsupported_inline_never_submits_or_intercepts_acceptance(native, tmp_p
         controller.stop()
 
 
-def test_filtered_explicit_native_choice_leaves_tab_unconsumed_and_statistics_empty(native, tmp_path, monkeypatch):
+def test_filtered_numbered_choice_leaves_digit_unconsumed_and_statistics_empty(native, tmp_path, monkeypatch):
     # R1/R3: successful wire submission is not application-level acceptance.
     bridge, peer = native
     monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
@@ -321,14 +323,15 @@ def test_filtered_explicit_native_choice_leaves_tab_unconsumed_and_statistics_em
         controller._choice_snapshot = snapshot
         controller._replacement = (snapshot.caret, 0)
         controller._mode = "alternatives"
+        controller.presentation_result(snapshot.key, " arrives tomorrow", "alternatives")
         assert event(bridge, type=2, state=1, generation=peer.revision,
-                     serial=peer.serial, name=b"Tab", key=23) == 0
+                     serial=peer.serial, name=b"1", key=10) == 0
         assert peer.text == "Dear team, the update"
         assert peer.commits == [" arrives tomorrow"]
         assert controller._choices == []
         assert controller.stats()["totals"] == {"completions": 0, "words": 0, "characters": 0}
         assert event(bridge, type=2, state=1, generation=peer.revision,
-                     serial=peer.serial, name=b"Tab", key=23) == 0
+                     serial=peer.serial, name=b"1", key=10) == 0
         assert peer.commits == [" arrives tomorrow"]
     finally:
         controller.stop()

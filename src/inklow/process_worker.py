@@ -30,7 +30,8 @@ def _validate_request(value: dict) -> tuple[int, Config, dict]:
     config = Config(**raw)
     config.validate()
     payload = {}
-    limits = {"prefix": 8000, "suffix": 8000, "instructions": 26000, "context": 8000, "utility": 24000}
+    limits = {"prefix": 8000, "suffix": 8000, "instructions": 26000, "context": 8000,
+              "utility": 24000, "anchor": MAX_RESULT_CHARS}
     for key, limit in limits.items():
         text = value.get(key, "")
         if not isinstance(text, str) or len(text) > limit:
@@ -40,6 +41,10 @@ def _validate_request(value: dict) -> tuple[int, Config, dict]:
     if type(words) is not int or not 1 <= words <= 32:
         raise ValueError("Invalid completion length")
     payload["max_words"] = words
+    alternatives = value.get("alternatives", False)
+    if type(alternatives) is not bool:
+        raise ValueError("Invalid alternatives mode")
+    payload["alternatives"] = alternatives
     return identifier, config, payload
 
 

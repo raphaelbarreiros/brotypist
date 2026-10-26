@@ -9,6 +9,7 @@ ASSETS = ROOT / "src" / "inklow" / "assets"
 VERSION = runpy.run_path(str(ROOT / "src" / "inklow" / "__init__.py"))["__version__"]
 native_excludes = ["PySide6"] if sys.platform == "darwin" else []
 codesign_identity = os.environ.get("INKLOW_CODESIGN_IDENTITY") if sys.platform == "darwin" else None
+entitlements_file = str(ROOT / "packaging" / "macos" / "entitlements.plist") if sys.platform == "darwin" else None
 keyring_backend = ("keyring.backends.macOS" if sys.platform == "darwin" else
                    "keyring.backends.Windows" if sys.platform == "win32" else
                    "keyring.backends.SecretService")
@@ -90,6 +91,7 @@ exe = EXE(
     disable_windowed_traceback=False,
     argv_emulation=False,
     codesign_identity=codesign_identity,
+    entitlements_file=entitlements_file,
     icon=str(ASSETS / ("app.ico" if sys.platform == "win32" else "app.icns"))
          if sys.platform in ("win32", "darwin") else None,
 )
@@ -125,16 +127,22 @@ if sys.platform == "darwin":
         icon=str(ASSETS / "app.icns"),
         bundle_identifier="com.inklow.Inklow",
         version=VERSION,
-        codesign_identity=codesign_identity,
+        # PyInstaller inherits signing identity and entitlements from collection,
+        # which inherits them from exe; BUNDLE does not accept signing kwargs.
         info_plist={
             "CFBundleName": "BroTypist",
             "CFBundleDisplayName": "BroTypist",
             "CFBundleShortVersionString": VERSION,
             "CFBundleVersion": VERSION,
             "CFBundleIconFile": "app.icns",
+            "CFBundleURLTypes": [{
+                "CFBundleURLName": "BroTypist Settings",
+                "CFBundleURLSchemes": ["brotypist"],
+            }],
             "NSPrincipalClass": "NSApplication",
             "NSHighResolutionCapable": True,
             "NSAppleScriptEnabled": False,
+            "NSAppleEventsUsageDescription": "With your permission, BroTypist reads the active Terminal or iTerm session and font metadata to align local suggestions. It does not read shell history or run commands.",
             "NSHumanReadableCopyright": "BroTypist — independent, local-first predictive typing",
             # A resident typing assistant has settings, not a document window.
             "LSUIElement": True,

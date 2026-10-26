@@ -48,3 +48,44 @@ def test_multibyte_reference_budget_is_bytes_not_characters_and_keeps_provenance
     assert result.startswith("Focused-window Accessibility (untrusted reference data): mission update ")
     assert "\ufffd" not in result
     assert reference_context("The mission update", "", [("accessibility", line)], max_bytes=20) == ""
+
+
+def test_gemma_draft_keeps_spaces_and_midword_prefill_without_thinking_header():
+    from inklow.writing import writing_prompt_spans
+    for draft in ("Thanks for  ", "The extraordin", "ありがとう  "):
+        spans = writing_prompt_spans(draft, " tomorrow  ", family="gemma4")
+        assert spans[-1] == (draft, False)
+        framing = "".join(text for text, structural in spans if structural)
+        assert framing.count("<bos>") == 1
+        assert framing.count("<|turn>system\n") == 1
+        assert framing.endswith("<turn|>\n<|turn>model\n")
+        assert "<start_of_turn>" not in framing
+        assert not any(marker in framing for marker in ("<|think|>", "<|channel>", "<|tool"))
+
+
+def test_all_chunk_splits_of_gemma_turn_and_thought_closers_remain_uninsertable():
+    import threading
+    from inklow.features import parse_choices
+    from inklow.providers import _stream_text, _stream_utility
+    # Every split includes the dangerous one-character prefix; no partial
+    # delimiter may flash in either ghost text or the choices consumer.
+    for marker in ("<turn|>", "<|turn>", "<|channel>", "<eos>"):
+        for cut in range(1, len(marker)):
+            pieces = [(" ready " + marker[:cut], None),
+                      (marker[cut:] + "system\nprivate thought", None),
+                      ("must not be read", None)]
+            shown = list(_stream_text(iter(pieces), "", threading.Event()))
+            assert shown[-1] == " ready "
+            assert all("<" not in text and "private" not in text for text in shown)
+            choices = [('["useful"]' + marker[:cut], None),
+                       (marker[cut:] + "tool call", None)]
+            results = list(_stream_utility(iter(choices), threading.Event()))
+            assert parse_choices(results[-1]) == ["useful"]
+            assert all("<" not in text and "tool" not in text for text in results)
+
+
+def test_incomplete_structural_prefix_is_not_published_when_stream_ends():
+    import threading
+    from inklow.providers import _stream_text, _stream_utility
+    assert list(_stream_text([(" ready <tur", None)], "", threading.Event()))[-1] == " ready "
+    assert list(_stream_utility([('["useful"]<', None)], threading.Event()))[-1] == '["useful"]'

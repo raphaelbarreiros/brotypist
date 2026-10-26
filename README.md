@@ -2,39 +2,38 @@
 
 # BroTypist
 
-Local-first predictive typing for macOS, Windows, and Linux. BroTypist lives in the menu bar or system tray and offers suggestions in supported text inputs. Settings are not a separate writing editor.
+Local-first predictive typing. **Current development and release verification focus on macOS; Linux and Windows ports/builds are paused until the macOS experience is accepted.** BroTypist lives in the menu bar and offers grey same-line suggestions in supported inputs. Settings are not a writing editor.
 
 [Releases](https://github.com/renan-brasilio/brotypist/releases) · [Changelog](CHANGELOG.md) · [Design specification](DESIGN.md) · [Verification](evidence/VERIFICATION.md)
 
-![Native BroTypist settings](evidence/brotypist/macos-settings-general.png)
 
 ## Install
 
 This repository is **private**. Sign in to a GitHub account with access before downloading release assets or cloning it.
 
-The latest published installers are **0.3.0**, released under the previous **Inklow** name. Those immutable assets keep their original filenames. The BroTypist redesign, strict inline/window-context changes, and **0.3.3 minimal field-menu/Retina artwork corrections are in source**. An older installer does not contain these changes; use a verified current build until the next release is published.
+The latest published installers before this update are **0.3.0**, under the previous **Inklow** name; those immutable filenames are preserved. **0.4.0 is the macOS Gemma/parity update.** Download availability and artifact verification are recorded on its release page; a source checkout alone is not an installed update. Linux/Windows historical installers do not contain the macOS changes.
 
 | Platform | Published 0.3.0 assets | Current native build outputs |
 | --- | --- | --- |
 | macOS, Apple Silicon | `Inklow-0.3.0-macos-arm64.dmg` / `.zip` | `BroTypist.app`, versioned `.dmg` / `.zip` |
-| Windows, x86-64 | Not published; native installer verification remains pending | `BroTypist.exe`, `BroTypist-cli.exe`, `.msi` / portable `.zip` |
-| Linux, x86-64 | `Inklow-0.3.0-linux-amd64.deb` / `.tar.gz` | `brotypist` launcher, versioned `.deb` / `.tar.gz` |
+| Windows, x86-64 | Not published; native installer verification remains pending | Port/build held; existing packaging definitions retained |
+| Linux, x86-64 | `Inklow-0.3.0-linux-amd64.deb` / `.tar.gz` | Port/build held; historical installers are not macOS-parity builds |
 
 Packaged applications include Python and their UI runtime. Model weights are separate and download only when requested. Installers never include settings, writing history, credentials, or model weights.
 
 ### macOS
 
-Build on Apple Silicon with macOS 15 or newer. Drag the built **BroTypist.app** to Applications; the installed app name has no version suffix. Quit the running copy before replacing it. Open **Welcome** or **Settings → Privacy** to review actual permission state.
+Build on Apple Silicon with macOS 15 or newer. Drag the built **BroTypist.app** to Applications; the installed app name has no version suffix. Quit the running copy before replacing it. Open **Welcome** or **Settings → Setup** to review live permission state.
 
 GitHub-built macOS distributions are ad-hoc signed and **not notarized**, unless the release explicitly says otherwise. A local Apple Development signature is not Developer ID distribution or notarization. Do not disable Gatekeeper globally.
 
-### Windows
+### Windows — held
 
 The MSI installs per user and adds a **BroTypist** Start Menu shortcut. Extract the complete portable ZIP before running `BroTypist.exe`; use `BroTypist-cli.exe` for terminal commands. The EXEs are **not standalone**: keep `_internal` and the rest of the payload together.
 
 Windows 10/11 and an AVX2, FMA, and F16C-capable x86-64 CPU are required for the portable inference build. Releases are unsigned unless explicitly stated otherwise. Do not bypass Windows security protections globally.
 
-### Linux
+### Linux — held
 
 Install the specific Debian package you built or downloaded with `sudo apt install ./<package>.deb`, then run **`brotypist` as your desktop user, not with sudo**. The current package replaces the old `inklow` package while leaving external user data alone. Portable builds run through `launch-brotypist`; keep their directory intact.
 
@@ -63,16 +62,19 @@ Releases include `SHA256SUMS`. On Linux, use `sha256sum --check SHA256SUMS --ign
 
 ## First run and daily use
 
-Welcome covers privacy, system access, explicit model selection, a real local prediction preview, and the resident menu. Reopen it from **About → Show Welcome**. Six settings destinations retain the existing supported preferences:
+Welcome covers privacy, system access, explicit model selection, a real local prediction preview and the resident menu. Reopen it from **About → Show Welcome**. macOS settings contain:
 
-- **General:** startup, predictions, field accessory, and aggregate activity.
-- **AI Models:** GGUF files, verified downloads, loopback backends, inference and battery controls.
-- **Autocomplete:** completion behavior, configurable shortcuts, emoji, alternatives and synonyms where supported.
-- **Languages:** truthful model-language information and access to existing custom instructions; no invented language-quality rankings.
-- **Privacy:** actual permission status, optional context/history, exclusions, and app/website rules.
-- **About:** version, source, Welcome and Quit.
+- **Setup:** live required/optional permission and model-readiness states.
+- **General:** startup, predictions, accessory icon, model management, completion length, inside-text behavior and typo controls.
+- **Context:** separate opt-ins for focused-window Accessibility text, clipboard, screenshot OCR and screenshot-based appearance.
+- **Personalization:** encrypted history, recording controls, derived word preferences, custom instructions and scoped deletion/counts.
+- **Emoji / Shortcuts:** emoji preferences, configurable physical keys, word/full acceptance, punctuation and Escape behavior.
+- **Battery:** on-demand behavior, installed smaller-model selection and shorter completions.
+- **App Settings:** searchable app/domain rules, compatibility controls, Tab/recording overrides and instructions.
+- **Labs:** explicit alternatives and selected-text synonyms. These numbered tools are separate from ordinary inline suggestions.
+- **Statistics / About:** actual accepted-writing aggregates, source/release links, Welcome and Quit.
 
-The writing preset is **Qwen2.5 1.5B**, approximately 1.12 GB. The approximately 101 MB Tiny preset is an English starter/testing model, not a comparable writing-quality replacement. Existing complete models are reused. Suggestions are not a grammar or factuality guarantee.
+New installations select **Gemma 4 E2B**, a pinned 2.84 GB public GGUF, with a conservative RAM recommendation. **Gemma 3 1B** is an independently sourced 806 MB option requiring explicit acceptance of [Gemma Terms](https://ai.google.dev/gemma/terms). The catalogue also contains larger Gemma 3/4 and Qwen 3 variants with memory guards; catalogue metadata is not a claim that every size has been exercised on this Mac. Qwen2.5 1.5B and the English Tiny preset remain available. Existing saved model choices are not silently replaced. Suggestions are not a grammar or factuality guarantee.
 
 | Action | Existing default |
 | --- | --- |
@@ -93,12 +95,14 @@ Models load lazily in a separate process and unload after five minutes idle by d
 - **Windows:** target controls must expose supported UI Automation/native Edit behavior. Elevated apps can require matching integrity privileges; BroTypist does not bypass isolation.
 - **Linux:** run in your user's D-Bus/accessibility session. X11 uses AT-SPI; KDE Wayland additionally needs explicit input-method selection. Some Qt targets need `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1` before starting.
 
-Ordinary completions are transparent, mouse-through grey text at the host caret baseline, in a verified host font. They have no card, border, shadow or keycap. Secure, excluded, selected, composing, clipped or unobservable inputs remain silent and do not intercept acceptance keys. **Native-only strict alignment is intentional:** Chromium on macOS currently omits font names, so affected Chrome/Edge/Electron fields are unsupported rather than guessed. Custom line heights, RTL runs and Linux providers without reliable composition/font metadata are also unsupported. Explicit alternative-word tools retain their separate chooser. The menu/settings expose native-inline and context availability; a working owned Welcome preview is not a universal compatibility claim.
+Ordinary completions are transparent, mouse-through grey text at the host caret baseline in a verified host font: no card, border, shadow or keycap. Secure, excluded, selected, composing, clipped or unobservable inputs stay silent and do not intercept acceptance keys. AX typography is checked against observed glyph advances. Opt-in screenshot appearance can recover some missing font/baseline evidence; inside-text displacement additionally requires measured foreground/background colors and a fully visible same-line suffix. Unsupported RTL/custom-layout/provider cases remain silent, not a mirror/popup fallback. Stock VS Code chat fields have a narrowly scoped accessible-name exception; ordinary code fields remain off unless explicitly enabled. Other editor composers and terminal/browser compatibility require their own native evidence, not a generic “AI” label. A working Welcome preview is not a universal compatibility claim.
+
+**Bounded compatibility:** Google Docs needs both screen-reader and braille support in **Tools → Accessibility**. The metadata-only setup offer is not proof that document typing works. Aside Browser's native preference actions failed persisted-state verification; BroTypist does not change Docs preferences through that provider and shows manual instructions instead. Terminal completion is an additional explicit opt-in with separate per-host Automation consent. Its current input adapter recognizes only the source-verified standalone Codex 0.162.1 single-line composer in Terminal.app; iTerm, other agents, multiplexers, shells, wrapped drafts and hidden paste/image elements remain unavailable. Terminal consent never authorizes scrollback as window context.
 
 ## Privacy and data preservation
 
 - No built-in cloud inference, account requirement, automatic telemetry or cloud sync. Alternative inference endpoints are restricted to literal loopback addresses; their operators control their logging/network behavior.
-- Clipboard and focused-window Accessibility context are off by default. Opt-in window context is bounded, relevant visible reference text from the verified focused window/document; protected/hidden content and unrelated editable fields are excluded. No screenshots are taken. Pending reads recheck consent, focus and policy, expire, and cannot supply stale context after revocation. Qt clipboard access is queued on the GUI thread with a bounded timeout and authorization checks before and after the read.
+- Clipboard, focused-window Accessibility context and both screenshot options are off by default. AX context reads bounded visible reference text from the verified focused window/document, excluding protected/hidden content and unrelated editable fields. Screenshot OCR is AX-first; appearance capture takes the focused window and crops around the line in memory. Both require explicit opt-in and macOS Screen Recording permission. Images are never saved/uploaded by the product; OCR text is short-lived and cleared on revocation. Reads recheck consent, exact window/field/domain, security and policy before capture and publication. OS recording indicators can appear.
 - Writing history is opt-in, AES-GCM encrypted and requires the OS credential store, with no plaintext fallback. Aggregate statistics contain acceptance counts, not writing. History and statistics have separate deletion controls.
 - Custom instructions are ordinary settings text, not a place to store credentials.
 - Models, preferences and history live outside the installation and are not uninstalled with it.
@@ -128,7 +132,7 @@ GGUF builds need Xcode Command Line Tools, Visual Studio C++ Build Tools, or GCC
 .venv/bin/python -m pip install -e '.[dev,local,build]'
 ```
 
-`brotypist model list` reports the pinned catalog. `brotypist model download --preset balanced --no-select` explicitly downloads without selecting. Avoid changing your normal profile just to run a smoke test: use `INKLOW_HOME=<disposable-directory>` for the entire test sequence.
+`brotypist model list` reports the pinned catalogue and licenses. `brotypist model download --preset gemma4-e2b --no-select` downloads without changing selection. Gemma 3 additionally requires `--accept-model-license` or explicit agreement in the native UI. Use `INKLOW_HOME=<disposable-directory>` for the entire smoke sequence instead of changing your normal profile. It isolates settings/data, not the shared model cache.
 
 ### Build applications, icons and installers
 
@@ -136,9 +140,7 @@ GGUF builds need Xcode Command Line Tools, Visual Studio C++ Build Tools, or GCC
 uv run python tools/build_app.py
 uv run python tools/smoke_bundle.py
 # Run the matching native packager from a committed build:
-uv run python tools/package_macos.py --bundle dist/BroTypist.app --output release --version 0.3.1
-uv run python tools/package_windows.py --bundle dist/BroTypist --output release --version 0.3.1
-uv run python tools/package_linux.py --bundle dist/BroTypist --output release --version 0.3.1
+uv run python tools/package_macos.py --bundle dist/BroTypist.app --output release --version 0.4.0
 ```
 
 The inference smoke needs an explicitly configured existing model. Installers consume complete native builds; they do not download models or cross-compile. Windows packaging needs .NET SDK 8 and WiX **5.0.2** (`dotnet tool install --global wix --version 5.0.2`). Linux needs `dpkg-dev`, GI/AT-SPI/GTK and Qt libraries; the Wayland client additionally needs a C compiler, `pkg-config`, Wayland/xkbcommon development libraries, protocol XMLs and `wayland-scanner`. Use CPython 3.12 on Ubuntu 24.04 for its distro GI ABI. The [CI workflow](.github/workflows/ci.yml) lists exact build prerequisites.
@@ -155,11 +157,11 @@ Never export or commit signing keys. Reusing an identity is not a notarization c
 
 ### Release workflow
 
-GitHub Actions exercises deterministic regressions, native settings, source/frozen inference and actual installer installation/mount/removal. All required native targets must pass before publication. Windows native runtime/installer verification remains a release gate; source-level checks are not a substitute.
+The [macOS checks workflow](.github/workflows/ci.yml) runs deterministic regressions, native settings, source/frozen inference and DMG mount/launch checks on Apple Silicon. Linux/Windows product jobs and automatic cross-platform release publication are paused.
 
-Update both `pyproject.toml` and `src/inklow/__init__.py`, commit, then run **Actions → Cross-platform checks** with matching `release_tag=v<version>`. Empty input checks only. A matching version tag or `release/<version>` branch also requests publication. Never overwrite a published version or its historical assets.
+Update both `pyproject.toml` and `src/inklow/__init__.py` and commit before a release build. **Actions → macOS checks** accepts a matching `release_tag=v<version>` to validate/build macOS artifacts; it does not publish a release automatically. Never overwrite published versions or historical assets.
 
-Manual releases use the same native packagers and smoke tools on disposable target desktops. `tools/release_assets.py manifest` seals the two files per target with their native receipt; `publish --inputs <directory> --output <new-directory> --tag v<version> --commit <source-sha> --repo renan-brasilio/brotypist` verifies them before draft-first publication. Reduced target sets require explicit `--targets` and list omissions in the manifest/release notes.
+Manual publication still uses native packagers, smoke receipts and `tools/release_assets.py`: `manifest` seals artifacts; `publish --inputs <directory> --output <new-directory> --tag v<version> --commit <source-sha> --repo renan-brasilio/brotypist` verifies them before draft-first publication. A macOS-only release must explicitly select its target and disclose the held platforms. Do not publish unverified Windows/Linux installers or label source-only changes as installed.
 
 ### Source layout
 
@@ -171,7 +173,7 @@ Manual releases use the same native packagers and smoke tools on disposable targ
 - `config.py`, `storage.py`: preferences, encryption and statistics.
 - `tools/`, `packaging/`, `.github/workflows/`: verification, native packaging and releases.
 
-The supplied design is adapted to existing capabilities: no fake MLX/Sparkle controls, unmeasured performance counters, unsupported language controls or changed key defaults. Backend/model upgrades are a separate product change.
+The app uses native AppKit on macOS and an isolated llama.cpp worker. No fake MLX/Sparkle controls, invented throughput/RAM counters, [redacted reference] account impersonation or automatic telemetry. iCloud synchronization is explicitly deferred. Framework/compiler tools used for REA are analysis dependencies, not application runtime requirements.
 
 ## Research and attribution
 

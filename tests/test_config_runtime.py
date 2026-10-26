@@ -4,7 +4,8 @@ import json
 
 import pytest
 
-from inklow.config import Config, config_path, load_config, save_config
+from inklow.config import Config, config_path, default_instructions, load_config, save_config
+from inklow.models import DEFAULT_PRESET, PRESETS
 
 
 @pytest.mark.parametrize("changes", [
@@ -19,6 +20,9 @@ from inklow.config import Config, config_path, load_config, save_config
     {"app_rules": {"app:writer": {"record_history": 1}}},
     {"app_rules": {"app:writer": {"text": "draft must not be a preference"}}},
     {"shortcuts": {"word": "Tab", "all": "Tab"}},
+    {"battery_model": "not-a-preset"}, {"battery_model": True}, {"model_id": "not-a-preset"},
+    {"typo_fixes": 1}, {"screenshot_context": "yes"},
+    {"app_rules": {"app:code": {"complete_in_code_editors": "yes"}}},
 ])
 def test_invalid_menu_preferences_are_rejected(changes):
     with pytest.raises(ValueError):
@@ -57,3 +61,29 @@ def test_latency_defaults_never_override_saved_scheduling_or_context_consent(tmp
     save_config(config)
     saved = json.loads(config_path().read_text())
     assert {key: saved[key] for key in explicit} == explicit
+
+
+def test_legacy_settings_keep_their_model_and_text_while_new_fields_migrate(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
+    preset = PRESETS[0]
+    legacy = {"model_path": f"/models/{preset.filename}", "battery_smaller_model": True, "custom_instructions": ""}
+    config_path().write_text(json.dumps(legacy))
+    config = load_config()
+    assert (config.model_path, config.model_id, config.custom_instructions) == (legacy["model_path"], preset.id, "")
+    assert config.battery_model == ("tiny" if any(p.id == "tiny" for p in PRESETS) else "same")
+    custom = replace(config, completion_length="word", typo_suppression=True, typo_fixes=True,
+                     screenshot_context=True, screenshot_appearance=True, battery_model="same",
+                     app_rules={"app:code": {"improve_compatibility": True, "complete_in_code_editors": False}})
+    save_config(custom)
+    assert "battery_smaller_model" not in json.loads(config_path().read_text())
+    assert load_config() == custom
+
+
+def test_only_new_installs_are_seeded_with_default_model_and_locale_instructions(tmp_path, monkeypatch):
+    monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
+    config = load_config()
+    assert config.model_id == DEFAULT_PRESET and config.model_path == ""
+    assert config.custom_instructions == default_instructions()
+    config_path().write_text(json.dumps({"model_path": "/custom/own.gguf", "custom_instructions": "Mine."}))
+    saved = load_config()
+    assert (saved.model_id, saved.custom_instructions) == ("", "Mine.")

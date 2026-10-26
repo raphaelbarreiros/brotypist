@@ -1,6 +1,7 @@
 """Native menu tracking must not destroy its anchor or capture menu navigation."""
 from collections import deque
 from types import SimpleNamespace
+import threading
 
 import pytest
 
@@ -16,6 +17,8 @@ def shell(monkeypatch):
     calls = []
     shell.controller = SimpleNamespace(bridge=bridge, tick=lambda: calls.append("capture"), drain_events=lambda: [])
     shell.stopping = False
+    shell._wake_lock = threading.Lock()
+    shell._wake_pending = False
     shell.tracking_menus = set()
     shell.pending_menu_actions = deque()
     shell.menu_shortcuts_were_enabled = False
@@ -67,6 +70,46 @@ def test_menu_dismissal_does_not_enable_an_existing_shortcut_recorder(shell):
     assert not bridge._enabled
 
 
+def test_native_wake_burst_queues_one_tick_and_timer_does_not_reopen_queue(shell, monkeypatch):
+    shell, _, calls = shell
+    queued = []
+    monkeypatch.setattr(shell, "performSelectorOnMainThread_withObject_waitUntilDone_",
+                        lambda selector, obj, wait: queued.append((selector, obj, wait)))
+    workers = [threading.Thread(target=lambda: [shell._wake_controller() for _ in range(100)])
+               for _ in range(4)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    assert queued == [("wakeTick:", None, False)]
+    shell.tick_(None)  # Timer may run before the queued selector.
+    shell._wake_controller()
+    assert len(queued) == 1
+    shell.wakeTick_(None)
+    shell._wake_controller()
+    assert len(queued) == 2
+    assert calls == ["capture", "capture"]
+
+
+@pytest.mark.parametrize("blocked", ["menu", "shutdown"])
+def test_queued_wake_is_released_even_when_tick_cannot_capture(shell, monkeypatch, blocked):
+    shell, _, calls = shell
+    queued = []
+    monkeypatch.setattr(shell, "performSelectorOnMainThread_withObject_waitUntilDone_",
+                        lambda *args: queued.append(args))
+    shell._wake_controller()
+    if blocked == "menu":
+        shell.tracking_menus.add("tracking")
+    else:
+        shell.stopping = True
+    shell.wakeTick_(None)
+    assert not shell._wake_pending and calls == []
+    shell.tracking_menus.clear()
+    shell.stopping = False
+    shell._wake_controller()
+    assert len(queued) == 2
+
+
 @pytest.fixture
 def field_menu(shell, monkeypatch):
     from inklow.config import Config
@@ -78,6 +121,7 @@ def field_menu(shell, monkeypatch):
     shell.controller.status = lambda: dict(status)
     shell.controller.toggle_current_app = lambda **context: calls.append(("app_toggle", context))
     shell.controller.pause = lambda minutes: calls.append(("pause", minutes))
+    shell.controller.update_config = lambda config: setattr(shell.controller, "config", config)
     monkeypatch.setattr(shell, "_app_name", lambda app: "Fixture Writer" if app else "")
     monkeypatch.setattr(shell, "show_settings", lambda pane: calls.append(("settings", pane)))
     shell._build_field_menu()
@@ -114,13 +158,17 @@ def test_unsupported_field_badge_does_not_claim_active_or_disable_predictions(fi
         def setStringValue_(self, value):
             self.text = value
 
+        def tag(self):
+            return 0
+
         def __getattr__(self, name):
             if name.startswith("set"):
                 return lambda value: None
             raise AttributeError(name)
 
     for name in ("status_line", "pause_item", "resume_item", "hour_item", "tomorrow_item",
-                 "attention_item", "menu_badge", "menu_model", "menu_backend", "menu_subtitle", "current_item"):
+                 "attention_item", "secure_item", "download_item", "menu_badge", "menu_model",
+                 "menu_backend", "menu_subtitle", "current_item", "record_item", "tab_item"):
         setattr(shell, name, Control())
     appkit_ui.BroTypistApplication._refresh_status(shell)
     assert "Active" not in shell.menu_badge.text
@@ -146,25 +194,84 @@ def test_field_toggle_keeps_original_app_and_defers_until_tracking_ends(field_me
     assert bridge._enabled
 
 
-def test_field_pause_is_temporary_and_resume_does_not_toggle_global_setting(field_menu):
-    import time
+@pytest.mark.parametrize("consent", [False, True])
+def test_field_recording_needs_consent_and_targets_the_site_seen_when_opened(field_menu, monkeypatch, consent):
     shell, _, calls, status = field_menu
+    prompts = []
+    monkeypatch.setattr(shell, "_confirm", lambda title, message: prompts.append(title) or consent)
     menu = shell._accessory_menu()
     item = menu.itemAtIndex_(1)
+    shell.menuWillOpen_(menu)
+    status["current_domain"] = "another.example"
+    shell.perform_(item)
+    assert prompts == []
+    shell.menuDidClose_(menu)
+    shell.tick_(None)
+    assert len(prompts) == 1
+    expected = {"domain:writing.example": {"record_history": True}} if consent else {}
+    assert shell.controller.config.app_rules == expected
+
+
+def test_field_recording_can_be_stopped_without_a_prompt(field_menu, monkeypatch):
+    shell, _, _, status = field_menu
+    status["current_recording"] = True
+    monkeypatch.setattr(shell, "_confirm", lambda title, message: pytest.fail("stopping needs no consent"))
+    menu = shell._accessory_menu()
+    assert menu.itemAtIndex_(1).state() == A.NSControlStateValueOn
+    shell.perform_(menu.itemAtIndex_(1))
+    shell.tick_(None)
+    assert shell.controller.config.app_rules == {"domain:writing.example": {"record_history": False}}
+
+
+def test_docs_action_is_explicit_and_keeps_original_capability_while_menu_tracks(field_menu, monkeypatch):
+    shell, _, calls, status = field_menu
+    shell.docs_help_hint = None
+    menu = shell._accessory_menu()
+    item = shell.field_docs_item
+    assert item.isHidden()
+    binding_count = shell.next_tag
+    shell.docs_help_hint = {"token": "original-document"}
+    monkeypatch.setattr(shell, "_enable_docs_accessibility",
+                        lambda token: calls.append(("enable_docs", token)))
+    shell._accessory_menu()
+    assert not item.isHidden() and item.isEnabled()
+    shell.menuWillOpen_(menu)
+    shell.docs_help_hint = None
+    status["current_app"] = "another.writer"
+    assert shell._accessory_menu() == menu
+    assert not item.isHidden()  # No reshuffling beneath the pointer.
     shell.perform_(item)
     shell.tick_(None)
-    assert calls == [("pause", 60), "capture"]
-    status["paused_until"] = time.monotonic() + 3600
-    shell._accessory_menu()
-    assert item.title() == "Resume predictions"
-    shell.perform_(item)
+    assert calls == []
+    shell.menuDidClose_(menu)
     shell.tick_(None)
-    assert calls[-2:] == [("pause", 0), "capture"]
-    assert shell.controller.config.global_enabled
-    shell.controller.config.global_enabled = False
-    status["paused_until"] = 0
+    assert calls == [("enable_docs", "original-document"), "capture"]
     shell._accessory_menu()
-    assert not item.isEnabled()
+    assert item.isHidden() and shell.next_tag == binding_count
+
+
+def test_docs_accessory_option_click_remains_plain_tab_not_enable_or_menu(monkeypatch):
+    actions = []
+    target = appkit_overlay.OverlayActions.alloc().init().setup(
+        lambda action: actions.append(action), lambda sender: actions.append("menu"))
+    target.actions = {100: "menu"}
+    sender = SimpleNamespace(tag=lambda: 100)
+    monkeypatch.setattr(appkit_overlay.A, "NSEvent", SimpleNamespace(
+        modifierFlags=lambda: A.NSEventModifierFlagOption))
+    target.pressed_(sender)
+    assert actions == ["plain_tab"]
+
+
+@pytest.mark.parametrize("url, pane", [
+    ("brotypist://settings/shortcuts", "shortcuts"),
+    ("brotypist://settings/appSettings", "appSettings"),
+    ("BroTypist://settings/statistics", "statistics"),
+    ("brotypist://welcome", "welcome"),
+    ("brotypist://settings/unknown", "general"),
+    ("https://example.com/settings/shortcuts", None),
+])
+def test_deep_links_only_navigate_to_known_panes(url, pane):
+    assert appkit_ui._url_target(url) == pane
 
 
 @pytest.fixture
@@ -232,33 +339,3 @@ def test_chip_flips_above_caret_near_visible_screen_bottom(screen):
     assert A.NSMinY(frame) >= 700 - 650 + 6
     assert A.NSMaxX(frame) <= 1000 - 8
     assert A.NSMinX(frame) >= 8
-
-
-def test_native_ghost_uses_verified_host_baseline_without_card_or_mouse_target(screen):
-    from dataclasses import asdict
-    from inklow.core import InlineRender
-    font = A.NSFont.fontWithName_size_("Helvetica", 13)
-    ascent, descent = float(font.ascender()), abs(float(font.descender()))
-    render = InlineRender("Helvetica", 13, 200, (0, 0, 900, 600), ascent, descent,
-                          source="macos-ax-attributed-run")
-    observed = {}
-    panel = SimpleNamespace(
-        orderOut_=lambda sender: observed.update(visible=False),
-        setHasShadow_=lambda value: observed.update(shadow=value),
-        setIgnoresMouseEvents_=lambda value: observed.update(mouse_through=value),
-        setContentView_=lambda value: observed.update(surface=value),
-        setFrame_display_=lambda frame, display: observed.update(frame=frame),
-        orderFrontRegardless=lambda: observed.update(visible=True))
-    overlay = appkit_overlay.CaretOverlay.__new__(appkit_overlay.CaretOverlay)
-    overlay.suggestion = panel
-    event = {"text": " tomorrow", "mode": "completion", "inline": True,
-             "render": asdict(render), "rect": (100, 200 - ascent, 1, ascent + descent)}
-    overlay._present_inline(event)
-    assert observed["visible"]
-    assert observed["shadow"] is False
-    assert observed["mouse_through"] is True
-    assert isinstance(observed["surface"], appkit_overlay.GhostSurface)
-    assert A.NSMinX(observed["frame"]) == 100
-    assert A.NSMinY(observed["frame"]) == pytest.approx(700 - 200 - descent)
-    overlay._present_inline({**event, "render": None})
-    assert observed["visible"] is False

@@ -15,7 +15,9 @@ from . import __version__
 from .models import DEFAULT_PRESET, PRESETS, download_model, get_preset, is_installed
 
 
-_PANES = ("welcome", "general", "models", "autocomplete", "languages", "privacy", "about")
+_PANES = (("welcome", "setup", "general", "context", "personalization", "emoji", "shortcuts",
+           "battery", "appSettings", "labs", "statistics", "about") if sys.platform == "darwin"
+          else ("welcome", "general", "models", "autocomplete", "languages", "privacy", "about"))
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments == ["_worker"]:
@@ -42,6 +44,8 @@ def main(argv: list[str] | None = None) -> int:
     model.add_argument("action", choices=["list", "download"])
     model.add_argument("--preset", choices=[preset.id for preset in PRESETS], default=DEFAULT_PRESET)
     model.add_argument("--no-select", action="store_true", help="Download without changing the selected model")
+    model.add_argument("--accept-model-license", action="store_true",
+                       help="Accept the selected model's displayed license, including Gemma Terms of Use for Gemma 3")
     args = parser.parse_args(arguments)
     try:
         if args.wayland_input_method:
@@ -60,7 +64,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.model_path:
             known = next((p for p in PRESETS if p.filename == Path(args.model_path).name), None)
             config = replace(config, backend="gguf", model_path=args.model_path,
-                             prompt_style=known.prompt_style if known else "continuation")
+                             prompt_style=known.prompt_style if known else "continuation",
+                             model_id=known.id if known else "")
         if args.prompt_style:
             config = replace(config, prompt_style=args.prompt_style)
         if args.paused:
@@ -73,11 +78,13 @@ def main(argv: list[str] | None = None) -> int:
                     state = "installed" if is_installed(preset) else "not downloaded"
                     print(f"{preset.id}: {preset.label} — {preset.size_bytes / 1_000_000:.0f} MB, {state}")
                     print(f"  {preset.description}")
+                    print(f"  License: {preset.license_name} — {preset.license_url}")
                 return 0
             preset = get_preset(args.preset)
-            path = download_model(preset.id)
+            path = download_model(preset.id, accept_license=args.accept_model_license)
             if not args.no_select:
-                save_config(replace(config, backend="gguf", model_path=str(path), prompt_style=preset.prompt_style))
+                save_config(replace(config, backend="gguf", model_path=str(path),
+                                    prompt_style=preset.prompt_style, model_id=preset.id))
             print(f"Verified model: {preset.label}\n{path}")
             print("Model downloaded; selection unchanged." if args.no_select else "Model selected. Restart BroTypist or select it in AI Models to reload.")
             return 0

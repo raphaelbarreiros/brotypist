@@ -2,6 +2,78 @@
 
 # Observed verification
 
+## 0.4.0 source integration — 2026-10-26
+
+This is source/runtime evidence, not a claim that a new frozen bundle is installed or published. The signed application and installer must have their own receipts.
+
+- **Integrated regressions:** 879 passed, 21 skipped in 16.66 seconds after the final document-provider safeguard and neutral setup wording. Independent native/privacy and frozen-entrypoint/signing reviews reported no actionable static findings; neither review substitutes for runtime proof.
+- **Actual inline pixels:** the independently sourced Gemma 4 worker produced ` appreciate it.` in the owned native `NSTextView`, whose own OS inline predictions were disabled. [Uncomposited, owned-window capture](brotypist/native-inline-gemma4-0.4.0.png). The transparent grey words use the host's native font/baseline; no ordinary suggestion card or popup is present.
+- **Repeated acceptance:** two consecutive real Tab events changed the owned native field from `Thank you for your help with the report. I really` to `Thank you for your help with the report. I really appreciate it`. No literal Tab was inserted; the host recorded no forwarded Tab key events. This establishes the candidate's ordered two-word acceptance, not the original app's acceptance behavior.
+- **Actual worker IPC:** [synthetic receipt](brotypist/gemma4-worker-0.4.0.json) records the real private worker, cold preparation, a grounded Room Cedar continuation and safe absence for constrained partial-word alternatives. A warm contextual result began at 230.49 ms; the cold first result took 2755.79 ms. These individual samples are not visible desktop latency percentiles or an SLA.
+- **Current model evaluation:** private `gemma4-current-final-v2.json` ran all 19 synthetic-writing-v2 cases through the current native Metal provider with 19 mechanical passes. It includes seven writing languages and boundary/context/utility cases. Two of five alternatives cases produced no offer. Semantic/grammar quality remains ungraded; no all-language-quality guarantee follows from mechanical checks.
+- **Native settings:** all eleven panes were exercised in the final source smoke with a native visible-window property, registered status item and menu Quit entry. Neither Qt nor llama_cpp was imported into the UI process. That smoke does not establish human-visible comparison or typing; the separate owned-window capture above supplies the latter's visual evidence.
+- **Terminal scope:** native Terminal.app exposed a true bounded unsent Codex 0.162.1 draft, session/process/CG-window ownership and independent glyph spans. A separate live raster verification recovered `SFMonoTerminal-Regular`, 12 pt, fixed advance 7 pt and a baseline matching real window pixels. End-to-end terminal acceptance is not yet established; no iTerm, other-agent, mux or shell compatibility is claimed. Appearance consent is separate, and terminal input consent never includes scrollback/OCR context.
+- **Docs safety:** the disposable Aside Google Doc exposed mismatching native action/readback versus persisted preferences. Its provider is now explicitly refused for preference mutations; the setup offer remains metadata only, with manual screen-reader + braille instructions. This is not a live Docs typing pass or a claim that all browser providers were exercised. The native helper never fabricates a caret or enables ordinary acceptance.
+
+Screenshots/context consent remain opt-in; existing saved consent is not enabled by this integration. Linux/Windows product builds and iCloud remain deferred. No proprietary [redacted reference] code, artwork or weights is redistributed.
+
+## Earlier macOS source candidate — 2026-10-25/26
+
+This historical checkpoint records the earlier investigation and synthetic source observations, not the final integration run above. At that point the installed `/Applications/BroTypist.app` remained **0.3.3**, the starting HEAD was **`1423961`**, and the parity changes were unreleased/uncommitted. Historical release/install claims below apply only to their named revision and artifacts.
+
+### Established source/native observations
+
+- The previously exercised full Python suite reported **605 passed, 21 skipped in 14.60 seconds, no warnings**. That predates the current benchmark-contract/Docs/terminal integration; it is not evidence that the latest edits pass.
+- The actual source AppKit smoke exercised all **11 panes**, menu and Quit with no model or Qt loaded at idle. That all-pane run occurred while the screen was locked: it is **not visual or typing proof**.
+- A separate unlocked, owned synthetic `NSTextView` observation used the real independently obtained Gemma 4 model. Grey same-line ` appreciate it.` rendered; after the cold model was ready, actual Tab inserted ` appreciate ` without a literal Tab. Actual focused-window Accessibility context from a synthetic Cedar/Tuesday-10-AM fixture produced ` Tuesday at 10 AM `. The private capture is `candidate-typing-live.png`, not a published screenshot or installed-build receipt.
+- The original [redacted reference] **2026.5.1 build 83** showed grey same-line ` appreciate it.` and had `gemma-4-E2B-Q4_C.gguf` open during real prediction. The host-only fixture showed no ghost after the original quit, with the host's OS inline prediction disabled. Original synthetic Tab acceptance was **not established**. A source rapid-Tab experiment aborted safely on user focus change; it is not a pass.
+- Full private native analysis completed with REA **6.8.0**, Ghidra **12.1** and Temurin **21** in **738 seconds**. See [the version/hash-bound native findings and model identities]([redacted reference].md#deep-native-and-live-model-pass--recorded-2026-10-25-reviewed-2026-10-26). The earlier missing-provider failures below remain historical evidence. No Java/Ghidra product dependency or proprietary recovered source/assets/weights was added.
+
+The screenshots, native dossiers and synthetic result JSONs named here remain private. No raw decompilation, user writing, personal document identifiers/paths, secrets or private image is added to this repository.
+
+### Real public Google-model samples and provenance
+
+Public Gemma 4 E2B Q4_0 and Gemma 3 1B Q4_K_M files were independently acquired, revision/size/SHA-256 bound and actually executed with Metal. Their exact identities and terms are in [[redacted reference].md]([redacted reference].md#independent-google-weights-not-a-copy-of-the-original). Qwen was preserved. Larger pinned catalogue entries have **not** been executed.
+
+Private `google-family-real-sample.json`, created **2026-10-25 16:30 UTC**, recorded **15/15 mechanical cases for each model**. Provenance: provider SHA-256 `4acd0f1fde6052a265e90b3bf927810eeefbb0742af489d91c1be9a7dc04816a`, benchmark SHA-256 `b0386ceec52075bf6aa0f0019974aff55e735d6787226b64f103e96b88f0a970`. This was the earlier 15-case utility revision; utilities subsequently changed, and semantic/grammar quality was not graded.
+
+Private `gemma-metal-attention-ab.json`, created **2026-10-25 18:20 UTC**, used identical Gemma 4 weights in three fresh process rounds per attention variant, 15 cases each: **45/45 mechanical cases per variant**. It records the same provider/benchmark hashes above, with writing SHA-256 `9387510283712cca255f1dbdb0508f2d16c021ce3b633bd1d51c6f083a389cf0`.
+
+| Observed provider-stream measurement | Flash-attention experiment | Baseline |
+| --- | ---: | ---: |
+| Median first displayable text, 45 samples | 178.57 ms | 173.17 ms |
+| Median total stream, 45 samples | 225.55 ms | 225.84 ms |
+| Process-lifetime peak RSS, round 1 | 3,260,645,376 bytes | 3,447,422,976 bytes |
+| Process-lifetime peak RSS, round 2 | 3,378,987,008 bytes | 3,443,081,216 bytes |
+| Process-lifetime peak RSS, round 3 | 3,371,352,064 bytes | 3,440,017,408 bytes |
+
+There is **no proven latency win**; the flash-attention experiment is **not enabled in the product**. First-display timing is around provider streaming, not last-keystroke-to-visible desktop latency: it excludes native capture, debounce, worker IPC and rendering. Fresh process does not mean cleared OS/Metal/file caches. Process-lifetime peak RSS includes mapped/shared pages and is neither incremental per-case allocation nor complete GPU/physical footprint. The original's one-time **207,264 KiB RSS** sample is not comparable. Separate native cold-first observations were approximately **2.55–3 seconds**, with one warm context case around **0.5 seconds**; these are descriptive samples, not an SLA, superiority or memory-parity claim.
+
+### Failed utility experiments and corrected consumer contract
+
+The private historical artifacts are retained as failures/limitations of their recorded source revisions; their totals are **not** recomputed or relabelled as a current pass:
+
+| Private synthetic artifact / creation time (UTC, 2026-10-25) | Provider SHA-256 (abbreviated) | Recorded mechanical totals, Gemma 4 / Gemma 3 |
+| --- | --- | --- |
+| `google-utility-boundaries.json`, 18:32 | `f8ac04402777…` | 15/16 and 13/16; overall fail/inconclusive |
+| `google-utility-boundaries-gbnf.json`, 18:46 | `ead89e0a6d51…` | 19/19 and 15/19; overall fail/inconclusive |
+| `google-caret-alternatives.json`, 18:58 | `eaebecfb3bb5…` | 16/19 and 15/19; overall fail/inconclusive |
+
+The JSON prefix-replay and forced-novelty/high-temperature experiments were removed from the product after malformed/empty results and semantically bad partial-word suggestions. For example, the last artifact's mechanically accepted partial-word list included `eme.` and `ule.` after the synthetic `feed` prefix: printable strings and a full list do not establish sensible words. Other cases returned only one/two valid choices or no output; the old benchmark's unconditional **3–5/nonempty** requirement incorrectly marked those cardinalities as failures. The artifacts remain evidence of the old sampler/validator and ungraded semantic defects, not of the current implementation.
+
+The current provider instead reuses the ordinary native continuation/token-healing path at temperature **0.35**, at most **five** samples, targeting **up to three** distinct valid continuations and excluding the current anchor. Especially at partial words, three novel valid choices may not exist. Fewer choices or no offer are honest outcomes; neither is a quality score. Synonyms remain a separate selected-word replacement contract.
+
+`tools/benchmark_writing.py` now identifies new reports as **`synthetic-writing-v2`, schema 2**. Alternatives permit **zero to three** strict distinct choices, with no anchor/prefix replay, correct partial-word/trailing-space/unspaced/new-word boundaries, no displayed controls and no raw/displayed thought/tool framing or quoted-injection success. Empty output and a strict empty array are safe absence only when the other mechanical checks pass; malformed output, runtime failure, missing native generation, unclosed iterators and token-budget violations still fail. Selected-word synonyms retain their 3–5 strict-choice/nonempty checks.
+
+Each utility row reports parsed and reported choice counts, empty/no-output state and safe absence; summaries separate per-kind choice counts, empties, safe absences and mechanical failures. First-display timing remains absent for no offer. Semantic, grammar, language and factual grounding remain **not evaluated**, irrespective of cardinality or mechanical success. **No new model execution or benchmark regrading was performed for this contract correction.**
+
+### Integration and evidence unknowns
+
+- The document-bound Google Docs metadata/accessibility helper and opt-in Terminal/iTerm Automation path are in development. No live Docs/terminal compatibility pass is asserted here. Metadata does not prove a writable snapshot/caret, and a permission request/preflight is not a verified grant. Ordinary completion must stay silent when native safety/typography cannot be established.
+- Current integration still needs the integration owner's complete source checks, source-native UI/typing and repeated acceptance evidence, then a separately authorized build/install verification. The earlier **605/21** result and installed **0.3.3** app do not supply that proof.
+- No complete [redacted reference] compatibility, original Tab-acceptance parity, universal browser/terminal support, calibrated multilingual grammar quality, latency SLA, total GPU/RAM comparison, network privacy audit, exact private prompt/quantization or training/personalization equivalence is established.
+- Linux/Windows product work and iCloud work are deferred. Screenshots/context appearance remain explicit opt-ins, not evidence of silently enabled installed preferences; licensing/paywall/account/telemetry imitation remains out of scope.
+
 ## BroTypist 0.3.3 — compact field controls and renewed reference review
 
 | Final integrated source suite | Passed | Skipped |
@@ -15,7 +87,7 @@
 - **Fresh original-app evidence:** REA captured the running [redacted reference] General picker selecting/recommending **Gemma 4 E2B (2.8 GB)** and static Gemma4/llama.cpp/GGUF strings. See [reference evidence and model decision]([redacted reference].md#reference-correction-pass--2026-10-25), [sanitized receipt](brotypist/reference-correction-0.3.3.json). Raw records remain private. The original review process was quit normally after inspection; no preference controls were changed.
 - **Signed local handoff:** implementation `a3674a16f34aa29a12a643a9bbe7e943600b1740` was built as arm64 0.3.3. The actual frozen CLI and model worker generated output; the signed DMG passed read-only mount, copy/install layout, actual settings-window launch, normal Quit, external-data preservation and detach. The installed `/Applications/BroTypist.app` reports 0.3.3, runs as one instance and exposes its native menu-bar item. All settings and startup bytes were unchanged after launch; the selected model file size/mtime were unchanged. A CRC-verified private previous-app rollback is retained. [Installed receipt](brotypist/installed-0.3.3.json). Apple Development signing is not notarization; DMG/ZIP were built locally, not published as a new GitHub release.
 
-**Limits:** current BroTypist retains its independently pinned Qwen writer. No Gemma download, adapter or performance/quality benchmark was performed. Upstream llama.cpp support is not validation of the packaged Python binding. Deep decompilation providers were unavailable; original live typing, exact field-menu contents, prompts and runtime model execution remain unproven. Strict native input restrictions, browser-font limitations, unavailable Wayland ordinary completion and unverified Windows-native behavior remain unchanged. This is not complete [redacted reference] parity or a new GitHub release.
+**Limits at the 0.3.3 revision:** that build retained its independently pinned Qwen writer. No Gemma download, adapter or performance/quality benchmark had been performed in that pass. Upstream llama.cpp support was not validation of the packaged Python binding. Deep decompilation providers were unavailable; original live typing, exact field-menu contents, prompts and runtime model execution were then unproven. The later source-only observations above narrow specific unknowns, not this historical artifact's scope. Strict native input restrictions, browser-font limitations, unavailable Wayland ordinary completion and unverified Windows-native behavior remain unchanged. This was not complete [redacted reference] parity or a new GitHub release.
 
 ## BroTypist 0.3.2 — strict native inline completion
 
@@ -131,7 +203,7 @@ Interactive Windows/Linux accessibility and keyboard compatibility have not been
 
 ## Reference evidence and limits
 
-[REA [redacted reference] report]([redacted reference].md), [sanitized native observations]([redacted reference]-menu-reference.json). [redacted reference]'s settings were observed directly, but no live accepted [redacted reference] prediction, exact prompt, performance comparison, or network-privacy audit was established. The implementation is independent and does not claim proprietary feature/model equivalence.
+[REA [redacted reference] report]([redacted reference].md), [sanitized native observations]([redacted reference]-menu-reference.json). In the historical 0.3.0 pass, [redacted reference]'s settings were observed directly, but no live accepted [redacted reference] prediction, exact prompt, performance comparison, or network-privacy audit was established. Later bounded native/model observations are dated above. The implementation is independent and does not claim proprietary feature/model equivalence.
 
 Historical 0.2 evidence remains in [UPGRADE-0.2.md](UPGRADE-0.2.md); older CI and image artifacts remain historical, not descriptions of the removed editor's current availability.
 

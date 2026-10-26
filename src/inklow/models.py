@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cache
 import hashlib
 import os
 from pathlib import Path
+import subprocess
+import sys
 from threading import Event
 import tempfile
 from typing import Callable
@@ -25,13 +28,102 @@ class ModelPreset:
     size_bytes: int
     sha256: str
     prompt_style: str = "continuation"
+    license_name: str = "Apache-2.0"
+    license_url: str = "https://www.apache.org/licenses/LICENSE-2.0"
+    requires_license_acceptance: bool = False
+    minimum_memory_bytes: int = 0
 
 
-DEFAULT_PRESET = "balanced"
+DEFAULT_PRESET = "gemma4-e2b"
 PRESETS = (
     ModelPreset(
+        id="gemma4-e2b", label="Gemma 4 E2B",
+        description="On-device multilingual writing; 2.84 GB verified download. Apple Silicon Metal recommended.",
+        repo="ggml-org/gemma-4-E2B-it-GGUF",
+        revision="6938c58e698502037401a5f19f6905f2fb2f7dee",
+        filename="gemma-4-E2B-it-Q4_0.gguf", size_bytes=2841481184,
+        sha256="8e30dff3ac4c8434c49a7036fa15564bdbb6044e42bf04550bf1a096ad7e6a52",
+        prompt_style="writing", minimum_memory_bytes=8 * 1024**3,
+    ),
+    ModelPreset(
+        id="gemma4-e4b", label="Gemma 4 E4B",
+        description="Larger multilingual writer; 4.59 GB download. More memory and generation time than E2B.",
+        repo="ggml-org/gemma-4-E4B-it-GGUF",
+        revision="a69f018d7678a2b9f5e705f8903d6fb29b9b25dc",
+        filename="gemma-4-E4B-it-Q4_0.gguf", size_bytes=4590807392,
+        sha256="a555b900214b477d8880e7832e0b8925e139b0159640036b09fe472b6f2097f2",
+        prompt_style="writing", minimum_memory_bytes=16 * 1024**3,
+    ),
+    ModelPreset(
+        id="gemma4-26b-a4b", label="Gemma 4 26B-A4B",
+        description="Mixture-of-experts writer; 14.62 GB of weights despite fewer active parameters. Requires a high-memory Mac.",
+        repo="ggml-org/gemma-4-26B-A4B-it-GGUF",
+        revision="9cf8c8db0f83fb4582f15381f8fb1a7c1b0b9ca2",
+        filename="gemma-4-26B-A4B-it-Q4_0.gguf", size_bytes=14618145824,
+        sha256="d208665ab1cd3a69f7a9a4bc59430e8448c8093d9b06334f566ac59d6d504a03",
+        prompt_style="writing", minimum_memory_bytes=32 * 1024**3,
+    ),
+    ModelPreset(
+        id="gemma3-1b", label="Gemma 3 1B",
+        description="Smaller multilingual writer; 806 MB download. Subject to the Gemma Terms of Use.",
+        repo="ggml-org/gemma-3-1b-it-GGUF",
+        revision="f9c28bcd85737ffc5aef028638d3341d49869c27",
+        filename="gemma-3-1b-it-Q4_K_M.gguf", size_bytes=806058240,
+        sha256="8ccc5cd1f1b3602548715ae25a66ed73fd5dc68a210412eea643eb20eb75a135",
+        prompt_style="writing", license_name="Gemma Terms of Use",
+        license_url="https://ai.google.dev/gemma/terms",
+        requires_license_acceptance=True, minimum_memory_bytes=4 * 1024**3,
+    ),
+    ModelPreset(
+        id="gemma3-4b", label="Gemma 3 4B",
+        description="Multilingual writer; 2.49 GB text weights. Subject to the Gemma Terms of Use.",
+        repo="ggml-org/gemma-3-4b-it-GGUF",
+        revision="d0976223747697cb51e056d85c532013931fe52e",
+        filename="gemma-3-4b-it-Q4_K_M.gguf", size_bytes=2489757856,
+        sha256="882e8d2db44dc554fb0ea5077cb7e4bc49e7342a1f0da57901c0802ea21a0863",
+        prompt_style="writing", license_name="Gemma Terms of Use",
+        license_url="https://ai.google.dev/gemma/terms",
+        requires_license_acceptance=True, minimum_memory_bytes=8 * 1024**3,
+    ),
+    ModelPreset(
+        id="qwen3-1.7b", label="Qwen 3 1.7B",
+        description="Compact multilingual writer in non-thinking mode; 1.28 GB download.",
+        repo="ggml-org/Qwen3-1.7B-GGUF",
+        revision="daeb8e2d528a760970442092f6bf1e55c3b659eb",
+        filename="Qwen3-1.7B-Q4_K_M.gguf", size_bytes=1282439264,
+        sha256="d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5",
+        prompt_style="writing", minimum_memory_bytes=4 * 1024**3,
+    ),
+    ModelPreset(
+        id="qwen3-4b", label="Qwen 3 4B",
+        description="Multilingual writer in non-thinking mode; 2.50 GB download.",
+        repo="Qwen/Qwen3-4B-GGUF",
+        revision="bc640142c66e1fdd12af0bd68f40445458f3869b",
+        filename="Qwen3-4B-Q4_K_M.gguf", size_bytes=2497280256,
+        sha256="7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+        prompt_style="writing", minimum_memory_bytes=8 * 1024**3,
+    ),
+    ModelPreset(
+        id="qwen3-8b", label="Qwen 3 8B",
+        description="Larger multilingual writer in non-thinking mode; 5.03 GB download.",
+        repo="Qwen/Qwen3-8B-GGUF",
+        revision="7c41481f57cb95916b40956ab2f0b139b296d974",
+        filename="Qwen3-8B-Q4_K_M.gguf", size_bytes=5027783488,
+        sha256="d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
+        prompt_style="writing", minimum_memory_bytes=16 * 1024**3,
+    ),
+    ModelPreset(
+        id="qwen3-30b-a3b", label="Qwen 3 30B-A3B",
+        description="Mixture-of-experts writer; 18.56 GB of weights. Requires a high-memory Mac.",
+        repo="Qwen/Qwen3-30B-A3B-GGUF",
+        revision="e4d4bafdfb96a411a163846265362aceb0b9c63a",
+        filename="Qwen3-30B-A3B-Q4_K_M.gguf", size_bytes=18556685824,
+        sha256="0d003f6662faee786ed5da3e31b29c978de5ae5d275c8794c606a7f3c01aa8f5",
+        prompt_style="writing", minimum_memory_bytes=32 * 1024**3,
+    ),
+    ModelPreset(
         id="balanced", label="Balanced — Qwen2.5 1.5B Writing",
-        description="Recommended guided writing model. Multilingual, short draft continuations; 1.12 GB download. GPU acceleration recommended.",
+        description="Previous guided writing model; 1.12 GB download. Kept available without changing existing selections.",
         repo="Qwen/Qwen2.5-1.5B-Instruct-GGUF",
         revision="91cad51170dc346986eccefdc2dd33a9da36ead9",
         filename="qwen2.5-1.5b-instruct-q4_k_m.gguf", size_bytes=1117320736,
@@ -54,6 +146,31 @@ def get_preset(preset_id: str) -> ModelPreset:
         if preset.id == preset_id:
             return preset
     raise ValueError(f"Unknown model preset: {preset_id}")
+
+
+@cache
+def physical_memory_bytes() -> int | None:
+    """Physical capacity, not available memory or an inference-speed promise."""
+    try:
+        if sys.platform == "darwin":
+            return int(subprocess.check_output(
+                ["/usr/sbin/sysctl", "-n", "hw.memsize"], text=True, timeout=2).strip())
+        return int(os.sysconf("SC_PHYS_PAGES")) * int(os.sysconf("SC_PAGE_SIZE"))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def recommended_preset(memory_bytes: int | None = None) -> ModelPreset:
+    """Prefer the measured writing profile, not the largest downloadable file."""
+    capacity = physical_memory_bytes() if memory_bytes is None else memory_bytes
+    return get_preset("balanced" if capacity is not None and capacity < 8 * 1024**3 else DEFAULT_PRESET)
+
+
+def model_availability(preset: ModelPreset, memory_bytes: int | None = None) -> str:
+    capacity = physical_memory_bytes() if memory_bytes is None else memory_bytes
+    if capacity is not None and capacity < preset.minimum_memory_bytes:
+        return f"Requires at least {preset.minimum_memory_bytes // 1024**3} GB of physical memory."
+    return ""
 
 
 def model_path(preset: ModelPreset) -> Path:
@@ -94,9 +211,17 @@ def download_model(
     preset_id: str = DEFAULT_PRESET,
     progress: Callable[[int, int], None] | None = None,
     cancel: Event | None = None,
+    *,
+    accept_license: bool = False,
 ) -> Path:
     """Return verified weights, preserving the old model on cancel or failure."""
     preset = get_preset(preset_id)
+    unavailable = model_availability(preset)
+    if unavailable:
+        raise RuntimeError(unavailable)
+    if preset.requires_license_acceptance and not accept_license:
+        raise RuntimeError(f"Read and accept {preset.license_name} before downloading: {preset.license_url}. "
+                           "CLI downloads require --accept-model-license.")
     target = model_path(preset)
     _check_cancel(cancel)
     target.parent.mkdir(parents=True, exist_ok=True)

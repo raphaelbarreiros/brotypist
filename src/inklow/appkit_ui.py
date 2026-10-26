@@ -8,13 +8,15 @@ from __future__ import annotations
 from copy import deepcopy
 from collections import deque
 from dataclasses import replace
+import math
 from pathlib import Path
 import time
+import threading
 from urllib.parse import urlsplit
 
 import AppKit as A
 import objc
-from Foundation import NSBundle, NSIndexSet, NSObject, NSRunLoop, NSRunLoopCommonModes, NSTimer, NSURL
+from Foundation import NSAttributedString, NSBundle, NSIndexSet, NSObject, NSRunLoop, NSRunLoopCommonModes, NSTimer, NSURL
 
 from . import __version__, system
 from .appkit_overlay import CaretOverlay, _dark, _rgb
@@ -23,13 +25,83 @@ from .runtime import Controller
 from .shortcuts import mac_key_name, normalize_shortcut, shortcut_from_event
 
 PANES = (
+    ("setup", "Setup", "checklist"),
     ("general", "General", "gearshape"),
-    ("models", "AI Models", "cpu"),
-    ("autocomplete", "Autocomplete", "text.cursor"),
-    ("languages", "Languages", "globe"),
-    ("privacy", "Privacy", "lock.shield"),
+    ("context", "Context", "text.viewfinder"),
+    ("personalization", "Personalization", "person.text.rectangle"),
+    ("emoji", "Emoji", "face.smiling"),
+    ("shortcuts", "Shortcuts", "command"),
+    ("battery", "Battery", "battery.75percent"),
+    ("appSettings", "App Settings", "square.grid.2x2"),
+    ("labs", "Labs", "flask"),
+    ("statistics", "Statistics", "chart.bar.xaxis"),
     ("about", "About", "info.circle"),
 )
+# Sidebar groups mirror the native settings layout; "support" opens externally.
+SIDEBAR_GROUPS = (
+    ("setup",),
+    ("general", "context", "personalization", "emoji", "shortcuts", "battery", "appSettings"),
+    ("labs", "statistics"),
+    ("about", "support"),
+)
+SUPPORT_URL = REPOSITORY_URL + "/issues"
+RELEASES_URL = REPOSITORY_URL + "/releases"
+URL_SCHEME = "brotypist"
+_SIDEBAR_COLORS = {
+    "setup": (255, 149, 0), "general": (142, 142, 147), "context": (0, 122, 255),
+    "personalization": (175, 82, 222), "emoji": (255, 204, 0), "shortcuts": (88, 86, 214),
+    "battery": (52, 199, 89), "appSettings": (90, 200, 250), "labs": (255, 45, 85),
+    "statistics": (31, 169, 122), "about": (142, 142, 147), "support": (0, 122, 255),
+}
+_CONSENT = {
+    "screen_context": ("Use focused-window text for context?",
+                       "BroTypist will read readable Accessibility text from the verified focused window only for eligible suggestion requests. Context is not saved or sent to a remote service. Protected content and excluded apps are skipped. You can turn this off at any time."),
+    "clipboard_context": ("Use the clipboard for context?",
+                          "BroTypist will read the clipboard only for eligible suggestion requests. Context is not saved or sent to a remote service. Protected content and excluded apps are skipped. You can turn this off at any time."),
+    "screenshot_context": ("Use screenshots for context?",
+                           "For eligible suggestion requests, BroTypist captures the focused window and recognizes its text on this Mac. The image is processed in memory and discarded immediately; it is never saved or uploaded. Accessibility text is still used first. macOS requires Screen & System Audio Recording permission and may show its recording indicator. You can turn this off at any time."),
+    "screenshot_appearance": ("Use screenshots to improve suggestion appearance?",
+                              "BroTypist captures the focused window on this Mac, then crops it in memory to measure the text’s font, size and baseline around the caret, so grey suggestions line up with your text. The image is discarded immediately; it is never saved or uploaded. Suggestions stay hidden when the measurement cannot be verified. macOS requires Screen & System Audio Recording permission and may show its recording indicator."),
+}
+_SCREENSHOT_FIELDS = ("screenshot_context", "screenshot_appearance")
+_TERMINAL_HOSTS = {
+    "terminal_automation": ("com.apple.Terminal", "Terminal"),
+    "iterm_automation": ("com.googlecode.iterm2", "iTerm2"),
+}
+_AUTOMATION_LABELS = {
+    "granted": "Granted", "denied": "Denied", "not-determined": "Not requested",
+    "not-running": "Not running", "unavailable": "Unavailable",
+}
+
+
+def _canonical_pane(value):
+    key = str(value or "")
+    for pane, _title, _symbol in PANES:
+        if key == pane or key.casefold() == pane.casefold():
+            return pane
+    return None
+
+
+def _url_target(text):
+    """Map brotypist://settings/<pane> (or brotypist://<pane>) to a pane; only navigation."""
+    parts = urlsplit(str(text))
+    if parts.scheme.casefold() != URL_SCHEME:
+        return None
+    segments = [segment for segment in [parts.netloc, *parts.path.split("/")] if segment]
+    if not segments:
+        return "general"
+    if segments[-1].casefold() == "welcome":
+        return "welcome"
+    return _canonical_pane(segments[-1]) or "general"
+
+
+def _gb(size_bytes):
+    return f"{float(size_bytes or 0) / 1_000_000_000:.1f} GB"
+
+
+def _minutes(seconds):
+    value = float(seconds or 0) / 60
+    return f"{value:.1f}" if 0 < value < 10 else f"{value:.0f}"
 
 
 class FlippedView(A.NSView):
@@ -123,12 +195,32 @@ class ShortcutRecorder(A.NSButton):
         self.setTitle_(self.value or "Record Shortcut…")
 
 
+def _sidebar_icon(key, symbol_name, label):
+    red, green, blue = _SIDEBAR_COLORS.get(key, (142, 142, 147))
+    color = A.NSColor.colorWithSRGBRed_green_blue_alpha_(red / 255, green / 255, blue / 255, 1)
+    symbol = (A.NSImage.imageWithSystemSymbolName_accessibilityDescription_(symbol_name, label)
+              or A.NSImage.imageWithSystemSymbolName_accessibilityDescription_("circle", label))
+    configuration = A.NSImageSymbolConfiguration.configurationWithPaletteColors_([A.NSColor.whiteColor()])
+    symbol = symbol.imageWithSymbolConfiguration_(configuration)
+    image = A.NSImage.alloc().initWithSize_(A.NSMakeSize(20, 20))
+    image.lockFocus()
+    try:
+        color.setFill()
+        A.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(A.NSMakeRect(0, 0, 20, 20), 5, 5).fill()
+        symbol.drawInRect_fromRect_operation_fraction_(A.NSMakeRect(3, 3, 14, 14), A.NSZeroRect, A.NSCompositingOperationSourceOver, 1)
+    finally:
+        image.unlockFocus()
+    image.setTemplate_(False)
+    return image
+
+
 class TableSource(NSObject, protocols=[objc.protocolNamed("NSTableViewDataSource"), objc.protocolNamed("NSTableViewDelegate")]):
     @objc.python_method
-    def configure(self, rows, columns, callback=None, sidebar=False):
+    def configure(self, rows, columns, callback=None, sidebar=False, link=None):
         self.rows, self.columns = rows, columns
-        self.callback, self.sidebar = callback, sidebar
+        self.callback, self.sidebar, self.link = callback, sidebar, link
         self.icons = {}
+        self.badges = {}
         return self
 
     def numberOfRowsInTableView_(self, table):
@@ -137,15 +229,31 @@ class TableSource(NSObject, protocols=[objc.protocolNamed("NSTableViewDataSource
     def tableView_objectValueForTableColumn_row_(self, table, column, row):
         return str(self.rows[row].get(str(column.identifier()), ""))
 
+    def tableView_heightOfRow_(self, table, row):
+        return 10.0 if self.sidebar and self.rows[row].get("kind") == "separator" else float(table.rowHeight())
+
+    def tableView_shouldSelectRow_(self, table, row):
+        if not self.sidebar:
+            return True
+        kind = self.rows[row].get("kind")
+        # Open the external link on a click only, never while arrowing through the list.
+        event = A.NSApplication.sharedApplication().currentEvent()
+        clicked = event is not None and event.type() in (A.NSEventTypeLeftMouseDown, A.NSEventTypeLeftMouseUp)
+        if kind == "link" and self.link and clicked:
+            self.link(self.rows[row])
+        return kind == "pane"
+
     def tableView_viewForTableColumn_row_(self, table, column, row):
         identifier = str(column.identifier())
+        if self.sidebar and self.rows[row].get("kind") == "separator":
+            return A.NSView.alloc().initWithFrame_(A.NSMakeRect(0, 0, column.width(), 10))
         cell = table.makeViewWithIdentifier_owner_(identifier, self)
         if cell is None:
             cell = A.NSTableCellView.alloc().initWithFrame_(A.NSMakeRect(0, 0, column.width(), 28))
             cell.setIdentifier_(identifier)
             offset = 30 if self.sidebar else 6
             label = A.NSTextField.labelWithString_("")
-            label.setFrame_(A.NSMakeRect(offset, 5, column.width() - offset - 5, 20))
+            label.setFrame_(A.NSMakeRect(offset, 5, column.width() - offset - (26 if self.sidebar else 5), 20))
             label.setFont_(A.NSFont.systemFontOfSize_(13))
             label.setAutoresizingMask_(A.NSViewWidthSizable)
             cell.setTextField_(label)
@@ -154,34 +262,160 @@ class TableSource(NSObject, protocols=[objc.protocolNamed("NSTableViewDataSource
                 image = A.NSImageView.alloc().initWithFrame_(A.NSMakeRect(5, 5, 20, 20))
                 cell.setImageView_(image)
                 cell.addSubview_(image)
+                badge = A.NSTextField.labelWithString_("●")
+                badge.setFrame_(A.NSMakeRect(column.width() - 22, 6, 14, 18))
+                badge.setTextColor_(A.NSColor.systemOrangeColor())
+                badge.setFont_(A.NSFont.systemFontOfSize_(9))
+                badge.setTag_(7)
+                badge.setAccessibilityLabel_("Pending step")
+                cell.addSubview_(badge)
         cell.textField().setStringValue_(str(self.rows[row].get(identifier, "")))
         if self.sidebar:
             row_data = self.rows[row]
             key = row_data["id"]
             if key not in self.icons:
-                colors = {"general": A.NSColor.systemGrayColor(), "models": A.NSColor.colorWithSRGBRed_green_blue_alpha_(31 / 255, 169 / 255, 122 / 255, 1), "autocomplete": A.NSColor.systemBlueColor(), "languages": A.NSColor.systemIndigoColor(), "privacy": A.NSColor.colorWithSRGBRed_green_blue_alpha_(22 / 255, 24 / 255, 29 / 255, 1), "about": A.NSColor.systemGrayColor()}
-                symbol = A.NSImage.imageWithSystemSymbolName_accessibilityDescription_(row_data["symbol"], row_data["label"])
-                configuration = A.NSImageSymbolConfiguration.configurationWithPaletteColors_([A.NSColor.whiteColor()])
-                symbol = symbol.imageWithSymbolConfiguration_(configuration)
-                image = A.NSImage.alloc().initWithSize_(A.NSMakeSize(20, 20))
-                image.lockFocus()
-                try:
-                    colors[key].setFill()
-                    A.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(A.NSMakeRect(0, 0, 20, 20), 5, 5).fill()
-                    symbol.drawInRect_fromRect_operation_fraction_(A.NSMakeRect(3, 3, 14, 14), A.NSZeroRect, A.NSCompositingOperationSourceOver, 1)
-                finally:
-                    image.unlockFocus()
-                image.setTemplate_(False)
-                self.icons[key] = image
+                self.icons[key] = _sidebar_icon(key, row_data["symbol"], row_data["label"])
             cell.imageView().setImage_(self.icons[key])
-            cell.setAccessibilityIdentifier_(f"inklow.sidebar.{self.rows[row]['id']}")
-            cell.textField().setAccessibilityIdentifier_(f"inklow.sidebar.{self.rows[row]['id']}")
+            badge = cell.viewWithTag_(7)
+            if badge is not None:
+                badge.setHidden_(not self.badges.get(key))
+            label = row_data["label"] + (" ↗" if row_data.get("kind") == "link" else "")
+            cell.textField().setStringValue_(label)
+            cell.setAccessibilityIdentifier_(f"inklow.sidebar.{key}")
+            cell.textField().setAccessibilityIdentifier_(f"inklow.sidebar.{key}")
         return cell
 
     def tableViewSelectionDidChange_(self, notification):
         row = int(notification.object().selectedRow())
         if self.callback and 0 <= row < len(self.rows):
             self.callback(self.rows[row])
+
+
+class RuleListSource(NSObject, protocols=[objc.protocolNamed("NSTableViewDataSource"), objc.protocolNamed("NSTableViewDelegate")]):
+    """App Settings list: icons, summaries, selection and drag-to-add."""
+
+    @objc.python_method
+    def configure(self, shell):
+        self.shell = shell
+        self.rows = []
+        return self
+
+    def numberOfRowsInTableView_(self, table):
+        return len(self.rows)
+
+    def tableView_viewForTableColumn_row_(self, table, column, row):
+        cell = table.makeViewWithIdentifier_owner_("rule", self)
+        if cell is None:
+            cell = A.NSTableCellView.alloc().initWithFrame_(A.NSMakeRect(0, 0, column.width(), 44))
+            cell.setIdentifier_("rule")
+            image = A.NSImageView.alloc().initWithFrame_(A.NSMakeRect(8, 7, 30, 30))
+            cell.setImageView_(image)
+            cell.addSubview_(image)
+            title = A.NSTextField.labelWithString_("")
+            title.setFrame_(A.NSMakeRect(46, 22, column.width() - 54, 17))
+            title.setFont_(A.NSFont.systemFontOfSize_(13))
+            title.setAutoresizingMask_(A.NSViewWidthSizable)
+            title.setLineBreakMode_(A.NSLineBreakByTruncatingTail)
+            cell.setTextField_(title)
+            cell.addSubview_(title)
+            summary = A.NSTextField.labelWithString_("")
+            summary.setFrame_(A.NSMakeRect(46, 5, column.width() - 54, 15))
+            summary.setFont_(A.NSFont.systemFontOfSize_(11))
+            summary.setTextColor_(A.NSColor.secondaryLabelColor())
+            summary.setAutoresizingMask_(A.NSViewWidthSizable)
+            summary.setLineBreakMode_(A.NSLineBreakByTruncatingTail)
+            summary.setTag_(2)
+            cell.addSubview_(summary)
+        data = self.rows[row]
+        cell.imageView().setImage_(data["icon"])
+        cell.textField().setStringValue_(data["title"])
+        cell.viewWithTag_(2).setStringValue_(data["summary"])
+        cell.setAccessibilityIdentifier_(f"inklow.appSettings.rule.{data['key']}")
+        return cell
+
+    def tableViewSelectionDidChange_(self, notification):
+        row = int(notification.object().selectedRow())
+        if getattr(self.shell, "rendering", False) or not 0 <= row < len(self.rows):
+            return
+        key = self.rows[row]["key"]
+        if key != self.shell.selected_rule:
+            # Rebuilding the pane replaces this table, so never do it inside its own event.
+            self.shell._defer(lambda: self.shell._select_rule(key))
+
+    @objc.python_method
+    def _dropped(self, info):
+        items = []
+        urls = info.draggingPasteboard().readObjectsForClasses_options_([NSURL], {}) or []
+        for url in urls:
+            if url.isFileURL():
+                path = str(url.path() or "")
+                bundle = NSBundle.bundleWithPath_(path) if path.endswith(".app") else None
+                identifier = str(bundle.bundleIdentifier() or "") if bundle else ""
+                if identifier:
+                    items.append((0, identifier))
+            elif str(url.scheme() or "").casefold() in {"http", "https"} and url.host():
+                items.append((1, str(url.host())))
+        return items
+
+    def tableView_validateDrop_proposedRow_proposedDropOperation_(self, table, info, row, operation):
+        if not self._dropped(info):
+            return A.NSDragOperationNone
+        table.setDropRow_dropOperation_(-1, A.NSTableViewDropOn)
+        return A.NSDragOperationCopy
+
+    @objc.typedSelector(b"B@:@@qQ")
+    def tableView_acceptDrop_row_dropOperation_(self, table, info, row, operation):
+        items = self._dropped(info)
+        if items:
+            self.shell._defer(lambda: self.shell._add_rules(items))
+        return bool(items)
+
+
+class BarChartView(A.NSView):
+    """Simple native bar chart for the selected statistics metric."""
+
+    def isFlipped(self):
+        return True
+
+    @objc.python_method
+    def set_bars(self, bars, formatter):
+        self.bars = list(bars)
+        self.formatter = formatter
+        summary = "; ".join(f"{label}: {formatter(value)}" for label, value in self.bars[-12:])
+        self.setAccessibilityLabel_("Statistics chart. " + (summary or "No accepted completions in this range."))
+        self.setNeedsDisplay_(True)
+
+    def drawRect_(self, dirty):
+        bounds = self.bounds()
+        width, height = A.NSWidth(bounds), A.NSHeight(bounds)
+        A.NSColor.controlBackgroundColor().setFill()
+        A.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(bounds, 10, 10).fill()
+        bars = getattr(self, "bars", [])
+        small = {A.NSFontAttributeName: A.NSFont.systemFontOfSize_(10),
+                 A.NSForegroundColorAttributeName: A.NSColor.secondaryLabelColor()}
+        if not bars or not any(value for _label, value in bars):
+            text = NSAttributedString.alloc().initWithString_attributes_("No accepted completions in this range", small)
+            size = text.size()
+            text.drawAtPoint_(A.NSMakePoint((width - size.width) / 2, (height - size.height) / 2))
+            return
+        top, bottom, left, right = 22, 26, 14, 14
+        maximum = max(value for _label, value in bars) or 1
+        slot = (width - left - right) / len(bars)
+        bar_width = max(2.0, min(36.0, slot * 0.7))
+        A.NSColor.controlAccentColor().setFill()
+        for index, (_label, value) in enumerate(bars):
+            bar_height = (height - top - bottom) * float(value) / maximum
+            x = left + index * slot + (slot - bar_width) / 2
+            if bar_height > 0:
+                A.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                    A.NSMakeRect(x, height - bottom - bar_height, bar_width, bar_height), 3, 3).fill()
+        step = max(1, math.ceil(len(bars) / 8))
+        for index in range(0, len(bars), step):
+            text = NSAttributedString.alloc().initWithString_attributes_(str(bars[index][0])[:14], small)
+            x = left + index * slot + slot / 2 - text.size().width / 2
+            text.drawAtPoint_(A.NSMakePoint(max(2, min(width - text.size().width - 2, x)), height - bottom + 7))
+        peak = NSAttributedString.alloc().initWithString_attributes_("Max " + self.formatter(maximum), small)
+        peak.drawAtPoint_(A.NSMakePoint(left, 5))
 
 
 def _label(text, frame, *, small=False, bold=False):
@@ -292,15 +526,21 @@ class BroTypistApplication(NSObject):
         self.editors = {}
         self.model_inventory = []
         self.model_selection = None
-        self.requested_pane = pane
-        self.pane = pane if pane in {item[0] for item in PANES} else "general"
+        self.requested_pane = "welcome" if pane == "welcome" else _canonical_pane(pane)
+        self.pane = self.requested_pane if self.requested_pane not in {None, "welcome"} else "general"
         self.last_external_app = ""
         self.app_names = {}
-        self.stat_period, self.stat_group = "week", "day"
+        self.app_icons = {}
+        self.stat_period, self.stat_group, self.stat_metric = "week", "day", "completions"
         self.selected_rule = ""
+        self.rule_query = ""
+        self.history_counts = None
         self.last_status = None
         self.last_stats_refresh = 0.0
+        self.last_setup_refresh = 0.0
         self.stopping = False
+        self._wake_lock = threading.Lock()
+        self._wake_pending = False
         self.window = None
         self.timer = None
         self.status_item = None
@@ -310,6 +550,7 @@ class BroTypistApplication(NSObject):
         self.menu_shortcuts_were_enabled = False
         self.resume_menu_shortcuts = False
         self.overlay = None
+        self.docs_help_hint = None
         self.last_error = ""
         self.welcome = None
         self.status_images = {}
@@ -322,7 +563,9 @@ class BroTypistApplication(NSObject):
         app.setApplicationIconImage_(A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("app.icns"))))
         self._build_main_menu()
         self._build_status_menu()
-        self.overlay = CaretOverlay(self.controller.invoke, self._accessory_menu, self.controller.config.show_accessory)
+        self.overlay = CaretOverlay(self.controller.invoke, self._accessory_menu,
+                                    self.controller.config.show_accessory,
+                                    on_present=self.controller.presentation_result)
         if not self.no_tray:
             try:
                 self.status_item = A.NSStatusBar.systemStatusBar().statusItemWithLength_(A.NSSquareStatusItemLength)
@@ -345,13 +588,38 @@ class BroTypistApplication(NSObject):
         NSRunLoop.mainRunLoop().addTimer_forMode_(self.timer, NSRunLoopCommonModes)
         self.controller.set_wake_callback(self._wake_controller)
         self._refresh_status()
-        missing_model = self.controller.config.backend == "gguf" and not (self.controller.config.model_path and Path(self.controller.config.model_path).is_file())
-        if self.requested_pane == "welcome" or (not self.requested_pane and (not self.controller.config.setup_completed or missing_model)):
+        if self.requested_pane == "welcome" or (not self.requested_pane and (not self.controller.config.setup_completed or not self._model_ready())):
             self.show_welcome()
         elif self.requested_pane or self.no_tray or self.status_item is None:
             self.show_settings(self.pane)
         if self.last_error and (self.window or self.welcome):
             self._error(self.last_error)
+
+    @objc.typedSelector(b"v@:@@")
+    def application_openURLs_(self, application, urls):
+        for url in urls or []:
+            target = _url_target(str(url.absoluteString() or ""))
+            if target is None:
+                continue
+            if self.overlay is None:
+                # Launched by the URL: applicationDidFinishLaunching opens it.
+                self.requested_pane = target
+                if target != "welcome":
+                    self.pane = target
+            elif target == "welcome":
+                self.show_welcome()
+            else:
+                self.show_settings(target)
+
+    @objc.typedSelector(b"Z@:@Z")
+    def applicationShouldHandleReopen_hasVisibleWindows_(self, application, visible):
+        # Reopening the app (Finder, Spotlight, Dock) always recovers a window.
+        if not visible and not self.stopping:
+            if not self.controller.config.setup_completed:
+                self.show_welcome()
+            else:
+                self.show_settings(self.pane)
+        return True
 
     @objc.python_method
     def _bind(self, control, callback):
@@ -374,10 +642,24 @@ class BroTypistApplication(NSObject):
                 self._error(str(exc))
 
     @objc.python_method
+    def _defer(self, callback):
+        """Run after the current AppKit event, for actions that rebuild their own view."""
+        def run(sender):
+            try:
+                callback()
+            except Exception as exc:
+                self._error(str(exc))
+        self.pending_menu_actions.append((run, None))
+
+    @objc.python_method
     def _button(self, title, identifier, callback):
         button = A.NSButton.buttonWithTitle_target_action_(title, None, None)
         _identify(button, identifier, title)
         return self._bind(button, lambda sender: callback())
+
+    @objc.python_method
+    def _open_url(self, url):
+        A.NSWorkspace.sharedWorkspace().openURL_(NSURL.URLWithString_(url))
 
     @objc.python_method
     def _menu_item(self, menu, title, identifier, callback=None, key=""):
@@ -407,7 +689,7 @@ class BroTypistApplication(NSObject):
         destinations = A.NSMenu.alloc().initWithTitle_("View")
         for index, (pane, title, symbol) in enumerate(PANES, 1):
             self._menu_item(destinations, title, f"inklow.navigation.{pane}",
-                            lambda p=pane: self.show_settings(p), str(index))
+                            lambda p=pane: self.show_settings(p), str(index) if index <= 9 else "")
         navigation.setSubmenu_(destinations)
         close = A.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Close Window", "performClose:", "w")
         application.addItem_(close)
@@ -444,19 +726,23 @@ class BroTypistApplication(NSObject):
         self.menu.addItem_(header)
         self.status_line = self._menu_item(self.menu, APP_NAME, "inklow.menu.status")
         self.status_line.setEnabled_(False)
+        self.secure_item = self._menu_item(self.menu, "Secure Input is on — shortcuts can’t be detected", "inklow.menu.secureInput", lambda: self.show_settings("shortcuts"))
+        self.secure_item.setToolTip_("Another app turned on macOS Secure Input (usually a password or terminal field). macOS hides typing from BroTypist until it ends.")
+        self.download_item = self._menu_item(self.menu, "Downloading model…", "inklow.menu.download", lambda: self.show_settings("general"))
+        self.attention_item = self._menu_item(self.menu, "Open Setup", "inklow.menu.attention", lambda: self.show_settings("setup"))
         self.pause_item = self._menu_item(self.menu, "Predictions", "inklow.menu.toggle", self.controller.toggle_enabled)
         self.resume_item = self._menu_item(self.menu, "Resume now", "inklow.menu.resume", self.controller.toggle_enabled)
-        self.attention_item = self._menu_item(self.menu, "Open Settings", "inklow.menu.attention", lambda: self.show_settings("privacy" if self.last_status and self.last_status.get("state") == "permission" else "models"))
         self.hour_item = self._menu_item(self.menu, "Pause for 1 hour", "inklow.menu.pause.60", lambda: self.controller.pause(60))
         self.tomorrow_item = self._menu_item(self.menu, "Pause until tomorrow", "inklow.menu.pause.tomorrow", self._pause_until_tomorrow)
+        self.menu.addItem_(A.NSMenuItem.separatorItem())
         self.current_item = self._menu_item(self.menu, "Turn off in Current App", "inklow.menu.currentApp", self.controller.toggle_current_app)
+        self.record_item = self._menu_item(self.menu, "Record Writing in Current App", "inklow.menu.record", lambda: self._toggle_scope_from_status("record_history"))
+        self.tab_item = self._menu_item(self.menu, "Accept with Tab in Current App", "inklow.menu.tab", lambda: self._toggle_scope_from_status("tab_enabled"))
         self._menu_item(self.menu, "Suggest Now", "inklow.menu.force", self.controller.force)
         self.menu.addItem_(A.NSMenuItem.separatorItem())
-        self.stats_line = self._menu_item(self.menu, "Today", "inklow.menu.stats", lambda: self.show_settings("general"))
-        self._menu_item(self.menu, "AI Models…", "inklow.menu.models", lambda: self.show_settings("models"))
-        self.menu.addItem_(A.NSMenuItem.separatorItem())
+        self.stats_line = self._menu_item(self.menu, "Today", "inklow.menu.stats", lambda: self.show_settings("statistics"))
         self._menu_item(self.menu, "Settings…", "inklow.menu.settings", lambda: self.show_settings("general"), ",")
-        self._menu_item(self.menu, "Quit BroTypist", "inklow.menu.quit", lambda: A.NSApplication.sharedApplication().terminate_(None), "q")
+        self._menu_item(self.menu, f"Quit {APP_NAME}", "inklow.menu.quit", lambda: A.NSApplication.sharedApplication().terminate_(None), "q")
         self._build_field_menu()
         self.menu_binding_limit = self.next_tag
 
@@ -469,6 +755,8 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _build_field_menu(self):
+        # Compact: only the current app's controls and Settings. Option-click on
+        # the accessory sends a plain Tab (owned by the overlay, not this menu).
         self.field_menu = A.NSMenu.alloc().initWithTitle_("")
         self.field_menu.setAutoenablesItems_(False)
         self.field_menu.setDelegate_(self)
@@ -476,11 +764,75 @@ class BroTypistApplication(NSObject):
         # Opening a field menu only replaces their captured context, not tags.
         self.field_app_item = self._menu_item(
             self.field_menu, "", "inklow.field.currentApp", self.controller.toggle_current_app)
-        self.field_pause_item = self._menu_item(
-            self.field_menu, "", "inklow.field.pause", lambda: self.controller.pause(60))
+        self.field_record_item = self._menu_item(
+            self.field_menu, "", "inklow.field.record", lambda: self._toggle_scope_from_status("record_history"))
+        self.field_tab_item = self._menu_item(
+            self.field_menu, "", "inklow.field.tab", lambda: self._toggle_scope_from_status("tab_enabled"))
+        self.field_docs_item = self._menu_item(
+            self.field_menu, "Google Docs accessibility setup…", "inklow.field.docsAccessibility",
+            lambda: self._enable_docs_accessibility(None))
+        self.field_docs_item.setHidden_(True)
         self.field_menu.addItem_(A.NSMenuItem.separatorItem())
         self._menu_item(self.field_menu, "Settings…", "inklow.field.settings",
                         lambda: self.show_settings("general"))
+
+    @objc.python_method
+    def _scope_key(self, app, domain):
+        """The rule a current-app control edits: the website when known, else the app."""
+        if domain:
+            from .config import normalize_domain
+            try:
+                return "domain:" + normalize_domain(domain)
+            except ValueError:
+                return ""
+        return f"app:{app}" if app else ""
+
+    @objc.python_method
+    def _scope_name(self, app, domain, limit=30):
+        name = domain or self._app_name(app) or "Current App"
+        return name[:limit - 1] + "…" if len(name) > limit else name
+
+    @objc.python_method
+    def _refresh_scope_items(self, record_item, tab_item, status):
+        app = str(status.get("current_app") or "")
+        domain = str(status.get("current_domain") or "")
+        scope = self._scope_key(app, domain) if app else ""
+        name = self._scope_name(app, domain)
+        recording = bool(status.get("current_recording"))
+        tab = bool(status.get("current_tab_enabled", True))
+        record_item.setTitle_(f"Record Writing in {name}")
+        record_item.setState_(A.NSControlStateValueOn if recording and scope else A.NSControlStateValueOff)
+        record_item.setEnabled_(bool(scope))
+        record_item.setToolTip_("Saved in App Settings. Turning recording on asks for confirmation first.")
+        self.bindings[int(record_item.tag())] = (
+            lambda sender: self._set_scope_rule(scope, "record_history", not recording))
+        tab_item.setTitle_(f"Accept with Tab in {name}")
+        tab_item.setState_(A.NSControlStateValueOn if tab and scope else A.NSControlStateValueOff)
+        tab_item.setEnabled_(bool(scope))
+        tab_item.setToolTip_("Saved in App Settings. Other acceptance shortcuts keep working.")
+        self.bindings[int(tab_item.tag())] = (
+            lambda sender: self._set_scope_rule(scope, "tab_enabled", not tab))
+
+    @objc.python_method
+    def _toggle_scope_from_status(self, field):
+        status = self.controller.status()
+        app = str(status.get("current_app") or "")
+        scope = self._scope_key(app, str(status.get("current_domain") or "")) if app else ""
+        current = bool(status.get("current_recording")) if field == "record_history" else bool(status.get("current_tab_enabled", True))
+        self._set_scope_rule(scope, field, not current)
+
+    @objc.python_method
+    def _set_scope_rule(self, scope, field, value):
+        if not scope:
+            raise ValueError("Switch to an app or website first.")
+        if field == "record_history" and value and not self._confirm_recording():
+            return False
+        rules = deepcopy(self.controller.config.app_rules)
+        rules.setdefault(scope, {})[field] = bool(value)
+        self._change(app_rules=rules)
+        if self.window and self.window.isVisible() and self.pane == "appSettings":
+            self._show_pane("appSettings")
+        return True
 
     @objc.python_method
     def _refresh_field_menu(self):
@@ -488,23 +840,48 @@ class BroTypistApplication(NSObject):
         app = str(status.get("current_app") or "")
         domain = str(status.get("current_domain") or "")
         allowed = bool(status.get("current_app_enabled", self.controller.config.enabled))
-        name = self._app_name(app) or "Current App"
-        name = name[:29] + "…" if len(name) > 30 else name
-        self.field_app_item.setTitle_(f"Predictions in {name}: {'Enabled' if allowed else 'Disabled'}")
+        name = self._scope_name(app, "")
+        remaining = status.get("temporary_remaining")
+        suffix = f" ({max(1, math.ceil(float(remaining) / 60))} min left)" if remaining and status.get("temporary_scope") else ""
+        self.field_app_item.setTitle_(f"Completions in {name}{suffix}")
         self.field_app_item.setState_(A.NSControlStateValueOn if allowed and app else A.NSControlStateValueOff)
         self.field_app_item.setEnabled_(bool(app))
-        self.field_app_item.setToolTip_("Changes predictions for this app for the current session only.")
+        self.field_app_item.setToolTip_("Turns completions off or on here for a few minutes. Saved rules are in App Settings.")
         self.bindings[int(self.field_app_item.tag())] = (
             lambda sender: self.controller.toggle_current_app(app=app, domain=domain))
-        paused = float(status.get("paused_until", 0)) > time.monotonic()
-        self.field_pause_item.setTitle_("Resume predictions" if paused else "Pause for 1 hour")
-        self.field_pause_item.setEnabled_(paused or self.controller.config.global_enabled)
-        self.bindings[int(self.field_pause_item.tag())] = (
-            lambda sender: self.controller.pause(0 if paused else 60))
+        self._refresh_scope_items(self.field_record_item, self.field_tab_item, status)
+        hint = getattr(self, "docs_help_hint", None)
+        self.field_docs_item.setHidden_(hint is None)
+        self.field_docs_item.setEnabled_(hint is not None)
+        token = hint["token"] if hint else None
+        self.bindings[int(self.field_docs_item.tag())] = (
+            lambda sender: self._enable_docs_accessibility(token))
+
+    @objc.python_method
+    def _enable_docs_accessibility(self, token):
+        result = self.controller.enable_docs_accessibility(token)
+        status = result.get("status", "unknown")
+        alert = A.NSAlert.alloc().init()
+        if status in {"enabled", "already_enabled"}:
+            alert.setMessageText_("Google Docs accessibility is enabled")
+            alert.setInformativeText_(
+                "Google Docs reported its accessibility setting as enabled. "
+                "BroTypist still needs a readable field and verified inline caret before suggesting; "
+                "this is not confirmation that completion works in this document.")
+        else:
+            alert.setMessageText_("Google Docs accessibility could not be confirmed")
+            alert.setInformativeText_(
+                "Automatic setup is unavailable or the document/focus changed. "
+                "In Google Docs, open Tools → Accessibility, enable both screen reader "
+                "support and braille support, then click OK. "
+                "BroTypist has not confirmed completion support in this document.")
+        alert.addButtonWithTitle_("OK")
+        alert.runModal()
 
     @objc.python_method
     def _accessory_menu(self):
-        self._refresh_field_menu()
+        if self.field_menu not in self.tracking_menus:
+            self._refresh_field_menu()
         return self.field_menu
 
     def menuWillOpen_(self, menu):
@@ -528,9 +905,24 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _wake_controller(self):
-        if not self.stopping:
+        with self._wake_lock:
+            if self.stopping or self._wake_pending:
+                return
+            self._wake_pending = True
+        try:
             with objc.autorelease_pool():
-                self.performSelectorOnMainThread_withObject_waitUntilDone_("tick:", None, False)
+                self.performSelectorOnMainThread_withObject_waitUntilDone_("wakeTick:", None, False)
+        except Exception:
+            with self._wake_lock:
+                self._wake_pending = False
+            raise
+
+    def wakeTick_(self, sender):
+        # Only the queued wake acknowledges this flag. Timer ticks must not
+        # reopen the queue while an earlier selector is still waiting.
+        with self._wake_lock:
+            self._wake_pending = False
+        self.tick_(None)
 
     def tick_(self, timer):
         if self.stopping or self.tracking_menus:
@@ -551,22 +943,20 @@ class BroTypistApplication(NSObject):
                     self.overlay.present(event)
                 elif kind == "caret":
                     self.overlay.caret(event.get("rect"), event.get("field_rect"))
+                elif kind == "docs_help":
+                    self.docs_help_hint = event.get("hint")
+                    self.overlay.docs_help(self.docs_help_hint)
                 elif kind == "clear":
-                    self.overlay.clear(hide_accessory=bool(event.get("hide_accessory")))
+                    self.overlay.clear(hide_accessory=bool(event.get("hide_accessory")), panel=event.get("panel"))
                 elif kind == "settings":
                     self.show_settings(event.get("pane", "general"))
             now = time.monotonic()
             if now - getattr(self, "_last_status_refresh", 0) >= 0.1:
                 self._last_status_refresh = now
                 self._refresh_status()
-                if self.window and self.window.isVisible() and self.pane == "privacy":
-                    label = getattr(self, "context_status_label", None)
-                    if label is not None:
-                        status = self.controller.status()
-                        label.setStringValue_("Context: " + str(status.get("context_message") or "Not requested"))
             if self.welcome:
                 self.welcome.tick()
-            if self.window and self.window.isVisible() and self.pane == "general" and time.monotonic() - self.last_stats_refresh > 5:
+            if self.window and self.window.isVisible() and self.pane == "statistics" and time.monotonic() - self.last_stats_refresh > 5:
                 self._refresh_statistics()
         except Exception as exc:
             message = str(exc)
@@ -582,6 +972,11 @@ class BroTypistApplication(NSObject):
         self.stats_line.setTitle_(f"Today: {int(today.get('completions', 0))} completions · {int(today.get('words', 0))} words")
 
     @objc.python_method
+    def _model_ready(self):
+        config = self.controller.config
+        return config.backend != "gguf" or bool(config.model_path and Path(config.model_path).is_file())
+
+    @objc.python_method
     def _refresh_status(self):
         status = self.controller.status()
         enabled = bool(status.get("enabled"))
@@ -592,11 +987,11 @@ class BroTypistApplication(NSObject):
         if enabled:
             permissions = self._permission_state()
             if not permissions["accessibility"]:
-                state, message = "permission", "Accessibility permission required — open Privacy"
+                state, message = "permission", "Accessibility permission required — open Setup"
             elif not permissions["input_monitoring"]:
-                state, message = "permission", "Input Monitoring required for acceptance shortcuts — open Privacy"
-            if state != "permission" and self.controller.config.backend == "gguf" and not (self.controller.config.model_path and Path(self.controller.config.model_path).is_file()):
-                state, message = "empty", "No model installed — choose a local model in AI Models"
+                state, message = "permission", "Input Monitoring required for acceptance shortcuts — open Setup"
+            if state != "permission" and not self._model_ready():
+                state, message = "empty", "No model installed — choose a model in General"
         status = {**status, "state": state, "message": message}
         self.status_line.setTitle_((message[:41] + "…") if len(message) > 42 else message)
         self.status_line.setToolTip_(message)
@@ -613,6 +1008,14 @@ class BroTypistApplication(NSObject):
         self.hour_item.setHidden_(paused or not enabled)
         self.tomorrow_item.setHidden_(paused or not enabled)
         self.attention_item.setHidden_(not needs_attention)
+        self.secure_item.setHidden_(not status.get("secure_input"))
+        download = status.get("download") or {}
+        downloading = download.get("state") == "downloading"
+        self.download_item.setHidden_(not downloading)
+        if downloading:
+            done = float(download.get("received", 0) or 0)
+            total = float(download.get("total", 0) or 0)
+            self.download_item.setTitle_(f"Downloading model… {int(done * 100 / total)}%" if total else "Downloading model…")
         self.menu_badge.setStringValue_(badge)
         color = A.NSColor.labelColor()
         if needs_attention:
@@ -637,21 +1040,15 @@ class BroTypistApplication(NSObject):
             subtitle = f"Predicting in {self._app_name(str(status.get('current_app') or '')) or 'eligible text fields'}"
         self.menu_subtitle.setStringValue_(subtitle)
         app = str(status.get("current_app", ""))
-        domain = str(status.get("current_domain", ""))
         if app:
             self.last_external_app = app
-        rules = self.controller.config.app_rules
-        rule = rules.get(f"app:{app}", {})
-        active = rule.get("enabled", self.controller.config.enabled)
-        if domain:
-            active = rules.get(f"domain:{domain}", {}).get("enabled", active)
-        active = bool(status.get("current_app_enabled", active))
-        app_name = self._app_name(app) or "Current App"
-        display_name = app_name[:23] + "…" if len(app_name) > 24 else app_name
+        active = bool(status.get("current_app_enabled", self.controller.config.enabled))
+        display_name = self._scope_name(app, "", 24)
         self.current_item.setTitle_(("Pause" if active else "Resume") + f" in {display_name}")
-        self.current_item.setToolTip_("Temporarily toggles predictions for this app. Saved exclusions are managed in Privacy.")
+        self.current_item.setToolTip_("Temporarily toggles completions here for a few minutes. Saved rules are in App Settings.")
         self.current_item.setEnabled_(bool(app))
         self.current_item.setState_(A.NSControlStateValueOn if active and app else A.NSControlStateValueOff)
+        self._refresh_scope_items(self.record_item, self.tab_item, status)
         if self.status_item and not self.status_item.isVisible():
             self.status_item.setVisible_(True)
         frame = int(time.monotonic() / 0.6) % 3 if icon_state == "loading" and not A.NSWorkspace.sharedWorkspace().accessibilityDisplayShouldReduceMotion() else -1
@@ -670,12 +1067,21 @@ class BroTypistApplication(NSObject):
             control = self.controls.get(field)
             if control:
                 control.setState_(A.NSControlStateValueOn if getattr(self.controller.config, field) else A.NSControlStateValueOff)
-        if self.window and self.window.isVisible():
-            if self.pane == "privacy":
-                self._refresh_setup()
-            if self.pane == "models":
-                self._refresh_download(status)
         self.last_status = status
+        if self.window and self.window.isVisible():
+            self._refresh_live_pane(status)
+
+    @objc.python_method
+    def _refresh_live_pane(self, status):
+        self._refresh_setup()
+        if self.pane == "general":
+            self._refresh_download(status)
+        elif self.pane == "context":
+            self._refresh_context(status)
+        elif self.pane == "shortcuts":
+            self._refresh_secure_input(status)
+        elif self.pane == "battery":
+            self._refresh_power(status)
 
     @objc.python_method
     def _model_name(self):
@@ -683,13 +1089,36 @@ class BroTypistApplication(NSObject):
         return Path(config.model_path).name if config.backend == "gguf" and config.model_path else (config.model if config.backend != "gguf" else "No local model selected")
 
     @objc.python_method
+    def _app_location(self, identifier):
+        url = A.NSWorkspace.sharedWorkspace().URLForApplicationWithBundleIdentifier_(identifier) if identifier else None
+        return str(url.path()) if url is not None else ""
+
+    @objc.python_method
     def _app_name(self, identifier):
         if not identifier:
             return ""
         if identifier not in self.app_names:
             applications = A.NSRunningApplication.runningApplicationsWithBundleIdentifier_(identifier)
-            self.app_names[identifier] = str(applications[0].localizedName() or identifier) if applications else identifier
+            name = str(applications[0].localizedName() or "") if applications else ""
+            if not name:
+                location = self._app_location(identifier)
+                name = str(A.NSFileManager.defaultManager().displayNameAtPath_(location) or "") if location else ""
+                name = name[:-4] if name.endswith(".app") else name
+            self.app_names[identifier] = name or identifier
         return self.app_names[identifier]
+
+    @objc.python_method
+    def _rule_icon(self, key):
+        if key not in self.app_icons:
+            location = self._app_location(key[4:]) if key.startswith("app:") else ""
+            if location:
+                image = A.NSWorkspace.sharedWorkspace().iconForFile_(location)
+            else:
+                symbol = "globe" if key.startswith("domain:") else "app.dashed"
+                image = A.NSImage.imageWithSystemSymbolName_accessibilityDescription_(symbol, None)
+            image.setSize_(A.NSMakeSize(30, 30))
+            self.app_icons[key] = image
+        return self.app_icons[key]
 
     @objc.python_method
     def _status_image(self, state, phase):
@@ -735,7 +1164,13 @@ class BroTypistApplication(NSObject):
         alert.setInformativeText_(message)
         alert.addButtonWithTitle_("Continue")
         alert.addButtonWithTitle_("Cancel")
+        A.NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
         return alert.runModal() == A.NSAlertFirstButtonReturn
+
+    @objc.python_method
+    def _confirm_recording(self):
+        """The one consent dialog for every way of turning on writing history."""
+        return self._confirm("Enable encrypted local history?", "Accepted writing will be stored encrypted on this Mac to personalize future suggestions. Your OS secure storage must be available; BroTypist never falls back to plaintext.")
 
     @objc.python_method
     def _change(self, **changes):
@@ -818,8 +1253,7 @@ class BroTypistApplication(NSObject):
             return
         if self.overlay:
             self.overlay.clear(hide_accessory=True)
-        if pane not in [item[0] for item in PANES]:
-            pane = "general"
+        pane = _canonical_pane(pane) or "general"
         if self.window is None:
             self._build_window()
         self._show_pane(pane)
@@ -827,9 +1261,23 @@ class BroTypistApplication(NSObject):
         A.NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
 
     @objc.python_method
+    def _sidebar_rows(self):
+        titles = {key: (title, symbol) for key, title, symbol in PANES}
+        titles["support"] = ("Support", "questionmark.bubble")
+        rows = []
+        for index, group in enumerate(SIDEBAR_GROUPS):
+            if index:
+                rows.append({"id": f"separator{index}", "kind": "separator", "label": "", "symbol": ""})
+            for key in group:
+                title, symbol = titles[key]
+                rows.append({"id": key, "label": title, "symbol": symbol,
+                             "kind": "link" if key == "support" else "pane"})
+        return rows
+
+    @objc.python_method
     def _build_window(self):
         style = A.NSWindowStyleMaskTitled | A.NSWindowStyleMaskClosable | A.NSWindowStyleMaskMiniaturizable | A.NSWindowStyleMaskFullSizeContentView
-        self.window = A.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(A.NSMakeRect(0, 0, 900, 620), style, A.NSBackingStoreBuffered, False)
+        self.window = A.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(A.NSMakeRect(0, 0, 900, 640), style, A.NSBackingStoreBuffered, False)
         self.window.setTitle_(f"{APP_NAME} Settings")
         self.window.setIdentifier_("inklow.settings")
         self.window.setAccessibilityIdentifier_("inklow.settings")
@@ -838,18 +1286,18 @@ class BroTypistApplication(NSObject):
         self.window.setAutorecalculatesKeyViewLoop_(True)
         self.window.setReleasedWhenClosed_(False)
         self.window.setDelegate_(self)
-        self.window.setMinSize_(A.NSMakeSize(900, 620))
+        self.window.setMinSize_(A.NSMakeSize(900, 640))
         self.window.center()
-        root = A.NSView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 900, 620))
+        root = A.NSView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 900, 640))
         self.window.setContentView_(root)
-        sidebar = A.NSVisualEffectView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 210, 620))
+        sidebar = A.NSVisualEffectView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 210, 640))
         sidebar.setMaterial_(A.NSVisualEffectMaterialSidebar)
         sidebar.setBlendingMode_(A.NSVisualEffectBlendingModeBehindWindow)
         root.addSubview_(sidebar)
         source = TableSource.alloc().init().configure(
-            [{"id": key, "label": title, "symbol": symbol} for key, title, symbol in PANES],
-            ["label"], lambda row: self._show_pane(row["id"]), True)
-        table = A.NSTableView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 194, 250))
+            self._sidebar_rows(), ["label"], lambda row: self._show_pane(row["id"]), True,
+            lambda row: self._open_url(SUPPORT_URL))
+        table = A.NSTableView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 194, 440))
         column = A.NSTableColumn.alloc().initWithIdentifier_("label")
         column.setWidth_(194)
         table.addTableColumn_(column)
@@ -862,22 +1310,23 @@ class BroTypistApplication(NSObject):
         table.setDelegate_(source)
         table.setAllowsEmptySelection_(False)
         _identify(table, "inklow.sidebar", "Settings categories")
-        scroll = A.NSScrollView.alloc().initWithFrame_(A.NSMakeRect(8, 330, 194, 242))
+        scroll = A.NSScrollView.alloc().initWithFrame_(A.NSMakeRect(8, 120, 194, 470))
         scroll.setDrawsBackground_(False)
         scroll.setHasVerticalScroller_(False)
         scroll.setDocumentView_(table)
         sidebar.addSubview_(scroll)
         self.sidebar_status = _label("", A.NSMakeRect(20, 18, 174, 48), small=True)
         sidebar.addSubview_(self.sidebar_status)
-        self.pane_title = _label("", A.NSMakeRect(234, 570, 630, 24), bold=True)
+        self.pane_title = _label("", A.NSMakeRect(234, 590, 630, 24), bold=True)
         self.pane_title.setFont_(A.NSFont.systemFontOfSize_weight_(15, A.NSFontWeightSemibold))
         root.addSubview_(self.pane_title)
         self.sidebar_source, self.sidebar_table = source, table
-        self.content_scroll = A.NSScrollView.alloc().initWithFrame_(A.NSMakeRect(210, 0, 690, 568))
+        self.content_scroll = A.NSScrollView.alloc().initWithFrame_(A.NSMakeRect(210, 0, 690, 588))
         self.content_scroll.setHasVerticalScroller_(True)
         self.content_scroll.setAutohidesScrollers_(True)
         self.content_scroll.setDrawsBackground_(False)
         root.addSubview_(self.content_scroll)
+        self.last_setup_refresh = 0.0
 
     @objc.python_method
     def _remember_drafts(self):
@@ -886,8 +1335,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _show_pane(self, pane):
-        if pane not in {item[0] for item in PANES}:
-            pane = "general"
+        pane = _canonical_pane(pane) or "general"
         if self.window is None or not hasattr(self, "content_scroll"):
             return
         if getattr(self, "rendering", False):
@@ -899,12 +1347,15 @@ class BroTypistApplication(NSObject):
             self.editors = {}
             self.controls = {}
             self.instruction_buttons = {}
+            self.setup_rows = {}
+            self.model_description = self.download_progress = self.download_label = None
             # Keep only menu bindings; released pane controls must not retain actions.
             self.bindings = {tag: action for tag, action in self.bindings.items() if tag <= self.menu_binding_limit}
             self.pane = pane
-            self.sidebar_table.selectRowIndexes_byExtendingSelection_(NSIndexSet.indexSetWithIndex_([item[0] for item in PANES].index(pane)), False)
+            index = next(i for i, row in enumerate(self.sidebar_source.rows) if row["id"] == pane)
+            self.sidebar_table.selectRowIndexes_byExtendingSelection_(NSIndexSet.indexSetWithIndex_(index), False)
             self.pane_title.setStringValue_(next(title for key, title, symbol in PANES if key == pane))
-            view = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 690, 568))
+            view = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 690, 588))
             self.content_scroll.setDocumentView_(view)
             self.form = Form(self, view, pane)
             getattr(self, f"_pane_{pane}")()
@@ -912,6 +1363,9 @@ class BroTypistApplication(NSObject):
             view.scrollPoint_(A.NSMakePoint(0, 0))
         finally:
             self.rendering = False
+        self.last_setup_refresh = 0.0
+        if self.last_status is not None:
+            self._refresh_live_pane(self.last_status)
 
     def windowShouldClose_(self, sender):
         self._remember_drafts()
@@ -926,48 +1380,192 @@ class BroTypistApplication(NSObject):
         return {
             "accessibility": bool(AX.AXIsProcessTrusted()),
             "input_monitoring": bool(Quartz.CGPreflightListenEventAccess()),
-            "screen_recording": bool(Quartz.CGPreflightScreenCaptureAccess()),
+            "screen_recording": bool(system.screen_capture_granted()),
         }
+
+    # ----- Setup -------------------------------------------------------------
+
+    @objc.python_method
+    def _terminal_permissions(self):
+        reader = getattr(self.controller.bridge, "terminal_permissions", None)
+        try:
+            permissions = reader() if reader is not None else {}
+        except Exception:
+            permissions = {}
+        result = {}
+        for key, (app_id, _name) in _TERMINAL_HOSTS.items():
+            entry = permissions.get(app_id, {}) if isinstance(permissions, dict) else {}
+            status = entry.get("status") if isinstance(entry, dict) else None
+            result[key] = status if status in _AUTOMATION_LABELS else "unavailable"
+        return result
+
+    @objc.python_method
+    def _setup_state(self):
+        """Live checklist: (importance, done, status text) from OS and loaded state."""
+        permissions = self._permission_state()
+        config = self.controller.config
+        status = self.last_status or {}
+        download = status.get("download") or {}
+        inline = system.macos_inline_prediction_enabled()
+        screenshots = config.screenshot_context or config.screenshot_appearance
+        if self._model_ready():
+            model = "Ready" if config.backend == "gguf" else "Local server"
+        elif download.get("state") == "downloading" and download.get("total"):
+            model = f"Downloading {int(float(download.get('received', 0)) * 100 / float(download['total']))}%"
+        else:
+            model = "Not installed"
+        state = {
+            "accessibility": ("required", permissions["accessibility"], "Granted" if permissions["accessibility"] else "Not granted"),
+            "input_monitoring": ("required", permissions["input_monitoring"], "Granted" if permissions["input_monitoring"] else "Not granted"),
+            "model": ("required", self._model_ready(), model),
+            "inline_prediction": ("recommended", inline is not True,
+                                  "Disabled" if inline is False else ("Enabled" if inline else "Couldn’t be detected")),
+            "screen_context": ("optional", config.screen_context, "On" if config.screen_context else "Off"),
+            "clipboard_context": ("optional", config.clipboard_context, "On" if config.clipboard_context else "Off"),
+            "screen_recording": ("optional", permissions["screen_recording"] or not screenshots,
+                                 "Granted" if permissions["screen_recording"] else ("Not granted" if screenshots else "Not needed")),
+        }
+        state["terminal_completion"] = ("optional", config.terminal_completion,
+                                        "On" if config.terminal_completion else "Off")
+        for key, permission in self._terminal_permissions().items():
+            state[key] = ("optional", not config.terminal_completion or permission == "granted",
+                          _AUTOMATION_LABELS[permission])
+        return state
+
+    @objc.python_method
+    def _setup_summary(self, state):
+        required = sum(1 for importance, done, _text in state.values() if importance == "required" and not done)
+        optional = sum(1 for importance, done, _text in state.values() if importance != "required" and not done)
+        if required:
+            return f"{required} Required Step{'s' if required != 1 else ''} Left", required, optional
+        if optional:
+            return ("One Optional Step Left" if optional == 1 else f"{optional} Optional Steps Left"), required, optional
+        return "You’re All Set", required, optional
+
+    @objc.python_method
+    def _setup_action(self, key):
+        config = self.controller.config
+        state = self._setup_state()
+        if key in {"accessibility", "input_monitoring"}:
+            system.open_permissions(key)
+        elif key == "model":
+            self.show_settings("general")
+            return
+        elif key == "inline_prediction":
+            system.open_permissions("keyboard")
+        elif key in {"screen_context", "clipboard_context"}:
+            if getattr(config, key):
+                self.show_settings("context")
+                return
+            self._context_consent(key, True)
+        elif key == "screen_recording":
+            if not state[key][1]:
+                self._request_screen_recording()
+            else:
+                self.show_settings("context")
+                return
+        elif key == "terminal_completion":
+            self._change(terminal_completion=not config.terminal_completion)
+        elif key in _TERMINAL_HOSTS:
+            if not config.terminal_completion:
+                return
+            if state[key][2] in {"Granted", "Denied"}:
+                self._open_url("x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")
+            else:
+                request = getattr(self.controller.bridge, "request_terminal_access", None)
+                if request is not None:
+                    request(_TERMINAL_HOSTS[key][0])
+        self.last_setup_refresh = 0.0
+        self._refresh_setup()
+
+    @objc.python_method
+    def _setup_row(self, key, title, detail, height=None):
+        container = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 330, 27))
+        status = _label("", A.NSMakeRect(0, 5, 150, 18), small=True)
+        status.setAlignment_(A.NSTextAlignmentRight)
+        _identify(status, f"inklow.setup.{key}.status")
+        button = self._button("", f"inklow.setup.{key}", lambda k=key: self._setup_action(k))
+        button.setFrame_(A.NSMakeRect(158, 0, 172, 27))
+        container.addSubview_(status)
+        container.addSubview_(button)
+        self.form.row(title, detail, container, control_width=330, height=height)
+        self.setup_rows[key] = (status, button)
+
+    @objc.python_method
+    def _pane_setup(self):
+        f = self.form
+        self.setup_header = _label("", A.NSMakeRect(0, 0, 552, 30), bold=True)
+        self.setup_header.setFont_(A.NSFont.systemFontOfSize_weight_(20, A.NSFontWeightSemibold))
+        _identify(self.setup_header, "inklow.setup.summary")
+        f.custom(self.setup_header, 30)
+        f.note("This checklist reads the actual macOS permission, model and preference state every second. Nothing here changes until you press a button.")
+        f.section("Required")
+        self._setup_row("accessibility", "Accessibility", "Reads the focused text field and inserts accepted text at its caret. System Settings → Privacy & Security → Accessibility.")
+        self._setup_row("input_monitoring", "Input Monitoring", "Detects typing and your acceptance shortcuts. System Settings → Privacy & Security → Input Monitoring.")
+        self._setup_row("model", "AI model", "A local model on this Mac (or a configured loopback server). Downloads start only when you ask.")
+        f.section("Recommended")
+        self._setup_row("inline_prediction", "macOS inline predictive text", "Detected from your Mac’s keyboard preference. Its grey text competes with BroTypist; turn off Keyboard → Text Input → Edit… → Show inline predictive text. BroTypist never changes it for you.", height=84)
+        f.section("Optional")
+        self._setup_row("screen_context", "Focused-window context", "Use readable Accessibility text from the focused window to improve suggestions. Asks for confirmation.")
+        self._setup_row("clipboard_context", "Clipboard context", "Use clipboard text for eligible requests. Asks for confirmation.")
+        self._setup_row("screen_recording", "Screen & System Audio Recording", "Needed only for the opt-in screenshot features in Context. Images stay in memory on this Mac and are discarded immediately.", height=78)
+        self._setup_row("terminal_completion", "Terminal AI-prompt support (opt-in)",
+                        "Allow supported AI-prompt fields in Terminal and iTerm2. Shell prompts stay excluded; custom app exclusions remain hard blocks.", height=78)
+        for key, (_app_id, name) in _TERMINAL_HOSTS.items():
+            self._setup_row(key, f"{name} Automation",
+                            f"Live permission to read {name} through Apple Events. Open the host first; only Request Access asks macOS for permission.", height=78)
+        f.note("Automation permission does not prove terminal input is supported. Suggestions stay silent unless a safe AI-prompt field and verified same-line caret are available. Google Docs accessibility is enabled separately from its document accessory menu; it is not a completion-support guarantee.")
+        f.note("When launching from source, macOS may list your terminal or Python host instead of BroTypist. Permission changes can require restarting BroTypist.")
+        self.setup_native = _label("", A.NSMakeRect(0, 0, 552, 54), small=True)
+        _identify(self.setup_native, "inklow.setup.nativeStatus")
+        f.custom(self.setup_native, 54)
+        f.section()
+        f.row("Welcome & tour", "Review the setup steps and try a real local suggestion.", self._button("Show Welcome…", "inklow.setup.welcome", self.show_welcome), control_width=150)
 
     @objc.python_method
     def _refresh_setup(self):
-        values = self._permission_state()
-        for key, control in getattr(self, "permission_labels", {}).items():
-            control.setStringValue_("Granted" if values[key] else "Not granted")
-        if hasattr(self, "setup_status"):
-            status = self.controller.status()
-            self.setup_status.setStringValue_(str(status.get("native_status", "")))
-        if hasattr(self, "setup_model"):
-            config = self.controller.config
-            installed = bool(config.model_path and Path(config.model_path).is_file()) if config.backend == "gguf" else False
-            self.setup_model.setStringValue_("Local model selected" if installed else ("Local server selected" if config.backend != "gguf" else "Choose or download a model"))
+        now = time.monotonic()
+        if now - self.last_setup_refresh < 1 or not hasattr(self, "sidebar_source"):
+            return
+        self.last_setup_refresh = now
+        state = self._setup_state()
+        summary, required, optional = self._setup_summary(state)
+        pending = bool(required or optional)
+        if bool(self.sidebar_source.badges.get("setup")) != pending:
+            self.sidebar_source.badges["setup"] = pending
+            self.sidebar_table.reloadData()
+        if self.pane != "setup" or not getattr(self, "setup_rows", None):
+            return
+        self.setup_header.setStringValue_(summary)
+        config = self.controller.config
+        for key, (label, button) in self.setup_rows.items():
+            importance, done, text = state[key]
+            label.setStringValue_(text)
+            permission_key = key == "screen_recording" or key in _TERMINAL_HOSTS
+            label.setTextColor_(A.NSColor.systemGreenColor() if done and (not permission_key or text == "Granted")
+                                else (A.NSColor.systemRedColor() if importance == "required" else A.NSColor.secondaryLabelColor()))
+            if key in {"accessibility", "input_monitoring"}:
+                title = "Open Settings…"
+                button.setHidden_(done)
+            elif key == "model":
+                title = "Change…" if done else "Choose Model…"
+            elif key == "inline_prediction":
+                title = "Keyboard Settings…"
+            elif key in {"screen_context", "clipboard_context"}:
+                title = "Context…" if getattr(config, key) else "Enable…"
+            elif key == "terminal_completion":
+                title = "Turn Off" if config.terminal_completion else "Enable…"
+            elif key in _TERMINAL_HOSTS:
+                title = "Automation Settings…" if text in {"Granted", "Denied"} else "Request Access…"
+                button.setEnabled_(config.terminal_completion and text not in {"Not running", "Unavailable"})
+            else:
+                title = "Request Access…" if not done else "Context…"
+            button.setTitle_(title)
+            button.setAccessibilityLabel_(f"{title} {key.replace('_', ' ')}")
+        status = self.last_status or {}
+        self.setup_native.setStringValue_(str(status.get("native_status", "")))
 
-    @objc.python_method
-    def _privacy_permissions(self):
-        f = self.form
-        f.note("All inference runs on this Mac or a configured loopback server. Optional encrypted history stores writing locally only when enabled. Model downloads use the network; predictions do not use a remote inference service.")
-        f.note("When launching from source, macOS may list your terminal or Python host instead of BroTypist. Permission changes can require restarting BroTypist.")
-        f.section("macOS Permissions")
-        self.permission_labels = {}
-        for key, title, detail in (
-            ("accessibility", "Accessibility", "Required to read a supported text field and insert at its caret. System Settings → Privacy & Security → Accessibility."),
-            ("input_monitoring", "Input Monitoring", "Required for global acceptance shortcuts. System Settings → Privacy & Security → Input Monitoring."),
-            ("screen_recording", "Screen & System Audio Recording", "Not required. Focused-window context uses Accessibility text and does not capture screenshots. Any existing grant is shown for transparency."),
-        ):
-            button = self._button("Open Settings…", f"inklow.setup.{key}", lambda k=key: system.open_permissions(k))
-            f.row(title, detail, button, height=92, control_width=140)
-            label = _label("", A.NSMakeRect(14, f.row_y - 29, 200, 18), small=True)
-            _identify(label, f"inklow.setup.{key}.status")
-            f.group_view.addSubview_(label)
-            self.permission_labels[key] = label
-        f.section("Completion model")
-        self.setup_model = _label("", A.NSMakeRect(0, 0, 220, 22), small=True)
-        f.row("Local inference", "Download a verified model, choose an existing GGUF file, or configure an already-running local server in AI Models.", self._button("Choose Model…", "inklow.setup.model", lambda: self.show_settings("models")), control_width=140, height=80)
-        f.row("Model status", control=self.setup_model)
-        f.section("Keyboard")
-        f.row("macOS inline predictive text", "If macOS predictions conflict, turn off Show inline predictive text in Keyboard → Text Input → Edit. BroTypist does not silently change this setting.", self._button("Open Keyboard…", "inklow.setup.keyboard", lambda: system.open_permissions("keyboard")), control_width=145, height=96)
-        self.setup_status = _label("", A.NSMakeRect(0, 0, 552, 54), small=True)
-        f.custom(self.setup_status, 54)
+    # ----- General -----------------------------------------------------------
 
     @objc.python_method
     def _autostart(self, value):
@@ -984,40 +1582,53 @@ class BroTypistApplication(NSObject):
     @objc.python_method
     def _pane_general(self):
         f = self.form
-        f.section("Startup & predictions")
-        login = self._switch("launch_at_login", "Launch BroTypist at login", callback=self._autostart)
-        login.setState_(A.NSControlStateValueOn if system.launch_at_login_state() else A.NSControlStateValueOff)
-        self._switch("global_enabled", "Enable predictions", "Turn off to keep BroTypist running without suggesting anything.")
-        self._switch("enabled", "Enable in eligible apps by default", "App and website rules in Privacy can override this default.")
-        self._switch("show_accessory", "Show accessory beside the text field", "Current-app predictions, temporary pause and Settings without leaving your text field.")
-        self._record("toggle", "Toggle predictions shortcut", "Optional. Pause or resume globally without changing app-specific rules.")
-        self._general_activity()
-
-    @objc.python_method
-    def _pane_models(self):
-        f = self.form
-        self.model_description = self.download_progress = self.download_label = None
         if self.welcome and self.welcome.window.isVisible() and self.welcome.step == 3:
             f.section("Welcome")
-            f.row("Model setup", "Return to the welcome window when your model is selected.", self._button("Return to Welcome", "inklow.models.returnToWelcome", self._return_to_welcome), control_width=166)
-        f.section("Local inference")
-        f.row(self._model_name(), str(self.controller.status().get("message") or "Model starts when an eligible request needs inference."), height=80)
+            f.row("Model setup", "Return to the welcome window when your model is selected.", self._button("Return to Welcome", "inklow.general.returnToWelcome", self._return_to_welcome), control_width=166)
+        f.section("Startup")
+        login = self._switch("launch_at_login", "Launch BroTypist at login", callback=self._autostart)
+        login.setState_(A.NSControlStateValueOn if system.launch_at_login_state() else A.NSControlStateValueOff)
+        self._switch("show_accessory", "Show accessory button", "A small Ghost Caret beside the text field with this app’s completion, recording and Tab controls. Option-click it to type a normal Tab.")
+        f.row("Menu bar icon", "Always shown, so BroTypist can always be paused, reopened or quit.")
+        f.section("Completions")
+        self._switch("global_enabled", "Enable predictions", "Turn off to keep BroTypist running without suggesting anything.")
+        self._switch("enabled", "Enable completions by default", "When off, only apps and websites enabled in App Settings get completions.")
+        self._switch("complete_inside_text", "Complete inside existing text", "Also suggest when there is text after the caret.")
+        self._popup("completion_length", "Maximum completion length",
+                    [("Current word only", "word"), ("Short (~1–2 words)", "short"), ("Medium (~2–4 words)", "medium"), ("Long (~5–8 words)", "long")],
+                    "Medium is recommended; longer completions are right less often. Current word only finishes the word you are typing and never suggests the next one.")
+        f.section("Autocorrect")
+        self._switch("typo_suppression", "Don’t show completions when a typo is suspected", "Checks only the word you are typing, on this Mac, with the macOS spelling checker for the detected language.")
+        accept = self.controller.config.shortcuts.get("word") or "Tab"
+        self._switch("typo_fixes", "Show suggested fixes", f"Strikes through a likely typo and shows the fix on the same line. Press {accept} to replace the word.")
+        self._general_model()
+
+    @objc.python_method
+    def _general_model(self):
+        f = self.form
+        f.section("AI Model")
         selected = ""
         if self.controller.config.backend == "gguf":
+            from .models import recommended_preset
             self.model_inventory = self.controller.models()
-            options = [("Custom model", "")]
+            recommended = recommended_preset()
+            installed = next((m for m in self.model_inventory if str(m["id"]) == recommended.id and m.get("installed")), None)
+            f.row(f"Recommended for this Mac: {recommended.label.split(' — ', 1)[-1]} ({_gb(recommended.size_bytes)})",
+                  "Recommended default based on this Mac’s memory." + (" Installed." if installed else ""), height=70)
+            options = [("Custom GGUF file", "")]
             for model in self.model_inventory:
-                label = str(model["label"]).split(" — ", 1)[-1]
+                label = f"{str(model['label']).split(' — ', 1)[-1]} ({_gb(model.get('size_bytes'))})"
                 options.append((("✓ " if model.get("installed") else "↓ ") + label, str(model["id"])))
-            fallback = str(self.model_inventory[0]["id"]) if self.model_inventory and not self.controller.config.model_path else ""
+            config = self.controller.config
             selected = self.model_selection if self.model_selection is not None else next(
-                (str(m["id"]) for m in self.model_inventory if str(m.get("path", "")) == self.controller.config.model_path), fallback)
-            self._popup("model_preset", "AI model", options, value=selected, callback=self._select_model)
+                (str(m["id"]) for m in self.model_inventory if config.model_path and str(m.get("path", "")) == config.model_path),
+                "" if config.model_path else config.model_id)
+            self._popup("model_preset", "AI model", options, "✓ installed · ↓ needs download. Selecting a downloaded model uses it immediately.", value=selected, callback=self._select_model)
         else:
             f.row("AI model", str(self.controller.config.model))
-        f.row("Model files", control=self._button("Reveal in Finder", "inklow.models.revealModels", system.reveal_models), control_width=146)
+        f.row(self._model_name(), str(self.controller.status().get("message") or "Model starts when an eligible request needs inference."), height=80)
+        f.row("Model files", control=self._button("Reveal in Finder", "inklow.general.revealModels", system.reveal_models), control_width=146)
         self._model_controls(selected)
-        self._model_battery()
 
     @objc.python_method
     def _return_to_welcome(self):
@@ -1071,13 +1682,18 @@ class BroTypistApplication(NSObject):
     @objc.python_method
     def _backend(self, value):
         self._change(backend=value)
-        self._show_pane("models")
+        self._show_pane("general")
 
     @objc.python_method
     def _selected_model(self):
         popup = self.controls.get("model_preset")
         index = int(popup.indexOfSelectedItem()) - 1 if popup else -1
         return self.model_inventory[index] if 0 <= index < len(self.model_inventory) else None
+
+    @objc.python_method
+    def _use_preset(self, model):
+        self.controller.set_model(str(model["path"]), str(model.get("prompt_style", "continuation")), model_id=str(model["id"]))
+        self.model_selection = None
 
     @objc.python_method
     def _select_model(self, preset_id, apply=True):
@@ -1087,10 +1703,9 @@ class BroTypistApplication(NSObject):
         if apply:
             self.model_selection = preset_id
             if model and model.get("installed"):
-                self.controller.set_model(str(model["path"]), str(model.get("prompt_style", "continuation")))
-                self.model_selection = None
-            elif model and self.pane != "models":
-                self.show_settings("models")
+                self._use_preset(model)
+            elif model and self.pane != "general":
+                self.show_settings("general")
                 return
             elif model is None:
                 self._choose_model()
@@ -1104,11 +1719,30 @@ class BroTypistApplication(NSObject):
             raise ValueError("Select a model preset before downloading.")
         current = next((item for item in self.controller.models() if item["id"] == model["id"]), model)
         if current.get("installed"):
-            self.controller.set_model(str(current["path"]), str(current.get("prompt_style", "continuation")))
-            self.model_selection = None
-            self._show_pane("models")
+            self._use_preset(current)
+            self._show_pane("general")
         else:
-            self.controller.download_model(str(model["id"]))
+            if model.get("availability"):
+                raise RuntimeError(str(model["availability"]))
+            accepted = False
+            if model.get("requires_license_acceptance"):
+                alert = A.NSAlert.alloc().init()
+                alert.setMessageText_(f"Accept {model['license_name']}?")
+                alert.setInformativeText_(
+                    "This model is downloaded separately and is not covered by BroTypist’s software license. "
+                    "Use is subject to the model’s terms and incorporated Prohibited Use Policy.\n\n"
+                    + str(model["license_url"]) + "\nhttps://ai.google.dev/gemma/prohibited_use_policy")
+                alert.addButtonWithTitle_("Agree and Download")
+                alert.addButtonWithTitle_("Cancel")
+                alert.addButtonWithTitle_("Read Terms")
+                response = alert.runModal()
+                if response == A.NSAlertThirdButtonReturn:
+                    A.NSWorkspace.sharedWorkspace().openURL_(NSURL.URLWithString_(str(model["license_url"])))
+                    return
+                if response != A.NSAlertFirstButtonReturn:
+                    return
+                accepted = True
+            self.controller.download_model(str(model["id"]), accept_license=accepted)
 
     @objc.python_method
     def _choose_model(self):
@@ -1120,9 +1754,9 @@ class BroTypistApplication(NSObject):
         panel.setTitle_("Choose a local GGUF model")
         if panel.runModal() == A.NSModalResponseOK:
             path = str(panel.URL().path())
-            self.controller.set_model(path, self.controller.config.prompt_style)
+            self.controller.set_model(path, self.controller.config.prompt_style, model_id="")
         self.model_selection = None
-        self._show_pane("models")
+        self._show_pane("general")
 
     @objc.python_method
     def _refresh_download(self, status):
@@ -1152,37 +1786,97 @@ class BroTypistApplication(NSObject):
         if active and total:
             message = f"Downloading: {done / 1_000_000:.1f} / {total / 1_000_000:.1f} MB"
         elif download.get("state") == "complete":
-            message = "Download verified. Select this preset and press Use Model to activate it."
+            message = "Download verified. Select this model and press Use Model to activate it."
         if not message:
-            message = "No download in progress. Installed presets are ready to use when selected."
+            message = "No download in progress. Installed models are ready to use when selected."
         self.download_label.setStringValue_(message)
+
+    # ----- Context -----------------------------------------------------------
 
     @objc.python_method
     def _context_consent(self, field, value):
-        if value and not self._confirm("Use local context?", "BroTypist will read " + ("the clipboard" if field == "clipboard_context" else "readable Accessibility text from the verified focused window") + " only for eligible suggestion requests. Context is not saved or sent to a remote service. Protected content and excluded apps are skipped. You can turn this off at any time."):
-            control = self.controls.get(field)
-            if control:
-                control.setState_(A.NSControlStateValueOff)
-            return
+        if value:
+            title, message = _CONSENT[field]
+            if not self._confirm(title, message):
+                control = self.controls.get(field)
+                if control:
+                    control.setState_(A.NSControlStateValueOff)
+                return False
         self._change(**{field: value})
+        if value and field in _SCREENSHOT_FIELDS and not system.screen_capture_granted():
+            self._request_screen_recording()
+        if self.window and self.window.isVisible() and self.last_status is not None:
+            self.last_setup_refresh = 0.0
+            self._refresh_live_pane(self.last_status)
+        return True
 
     @objc.python_method
-    def _privacy_context(self):
-        self.form.section("Window Context")
-        self._switch("screen_context", "Use focused-window context", "Optional. Read relevant Accessibility text from the verified focused window. No screenshots or unrelated windows are used. Inaccessible content is skipped.", callback=lambda value: self._context_consent("screen_context", value))
-        self.form.note("Window context uses Accessibility permission, not Screen Recording. A Screen Recording grant alone does not enable context.")
-        status = self.controller.status()
-        self.context_status_label = _label(
-            "Context: " + str(status.get("context_message") or "Not requested"),
-            A.NSMakeRect(0, 0, 552, 36), small=True)
+    def _request_screen_recording(self):
+        """Explicit user action only: the OS prompt appears at most once per install."""
+        if system.request_screen_capture_permission():
+            return True
+        alert = A.NSAlert.alloc().init()
+        alert.setMessageText_("Allow Screen & System Audio Recording")
+        alert.setInformativeText_("Turn on BroTypist in System Settings → Privacy & Security → Screen & System Audio Recording, then quit and reopen BroTypist. Until then, screenshot features stay inactive and BroTypist keeps using Accessibility text.")
+        alert.addButtonWithTitle_("Open System Settings")
+        alert.addButtonWithTitle_("Not Now")
+        A.NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        if alert.runModal() == A.NSAlertFirstButtonReturn:
+            system.open_permissions("screen_recording")
+        return False
+
+    @objc.python_method
+    def _pane_context(self):
+        f = self.form
+        f.section("Accessibility Context")
+        self._switch("screen_context", "Use focused-window text", "Read relevant Accessibility text from the verified focused window. Inaccessible content is skipped. Uses Accessibility permission only.", callback=lambda value: self._context_consent("screen_context", value))
+        self._switch("clipboard_context", "Use clipboard for context", "Clipboard text is read only for an eligible request and passed to your local model, not stored in history.", callback=lambda value: self._context_consent("clipboard_context", value))
+        f.section("Screenshots (Opt-in)")
+        self._switch("screenshot_context", "Use screenshots for context", "When Accessibility text is unavailable, recognize text around the field from an in-memory screenshot on this Mac. Images are never saved or uploaded.", callback=lambda value: self._context_consent("screenshot_context", value))
+        self._switch("screenshot_appearance", "Use screenshots to improve suggestion appearance", "Measure the host text’s font and baseline from an in-memory screenshot so grey text matches it. Suggestions stay hidden when the measurement can’t be verified.", callback=lambda value: self._context_consent("screenshot_appearance", value))
+        container = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 330, 27))
+        self.screen_recording_label = _label("", A.NSMakeRect(0, 5, 150, 18), small=True)
+        self.screen_recording_label.setAlignment_(A.NSTextAlignmentRight)
+        _identify(self.screen_recording_label, "inklow.context.screenRecording.status")
+        self.screen_recording_button = self._button("", "inklow.context.screenRecording", self._screen_recording_action)
+        self.screen_recording_button.setFrame_(A.NSMakeRect(158, 0, 172, 27))
+        container.addSubview_(self.screen_recording_label)
+        container.addSubview_(self.screen_recording_button)
+        f.row("Screen & System Audio Recording", "Required by macOS for either screenshot option. macOS may show its recording indicator while a screenshot is taken. Granting access usually needs a relaunch.", container, control_width=330, height=84)
+        f.note("Restrictions are checked before any context is read: secure fields, excluded apps and blocked websites are skipped. Context is never saved to history or sent to a remote service.")
+        status = self.last_status or {}
+        self.context_status_label = _label("Context: " + str(status.get("context_message") or "Not requested"), A.NSMakeRect(0, 0, 552, 36), small=True)
+        _identify(self.context_status_label, "inklow.context.status")
         self.form.custom(self.context_status_label, 36)
-        self.form.section("Clipboard Context")
-        self._switch("clipboard_context", "Use clipboard for context", "Optional. Clipboard text is read only for an eligible request and passed to your local model, not stored in history.", callback=lambda value: self._context_consent("clipboard_context", value))
-        self.form.note("Restrictions are checked before context is read. Website rules require an observable native URL. If a browser hides its URL while a website is blocked, BroTypist pauses that browser rather than guessing.")
+
+    @objc.python_method
+    def _screen_recording_action(self):
+        if system.screen_capture_granted():
+            system.open_permissions("screen_recording")
+        else:
+            self._request_screen_recording()
+        if self.last_status is not None:
+            self._refresh_context(self.last_status)
+
+    @objc.python_method
+    def _refresh_context(self, status):
+        label = getattr(self, "context_status_label", None)
+        if label is None:
+            return
+        label.setStringValue_("Context: " + str(status.get("context_message") or "Not requested"))
+        config = self.controller.config
+        granted = bool(system.screen_capture_granted())
+        wanted = config.screenshot_context or config.screenshot_appearance
+        self.screen_recording_label.setStringValue_("Granted" if granted else ("Not granted — screenshots inactive" if wanted else "Not granted"))
+        self.screen_recording_label.setTextColor_(A.NSColor.systemGreenColor() if granted else (A.NSColor.systemOrangeColor() if wanted else A.NSColor.secondaryLabelColor()))
+        self.screen_recording_button.setTitle_("Open Settings…" if granted else "Request Access…")
+        self.screen_recording_button.setEnabled_(granted or wanted)
+
+    # ----- Personalization ---------------------------------------------------
 
     @objc.python_method
     def _history_toggle(self, value):
-        if value and not self._confirm("Enable encrypted local history?", "Accepted writing will be stored encrypted on this Mac to personalize future suggestions. Your OS secure storage must be available; BroTypist never falls back to plaintext."):
+        if value and not self._confirm_recording():
             self.controls["record_history"].setState_(A.NSControlStateValueOff)
             return
         self.controller.set_history_enabled(value)
@@ -1201,10 +1895,85 @@ class BroTypistApplication(NSObject):
             self.history_label.setStringValue_(text)
 
     @objc.python_method
-    def _delete_history(self, app_id=None):
-        if self._confirm("Delete local writing history?", "This permanently deletes " + (f"encrypted history for {app_id}." if app_id else "all encrypted personalization history. Aggregate statistics are unchanged.")):
-            self.controller.delete_history(app_id=app_id)
-            self._update_history_info()
+    def _load_history_counts(self):
+        """Explicit action: unlocks encrypted history once to count records."""
+        self.history_counts = self.controller.history_counts(unlock=True)
+        self._show_pane(self.pane)
+
+    @objc.python_method
+    def _scope_count(self, key):
+        counts = self.history_counts or {}
+        if key.startswith("app:"):
+            return int((counts.get("apps") or {}).get(key[4:], 0))
+        return int((counts.get("domains") or {}).get(key[7:], 0))
+
+    @objc.python_method
+    def _delete_history(self, app_id=None, domain=None):
+        if app_id:
+            target = f"encrypted history recorded in {self._app_name(app_id)}."
+        elif domain:
+            target = f"encrypted history recorded on {domain}."
+        else:
+            target = "all encrypted personalization history. Aggregate statistics are unchanged."
+        if not self._confirm("Delete local writing history?", "This permanently deletes " + target):
+            return
+        self.controller.delete_history(app_id=app_id, domain=domain)
+        if self.history_counts is not None:
+            if app_id:
+                self.history_counts.get("apps", {}).pop(app_id, None)
+            elif domain:
+                self.history_counts.get("domains", {}).pop(domain, None)
+            else:
+                self.history_counts = {**self.history_counts, "apps": {}, "domains": {}}
+        self._update_history_info()
+        if self.window and self.window.isVisible() and self.pane in {"personalization", "appSettings"}:
+            self._show_pane(self.pane)
+
+    @objc.python_method
+    def _strength_slider(self):
+        container = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 280, 27))
+        container.addSubview_(_label("Off", A.NSMakeRect(0, 5, 30, 18), small=True))
+        slider = A.NSSlider.sliderWithValue_minValue_maxValue_target_action_(
+            float(self.controller.config.personalization_strength), 0.0, 100.0, None, None)
+        slider.setFrame_(A.NSMakeRect(32, 2, 210, 24))
+        slider.setNumberOfTickMarks_(6)
+        slider.setContinuous_(False)
+        _identify(slider, "inklow.personalization.personalization_strength", "Personalize word choice")
+        self._bind(slider, lambda sender: self._change(personalization_strength=int(round(float(sender.doubleValue())))))
+        self.controls["personalization_strength"] = slider
+        container.addSubview_(slider)
+        container.addSubview_(_label("Max", A.NSMakeRect(248, 5, 32, 18), small=True))
+        return container
+
+    @objc.python_method
+    def _pane_personalization(self):
+        f = self.form
+        f.section("Writing History")
+        self._switch("record_history", "Record your writing for personalization", "Opt-in encrypted history; the key stays in OS secure storage. Short texts and likely secrets are never recorded. App and website rules take precedence.", callback=self._history_toggle)
+        self._switch("record_unaccepted", "Record text even when you accept no suggestion", "Only recorded while history is enabled for that app or website.")
+        f.row("Personalize word choice", "How strongly your recorded vocabulary guides local suggestions. Off ignores history.", self._strength_slider(), control_width=280, height=70)
+        self.history_label = _label("", A.NSMakeRect(0, 0, 340, 43), small=True)
+        f.row("Encrypted history", control=self.history_label, control_width=360, height=65)
+        self._update_history_info()
+        f.section("Recorded Texts by App and Website")
+        if self.history_counts is None:
+            f.row("Show counts", "Unlocks encrypted history once on this Mac to count records per app and website.", self._button("Show Counts…", "inklow.personalization.showCounts", self._load_history_counts), control_width=145)
+        elif not self.history_counts.get("available"):
+            f.row("Encrypted history is unavailable", "Enable history or check that OS secure storage is available.", height=70)
+        else:
+            scopes = [(f"app:{app}", count) for app, count in sorted((self.history_counts.get("apps") or {}).items())]
+            scopes += [(f"domain:{host}", count) for host, count in sorted((self.history_counts.get("domains") or {}).items())]
+            if not scopes:
+                f.row("No recorded texts")
+            for key, count in scopes:
+                name = self._app_name(key[4:]) if key.startswith("app:") else key[7:]
+                button = self._button("Delete…", f"inklow.personalization.delete.{key}",
+                                      lambda k=key: self._delete_history(app_id=k[4:]) if k.startswith("app:") else self._delete_history(domain=k[7:]))
+                f.row(f"{name} — {count} text{'s' if count != 1 else ''}", control=button, control_width=100)
+        f.row("Delete all recorded texts", "Irreversible. Aggregate statistics are not deleted.", self._button("Delete All…", "inklow.personalization.deleteHistory", self._delete_history), control_width=145)
+        f.section("Custom AI Instructions")
+        f.row("Your writing preferences", "Pre-filled from your Mac’s language and region. App and website instructions are added after these. Keep them to a few hundred words; edits apply after Save Changes.", height=85)
+        self._instructions_editor("global_instructions", self.controller.config.custom_instructions)
 
     @objc.python_method
     def _instructions_editor(self, key, saved_value, *, app_rule=False):
@@ -1235,6 +2004,10 @@ class BroTypistApplication(NSObject):
         revert.setFrame_(A.NSMakeRect(self.form.width - 100, 0, 100, 28))
         container.addSubview_(save)
         container.addSubview_(revert)
+        if not app_rule:
+            reset = self._button("Reset to Default", f"inklow.{self.pane}.resetInstructions", lambda: self._reset_instructions(key))
+            reset.setFrame_(A.NSMakeRect(0, 0, 150, 28))
+            container.addSubview_(reset)
         self.instruction_buttons[key] = (save, revert, app_rule)
         self.form.custom(container, 34)
         self._update_instruction_buttons()
@@ -1278,29 +2051,26 @@ class BroTypistApplication(NSObject):
         self._update_instruction_buttons()
 
     @objc.python_method
-    def _privacy_history(self):
-        self.form.section("Encrypted Local History")
-        self._switch("record_history", "Remember accepted writing by default", "Opt-in encrypted history; the key stays in OS secure storage. App recording overrides take precedence, including when this default is off.", callback=self._history_toggle)
-        self._switch("record_unaccepted", "Also remember unaccepted writing", "Only recorded when encrypted history is enabled. This includes captured text that you did not accept as a completion.")
-        self._number("personalization_strength", "Personalization strength", "0–100. Higher values allow more relevant encrypted history to inform a local request.", 0, 100)
-        self.history_label = _label("", A.NSMakeRect(0, 0, 340, 43), small=True)
-        self.form.row("Encrypted history", control=self.history_label, control_width=360, height=65)
-        self.form.row("Delete writing history", "Irreversible. Deleting writing history does not delete aggregate statistics.", self._button("Delete History…", "inklow.personalization.deleteHistory", self._delete_history), control_width=145)
-        self._update_history_info()
-        self.form.section("Custom Instructions")
-        self.form.row("Your writing preferences", "Instructions apply to eligible local requests. App and domain instructions can override them. Edits are not applied until Save Changes.", height=85)
-        self._instructions_editor("global_instructions", self.controller.config.custom_instructions)
+    def _reset_instructions(self, key):
+        # Only the draft changes; Save Changes applies it like any other edit.
+        from .config import default_instructions
+        self.editors[key].setString_(default_instructions())
+        self._update_instruction_buttons()
+
+    # ----- Emoji -------------------------------------------------------------
 
     @objc.python_method
-    def _autocomplete_emoji(self):
+    def _pane_emoji(self):
         self.form.section("Emoji Suggestions")
-        self._switch("emoji_enabled", "Search emoji with a colon", "Type a name such as :smile in an eligible field. Choose a numbered result to replace only the typed emoji query.")
-        self._switch("emoticons_enabled", "Replace typed emoticons", "Offer a real emoji replacement for supported emoticons such as :-). Accept explicitly; text is not silently rewritten.")
+        self._switch("emoji_enabled", "Suggest emoji after typing a colon", "At the start of a line or after a space, type a colon and a name such as :sweat_smile in an eligible field. Choose a numbered result to replace only the typed query. macOS’s own picker stays on Control-Command-Space.")
+        self._switch("emoticons_enabled", "Suggest emoji from emoticons", "Offer a real emoji for emoticons such as :-) ;-) :( or <3. Accept explicitly; text is never silently rewritten.")
         self.form.section("Emoji Preferences")
-        self._popup("emoji_skin_tone", "Skin tone", [("Default", 0), ("Light", 1), ("Medium-light", 2), ("Medium", 3), ("Medium-dark", 4), ("Dark", 5)])
-        self._popup("emoji_gender", "Preferred gender", [("Neutral", "neutral"), ("Female", "female"), ("Male", "male")])
-        self._switch("emoji_include_neutral", "Include default skin-tone variants", "Include unmodified emoji alongside the selected skin tone. Gender is chosen separately above.")
+        self._popup("emoji_skin_tone", "Preferred skin tone", [("Neutral 👋", 0), ("Light 👋🏻", 1), ("Medium-light 👋🏼", 2), ("Medium 👋🏽", 3), ("Medium-dark 👋🏾", 4), ("Dark 👋🏿", 5)])
+        self._switch("emoji_include_neutral", "Include neutral variant", "Also list the unmodified emoji alongside your preferred skin tone.")
+        self._popup("emoji_gender", "Preferred gender", [("Gender-Neutral", "neutral"), ("Female", "female"), ("Male", "male")])
         self.form.note("The numbered chooser uses keys 1–9 or a click without taking focus from your text field. Emoji lookup is local and does not require an inference worker.")
+
+    # ----- Shortcuts ---------------------------------------------------------
 
     @objc.python_method
     def _record(self, action, title, detail):
@@ -1324,111 +2094,265 @@ class BroTypistApplication(NSObject):
         self.form.row(title, detail, recorder, height=87)
 
     @objc.python_method
-    def _autocomplete_shortcuts(self):
+    def _pane_shortcuts(self):
+        self.secure_banner = _label("", A.NSMakeRect(0, 0, 552, 46), small=True)
+        _identify(self.secure_banner, "inklow.shortcuts.secureInput")
+        self.form.custom(self.secure_banner, 46)
         self.form.section("Accepting Completions")
-        self._record("word", "Complete only the next word", "Click the recorder, then press the actual shortcut. Delete clears it; Escape cancels recording. Repeated acceptance continues a suggestion.")
-        self._switch("trailing_space", "Include trailing space", "Accepting one word also inserts its following space when available.")
+        self._record("word", "Complete only the next word", "Click the recorder, then press the actual shortcut. Delete clears it; Escape cancels recording. Press again to keep walking through a suggestion. Clear it to stop using Tab everywhere; per-app Tab is in App Settings.")
+        self._switch("trailing_space", "Include trailing space after a single word", "Accepting one word also inserts its following space when available.")
         self._record("all", "Trigger full completion", "AboveTab is the physical key immediately above Tab, independent of keyboard layout. Default: that key without modifiers.")
         self._popup("punctuation_mode", "Include trailing punctuation",
                     [("Only with full completion", "full"), ("With either shortcut", "always"), ("Never", "never")],
                     "Punctuation left out stays in the suggestion, so pressing again inserts it.")
+        self.form.note("Option-Tab, or Option-clicking the accessory button, types a normal Tab.")
         self.form.section("When You Press Escape")
-        self._popup("escape_behavior", "Escape action", [("Pause briefly", "pause"), ("Disable in current app", "app"), ("Pass through", "passthrough")], "The shortcut handler consumes Escape only when it performs an active suggestion action; otherwise your app receives it normally.")
+        self._popup("escape_behavior", "Escape action", [("Pause completions for a few seconds", "pause"), ("Turn off in this app until you switch apps", "app"), ("Leave Escape to the app", "passthrough")], "Escape is consumed only when it dismisses a visible suggestion; a second Escape reaches your app.")
         self._number("escape_pause_seconds", "Brief pause (seconds)", "How long to pause suggestions after Escape; 1–3600.", 1, 3600)
         self.form.section("Activation & Toggles")
         self._record("force", "Force-activate completions", "Ask for a suggestion at the current eligible caret, even if automatic typing detection has not fired.")
-        self._record("app_toggle", "Toggle current app", "Temporarily switch completions in the current application without changing its saved rule.")
+        self._record("app_toggle", "Temporarily toggle the current app", "Turn completions off or on in the current app or website for a few minutes without changing its saved rule.")
+        self._record("toggle", "Toggle completions globally", "Optional. Pause or resume everywhere without changing app-specific rules.")
         self.form.section("Word Tools")
-        self._record("alternatives", "Alternative words", "Optional shortcut for the numbered alternatives chooser. Enable alternatives below.")
-        self._record("synonyms", "Selected-text synonyms", "Optional shortcut for alternatives to an explicitly selected word. Enable synonyms below.")
+        self._record("alternatives", "Show alternative suggestions", "Optional shortcut for the numbered alternatives chooser. Configure alternatives in Labs.")
+        self._record("synonyms", "Look up synonyms", "Optional shortcut for synonyms of an explicitly selected word. Configure synonyms in Labs.")
 
     @objc.python_method
-    def _model_battery(self):
-        self.form.section("On Battery Power")
-        self._switch("battery_on_demand", "Generate only on demand", "On battery, generate after the force-completion shortcut instead of automatically after typing.")
-        self._switch("battery_smaller_model", "Prefer a smaller installed model", "Use the smaller verified installed preset on battery when available; no automatic downloads.")
-        self._switch("battery_shorter", "Prefer shorter completions", "Reduce generated completion length on battery.")
-        self.form.section("Inference Memory")
-        self._number("idle_release_seconds", "Release model after idle (seconds)", "0 keeps the worker ready. 1–3600 releases the entire inference process after inactivity. Pause and Quit release it immediately.", 0, 3600)
-        self.form.row("Current power source", control=_label("Battery" if system.on_battery() else "External power / desktop", A.NSMakeRect(0, 0, 220, 24), small=True))
-        self.form.note("BroTypist does not load a model at launch. A worker is started only when an eligible request needs inference.")
-
-    @objc.python_method
-    def _privacy_rules(self):
-        f = self.form
-        f.section("Apps & Websites")
-        f.row("Privacy rules are checked before reading text", "Website rules require the browser’s native URL. A blocked website rule pauses recognized browsers when their URL is hidden. Application identifiers match exactly.", height=100)
-        container = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 552, 38))
-        kind = A.NSPopUpButton.alloc().initWithFrame_pullsDown_(A.NSMakeRect(0, 0, 112, 27), False)
-        kind.addItemsWithTitles_(["Application", "Website"])
-        _identify(kind, "inklow.appSettings.ruleKind", "New rule type")
-        entry = A.NSTextField.alloc().initWithFrame_(A.NSMakeRect(118, 0, 324, 25))
-        entry.setPlaceholderString_("com.example.App or example.com")
-        _identify(entry, "inklow.appSettings.newRule", "Application identifier or website domain")
-        add = self._button("Add", "inklow.appSettings.addRule", lambda: self._add_rule(int(kind.indexOfSelectedItem()), str(entry.stringValue())))
-        add.setFrame_(A.NSMakeRect(448, 0, 104, 28))
-        for control in (kind, entry, add):
-            container.addSubview_(control)
-        f.custom(container, 38)
-        f.section()
-        f.row("Use the current app", "Adds its exact native identifier; no document text is read.", self._button("Add Current App", "inklow.appSettings.addCurrentApp", self._add_current_app), control_width=160)
-        f.row("Choose an installed app", "Select an .app bundle to read its bundle identifier.", self._button("Choose App…", "inklow.appSettings.chooseApp", self._choose_app), control_width=160)
-        keys = sorted(self.controller.config.app_rules)
-        if not keys:
-            self.selected_rule = ""
-            f.note("No app or website overrides. Eligible apps inherit General, Autocomplete and Privacy settings.")
+    def _refresh_secure_input(self, status):
+        banner = getattr(self, "secure_banner", None)
+        if banner is None:
             return
-        if self.selected_rule not in keys:
-            self.selected_rule = keys[0]
-        f.section("Rule Overrides")
-        self._popup("selected_rule", "Application or website", [(key, key) for key in keys], value=self.selected_rule, callback=self._select_rule)
-        f.row("Delete this rule", "Removing a rule restores inherited behavior; it does not delete history.", self._button("Delete Rule", "inklow.appSettings.deleteRule", self._delete_rule), control_width=140)
-        rule = self.controller.config.app_rules[self.selected_rule]
+        if status.get("secure_input"):
+            keys = ", ".join(value for value in (self.controller.config.shortcuts.get("word"), self.controller.config.shortcuts.get("all")) if value) or "your shortcuts"
+            banner.setStringValue_(f"⚠︎ Secure Input is on. macOS hides typing from BroTypist while another app (often a password field or terminal) holds Secure Input, so {keys} can’t be detected until it ends.")
+            banner.setTextColor_(A.NSColor.systemOrangeColor())
+        else:
+            banner.setStringValue_("Secure Input is off; shortcuts are available.")
+            banner.setTextColor_(A.NSColor.secondaryLabelColor())
+
+    # ----- Battery -----------------------------------------------------------
+
+    @objc.python_method
+    def _pane_battery(self):
+        f = self.form
+        self.power_banner = _label("", A.NSMakeRect(0, 0, 552, 36), small=True)
+        _identify(self.power_banner, "inklow.battery.powerSource")
+        f.custom(self.power_banner, 36)
+        f.section("On Battery Power")
+        self._switch("battery_on_demand", "Only show completions on demand", "On battery, generate after the force-activation shortcut instead of automatically after typing.")
+        options = [("Same as usual", "same")]
+        for model in self.controller.models():
+            label = f"{str(model['label']).split(' — ', 1)[-1]} ({_gb(model.get('size_bytes'))})"
+            if model.get("installed"):
+                options.append((label, str(model["id"])))
+            elif str(model["id"]) == self.controller.config.battery_model:
+                options.append((label + " — not downloaded", str(model["id"])))
+        self._popup("battery_model", "Use a smaller model", options, "Only downloaded catalogue models are offered; nothing downloads automatically. Applies to local GGUF models.")
+        self._switch("battery_shorter", "Generate slightly shorter completions", "Reduce generated completion length on battery.")
+        f.section("Inference Memory")
+        self._number("idle_release_seconds", "Release model after idle (seconds)", "0 keeps the worker ready. 1–3600 releases the entire inference process after inactivity. Pause and Quit release it immediately.", 0, 3600)
+        f.note("BroTypist does not load a model at launch. A worker is started only when an eligible request needs inference.")
+
+    @objc.python_method
+    def _refresh_power(self, status):
+        banner = getattr(self, "power_banner", None)
+        if banner is None:
+            return
+        if status.get("on_battery"):
+            banner.setStringValue_("🔋 Running on battery power: the settings below are in effect now.")
+            banner.setTextColor_(A.NSColor.systemGreenColor())
+        else:
+            banner.setStringValue_("🔌 This Mac is plugged in. These settings take effect when it runs on battery power.")
+            banner.setTextColor_(A.NSColor.secondaryLabelColor())
+
+    # ----- App Settings ------------------------------------------------------
+
+    @objc.python_method
+    def _rule_summary(self, rule):
+        parts = []
+        if "enabled" in rule:
+            parts.append("Completions on" if rule["enabled"] else "Completions off")
+        if "record_history" in rule:
+            parts.append("Writing recorded" if rule["record_history"] else "Writing not recorded")
+        if rule.get("tab_enabled") is False:
+            parts.append("Tab off")
+        if "improve_compatibility" in rule:
+            parts.append("Compatibility " + ("on" if rule["improve_compatibility"] else "off"))
+        if rule.get("complete_in_code_editors"):
+            parts.append("Completes in code editor")
+        if rule.get("custom_instructions"):
+            parts.append("Instructions")
+        return " · ".join(parts) or "Uses defaults"
+
+    @objc.python_method
+    def _rule_title(self, key):
+        return self._app_name(key[4:]) if key.startswith("app:") else key[7:]
+
+    @objc.python_method
+    def _rule_rows(self):
+        query = self.rule_query.casefold().strip()
+        rows = []
+        for key, rule in self.controller.config.app_rules.items():
+            title = self._rule_title(key)
+            if query and query not in title.casefold() and query not in key.casefold():
+                continue
+            rows.append({"key": key, "title": title, "summary": self._rule_summary(rule), "icon": self._rule_icon(key)})
+        return sorted(rows, key=lambda row: (row["key"].startswith("domain:"), row["title"].casefold()))
+
+    @objc.python_method
+    def _filter_rules(self, query):
+        self.rule_query = str(query)
+        self.rule_source.rows = self._rule_rows()
+        self.rule_table.reloadData()
+        self._select_rule_row()
+
+    @objc.python_method
+    def _select_rule_row(self):
+        keys = [row["key"] for row in self.rule_source.rows]
+        if self.selected_rule in keys:
+            self.rule_table.selectRowIndexes_byExtendingSelection_(NSIndexSet.indexSetWithIndex_(keys.index(self.selected_rule)), False)
+        else:
+            self.rule_table.deselectAll_(None)
+
+    @objc.python_method
+    def _pane_appSettings(self):
+        f = self.form
+        rules = self.controller.config.app_rules
+        if self.selected_rule not in rules:
+            self.selected_rule = min(rules, default="", key=lambda key: (key.startswith("domain:"), self._rule_title(key).casefold()))
+        toolbar = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 552, 28))
+        search = A.NSSearchField.alloc().initWithFrame_(A.NSMakeRect(0, 1, 220, 26))
+        search.setPlaceholderString_("Search apps and websites")
+        search.setStringValue_(self.rule_query)
+        search.setSendsSearchStringImmediately_(True)
+        _identify(search, "inklow.appSettings.search", "Search apps and websites")
+        self._bind(search, lambda sender: self._filter_rules(sender.stringValue()))
+        toolbar.addSubview_(search)
+        for x, width, title, identifier, callback in (
+            (232, 104, "Add App…", "addApp", self._choose_app),
+            (342, 118, "Add Current App", "addCurrentApp", self._add_current_app),
+            (466, 120, "Add Domain…", "addDomain", self._add_domain),
+        ):
+            button = self._button(title, f"inklow.appSettings.{identifier}", callback)
+            button.setFrame_(A.NSMakeRect(x, 0, width, 28))
+            toolbar.addSubview_(button)
+        f.custom(toolbar, 28)
+        self.rule_source = RuleListSource.alloc().init().configure(self)
+        self.rule_source.rows = self._rule_rows()
+        table = A.NSTableView.alloc().initWithFrame_(A.NSMakeRect(0, 0, f.width, 220))
+        column = A.NSTableColumn.alloc().initWithIdentifier_("rule")
+        column.setWidth_(f.width - 4)
+        table.addTableColumn_(column)
+        table.setHeaderView_(None)
+        table.setRowHeight_(44)
+        table.setDataSource_(self.rule_source)
+        table.setDelegate_(self.rule_source)
+        table.registerForDraggedTypes_([A.NSPasteboardTypeFileURL, A.NSPasteboardTypeURL])
+        _identify(table, "inklow.appSettings.list", "Apps and websites with their own settings")
+        scroll = A.NSScrollView.alloc().initWithFrame_(A.NSMakeRect(0, 0, f.width, 220))
+        scroll.setHasVerticalScroller_(True)
+        scroll.setBorderType_(A.NSBezelBorder)
+        scroll.setDocumentView_(table)
+        self.rule_table = table
+        f.custom(scroll, 220)
+        self._select_rule_row()
+        from .native.macos_terminal import terminal_policy_exclusions
+        excluded = ", ".join(terminal_policy_exclusions(self.controller.config)[:8])
+        f.note(f"Drag an app from Finder, or a link from a browser, onto the list to add it. Website rules work in any browser that exposes its URL. Effective hard app exclusions: {excluded}… Custom exclusions are never removed by Terminal opt-in.")
+        if not self.selected_rule:
+            f.note("No app or website has its own settings yet. Everything follows General, Context and Personalization.")
+            return
+        self._rule_detail(self.selected_rule, rules[self.selected_rule])
+
+    @objc.python_method
+    def _rule_detail(self, key, rule):
+        f = self.form
+        app = key[4:] if key.startswith("app:") else ""
+        f.section(self._rule_title(key))
         for field, title, detail in (
-            ("enabled", "Completions", "Inherit uses the app override for a website, or General otherwise."),
-            ("tab_enabled", "Tab acceptance", "Control acceptance with Tab in this app or website; other shortcuts remain available."),
-            ("record_history", "Encrypted writing history", "Enable requires secure storage, even when global history is disabled. Off prohibits recording here."),
+            ("enabled", "Completions", "Inherit follows General (or this browser’s app rule for a website)."),
+            ("tab_enabled", "Accept with Tab", "Other acceptance shortcuts keep working here."),
+            ("record_history", "Record writing", "Enabled asks for confirmation and needs secure storage, even when global history is off. Disabled never records here."),
         ):
             value = "inherit" if field not in rule else ("yes" if rule[field] else "no")
-            self._popup(f"rule_{field}", title, [("Inherit", "inherit"), ("Enabled", "yes"), ("Disabled", "no")], detail, value=value, callback=lambda choice, key=field: self._rule_override(key, choice))
-        delete_history = self._button("Delete History…", "inklow.appSettings.deleteHistory",
-                                      lambda: self._delete_history(self.selected_rule[4:]))
-        delete_history.setEnabled_(self.selected_rule.startswith("app:"))
-        f.row("Delete this app’s encrypted history", "Domain history is attributed to its native application. Select an app rule for scoped deletion.", delete_history, control_width=145)
+            self._popup(f"rule_{field}", title, [("Inherit", "inherit"), ("Enabled", "yes"), ("Disabled", "no")], detail, value=value, callback=lambda choice, name=field: self._rule_override(name, choice))
+        if app:
+            value = "auto" if "improve_compatibility" not in rule else ("on" if rule["improve_compatibility"] else "off")
+            self._popup("rule_improve_compatibility", "Improve compatibility with this app", [("Automatic", "auto"), ("On", "on"), ("Off", "off")],
+                        "On asks the app to expose its full accessibility tree (helps Electron and Chromium apps). Automatic does this only for detected Electron/Chromium apps; Off never does.",
+                        value=value, callback=self._compatibility)
+            from .native.base import is_code_editor
+            if is_code_editor(app):
+                control = A.NSSwitch.alloc().initWithFrame_(A.NSMakeRect(0, 0, 42, 25))
+                control.setState_(A.NSControlStateValueOn if rule.get("complete_in_code_editors") else A.NSControlStateValueOff)
+                _identify(control, "inklow.appSettings.complete_in_code_editors", "Complete in code editors")
+                self._bind(control, lambda sender: self._code_editor(bool(sender.state())))
+                f.row("Complete in code editors", "Code editing is off by default. Recognized stock VS Code chat fields may work automatically; this switch also permits other writable fields in this editor.", control, control_width=42)
+        if self.history_counts is None:
+            count_control = self._button("Show Count…", "inklow.appSettings.showCount", self._load_history_counts)
+            f.row("Recorded texts", "Unlocks encrypted history once to count records.", count_control, control_width=145)
+        else:
+            count = self._scope_count(key)
+            f.row(f"Recorded texts: {count}", "Records are attributed to the website when the browser exposes its URL, otherwise to the app.")
+        delete = self._button("Delete History…", "inklow.appSettings.deleteHistory",
+                              lambda: self._delete_history(app_id=app) if app else self._delete_history(domain=key[7:]))
+        f.row("Delete recorded texts here", "Irreversible. Deletes only this app’s or exactly this website’s records.", delete, control_width=145)
+        f.row("Remove these settings", "Restores inherited behavior. Recorded texts are not deleted.", self._button("Remove…", "inklow.appSettings.deleteRule", self._delete_rule), control_width=145)
         f.section("Custom Instructions")
-        f.row("Override inherited instructions", "Leave empty to inherit. Edits are applied only after Save Changes. Your unsaved draft is preserved while switching panes.", height=85)
-        self._instructions_editor(f"rule:{self.selected_rule}", str(rule.get("custom_instructions", "")), app_rule=True)
+        f.row("Additional instructions", "Added after your global instructions for this app or website. Edits apply after Save Changes; drafts survive switching panes.", height=85)
+        self._instructions_editor(f"rule:{key}", str(rule.get("custom_instructions", "")), app_rule=True)
 
     @objc.python_method
     def _normalize_domain(self, value):
+        from .config import normalize_domain
         text = value.strip()
         parsed = urlsplit(text if "://" in text else "https://" + text)
         if parsed.username or parsed.password or not parsed.hostname:
             raise ValueError("Enter a website hostname such as example.com.")
-        domain = parsed.hostname.rstrip(".").lower().encode("idna").decode("ascii")
-        if any(character.isspace() for character in domain) or "." not in domain or parsed.port:
+        domain = normalize_domain(parsed.hostname)
+        if "." not in domain or parsed.port:
             raise ValueError("Enter a complete website hostname without a port.")
         return domain
 
     @objc.python_method
-    def _add_rule(self, kind, value):
-        value = value.strip()
-        if not value:
-            raise ValueError("Enter an application identifier or website domain.")
-        key = "domain:" + self._normalize_domain(value) if kind == 1 else "app:" + value
+    def _add_rules(self, items):
+        """Add (kind, value) entries; kind 0 = app identifier, 1 = website."""
         rules = deepcopy(self.controller.config.app_rules)
-        if key not in rules:
-            rules[key] = {}
+        selected = ""
+        for kind, value in items:
+            value = str(value).strip()
+            if not value:
+                raise ValueError("Enter an application identifier or website domain.")
+            key = "domain:" + self._normalize_domain(value) if kind == 1 else "app:" + value
+            rules.setdefault(key, {})
+            selected = key
+        if rules != self.controller.config.app_rules:
             self._change(app_rules=rules)
-        self.selected_rule = key
-        self._show_pane("privacy")
+        self.selected_rule = selected
+        self.rule_query = ""
+        self._show_pane("appSettings")
 
     @objc.python_method
     def _add_current_app(self):
         app = self.last_external_app
         if not app:
-            raise ValueError("Switch to the target application first, then open BroTypist’s Privacy settings from its menu.")
-        self._add_rule(0, app)
+            raise ValueError("Switch to the target application first, then open BroTypist’s App Settings from its menu.")
+        self._add_rules([(0, app)])
+
+    @objc.python_method
+    def _add_domain(self):
+        alert = A.NSAlert.alloc().init()
+        alert.setMessageText_("Add a website")
+        alert.setInformativeText_("Enter a hostname such as docs.example.com. Its settings apply in any browser that exposes the page URL.")
+        field = A.NSTextField.alloc().initWithFrame_(A.NSMakeRect(0, 0, 280, 24))
+        field.setPlaceholderString_("example.com")
+        _identify(field, "inklow.appSettings.newDomain", "Website hostname")
+        alert.setAccessoryView_(field)
+        alert.addButtonWithTitle_("Add")
+        alert.addButtonWithTitle_("Cancel")
+        alert.window().setInitialFirstResponder_(field)
+        if alert.runModal() == A.NSAlertFirstButtonReturn:
+            self._add_rules([(1, str(field.stringValue()))])
 
     @objc.python_method
     def _choose_app(self):
@@ -1438,23 +2362,24 @@ class BroTypistApplication(NSObject):
         panel.setTreatsFilePackagesAsDirectories_(False)
         panel.setAllowedFileTypes_(["app"])
         panel.setAllowsMultipleSelection_(False)
+        panel.setDirectoryURL_(NSURL.fileURLWithPath_("/Applications"))
         if panel.runModal() == A.NSModalResponseOK:
             bundle = NSBundle.bundleWithPath_(str(panel.URL().path()))
             app_id = str(bundle.bundleIdentifier() or "") if bundle else ""
             if not app_id:
-                raise ValueError("The selected application has no bundle identifier; enter its exact executable identifier instead.")
-            self._add_rule(0, app_id)
+                raise ValueError("The selected application has no bundle identifier.")
+            self._add_rules([(0, app_id)])
 
     @objc.python_method
     def _select_rule(self, key):
         self.selected_rule = key
-        self._show_pane("privacy")
+        self._show_pane("appSettings")
 
     @objc.python_method
     def _rule_change(self, **changes):
         rules = deepcopy(self.controller.config.app_rules)
         if self.selected_rule not in rules:
-            raise ValueError("Select an existing app or website rule.")
+            raise ValueError("Select an existing app or website.")
         rules[self.selected_rule].update(changes)
         self._change(app_rules=rules)
 
@@ -1464,48 +2389,88 @@ class BroTypistApplication(NSObject):
         if choice == "inherit":
             rules[self.selected_rule].pop(field, None)
         else:
+            if field == "record_history" and choice == "yes" and rules[self.selected_rule].get(field) is not True and not self._confirm_recording():
+                self._defer(lambda: self._show_pane("appSettings"))
+                return
             rules[self.selected_rule][field] = choice == "yes"
         self._change(app_rules=rules)
+        self._defer(lambda: self._show_pane("appSettings"))
+
+    @objc.python_method
+    def _compatibility(self, choice):
+        rules = deepcopy(self.controller.config.app_rules)
+        if choice == "auto":
+            rules[self.selected_rule].pop("improve_compatibility", None)
+        else:
+            rules[self.selected_rule]["improve_compatibility"] = choice == "on"
+        self._change(app_rules=rules)
+        self._defer(lambda: self._show_pane("appSettings"))
+
+    @objc.python_method
+    def _code_editor(self, value):
+        rules = deepcopy(self.controller.config.app_rules)
+        if value:
+            rules[self.selected_rule]["complete_in_code_editors"] = True
+        else:
+            rules[self.selected_rule].pop("complete_in_code_editors", None)
+        self._change(app_rules=rules)
+        self._defer(lambda: self._show_pane("appSettings"))
 
     @objc.python_method
     def _delete_rule(self):
+        name = self._rule_title(self.selected_rule)
+        if not self._confirm(f"Remove settings for {name}?", "It will follow your general settings again. Recorded texts are not deleted."):
+            return
         rules = deepcopy(self.controller.config.app_rules)
         rules.pop(self.selected_rule, None)
         self._change(app_rules=rules)
         self.drafts.pop(f"rule:{self.selected_rule}", None)
         self.selected_rule = ""
         self.editors = {}
-        self._show_pane("privacy")
+        self._show_pane("appSettings")
+
+    # ----- Labs --------------------------------------------------------------
 
     @objc.python_method
-    def _autocomplete_words(self):
-        self.form.section("Alternative Words")
-        self._switch("alternatives_enabled", "Suggest alternative words", "Offer a numbered list at an eligible caret. Results are generated locally and inserted only after you choose.")
-        self._popup("alternatives_mode", "Show alternatives", [("With shortcut", "shortcut"), ("After typing pauses", "pause")])
-        self._number("alternatives_delay_ms", "Pause delay (milliseconds)", "How long to wait before requesting alternatives in pause mode.", 100, 10000)
-        self.form.section("Selected-Text Synonyms")
-        self._switch("synonyms_enabled", "Suggest contextual synonyms", "Select a word in a supported field. A numbered choice replaces only the exact revalidated selection.")
-        self._popup("synonyms_mode", "Show synonyms", [("After selection", "selection"), ("With shortcut", "shortcut")])
-        self._number("synonyms_delay_ms", "Selection delay (milliseconds)", "Delay before requesting synonyms after selection.", 100, 10000)
+    def _pane_labs(self):
+        self.form.section("Alternative Suggestions")
+        self._switch("alternatives_enabled", "Show alternative suggestions", "A numbered list below the caret; press a number to insert. Results are generated locally and inserted only after you choose.")
+        self._popup("alternatives_mode", "Show alternatives", [("With shortcut", "shortcut"), ("After a short delay", "pause")], "The alternatives shortcut also reveals the list early in delay mode.")
+        self._number("alternatives_delay_ms", "Delay before showing (milliseconds)", "How long to wait before requesting alternatives in delay mode.", 100, 10000)
+        self.form.section("Synonyms")
+        self._switch("synonyms_enabled", "Suggest synonyms for selected words", "Select a word in a supported field. A numbered choice replaces only the exact revalidated selection.")
+        self._popup("synonyms_mode", "Show synonyms", [("After selecting text", "selection"), ("With shortcut", "shortcut")])
+        self._number("synonyms_delay_ms", "Delay before showing (milliseconds)", "Delay before requesting synonyms after selection.", 100, 10000)
         self.form.section("Typing Timing")
         self._number("debounce_ms", "Completion delay (milliseconds)", "Wait after typing before automatic inference; 100–5000.", 100, 5000)
         self._number("min_chars", "Minimum preceding characters", "Do not request an automatic completion before this much context; 1–1000.", 1, 1000)
         self._number("context_chars", "Maximum local context characters", "Bound the text passed to the local model; 64–8000.", 64, 8000)
-        self.form.note("Optional word-tool shortcuts are configured above. Unsupported or private text fields never become eligible merely because a word tool is enabled.")
+        self.form.note("Shortcuts for word tools are in Shortcuts. Unsupported or private text fields never become eligible merely because a lab feature is enabled.")
+
+    # ----- Statistics --------------------------------------------------------
 
     @objc.python_method
-    def _general_activity(self):
-        self.form.section("Local Activity")
-        self._switch("statistics_enabled", "Collect aggregate statistics", "Counts only successful insertions. No writing content is stored in aggregate statistics.")
+    def _pane_statistics(self):
+        f = self.form
+        f.section("Today’s Activity")
         self.today_label = _label("", A.NSMakeRect(0, 0, 390, 25))
-        self.form.row("Today", control=self.today_label, control_width=410)
-        self.form.section("Completion Statistics")
+        _identify(self.today_label, "inklow.statistics.today")
+        f.row("Today", control=self.today_label, control_width=410)
+        self._switch("statistics_enabled", "Collect aggregate statistics", "Counts only successful insertions. No writing content is stored in statistics.")
+        f.section("History")
         self._popup("stat_period", "Time range", [("Today", "today"), ("Last 7 Days", "week"), ("Last 30 Days", "month"), ("Last Year", "year"), ("All Time", "all")], value=self.stat_period, callback=self._stat_period)
-        self._popup("stat_group", "Group by", [("Day", "day"), ("Application", "app")], value=self.stat_group, callback=self._stat_group)
-        self.stats_source = TableSource.alloc().init().configure([], ["label", "completions", "words", "characters"])
-        table = A.NSTableView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 550, 230))
-        table.setRowHeight_(27)
-        for key, title, width in (("label", "Day / Application", 220), ("completions", "Completions", 107), ("words", "Words", 90), ("characters", "Characters", 110)):
+        self._popup("stat_group", "Group by", [("Day", "day"), ("Month", "month"), ("Application", "app")], value=self.stat_group, callback=self._stat_group)
+        self._popup("stat_metric", "Metric", [("Completions", "completions"), ("Words", "words"), ("Characters", "characters"), ("Time saved (minutes)", "estimated_seconds")], value=self.stat_metric, callback=self._stat_metric)
+        self.stats_chart = BarChartView.alloc().initWithFrame_(A.NSMakeRect(0, 0, f.width, 200))
+        _identify(self.stats_chart, "inklow.statistics.chart")
+        f.custom(self.stats_chart, 200)
+        self.statistics_totals = _label("", A.NSMakeRect(0, 0, 552, 58), small=True)
+        _identify(self.statistics_totals, "inklow.statistics.totals")
+        f.custom(self.statistics_totals, 58)
+        self.stats_source = TableSource.alloc().init().configure([], ["label", "completions", "words", "characters", "minutes"])
+        table = A.NSTableView.alloc().initWithFrame_(A.NSMakeRect(0, 0, f.width - 4, 170))
+        table.setRowHeight_(24)
+        for key, title, width in (("label", "Day / Month / App", 210), ("completions", "Completions", 100), ("words", "Words", 90), ("characters", "Characters", 100), ("minutes", "Minutes", 80)):
             column = A.NSTableColumn.alloc().initWithIdentifier_(key)
             column.setTitle_(title)
             column.setWidth_(width)
@@ -1513,17 +2478,13 @@ class BroTypistApplication(NSObject):
         table.setDataSource_(self.stats_source)
         table.setDelegate_(self.stats_source)
         table.setUsesAlternatingRowBackgroundColors_(True)
-        _identify(table, "inklow.statistics.table", "Actual accepted completions by day or application")
-        scroll = A.NSScrollView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 552, 250))
+        _identify(table, "inklow.statistics.table", "Accepted completions by day, month or application")
+        scroll = A.NSScrollView.alloc().initWithFrame_(A.NSMakeRect(0, 0, f.width, 170))
         scroll.setHasVerticalScroller_(True)
-        scroll.setHasHorizontalScroller_(True)
         scroll.setBorderType_(A.NSBezelBorder)
         scroll.setDocumentView_(table)
         self.stats_table = table
-        self.form.custom(scroll, 250)
-        self.statistics_totals = _label("", A.NSMakeRect(0, 0, 552, 58), small=True)
-        _identify(self.statistics_totals, "inklow.statistics.totals")
-        self.form.custom(self.statistics_totals, 58)
+        f.custom(scroll, 170)
         self._refresh_statistics()
 
     @objc.python_method
@@ -1537,15 +2498,49 @@ class BroTypistApplication(NSObject):
         self._refresh_statistics()
 
     @objc.python_method
+    def _stat_metric(self, value):
+        self.stat_metric = value
+        self._refresh_statistics()
+
+    @objc.python_method
+    def _stat_row_label(self, value):
+        value = str(value)
+        if self.stat_group == "app":
+            return self._app_name(value)
+        if self.stat_group == "day" and len(value) == 10:
+            return value[5:]
+        return value
+
+    @objc.python_method
     def _refresh_statistics(self):
         stats = self.controller.stats(self.stat_period, self.stat_group)
-        self.stats_source.rows = stats.get("rows", [])
+        metric = self.stat_metric
+        rows = stats.get("rows", [])
+        self.stats_source.rows = [{**row, "label": self._stat_row_label(row.get("label", "")),
+                                   "minutes": _minutes(row.get("estimated_seconds", 0))} for row in rows]
         self.stats_table.reloadData()
+        scale = 60 if metric == "estimated_seconds" else 1
+        formatter = (lambda value: f"{value:.1f} min") if scale == 60 else (lambda value: f"{int(value):,}")
+        self.stats_chart.set_bars([(self._stat_row_label(row.get("label", "")), float(row.get(metric, 0) or 0) / scale) for row in rows], formatter)
         today = stats.get("today", {})
         self.today_label.setStringValue_(f"{int(today.get('completions', 0))} completions · {int(today.get('words', 0))} words · {int(today.get('characters', 0))} characters")
         totals = stats.get("totals", {})
-        self.statistics_totals.setStringValue_(f"Total: {int(totals.get('completions', 0))} completions · {int(totals.get('words', 0))} words · {int(totals.get('characters', 0))} characters\nEstimated typing time saved: {int(stats.get('estimated_seconds', 0))} seconds (estimate based on accepted characters).")
+        average = stats.get("daily_average", {})
+        names = {"completions": "completions", "words": "words", "characters": "characters", "estimated_seconds": "minutes saved"}
+        total_value = float(stats.get("estimated_seconds", 0) if metric == "estimated_seconds" else totals.get(metric, 0) or 0) / scale
+        average_value = float(average.get(metric, 0) or 0) / scale
+        active_days = int(stats.get("active_days", 0) or 0)
+        if scale == 60:
+            total_text, average_text = formatter(total_value), f"{average_value:.1f} min"
+        else:
+            total_text, average_text = f"{int(total_value):,} {names[metric]}", f"{average_value:,.1f} {names[metric]}"
+        plural = "s" if active_days != 1 else ""
+        self.statistics_totals.setStringValue_(
+            f"Total: {total_text}  ·  Daily average ({active_days} active day{plural}): {average_text}\n"
+            f"Estimated time saved: ≈{_minutes(stats.get('estimated_seconds', 0))} minutes (from accepted characters).")
         self.last_stats_refresh = time.monotonic()
+
+    # ----- About -------------------------------------------------------------
 
     @objc.python_method
     def _pane_about(self):
@@ -1556,34 +2551,14 @@ class BroTypistApplication(NSObject):
         from .appkit_welcome import wordmark
         self.form.custom(wordmark(552, 44, 32), 44)
         self.form.section()
-        self.form.row(f"Version {__version__}", "Local-first predictive typing. A menu utility, not a document editor.", height=74)
-        self.form.row("Source repository", "Private repository access requires authorization.", self._button("View on GitHub", "inklow.about.source", lambda: A.NSWorkspace.sharedWorkspace().openURL_(NSURL.URLWithString_(REPOSITORY_URL))), control_width=145)
+        self.form.row(f"Version {__version__}", "Local-first predictive typing. A menu utility, not a document editor. No account, subscription or telemetry.", height=74)
+        self.form.row("Releases", "Updates are manual: download a new version from GitHub Releases. BroTypist never updates itself.", self._button("Open Releases…", "inklow.about.releases", lambda: self._open_url(RELEASES_URL)), control_width=145)
+        self.form.row("Support", "Report a problem or ask a question on GitHub. Nothing is sent automatically.", self._button("Open Support…", "inklow.about.support", lambda: self._open_url(SUPPORT_URL)), control_width=145)
+        self.form.row("Source repository", "Private repository access requires authorization.", self._button("View on GitHub", "inklow.about.source", lambda: self._open_url(REPOSITORY_URL)), control_width=145)
         self.form.row("Welcome & setup", "Review privacy, permissions, model setup and the real typing preview.", self._button("Show Welcome…", "inklow.about.welcome", self.show_welcome), control_width=145)
         self.form.row("Typing safety", "Secure fields, excluded apps and unsupported controls are skipped before capture. Insertion revalidates the original target.", height=92)
+        self.form.row("Settings links", f"Other apps and scripts can open a pane with {URL_SCHEME}://settings/<pane>, for example {URL_SCHEME}://settings/shortcuts.", height=74)
         self.form.row(f"Quit {APP_NAME}", "Stops monitoring, cancels downloads and releases the inference worker.", self._button("Quit", "inklow.about.quit", lambda: A.NSApplication.sharedApplication().terminate_(None)), control_width=100)
-
-    @objc.python_method
-    def _pane_autocomplete(self):
-        self.form.section("Completions")
-        self._switch("complete_inside_text", "Complete inside existing text", "Also suggest when there is text after the caret.")
-        self._popup("completion_length", "Maximum completion length", [("Short (~1–2 words)", "short"), ("Medium (~2–4 words)", "medium"), ("Long (~5–8 words)", "long")])
-        self._autocomplete_shortcuts()
-        self._autocomplete_words()
-        self._autocomplete_emoji()
-
-    @objc.python_method
-    def _pane_languages(self):
-        self.form.section("Writing language")
-        self.form.row("Language follows your writing", "The configured local model uses the text before your cursor. There is no separate language-detection switch or fixed quality ranking.", height=96)
-        self.form.row("Model language support", "Language coverage depends on the chosen model and its training. Review its verified catalog description in AI Models.", self._button("AI Models…", "inklow.languages.models", lambda: self.show_settings("models")), control_width=140, height=96)
-        self.form.row("Guide the writing style", "Use global or per-app custom instructions in Privacy to request a preferred writing language. This does not change your keyboard layout.", self._button("Privacy…", "inklow.languages.privacy", lambda: self.show_settings("privacy")), control_width=140, height=96)
-
-    @objc.python_method
-    def _pane_privacy(self):
-        self._privacy_permissions()
-        self._privacy_context()
-        self._privacy_history()
-        self._privacy_rules()
 
     def applicationShouldTerminateAfterLastWindowClosed_(self, app):
         return False
