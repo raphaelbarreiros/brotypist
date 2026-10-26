@@ -214,6 +214,7 @@ def quartz_bridge(monkeypatch, callback):
     from contextlib import nullcontext
     monkeypatch.setitem(sys.modules, "objc", SimpleNamespace(autorelease_pool=nullcontext))
     monkeypatch.setattr(shortcuts, "mac_above_tab_keycode", lambda: 10)
+    monkeypatch.setattr(macos, "keyboard_input_source_kind", lambda: "layout")
     monkeypatch.setattr(macos.threading, "Timer", lambda interval, callback:
                         SimpleNamespace(start=lambda: None, cancel=lambda: None))
     bridge = MacBridge.__new__(MacBridge)
@@ -255,10 +256,41 @@ def quartz_bridge(monkeypatch, callback):
         CFRunLoopGetCurrent=lambda: object(), kCFRunLoopCommonModes=0,
         CFRunLoopAddSource=lambda *args: None, CFRunLoopRun=lambda: None,
         CFRunLoopRemoveSource=lambda *args: None, CFMachPortInvalidate=lambda *args: None)
+    bridge._input_source_changed(None)
     BridgeBase.start_shortcuts(bridge, callback)
     bridge.set_shortcuts_enabled(True)
     bridge._event_loop()
     return bridge, posted, enabled
+
+
+def test_quartz_typing_stays_off_appkit_and_tracks_logical_layout_changes(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+
+    calls = []
+    bridge, _, _ = quartz_bridge(monkeypatch, lambda action: calls.append(action) or True)
+    main_thread = threading.get_ident()
+    labels = {0: "q", 12: "a"}
+
+    def native_event(event):
+        if threading.get_ident() != main_thread:
+            raise RuntimeError("AppKit keyboard translation reached a background tap")
+        return SimpleNamespace(charactersIgnoringModifiers=lambda: labels.get(event["code"], ""))
+
+    bridge._event_type = SimpleNamespace(eventWithCGEvent_=native_event)
+    monkeypatch.setattr(macos, "keyboard_input_source_kind", lambda: "layout")
+    bridge._shortcuts = {**bridge._shortcuts, "toggle": "Super+Q"}
+    bridge._input_source_changed(None)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        ordinary = {"code": 0, "flags": 0, "chars": "q"}
+        assert pool.submit(bridge._event_callback, None, 1, ordinary, None).result() is ordinary
+        # A main-queue input-source notification changes the logical shortcut
+        # from the former AZERTY position to its QWERTY position.
+        labels.update({0: "a", 12: "q"})
+        bridge._input_source_changed(None)
+        shortcut = {"code": 12, "flags": 8, "chars": "q"}
+        assert pool.submit(bridge._event_callback, None, 1, shortcut, None).result() is None
+    assert calls == ["toggle"]
 
 
 def test_quartz_keyboard_path_dispatches_configured_force_and_safe_option_tab(monkeypatch):
@@ -828,6 +860,21 @@ def test_mac_font_calibration_uses_caret_advance_not_padded_glyph_box(
     bridge._range_bounds = lambda field, location, length: rows.get((location, length))
     render, _ = bridge._inline_metrics(
         "field", "Hello world", 11, 11, (100, 40, 1, 20), (0, 0, 400, 200))
+    assert (render is not None) is available
+    if render is not None:
+        assert render.baseline == 56
+
+
+@pytest.mark.parametrize("part_x,available", [(53, True), (52, False)])
+def test_mac_integer_glyph_edges_allow_rounding_but_not_incompatible_subspans(
+        monkeypatch, part_x, available):
+    bridge = mac_metrics(monkeypatch, "ally",
+                         widths={"ally": 20.5029296875, "ly": 10.1943359375})
+    rows = {(0, 4): (43, 40, 22, 20),
+            (2, 2): (part_x, 40, 65 - part_x, 20)}
+    bridge._range_bounds = lambda field, location, length: rows.get((location, length))
+    render, _ = bridge._inline_metrics(
+        "field", "ally", 4, 4, (64, 40, 1, 20), (0, 0, 400, 200))
     assert (render is not None) is available
     if render is not None:
         assert render.baseline == 56

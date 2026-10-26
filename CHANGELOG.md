@@ -4,6 +4,8 @@
 
 ## 0.4.1 — macOS
 
+- Fix a macOS SIGTRAP while typing: AppKit/HIToolbox logical-key translation now runs on the main queue and publishes a cached key map to the background Quartz tap. Preserve layout-dependent shortcuts and physical Above-Tab behavior.
+- Allow the one-point advance uncertainty of independently rounded integer AX edges; retain stricter fractional-coordinate checks and independent sub-span agreement. This prevents ordinary WhatsApp words from being silently rejected.
 - Restore ordinary WhatsApp completion when UIKit advertises an empty visible-character range for non-empty text. Retain native glyph and ancestor clipping checks; reject explicitly hidden fields before reading their value.
 - Measure the caret's visual row rather than rejecting soft-wrapped paragraphs. Account for one-point integral AX line-box rounding without accepting arbitrary baseline mismatches.
 - Calibrate native font advances to the actual caret position, not padded AX glyph envelopes. This keeps one-character styling runs usable without relaxing field, clipping or stale-input guards.

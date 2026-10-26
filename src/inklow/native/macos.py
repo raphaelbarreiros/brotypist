@@ -20,7 +20,7 @@ from collections import deque
 
 from ..core import InlineRender, Snapshot
 from .base import CHROMIUM_BROWSER_BUNDLES, BridgeBase, Shortcut, index_to_utf16, utf16_to_index
-from ..shortcuts import mac_key_name
+from .. import shortcuts
 
 # kCGEventSourceUserData carried by every synthetic key event BroTypist posts,
 # so its own taps pass them through without dispatching or invalidating.
@@ -188,6 +188,7 @@ class MacBridge(BridgeBase):
     _observe_pid = 0
     _dead_key = False
     _ime_kind = "unknown"
+    _key_names: dict[int, str] = {}
     _screenshot_appearance = False
     _suppressed_keyups = frozenset()
     _tap_timeouts: tuple[float, ...] = ()
@@ -290,6 +291,26 @@ class MacBridge(BridgeBase):
         self._note_input()
 
     def _input_source_changed(self, notification) -> None:
+        # This notification runs on the main queue. AppKit/HIToolbox keyboard
+        # translation traps when called from the background Quartz event tap.
+        keys = dict(shortcuts.MAC_KEYS)
+        above_tab = shortcuts.mac_above_tab_keycode()
+        if above_tab is not None:
+            keys[above_tab] = "AboveTab"
+        for code, name in shortcuts.MAC_KEYS.items():
+            if len(name) != 1 or not name.isalpha():
+                continue
+            try:
+                event = self.q.CGEventCreateKeyboardEvent(None, code, True)
+                self.q.CGEventSetFlags(event, 0)
+                native_event = self._event_type.eventWithCGEvent_(event)
+                character = str(native_event.charactersIgnoringModifiers() or "")
+            except Exception:
+                continue
+            if len(character) == 1 and character.isascii() and character.isalpha():
+                keys[code] = character.upper()
+        # Publish a replacement; the tap never mutates or translates this map.
+        self._key_names = keys
         self._ime_kind = keyboard_input_source_kind()
         self._dead_key = False
         self._note_input()
@@ -715,7 +736,8 @@ class MacBridge(BridgeBase):
         return render if render.valid(rect) else None
 
     @staticmethod
-    def _calibrate(font, text: str, part_text: str, width: float, part_width: float, browser: bool):
+    def _calibrate(font, text: str, part_text: str, width: float, part_width: float,
+                   browser: bool, coordinate_tolerance: float):
         """Scale verified from two host spans, or None when glyph advances disagree.
 
         The whole span sets the ratio; the sub-span ending at the caret must
@@ -726,14 +748,15 @@ class MacBridge(BridgeBase):
         part = text_width(font, part_text) if part_text else None
         if measured <= 0 or (part is not None and part <= 0):
             return None
-        if (abs(width - measured) <= _tolerance(measured)
-                and (part is None or abs(part_width - part) <= _tolerance(part))):
+        if (abs(width - measured) <= max(coordinate_tolerance, _tolerance(measured))
+                and (part is None or abs(part_width - part) <= max(coordinate_tolerance, _tolerance(part)))):
             return 1.0
         if part is None or not browser or len(text) < 8 or width < 30:
             return None
         ratio = width / measured
         zoom = min(_ZOOM_LEVELS, key=lambda level: abs(level - ratio))
-        if abs(ratio - zoom) > 0.01 * zoom or abs(part_width - part * zoom) > _tolerance(part * zoom):
+        if (abs(ratio - zoom) > 0.01 * zoom
+                or abs(part_width - part * zoom) > max(coordinate_tolerance, _tolerance(part * zoom))):
             return None
         return zoom
 
@@ -852,9 +875,14 @@ class MacBridge(BridgeBase):
             # reject unrelated rows or materially inconsistent geometry.
             whole_advance = rect[0] - whole[0]
             part_advance = rect[0] - part[0]
+            # Two independently rounded integer edges can differ by one point.
+            # Fractional AX coordinates retain the stricter sub-point bound.
+            coordinate_tolerance = (1.0 if all(float(edge).is_integer()
+                                               for edge in (rect[0], whole[0], part[0])) else 0.75)
             verified = None
             for font, system, weight in self._font_candidates(name, family, size):
-                scale = self._calibrate(font, span, part_text, whole_advance, part_advance, browser)
+                scale = self._calibrate(font, span, part_text, whole_advance, part_advance,
+                                        browser, coordinate_tolerance)
                 if scale is None:
                     continue
                 if scale != 1.0:
@@ -1392,15 +1420,10 @@ class MacBridge(BridgeBase):
                 return event
             flags = q.CGEventGetFlags(event)
             code = q.CGEventGetIntegerValueField(event, q.kCGKeyboardEventKeycode)
-            key = mac_key_name(code)
+            key = self._key_names.get(code, "")
             if flags & q.kCGEventFlagMaskSecondaryFn and not (len(key) > 1 and key.startswith("F")):
                 self._note_input()
                 return event
-            if len(key) == 1 and key.isalpha():
-                native_event = self._event_type.eventWithCGEvent_(event)
-                character = str(native_event.charactersIgnoringModifiers() or "")
-                if len(character) == 1 and character.isascii() and character.isalpha():
-                    key = character.upper()
             modifiers = tuple(name for name, mask in (
                 ("Ctrl", q.kCGEventFlagMaskControl), ("Alt", q.kCGEventFlagMaskAlternate),
                 ("Shift", q.kCGEventFlagMaskShift), ("Super", q.kCGEventFlagMaskCommand))

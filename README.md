@@ -11,11 +11,11 @@ Local-first predictive typing. **Current development and release verification fo
 
 This repository is **private**. Sign in to a GitHub account with access before downloading release assets or cloning it.
 
-**[macOS 0.4.0 is available](https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.0)** with DMG/ZIP, checksums and native receipts. It is the Gemma/native-settings update. Linux/Windows product builds are held; historical Inklow 0.3.0 assets are preserved and do not contain the macOS changes.
+**[macOS 0.4.1](https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.1)** is the real-messenger/crash-fix update, with DMG/ZIP, checksums and native receipts. Linux/Windows product builds are held; historical Inklow 0.3.0 assets are preserved and do not contain the macOS changes.
 
 | Platform | Download | Status |
 | --- | --- | --- |
-| macOS, Apple Silicon | `BroTypist-0.4.0-macos-arm64.dmg` / `.zip` | Native/frozen and installer checks exercised; see compatibility limits below |
+| macOS, Apple Silicon | `BroTypist-0.4.1-macos-arm64.dmg` / `.zip` | Native/frozen and installer checks exercised; see compatibility limits below |
 | Windows, x86-64 | No published native installer | Port/build held; packaging definitions retained |
 | Linux, x86-64 | Historical `Inklow-0.3.0-linux-amd64.deb` / `.tar.gz` only | Port/build held; not macOS-parity builds |
 
@@ -25,7 +25,7 @@ Packaged applications include Python and their UI runtime. Model weights are sep
 
 Build on Apple Silicon with macOS 15 or newer. Drag the built **BroTypist.app** to Applications; the installed app name has no version suffix. Quit the running copy before replacing it. Open **Welcome** or **Settings → Setup** to review live permission state.
 
-The 0.4.0 Mac distribution is **Apple Development identity-signed, not Developer ID-signed or notarized**. Historical/CI-built packages may be ad-hoc signed; read the specific release receipt. Do not disable Gatekeeper globally.
+The Mac distribution is **Apple Development identity-signed, not Developer ID-signed or notarized**. Historical/CI-built packages may be ad-hoc signed; read the specific release receipt. Do not disable Gatekeeper globally.
 
 ### Windows — held
 

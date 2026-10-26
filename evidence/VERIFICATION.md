@@ -2,6 +2,17 @@
 
 # Observed verification
 
+## 0.4.1 source repair: real messenger keyboard path — 2026-10-26
+
+The user-reported absence of ordinary predictions was not a model-download failure. A real macOS crash report recorded `EXC_BREAKPOINT` / `SIGTRAP`: the background Quartz callback entered `NSEvent.charactersIgnoringModifiers`, HIToolbox input-source lookup, then `_dispatch_assert_queue_fail`. Keyboard-layout translation now runs on the main queue, publishing a replacement map for the tap. A failing-before/passing-after regression exercises background typing, passthrough and a logical AZERTY→QWERTY shortcut transition.
+
+Separate native evidence established WhatsApp's `(0,0)` visible-range sentinel, wrapped caret rows, padded glyph envelopes and independently rounded integer glyph edges. The observed last sub-span advanced 11 points versus CoreText's 10.1943 points: the old 0.75-point threshold refused it. The new bound is one point only for integer edges; incompatible sub-spans, fractional-coordinate mismatches, clipping, hidden fields and stale inputs remain rejected. Telegram's missing caret/font metadata uses the bounded end-of-line path described below, not a popup.
+
+- **Actual source WhatsApp:** hardware-level key events, grey same-line ` appreciate it.`, then real Tab appended ` appreciate `; own draft cleared, no message sent. [Actual cropped pixels](brotypist/whatsapp-source-0.4.1.png).
+- **Actual source Telegram:** the same keyboard/Tab sequence passed in its native Qt composer; own draft cleared, no message sent. [Actual cropped pixels](brotypist/telegram-source-0.4.1.png).
+- **Local integrated suite:** 897 passed, 21 skipped in 16.72 seconds. Hosted CI remains unestablished because of the account-level runner-allocation block recorded below.
+- **Limits:** these are source-runtime observations, not yet proof of a frozen/installed 0.4.1 build. Screenshot consent was off; synthetic observations used a history/statistics-disabled profile. No universal input, multilingual grammar, latency SLA or RAM-parity claim follows.
+
 ## 0.4.0 signed Mac release and installation — 2026-10-26
 
 Application source **`312edd696f60951fea74763e5b3b4f821e7239f7`** was frozen as arm64 0.4.0 and installed at **`/Applications/BroTypist.app`**. The previous signed app/settings have a private rollback. The actual user profile selects the verified public **Gemma 4 E2B Q4_0**, reusing existing cached bytes without a network download; Qwen is retained. Startup bytes are unchanged. Other existing preference values were preserved, with the legacy disabled battery-model flag migrated to equivalent `battery_model=same`. Screenshot/terminal consent was not enabled.
