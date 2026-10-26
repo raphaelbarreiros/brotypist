@@ -4,6 +4,8 @@
 
 ## 0.4.2 unreleased source candidate
 
+Source **`4546f6e2dfdaab3a1d23155694edcd161f2882e0`** was also frozen and Apple Development-signed locally, retaining the installed 0.4.1 designated requirement. Its actual executable worker prepared the cached Gemma model without producing writing results, reused that worker for generation, and stopped on release; normal saved settings were unchanged. **Preparation took 4,317.03 ms** in this individual frozen sample, followed by **508.09 ms** from request submission to first displayable protocol text. This is not a solved cold-start or visible-latency claim. [Signed frozen headless receipt](brotypist/frozen-headless-0.4.2.json). The candidate remains outside `/Applications`, with no new tag/release/installer or GUI pass.
+
 Installed/published **0.4.1 remains unchanged**. This candidate is not a completed native release or a claim of [redacted reference] parity. [Synthetic inputs, real model outputs, source hashes and lifecycle receipt](brotypist/candidate-headless-0.4.2.json).
 
 - **Integrated regressions:** 1,049 passed, 21 skipped in 20.43 seconds. New regressions failed before and passed after fixes for newer preparation racing an older release/cancel, and nonvisual application bounds clipping an otherwise valid native input.

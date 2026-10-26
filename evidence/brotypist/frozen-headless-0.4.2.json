@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "state": "Signed local candidate only; not installed, tagged or published as a release.",
+  "build": {
+    "application": "com.inklow.Inklow",
+    "platform": "darwin",
+    "version": "0.4.2",
+    "source_commit": "4546f6e2dfdaab3a1d23155694edcd161f2882e0",
+    "architecture": "arm64"
+  },
+  "signing": {
+    "class": "Apple Development, not Developer ID or notarized distribution",
+    "deep_strict_signature_check": "passed during actual build",
+    "designated_requirement_matches_installed_0_4_1": true
+  },
+  "actual_frozen_worker": {
+    "methodology": "Real native cached Gemma weights through production anonymous-pipe prepare/ready/proceed/generation/release. No GUI, focus, pixel, desktop latency or installed-identity claim.",
+    "model_basename": "gemma-4-E2B-it-Q4_0.gguf",
+    "launch": "Actual frozen executable worker; source supervisor at the same candidate revision.",
+    "frozen_executable_sha256": "86d9fe2e85510428d883b192b7a3c0363a425508fb6439093cdabf497d97a7f9",
+    "configuration_prepare_ms": 4317.030792008154,
+    "writing_results_before_submit": 0,
+    "same_worker_for_writing": true,
+    "first_displayable_protocol_ms": 508.0852910177782,
+    "completed_protocol_ms": 598.318999982439,
+    "synthetic_prefix": "Thank you for your help with the report. I really",
+    "native_continuation": " appreciate it.",
+    "assembled_synthetic_draft": "Thank you for your help with the report. I really appreciate it.",
+    "native_worker_stopped_after_release": true,
+    "status": "completed"
+  },
+  "saved_settings_bytes_unchanged": true,
+  "limits": [
+    "Configuration-only preparation included4317ms in this individual frozen sample; it is not a solved cold-start claim.",
+    "508ms is request-to-first-displayable protocol data after preparation, not last-keystroke-to-visible desktop latency.",
+    "Fresh process does not imply cleared OS/Metal/file caches.",
+    "No native GUI/field-context/acceptance/memory-parity or installer pass for0.4.2."
+  ]
+}
