@@ -842,14 +842,20 @@ class MacBridge(BridgeBase):
                 samples.append({"text": part_text, "rect": part})
             evidence = {"font_name": name, "font_family": family, "font_size": size,
                         "samples": samples, "caret_rect": rect, "clip_rect": clip}
+            # AX range rectangles can include a rounded ink-envelope pixel,
+            # particularly in one-character styling runs. The observed caret
+            # supplies the actual advance; the endpoint checks above still
+            # reject unrelated rows or materially inconsistent geometry.
+            whole_advance = rect[0] - whole[0]
+            part_advance = rect[0] - part[0]
             verified = None
             for font, system, weight in self._font_candidates(name, family, size):
-                scale = self._calibrate(font, span, part_text, whole[2], part[2], browser)
+                scale = self._calibrate(font, span, part_text, whole_advance, part_advance, browser)
                 if scale is None:
                     continue
                 if scale != 1.0:
                     font = self._scaled(font, system, weight, size * scale)
-                    if font is None or abs(text_width(font, span) - whole[2]) > _tolerance(whole[2]):
+                    if font is None or abs(text_width(font, span) - whole_advance) > _tolerance(whole_advance):
                         continue
                 if verified is not None:
                     return None, evidence  # Two reproductions fit: ambiguous.

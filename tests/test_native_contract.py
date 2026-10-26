@@ -815,6 +815,24 @@ def mac_metrics(monkeypatch, text="Hello world", *, ax_name="Host-Regular", widt
     return bridge
 
 
+@pytest.mark.parametrize("glyph_width,available", [(7, True), (10, False)])
+def test_mac_font_calibration_uses_caret_advance_not_padded_glyph_box(
+        monkeypatch, glyph_width, available):
+    bridge = mac_metrics(monkeypatch, widths={"d": 6.0})
+    attributed = SimpleNamespace(
+        length=lambda: 11,
+        attributesAtIndex_effectiveRange_=lambda index, out:
+            ({"AXFont": {"AXFontName": "Host-Regular", "AXFontSize": 13}}, (10, 1)))
+    bridge.ax.AXUIElementCopyParameterizedAttributeValue = lambda *args: (0, attributed)
+    rows = {(0, 11): (40, 40, 60, 20), (10, 1): (94, 40, glyph_width, 20)}
+    bridge._range_bounds = lambda field, location, length: rows.get((location, length))
+    render, _ = bridge._inline_metrics(
+        "field", "Hello world", 11, 11, (100, 40, 1, 20), (0, 0, 400, 200))
+    assert (render is not None) is available
+    if render is not None:
+        assert render.baseline == 56
+
+
 @pytest.mark.parametrize("text,caret,expected", [
     ("abc", 3, (100, 60, 1, 20)),
     ("abc", 2, None),
