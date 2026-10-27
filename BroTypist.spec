@@ -155,8 +155,17 @@ collection = COLLECT(
     name="BroTypist",
 )
 if sys.platform == "darwin":
+    # Compile into PyInstaller's per-build work directory, before BUNDLE seals
+    # its resources. No source .icon package or runtime renderer is shipped.
+    icon_tools = runpy.run_path(str(ROOT / "tools" / "generate_icons.py"))
+    native_icon_directory = Path(workpath) / "native-icons"
+    native_icon_info = icon_tools["compile_native_icons"](native_icon_directory)
+    native_icon_resources = [
+        ("Assets.car", str(native_icon_directory / "Assets.car"), "DATA"),
+    ]
     app = BUNDLE(
         collection,
+        native_icon_resources,
         name="BroTypist.app",
         icon=str(ASSETS / "app.icns"),
         bundle_identifier="com.inklow.Inklow",
@@ -164,6 +173,7 @@ if sys.platform == "darwin":
         # PyInstaller inherits signing identity and entitlements from collection,
         # which inherits them from exe; BUNDLE does not accept signing kwargs.
         info_plist={
+            **native_icon_info,
             "CFBundleName": "BroTypist",
             "CFBundleDisplayName": "BroTypist",
             "CFBundleShortVersionString": VERSION,

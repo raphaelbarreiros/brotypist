@@ -30,6 +30,7 @@ from .shortcuts import mac_key_name, normalize_shortcut, shortcut_from_event
 PANES = (
     ("setup", "Setup", "checklist"),
     ("general", "General", "gearshape"),
+    ("models", "AI Models", "cpu"),
     ("context", "Context", "text.viewfinder"),
     ("personalization", "Personalization", "person.text.rectangle"),
     ("emoji", "Emoji", "face.smiling"),
@@ -43,7 +44,7 @@ PANES = (
 # Sidebar groups mirror the native settings layout; "support" opens externally.
 SIDEBAR_GROUPS = (
     ("setup",),
-    ("general", "context", "personalization", "emoji", "shortcuts", "battery", "appSettings"),
+    ("general", "models", "context", "personalization", "emoji", "shortcuts", "battery", "appSettings"),
     ("labs", "statistics"),
     ("about", "support"),
 )
@@ -52,6 +53,7 @@ RELEASES_URL = REPOSITORY_URL + "/releases"
 URL_SCHEME = "brotypist"
 _SIDEBAR_COLORS = {
     "setup": (255, 149, 0), "general": (142, 142, 147), "context": (0, 122, 255),
+    "models": (0, 122, 255),
     "personalization": (175, 82, 222), "emoji": (255, 204, 0), "shortcuts": (88, 86, 214),
     "battery": (52, 199, 89), "appSettings": (90, 200, 250), "labs": (255, 45, 85),
     "statistics": (31, 169, 122), "about": (142, 142, 147), "support": (0, 122, 255),
@@ -441,75 +443,130 @@ def _identify(control, identifier, label=None):
 
 
 class Form:
-    """Small native grouped-form layout, using system colors and control metrics."""
+    """Retained native controls, reflowed from their measured text and available width."""
 
     def __init__(self, shell, view, pane):
         self.shell, self.view, self.pane = shell, view, pane
         self.width = A.NSWidth(view.bounds()) - 48
-        self.y = 24
-        self.group_view = None
-        self.group_y = 0
-        self.row_y = 0
+        self.blocks = []
+        self.group = None
+        self.finished = False
+
+    @staticmethod
+    def text_height(label, width):
+        size = label.attributedStringValue().boundingRectWithSize_options_(
+            A.NSMakeSize(max(1, width), 10000),
+            A.NSStringDrawingUsesLineFragmentOrigin | A.NSStringDrawingUsesFontLeading)
+        return max(18, math.ceil(A.NSHeight(size)) + 2)
 
     def section(self, title=""):
         self.end_group()
-        if title:
-            self.view.addSubview_(_label(title.upper(), A.NSMakeRect(28, self.y, self.width - 8, 20), small=True, bold=True))
-            self.y += 27
-        box = A.NSBox.alloc().initWithFrame_(A.NSMakeRect(24, self.y, self.width, 10))
+        heading = _label(title.upper(), A.NSZeroRect, small=True, bold=True) if title else None
+        if heading is not None:
+            self.view.addSubview_(heading)
+        box = A.NSBox.alloc().initWithFrame_(A.NSZeroRect)
         box.setBoxType_(A.NSBoxCustom)
         box.setBorderType_(A.NSNoBorder)
         box.setFillColor_(A.NSColor.controlBackgroundColor())
         box.setCornerRadius_(10)
         box.setContentViewMargins_(A.NSMakeSize(0, 0))
-        self.group_view = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, self.width, 10))
-        box.setContentView_(self.group_view)
+        content = FlippedView.alloc().initWithFrame_(A.NSZeroRect)
+        box.setContentView_(content)
         self.view.addSubview_(box)
-        self.box, self.group_y, self.row_y = box, self.y, 0
+        self.group = {"heading": heading, "box": box, "content": content, "rows": []}
+        self.blocks.append(("group", self.group))
         return self
 
     def end_group(self):
-        if self.group_view is not None:
-            self.box.setFrameSize_(A.NSMakeSize(self.width, self.row_y))
-            self.group_view.setFrameSize_(A.NSMakeSize(self.width, self.row_y))
-            self.y = self.group_y + self.row_y + 22
-            self.group_view = None
+        self.group = None
 
     def row(self, title, detail="", control=None, *, height=None, control_width=220):
-        if self.group_view is None:
+        if self.group is None:
             self.section()
-        if height is None:
-            height = 46 if not detail else 70 + max(0, len(detail) - 135) // 74 * 14
-        if self.row_y:
-            divider = A.NSBox.alloc().initWithFrame_(A.NSMakeRect(14, self.row_y, self.width - 28, 1))
+        content = self.group["content"]
+        title_label = _label(title, A.NSZeroRect)
+        detail_label = _label(detail, A.NSZeroRect, small=True) if detail else None
+        divider = None
+        if self.group["rows"]:
+            divider = A.NSBox.alloc().initWithFrame_(A.NSZeroRect)
             divider.setBoxType_(A.NSBoxSeparator)
-            self.group_view.addSubview_(divider)
-        title_width = self.width - 38 - control_width if control is not None else self.width - 28
-        self.group_view.addSubview_(_label(title, A.NSMakeRect(14, self.row_y + 11, title_width, 20)))
-        if detail:
-            self.group_view.addSubview_(_label(detail, A.NSMakeRect(14, self.row_y + 34, self.width - 28, height - 39), small=True))
-        if control is not None:
-            control_height = min(46, height - 16) if isinstance(control, A.NSTextField) and not control.isEditable() else 27
-            control.setFrame_(A.NSMakeRect(self.width - 14 - control_width, self.row_y + 8, control_width, control_height))
-            self.group_view.addSubview_(control)
-        self.row_y += height
+            content.addSubview_(divider)
+        for item in (title_label, detail_label, control):
+            if item is not None:
+                content.addSubview_(item)
+        self.group["rows"].append((title_label, detail_label, control, control_width, height, divider))
         return control
 
     def note(self, text):
         self.end_group()
-        height = 18 + max(1, (len(text) + 76) // 77) * 15
-        self.view.addSubview_(_label(text, A.NSMakeRect(28, self.y, self.width - 8, height), small=True))
-        self.y += height + 12
+        label = _label(text, A.NSZeroRect, small=True)
+        self.view.addSubview_(label)
+        self.blocks.append(("note", label))
 
-    def custom(self, view, height):
+    def custom(self, view, height, *, layout=None, visible=None):
         self.end_group()
-        view.setFrame_(A.NSMakeRect(24, self.y, self.width, height))
+        view.setFrameSize_(A.NSMakeSize(self.width, height))
         self.view.addSubview_(view)
-        self.y += height + 16
+        self.blocks.append(("custom", (view, height, layout, visible)))
+
+    def reflow(self, width=None, viewport_height=None):
+        if width is not None:
+            self.width = max(1, width - 48)
+        width, y = self.width, 24
+        for kind, block in self.blocks:
+            if kind == "group":
+                heading = block["heading"]
+                if heading is not None:
+                    h = self.text_height(heading, width - 8)
+                    heading.setFrame_(A.NSMakeRect(28, y, width - 8, h))
+                    y += h + 7
+                row_y = 0
+                for title, detail, control, requested_width, minimum, divider in block["rows"]:
+                    cw = min(requested_width, width - 28)
+                    # Wide labels and controls stack naturally rather than clipping.
+                    stacked = control is not None and width - cw - 42 < 180
+                    tw = width - 28 if stacked or control is None else width - cw - 42
+                    th = self.text_height(title, tw)
+                    title.setFrame_(A.NSMakeRect(14, row_y + 11, tw, th))
+                    bottom = row_y + 11 + th
+                    if control is not None:
+                        ch = self.text_height(control, cw) if isinstance(control, A.NSTextField) and not control.isEditable() else 27
+                        cy = bottom + 7 if stacked else row_y + 8
+                        control.setFrame_(A.NSMakeRect(14 if stacked else width - 14 - cw, cy, cw, ch))
+                        bottom = max(bottom, cy + ch)
+                    if detail is not None:
+                        dh = self.text_height(detail, width - 28)
+                        detail.setFrame_(A.NSMakeRect(14, bottom + 6, width - 28, dh))
+                        bottom += dh + 6
+                    if divider is not None:
+                        divider.setFrame_(A.NSMakeRect(14, row_y, width - 28, 1))
+                    row_y += max(minimum or 46, bottom - row_y + 11)
+                block["box"].setFrame_(A.NSMakeRect(24, y, width, row_y))
+                block["content"].setFrame_(A.NSMakeRect(0, 0, width, row_y))
+                y += row_y + (22 if row_y else 0)
+            elif kind == "note":
+                h = self.text_height(block, width - 8)
+                block.setFrame_(A.NSMakeRect(28, y, width - 8, h))
+                y += h + 12
+            else:
+                view, height, layout, visible = block
+                shown = visible is None or visible()
+                view.setHidden_(not shown)
+                if not shown:
+                    continue
+                if isinstance(view, A.NSTextField):
+                    height = max(height, self.text_height(view, width))
+                if layout is not None:
+                    height = layout(width)
+                view.setFrame_(A.NSMakeRect(24, y, width, height))
+                view.setNeedsDisplay_(True)
+                y += height + 16
+        self.view.setFrameSize_(A.NSMakeSize(width + 48, max(viewport_height or 0, y)))
 
     def finish(self):
         self.end_group()
-        self.view.setFrameSize_(A.NSMakeSize(self.width + 48, max(568, self.y)))
+        self.finished = True
+        self.reflow(viewport_height=A.NSHeight(self.shell.content_scroll.contentView().bounds()))
 
 
 class BroTypistApplication(NSObject):
@@ -529,6 +586,7 @@ class BroTypistApplication(NSObject):
         self.editors = {}
         self.model_inventory = []
         self.model_selection = None
+        self.models_advanced = False
         self.requested_pane = "welcome" if pane == "welcome" else _canonical_pane(pane)
         self.pane = self.requested_pane if self.requested_pane not in {None, "welcome"} else "general"
         self.last_external_app = ""
@@ -544,6 +602,7 @@ class BroTypistApplication(NSObject):
         self.stopping = False
         self.updates = UpdateService()
         self.update_status_label = self.update_progress = None
+        self.model_current_label = self.model_file_label = None
         self.update_buttons = {}
         self.update_handoff = None
         self.update_committed = False
@@ -578,7 +637,10 @@ class BroTypistApplication(NSObject):
     def applicationDidFinishLaunching_(self, notification):
         app = A.NSApplication.sharedApplication()
         app.setActivationPolicy_(A.NSApplicationActivationPolicyAccessory)
-        app.setApplicationIconImage_(A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("app.icns"))))
+        # Packaged apps let macOS choose the native adaptive bundle artwork.
+        # Source runs have no application asset catalogue, so retain the fallback.
+        if not NSBundle.mainBundle().objectForInfoDictionaryKey_("CFBundleIconName"):
+            app.setApplicationIconImage_(A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("app.icns"))))
         self._build_main_menu()
         self._build_status_menu()
         self.overlay = CaretOverlay(self.controller.invoke, self._accessory_menu,
@@ -746,7 +808,7 @@ class BroTypistApplication(NSObject):
         self.status_line.setEnabled_(False)
         self.secure_item = self._menu_item(self.menu, "Secure Input is on — shortcuts can’t be detected", "inklow.menu.secureInput", lambda: self.show_settings("shortcuts"))
         self.secure_item.setToolTip_("Another app turned on macOS Secure Input (usually a password or terminal field). macOS hides typing from BroTypist until it ends.")
-        self.download_item = self._menu_item(self.menu, "Downloading model…", "inklow.menu.download", lambda: self.show_settings("general"))
+        self.download_item = self._menu_item(self.menu, "Downloading model…", "inklow.menu.download", lambda: self.show_settings("models"))
         self.attention_item = self._menu_item(self.menu, "Open Setup", "inklow.menu.attention", lambda: self.show_settings("setup"))
         self.pause_item = self._menu_item(self.menu, "Predictions", "inklow.menu.toggle", self.controller.toggle_enabled)
         self.resume_item = self._menu_item(self.menu, "Resume now", "inklow.menu.resume", self.controller.toggle_enabled)
@@ -1044,7 +1106,7 @@ class BroTypistApplication(NSObject):
             elif not permissions["input_monitoring"]:
                 state, message = "permission", "Input Monitoring required for acceptance shortcuts — open Setup"
             if state != "permission" and not self._model_ready():
-                state, message = "empty", "No model installed — choose a model in General"
+                state, message = "empty", "No model installed — choose a model in AI Models"
         status = {**status, "state": state, "message": message}
         self.status_line.setTitle_((message[:41] + "…") if len(message) > 42 else message)
         self.status_line.setToolTip_(message)
@@ -1128,7 +1190,7 @@ class BroTypistApplication(NSObject):
     @objc.python_method
     def _refresh_live_pane(self, status):
         self._refresh_setup()
-        if self.pane == "general":
+        if self.pane == "models":
             self._refresh_download(status)
         elif self.pane == "context":
             self._refresh_context(status)
@@ -1140,7 +1202,13 @@ class BroTypistApplication(NSObject):
     @objc.python_method
     def _model_name(self):
         config = self.controller.config
-        return Path(config.model_path).name if config.backend == "gguf" and config.model_path else (config.model if config.backend != "gguf" else "No local model selected")
+        if config.backend != "gguf":
+            return config.model
+        if not config.model_path:
+            return "No local model selected"
+        from .models import PRESETS, model_path
+        model = next((preset for preset in PRESETS if str(model_path(preset)) == config.model_path), None)
+        return model.label.split(" — ", 1)[-1] if model else Path(config.model_path).stem
 
     @objc.python_method
     def _app_location(self, identifier):
@@ -1258,7 +1326,7 @@ class BroTypistApplication(NSObject):
         return control
 
     @objc.python_method
-    def _popup(self, field, title, options, detail="", *, value=None, callback=None):
+    def _popup(self, field, title, options, detail="", *, value=None, callback=None, control_width=220):
         control = A.NSPopUpButton.alloc().initWithFrame_pullsDown_(A.NSMakeRect(0, 0, 220, 26), False)
         for label, item_value in options:
             control.addItemWithTitle_(label)
@@ -1281,7 +1349,7 @@ class BroTypistApplication(NSObject):
                 raise
         self._bind(control, changed)
         self.controls[field] = control
-        self.form.row(title, detail, control)
+        self.form.row(title, detail, control, control_width=control_width)
         return control
 
     @objc.python_method
@@ -1333,7 +1401,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _build_window(self):
-        style = A.NSWindowStyleMaskTitled | A.NSWindowStyleMaskClosable | A.NSWindowStyleMaskMiniaturizable | A.NSWindowStyleMaskFullSizeContentView
+        style = A.NSWindowStyleMaskTitled | A.NSWindowStyleMaskClosable | A.NSWindowStyleMaskMiniaturizable | A.NSWindowStyleMaskResizable | A.NSWindowStyleMaskFullSizeContentView
         self.window = A.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(A.NSMakeRect(0, 0, 900, 640), style, A.NSBackingStoreBuffered, False)
         self.window.setTitle_(f"{APP_NAME} Settings")
         self.window.setIdentifier_("inklow.settings")
@@ -1346,8 +1414,10 @@ class BroTypistApplication(NSObject):
         self.window.setMinSize_(A.NSMakeSize(900, 640))
         self.window.center()
         root = A.NSView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 900, 640))
+        root.setAutoresizingMask_(A.NSViewWidthSizable | A.NSViewHeightSizable)
         self.window.setContentView_(root)
         sidebar = A.NSVisualEffectView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 210, 640))
+        sidebar.setAutoresizingMask_(A.NSViewHeightSizable)
         sidebar.setMaterial_(A.NSVisualEffectMaterialSidebar)
         sidebar.setBlendingMode_(A.NSVisualEffectBlendingModeBehindWindow)
         root.addSubview_(sidebar)
@@ -1368,6 +1438,7 @@ class BroTypistApplication(NSObject):
         table.setAllowsEmptySelection_(False)
         _identify(table, "inklow.sidebar", "Settings categories")
         scroll = A.NSScrollView.alloc().initWithFrame_(A.NSMakeRect(8, 120, 194, 470))
+        scroll.setAutoresizingMask_(A.NSViewHeightSizable)
         scroll.setDrawsBackground_(False)
         scroll.setHasVerticalScroller_(False)
         scroll.setDocumentView_(table)
@@ -1375,15 +1446,34 @@ class BroTypistApplication(NSObject):
         self.sidebar_status = _label("", A.NSMakeRect(20, 18, 174, 48), small=True)
         sidebar.addSubview_(self.sidebar_status)
         self.pane_title = _label("", A.NSMakeRect(234, 590, 630, 24), bold=True)
+        self.pane_title.setAutoresizingMask_(A.NSViewWidthSizable | A.NSViewMinYMargin)
         self.pane_title.setFont_(A.NSFont.systemFontOfSize_weight_(15, A.NSFontWeightSemibold))
         root.addSubview_(self.pane_title)
         self.sidebar_source, self.sidebar_table = source, table
         self.content_scroll = A.NSScrollView.alloc().initWithFrame_(A.NSMakeRect(210, 0, 690, 588))
+        self.content_scroll.setAutoresizingMask_(A.NSViewWidthSizable | A.NSViewHeightSizable)
         self.content_scroll.setHasVerticalScroller_(True)
         self.content_scroll.setAutohidesScrollers_(True)
         self.content_scroll.setDrawsBackground_(False)
         root.addSubview_(self.content_scroll)
         self.last_setup_refresh = 0.0
+
+    def windowDidResize_(self, notification):
+        if notification.object() == self.window:
+            self._reflow_settings()
+
+    @objc.python_method
+    def _reflow_settings(self):
+        form = getattr(self, "form", None)
+        if form is None or not form.finished:
+            return
+        clip = self.content_scroll.contentView()
+        origin = clip.bounds().origin
+        form.reflow(A.NSWidth(clip.bounds()), A.NSHeight(clip.bounds()))
+        # Keep the same document offset without resigning the focused editor.
+        maximum = max(0, A.NSHeight(form.view.frame()) - A.NSHeight(clip.bounds()))
+        clip.scrollToPoint_(A.NSMakePoint(0, min(origin.y, maximum)))
+        self.content_scroll.reflectScrolledClipView_(clip)
 
     @objc.python_method
     def _remember_drafts(self):
@@ -1406,6 +1496,7 @@ class BroTypistApplication(NSObject):
             self.instruction_buttons = {}
             self.setup_rows = {}
             self.model_description = self.download_progress = self.download_label = None
+            self.model_current_label = self.model_file_label = None
             self.update_status_label = self.update_progress = None
             self.update_buttons = {}
             # Keep only menu bindings; released pane controls must not retain actions.
@@ -1414,7 +1505,8 @@ class BroTypistApplication(NSObject):
             index = next(i for i, row in enumerate(self.sidebar_source.rows) if row["id"] == pane)
             self.sidebar_table.selectRowIndexes_byExtendingSelection_(NSIndexSet.indexSetWithIndex_(index), False)
             self.pane_title.setStringValue_(next(title for key, title, symbol in PANES if key == pane))
-            view = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 690, 588))
+            size = self.content_scroll.contentView().bounds().size
+            view = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, size.width, size.height))
             self.content_scroll.setDocumentView_(view)
             self.form = Form(self, view, pane)
             getattr(self, f"_pane_{pane}")()
@@ -1509,7 +1601,7 @@ class BroTypistApplication(NSObject):
         if key in {"accessibility", "input_monitoring"}:
             system.open_permissions(key)
         elif key == "model":
-            self.show_settings("general")
+            self.show_settings("models")
             return
         elif key == "inline_prediction":
             system.open_permissions("keyboard")
@@ -1593,7 +1685,11 @@ class BroTypistApplication(NSObject):
         pending = bool(required or optional)
         if bool(self.sidebar_source.badges.get("setup")) != pending:
             self.sidebar_source.badges["setup"] = pending
-            self.sidebar_table.reloadData()
+            # A full reload can select the first row and navigate away from the
+            # requested pane. Only the Setup badge changed, not the row model.
+            row = next(i for i, item in enumerate(self.sidebar_source.rows) if item["id"] == "setup")
+            self.sidebar_table.reloadDataForRowIndexes_columnIndexes_(
+                NSIndexSet.indexSetWithIndex_(row), NSIndexSet.indexSetWithIndex_(0))
         if self.pane != "setup" or not getattr(self, "setup_rows", None):
             return
         self.setup_header.setStringValue_(summary)
@@ -1642,17 +1738,14 @@ class BroTypistApplication(NSObject):
     @objc.python_method
     def _pane_general(self):
         f = self.form
-        if self.welcome and self.welcome.window.isVisible() and self.welcome.step == 3:
-            f.section("Welcome")
-            f.row("Model setup", "Return to the welcome window when your model is selected.", self._button("Return to Welcome", "inklow.general.returnToWelcome", self._return_to_welcome), control_width=166)
         f.section("Startup")
         login = self._switch("launch_at_login", "Launch BroTypist at login", callback=self._autostart)
         login.setState_(A.NSControlStateValueOn if system.launch_at_login_state() else A.NSControlStateValueOff)
         self._switch("show_accessory", "Show accessory button", "A small Ghost Caret beside the text field with this app’s completion, recording and Tab controls. Option-click it to type a normal Tab.")
         f.row("Menu bar icon", "Always shown, so BroTypist can always be paused, reopened or quit.")
         f.section("Completions")
-        self._switch("global_enabled", "Enable predictions", "Turn off to keep BroTypist running without suggesting anything.")
-        self._switch("enabled", "Enable completions by default", "When off, only apps and websites enabled in App Settings get completions.")
+        self._switch("global_enabled", "Predictions everywhere", "The master switch. Turning this off pauses all predictions, including apps and websites with their own rules.")
+        self._switch("enabled", "Predictions in apps without a rule", "The default for apps and websites not listed in App Settings. Their individual rules can override this default, but never the master switch above.")
         self._switch("complete_inside_text", "Complete inside existing text", "Also suggest when there is text after the caret.")
         self._popup("completion_length", "Maximum completion length",
                     [("Current word only", "word"), ("Short (~1–2 words)", "short"), ("Medium (~2–4 words)", "medium"), ("Long (~5–8 words)", "long")],
@@ -1661,21 +1754,20 @@ class BroTypistApplication(NSObject):
         self._switch("typo_suppression", "Don’t show completions when a typo is suspected", "Checks only the word you are typing, on this Mac, with the macOS spelling checker for the detected language.")
         accept = self.controller.config.shortcuts.get("word") or "Tab"
         self._switch("typo_fixes", "Show suggested fixes", f"Strikes through a likely typo and shows the fix on the same line. Press {accept} to replace the word.")
-        self._general_model()
 
     @objc.python_method
-    def _general_model(self):
+    def _pane_models(self):
         f = self.form
-        f.section("AI Model")
+        f.section("AI Models")
         selected = ""
         if self.controller.config.backend == "gguf":
             from .models import recommended_preset
             self.model_inventory = self.controller.models()
             recommended = recommended_preset()
             installed = next((m for m in self.model_inventory if str(m["id"]) == recommended.id and m.get("installed")), None)
-            f.row(f"Recommended for this Mac: {recommended.label.split(' — ', 1)[-1]} ({_gb(recommended.size_bytes)})",
-                  "Recommended default based on this Mac’s memory." + (" Installed." if installed else ""), height=70)
-            options = [("Custom GGUF file", "")]
+            f.row(f"Recommended: {recommended.label.split(' — ', 1)[-1]}",
+                  f"{_gb(recommended.size_bytes)} · Chosen for this Mac’s memory." + (" Installed." if installed else " Download separately to use."))
+            options = [("Imported local model", "")]
             for model in self.model_inventory:
                 label = f"{str(model['label']).split(' — ', 1)[-1]} ({_gb(model.get('size_bytes'))})"
                 options.append((("✓ " if model.get("installed") else "↓ ") + label, str(model["id"])))
@@ -1683,72 +1775,98 @@ class BroTypistApplication(NSObject):
             selected = self.model_selection if self.model_selection is not None else next(
                 (str(m["id"]) for m in self.model_inventory if config.model_path and str(m.get("path", "")) == config.model_path),
                 "" if config.model_path else config.model_id)
-            self._popup("model_preset", "AI model", options, "✓ installed · ↓ needs download. Selecting a downloaded model uses it immediately.", value=selected, callback=self._select_model)
-        else:
-            f.row("AI model", str(self.controller.config.model))
-        f.row(self._model_name(), str(self.controller.status().get("message") or "The cached model prepares in supported writing fields before prediction is requested."), height=80)
-        f.row("Model files", control=self._button("Reveal in Finder", "inklow.general.revealModels", system.reveal_models), control_width=146)
-        self._model_controls(selected)
-
-    @objc.python_method
-    def _return_to_welcome(self):
-        self.window.orderOut_(None)
-        self.welcome.window.makeKeyAndOrderFront_(None)
-        A.NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
-
-    @objc.python_method
-    def _model_controls(self, selected):
-        f = self.form
-        f.section("Model Management")
-        self._popup("backend", "Inference backend", [("Local GGUF model", "gguf"), ("Local Ollama server", "ollama"), ("Local OpenAI-compatible server", "openai")],
-                    "Local models or literal loopback servers only.", callback=self._backend)
-        if self.controller.config.backend == "gguf":
-            self.model_description = _label("", A.NSMakeRect(0, 0, 520, 42), small=True)
-            f.row("Selected preset", control=self.model_description, height=65, control_width=360)
-            actions = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 552, 36))
-            for x, width, title, identifier, callback in (
-                (0, 150, "Download", "download", self._download),
-                (158, 120, "Cancel", "cancelDownload", self.controller.cancel_download),
-                (286, 150, "Choose GGUF…", "chooseModel", self._choose_model),
+            self._popup("model_preset", "Choose a model", options,
+                        "✓ installed · ↓ download required. Choosing an installed model uses it; other choices wait for your approval.",
+                        value=selected, callback=self._select_model, control_width=340)
+            self.model_description = _label("", A.NSZeroRect, small=True)
+            f.custom(self.model_description, 24)
+            actions = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, f.width, 28))
+            for title, identifier, callback in (
+                ("Download Model", "download", self._download),
+                ("Cancel Download", "cancelDownload", self.controller.cancel_download),
+                ("Import Model…", "chooseModel", self._choose_model),
             ):
-                button = self._button(title, f"inklow.general.{identifier}", callback)
-                button.setFrame_(A.NSMakeRect(x, 0, width, 28))
+                button = self._button(title, f"inklow.models.{identifier}", callback)
                 actions.addSubview_(button)
                 self.controls[identifier] = button
-            f.custom(actions, 36)
-            self.download_progress = A.NSProgressIndicator.alloc().initWithFrame_(A.NSMakeRect(0, 0, 552, 16))
+            f.custom(actions, 28, layout=lambda width: self._layout_actions(actions, width))
+            self.download_progress = A.NSProgressIndicator.alloc().initWithFrame_(A.NSZeroRect)
             self.download_progress.setStyle_(A.NSProgressIndicatorStyleBar)
             self.download_progress.setIndeterminate_(False)
             self.download_progress.setMinValue_(0)
             self.download_progress.setMaxValue_(1)
-            _identify(self.download_progress, "inklow.general.downloadProgress", "Model download progress")
-            f.custom(self.download_progress, 16)
-            self.download_label = _label("", A.NSMakeRect(0, 0, 552, 35), small=True)
-            _identify(self.download_label, "inklow.general.downloadStatus")
-            f.custom(self.download_label, 35)
-            f.note(f"Current file: {self.controller.config.model_path or 'None selected'}")
+            _identify(self.download_progress, "inklow.models.downloadProgress", "Model download progress")
+            f.custom(self.download_progress, 16, visible=lambda: bool(getattr(self, "model_download_active", False)))
+            self.download_label = _label("", A.NSZeroRect, small=True)
+            _identify(self.download_label, "inklow.models.downloadStatus")
+            f.custom(self.download_label, 24)
             self._select_model(selected, apply=False)
-        else:
-            for field, title in (("endpoint", "Loopback endpoint"), ("model", "Model name")):
-                control = A.NSTextField.alloc().initWithFrame_(A.NSMakeRect(0, 0, 280, 25))
-                control.setStringValue_(getattr(self.controller.config, field))
-                _identify(control, f"inklow.general.{field}", title)
-                self._bind(control, lambda sender, key=field: self._change(**{key: str(sender.stringValue()).strip()}))
-                f.row(title, "Press Return to save.", control, control_width=280)
-        self._popup("acceleration", "Hardware acceleration", [("Automatic (Metal when available)", "auto"), ("CPU only", "cpu")])
-        self._popup("prompt_style", "Model prompt style", [("Text continuation", "continuation"), ("Instruct writing model", "writing")],
-                    "Preset models select their prompt format automatically.")
+        f.section("Current Model")
+        self.model_current_label = _label(self._model_name() + "\n" + str(self.controller.status().get("message") or "Prepares locally in supported writing fields."), A.NSZeroRect)
+        _identify(self.model_current_label, "inklow.models.currentModel", "Current AI model and status")
+        f.custom(self.model_current_label, 38)
+        f.row("Model files", "Models stay on this Mac.", self._button("Reveal in Finder", "inklow.models.revealModels", system.reveal_models), control_width=146)
+        f.section()
+        disclosure = A.NSButton.alloc().initWithFrame_(A.NSMakeRect(0, 0, 24, 24))
+        disclosure.setButtonType_(A.NSButtonTypeOnOff)
+        disclosure.setBezelStyle_(A.NSBezelStyleDisclosure)
+        disclosure.setTitle_("")
+        disclosure.setState_(A.NSControlStateValueOn if self.models_advanced else A.NSControlStateValueOff)
+        _identify(disclosure, "inklow.models.advanced", "Advanced model settings")
+        self._bind(disclosure, lambda sender: self._toggle_model_advanced(bool(sender.state())))
+        f.row("Advanced model settings", "Backend, file diagnostics, acceleration and prompt format.", disclosure, control_width=24)
+        if self.models_advanced:
+            f.section("Advanced")
+            self._popup("backend", "Inference backend", [("On-device GGUF / llama.cpp", "gguf"), ("Local Ollama server", "ollama"), ("Local OpenAI-compatible server", "openai")],
+                        "On-device inference or literal loopback servers only.", callback=self._backend)
+            if self.controller.config.backend == "gguf":
+                self.model_file_label = _label(f"Current GGUF file: {self.controller.config.model_path or 'None selected'}", A.NSZeroRect, small=True)
+                _identify(self.model_file_label, "inklow.models.modelFile", "Current GGUF file")
+                f.custom(self.model_file_label, 24)
+            else:
+                for field, title in (("endpoint", "Loopback endpoint"), ("model", "Model name")):
+                    control = A.NSTextField.alloc().initWithFrame_(A.NSZeroRect)
+                    control.setStringValue_(getattr(self.controller.config, field))
+                    _identify(control, f"inklow.models.{field}", title)
+                    self._bind(control, lambda sender, key=field: self._change(**{key: str(sender.stringValue()).strip()}))
+                    f.row(title, "Press Return to save.", control, control_width=280)
+            self._popup("acceleration", "Hardware acceleration", [("Automatic (Metal when available)", "auto"), ("CPU only", "cpu")])
+            self._popup("prompt_style", "Model prompt style", [("Text continuation", "continuation"), ("Instruct writing model", "writing")],
+                        "Preset models select their prompt format automatically.")
+
+    @objc.python_method
+    def _toggle_model_advanced(self, expanded):
+        self.models_advanced = expanded
+        self._show_pane("models")
+
+    @objc.python_method
+    def _layout_actions(self, view, width):
+        x, y = 0, 0
+        for control in view.subviews():
+            if control.isHidden():
+                continue
+            control.sizeToFit()
+            cw = min(width, max(100, A.NSWidth(control.frame()) + 16))
+            if x and x + cw > width:
+                x, y = 0, y + 36
+            control.setFrame_(A.NSMakeRect(x, y, cw, 28))
+            x += cw + 8
+        return y + 28
 
     @objc.python_method
     def _backend(self, value):
         self._change(backend=value)
-        self._show_pane("general")
+        self._show_pane("models")
 
     @objc.python_method
     def _selected_model(self):
-        popup = self.controls.get("model_preset")
-        index = int(popup.indexOfSelectedItem()) - 1 if popup else -1
-        return self.model_inventory[index] if 0 <= index < len(self.model_inventory) else None
+        config = self.controller.config
+        selected = self.model_selection
+        if selected is None:
+            selected = next((str(item["id"]) for item in self.model_inventory
+                             if config.model_path and str(item.get("path", "")) == config.model_path),
+                            "" if config.model_path else config.model_id)
+        return next((item for item in self.model_inventory if str(item["id"]) == selected), None)
 
     @objc.python_method
     def _use_preset(self, model):
@@ -1757,32 +1875,40 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _select_model(self, preset_id, apply=True):
+        preset_id = str(preset_id)
+        self.model_inventory = self.controller.models()
         model = next((item for item in self.model_inventory if str(item["id"]) == preset_id), None)
-        if self.model_description is not None:
-            self.model_description.setStringValue_(str(model.get("description", "")) if model else "Use Choose GGUF to select your own local model.")
+        if preset_id and model is None:
+            raise ValueError("This model is no longer in the catalogue.")
         if apply:
             self.model_selection = preset_id
             if model and model.get("installed"):
                 self._use_preset(model)
-            elif model and self.pane != "general":
-                self.show_settings("general")
-                return
-            elif model is None:
-                self._choose_model()
-                return
+        if self.pane == "models" and self.model_description is not None:
+            self.model_description.setStringValue_(str(model.get("availability") or model.get("description", "")) if model else "Import a local GGUF file to use your own model.")
         self._refresh_download(self.controller.status())
+        if self.pane == "models":
+            self._reflow_settings()
 
     @objc.python_method
     def _download(self):
-        if self.shutdown_started:
-            raise ValueError("Local cleanup has started. Quit and reopen BroTypist before starting another model download.")
         model = self._selected_model()
         if model is None:
-            raise ValueError("Select a model preset before downloading.")
-        current = next((item for item in self.controller.models() if item["id"] == model["id"]), model)
-        if current.get("installed"):
-            self._use_preset(current)
-            self._show_pane("general")
+            raise ValueError("Choose a model from the catalogue, or use Import Model.")
+        return self._request_model(str(model["id"]))
+
+    @objc.python_method
+    def _request_model(self, preset_id):
+        """One explicit use/download path for Settings and the welcome window."""
+        if self.shutdown_started:
+            raise ValueError("Local cleanup has started. Quit and reopen BroTypist before starting another model download.")
+        self.model_inventory = self.controller.models()
+        model = next((item for item in self.model_inventory if str(item["id"]) == str(preset_id)), None)
+        if model is None:
+            raise ValueError("This model is no longer in the catalogue.")
+        self.model_selection = str(preset_id)
+        if model.get("installed"):
+            self._use_preset(model)
         else:
             if model.get("availability"):
                 raise RuntimeError(str(model["availability"]))
@@ -1799,38 +1925,69 @@ class BroTypistApplication(NSObject):
                 alert.addButtonWithTitle_("Read Terms")
                 response = alert.runModal()
                 if response == A.NSAlertThirdButtonReturn:
-                    A.NSWorkspace.sharedWorkspace().openURL_(NSURL.URLWithString_(str(model["license_url"])))
-                    return
+                    self._open_url(str(model["license_url"]))
+                    return False
                 if response != A.NSAlertFirstButtonReturn:
-                    return
+                    return False
                 accepted = True
             self.controller.download_model(str(model["id"]), accept_license=accepted)
+        self._refresh_download(self.controller.status())
+        return True
 
     @objc.python_method
     def _choose_model(self):
+        if self.shutdown_started:
+            raise ValueError("Local cleanup has started. Quit and reopen BroTypist before importing another model.")
         panel = A.NSOpenPanel.openPanel()
         panel.setCanChooseFiles_(True)
         panel.setCanChooseDirectories_(False)
         panel.setAllowsMultipleSelection_(False)
         panel.setAllowedFileTypes_(["gguf"])
         panel.setTitle_("Choose a local GGUF model")
-        if panel.runModal() == A.NSModalResponseOK:
-            path = str(panel.URL().path())
-            self.controller.set_model(path, self.controller.config.prompt_style, model_id="")
+        if panel.runModal() != A.NSModalResponseOK:
+            return False
+        path = str(panel.URL().path())
+        self.controller.set_model(path, self.controller.config.prompt_style, model_id="")
         self.model_selection = None
-        self._show_pane("general")
+        if self.window is not None and self.window.isVisible() and self.pane == "models":
+            self._show_pane("models")
+        return True
 
     @objc.python_method
     def _refresh_download(self, status):
-        if self.download_progress is None or "download" not in self.controls:
+        current = getattr(self, "model_current_label", None)
+        if self.pane == "models" and current is not None:
+            text = self._model_name() + "\n" + str(status.get("message") or "Prepares locally in supported writing fields.")
+            if str(current.stringValue()) != text:
+                current.setStringValue_(text)
+                self._reflow_settings()
+        file_label = getattr(self, "model_file_label", None)
+        if self.pane == "models" and file_label is not None:
+            text = f"Current GGUF file: {self.controller.config.model_path or 'None selected'}"
+            if str(file_label.stringValue()) != text:
+                file_label.setStringValue_(text)
+                self._reflow_settings()
+        if self.pane != "models" or self.download_progress is None or "download" not in self.controls:
             return
         download = status.get("download") or {}
         active = download.get("state") == "downloading"
+        self.model_download_active = active
         if download.get("state") == "complete":
             completed = str(download.get("id", ""))
             for item in self.model_inventory:
                 if str(item["id"]) == completed:
                     item["installed"] = True
+        popup = self.controls.get("model_preset")
+        selected = self._selected_model()
+        if popup is not None:
+            for index, item in enumerate(self.model_inventory, 1):
+                title = ("✓ " if item.get("installed") else "↓ ") + f"{str(item['label']).split(' — ', 1)[-1]} ({_gb(item.get('size_bytes'))})"
+                if str(popup.itemAtIndex_(index).title()) != title:
+                    popup.itemAtIndex_(index).setTitle_(title)
+            index = next((index for index, item in enumerate(self.model_inventory, 1)
+                          if selected is not None and item["id"] == selected["id"]), 0)
+            if int(popup.indexOfSelectedItem()) != index:
+                popup.selectItemAtIndex_(index)
         done = float(download.get("received", download.get("downloaded", download.get("bytes", 0))) or 0)
         total = float(download.get("total", download.get("size_bytes", 0)) or 0)
         self.download_progress.setMaxValue_(max(1, total))
@@ -1841,17 +1998,23 @@ class BroTypistApplication(NSObject):
         else:
             self.download_progress.stopAnimation_(None)
         model = self._selected_model()
-        self.controls["download"].setTitle_("Use Model" if model and model.get("installed") else "Download")
-        self.controls["download"].setEnabled_(bool(model) and not active)
-        self.controls["cancelDownload"].setEnabled_(active)
+        self.controls["download"].setTitle_("Use Model" if model and model.get("installed") else "Download Model")
+        self.controls["download"].setEnabled_(bool(model) and not active and not self.shutdown_started)
+        self.controls["cancelDownload"].setHidden_(not active)
+        self.controls["chooseModel"].setEnabled_(not active and not self.shutdown_started)
         message = str(download.get("error") or download.get("message") or "")
         if active and total:
             message = f"Downloading: {done / 1_000_000:.1f} / {total / 1_000_000:.1f} MB"
         elif download.get("state") == "complete":
-            message = "Download verified. Select this model and press Use Model to activate it."
+            current_path = self.controller.config.model_path
+            message = "Download verified. This model is in use." if current_path and str(download.get("path", "")) == current_path else "Download verified. Choose the downloaded model and press Use Model to activate it."
         if not message:
             message = "No download in progress. Installed models are ready to use when selected."
         self.download_label.setStringValue_(message)
+        state = (active, str(self.controls["download"].title()), message)
+        if state != getattr(self, "_download_layout_state", None):
+            self._download_layout_state = state
+            self._reflow_settings()
 
     # ----- Context -----------------------------------------------------------
 
@@ -2061,11 +2224,13 @@ class BroTypistApplication(NSObject):
         scroll.setDocumentView_(editor)
         self.editors[key] = editor
         self.form.custom(scroll, 152)
-        container = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 552, 32))
+        container = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, self.form.width, 32))
         save = self._button("Save Changes", f"inklow.{self.pane}.{scope}.saveInstructions", lambda: self._save_instructions(key, app_rule))
         revert = self._button("Revert", f"inklow.{self.pane}.{scope}.revertInstructions", lambda: self._revert_instructions(key, app_rule))
         save.setFrame_(A.NSMakeRect(self.form.width - 248, 0, 145, 28))
         revert.setFrame_(A.NSMakeRect(self.form.width - 100, 0, 100, 28))
+        save.setAutoresizingMask_(A.NSViewMinXMargin)
+        revert.setAutoresizingMask_(A.NSViewMinXMargin)
         container.addSubview_(save)
         container.addSubview_(revert)
         if not app_rule:
@@ -2284,8 +2449,9 @@ class BroTypistApplication(NSObject):
         rules = self.controller.config.app_rules
         if self.selected_rule not in rules:
             self.selected_rule = min(rules, default="", key=lambda key: (key.startswith("domain:"), self._rule_title(key).casefold()))
-        toolbar = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 552, 28))
+        toolbar = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, f.width, 28))
         search = A.NSSearchField.alloc().initWithFrame_(A.NSMakeRect(0, 1, 220, 26))
+        search.setAutoresizingMask_(A.NSViewWidthSizable)
         search.setPlaceholderString_("Search apps and websites")
         search.setStringValue_(self.rule_query)
         search.setSendsSearchStringImmediately_(True)
@@ -2299,11 +2465,14 @@ class BroTypistApplication(NSObject):
         ):
             button = self._button(title, f"inklow.appSettings.{identifier}", callback)
             button.setFrame_(A.NSMakeRect(x, 0, width, 28))
+            button.setAutoresizingMask_(A.NSViewMinXMargin)
             toolbar.addSubview_(button)
         f.custom(toolbar, 28)
         self.rule_source = RuleListSource.alloc().init().configure(self)
         self.rule_source.rows = self._rule_rows()
         table = A.NSTableView.alloc().initWithFrame_(A.NSMakeRect(0, 0, f.width, 220))
+        table.setAutoresizingMask_(A.NSViewWidthSizable)
+        table.setColumnAutoresizingStyle_(A.NSTableViewLastColumnOnlyAutoresizingStyle)
         column = A.NSTableColumn.alloc().initWithIdentifier_("rule")
         column.setWidth_(f.width - 4)
         table.addTableColumn_(column)
@@ -2533,6 +2702,8 @@ class BroTypistApplication(NSObject):
         f.custom(self.statistics_totals, 58)
         self.stats_source = TableSource.alloc().init().configure([], ["label", "completions", "words", "characters", "minutes"])
         table = A.NSTableView.alloc().initWithFrame_(A.NSMakeRect(0, 0, f.width - 4, 170))
+        table.setAutoresizingMask_(A.NSViewWidthSizable)
+        table.setColumnAutoresizingStyle_(A.NSTableViewUniformColumnAutoresizingStyle)
         table.setRowHeight_(24)
         for key, title, width in (("label", "Day / Month / App", 210), ("completions", "Completions", 100), ("words", "Words", 90), ("characters", "Characters", 100), ("minutes", "Minutes", 80)):
             column = A.NSTableColumn.alloc().initWithIdentifier_(key)
@@ -2632,31 +2803,73 @@ class BroTypistApplication(NSObject):
     @objc.python_method
     def _update_controls(self):
         self.form.section("Software Updates")
-        self._switch("check_updates_automatically", "Check automatically",
-                     "Check for signed releases at launch, at most once a day. Downloads and installation require your approval.")
-        self.update_status_label = _label("", A.NSMakeRect(0, 0, self.form.width, 92), small=True)
+        self.form.end_group()
+        self.update_card = A.NSBox.alloc().initWithFrame_(A.NSZeroRect)
+        self.update_card.setBoxType_(A.NSBoxCustom)
+        self.update_card.setBorderType_(A.NSNoBorder)
+        self.update_card.setFillColor_(A.NSColor.controlBackgroundColor())
+        self.update_card.setCornerRadius_(10)
+        self.update_card.setContentViewMargins_(A.NSMakeSize(0, 0))
+        self.update_card_content = FlippedView.alloc().initWithFrame_(A.NSZeroRect)
+        self.update_card.setContentView_(self.update_card_content)
+        self.update_status_label = _label("", A.NSZeroRect)
         _identify(self.update_status_label, "inklow.about.updateStatus", "Software update status")
-        self.form.custom(self.update_status_label, 92)
-        self.update_progress = A.NSProgressIndicator.alloc().initWithFrame_(A.NSMakeRect(0, 0, self.form.width, 16))
+        self.update_card_content.addSubview_(self.update_status_label)
+        self.update_progress = A.NSProgressIndicator.alloc().initWithFrame_(A.NSZeroRect)
         self.update_progress.setStyle_(A.NSProgressIndicatorStyleBar)
         self.update_progress.setIndeterminate_(False)
         self.update_progress.setMinValue_(0)
         self.update_progress.setMaxValue_(1)
         _identify(self.update_progress, "inklow.about.updateProgress", "Software update download progress")
-        self.form.custom(self.update_progress, 16)
-        self.form.section()
-        actions = (
-            ("check", "Check for Updates…", self._check_updates),
-            ("download", "Download Update", self._download_update),
-            ("cancel", "Cancel", self._cancel_update),
-            ("install", "Install & Relaunch", self._install_update),
-        )
-        for key, title, callback in actions:
-            button = self._button(title, f"inklow.about.update.{key}", callback)
-            self.update_buttons[key] = button
-            self.form.row(title, control=button, control_width=180)
+        self.update_card_content.addSubview_(self.update_progress)
+        primary = self._button("Check for Updates…", "inklow.about.update.primary", self._perform_update_action)
+        self.update_buttons["primary"] = primary
+        self.update_card_content.addSubview_(primary)
+        self.form.custom(self.update_card, 100, layout=self._layout_update_card)
+        self._switch("check_updates_automatically", "Check automatically",
+                     "Check for signed releases at launch, at most once a day. Downloads and installation require your approval.")
         self.form.note("Free macOS signing: this app is not notarized. macOS may require per-app approval in System Settings → Privacy & Security → Open Anyway after an update. Approve only this app if you trust it; never disable Gatekeeper. Accessibility, Input Monitoring or Screen Recording access may need approval again.")
+        self._update_layout_state = None
         self._refresh_updates()
+
+    @objc.python_method
+    def _layout_update_card(self, width):
+        inset = 14
+        text_height = Form.text_height(self.update_status_label, width - 2 * inset)
+        self.update_status_label.setFrame_(A.NSMakeRect(inset, 12, width - 2 * inset, text_height))
+        y = 12 + text_height
+        if not self.update_progress.isHidden():
+            self.update_progress.setFrame_(A.NSMakeRect(inset, y + 10, width - 2 * inset, 16))
+            y += 26
+        primary = self.update_buttons["primary"]
+        if not primary.isHidden():
+            primary.sizeToFit()
+            button_width = min(width - 2 * inset, max(150, A.NSWidth(primary.frame()) + 18))
+            primary.setFrame_(A.NSMakeRect(width - inset - button_width, y + 10, button_width, 28))
+            y += 38
+        height = y + 12
+        self.update_card_content.setFrame_(A.NSMakeRect(0, 0, width, height))
+        return height
+
+    @objc.python_method
+    def _perform_update_action(self):
+        # Dispatch the action displayed by this retained control, never infer a
+        # different (possibly destructive) intent from a worker's newer state.
+        action = getattr(self, "update_primary_action", "check")
+        if self.update_committed:
+            return
+        if action == "cancel":
+            self._cancel_update()
+        elif self.termination_requested:
+            return
+        elif action == "releases":
+            self._open_url(self.update_release_url)
+        elif action == "download":
+            self._download_update()
+        elif action == "install":
+            self._install_update()
+        elif action == "check":
+            self._check_updates()
 
     @objc.python_method
     def _refresh_updates(self):
@@ -2673,7 +2886,7 @@ class BroTypistApplication(NSObject):
         heading = f"Installed: {status.get('current_version') or __version__}"
         if version:
             heading += f" · Release: {version}"
-        reason = str(status.get("install_reason") or "")
+        reason = str(status.get("install_reason") or "") if not status.get("installable") else ""
         if self.termination_requested:
             message = "Finishing local work before quitting…" if self.update_handoff is None else "Finishing local work before installing…"
         elif self.shutdown_error:
@@ -2681,23 +2894,43 @@ class BroTypistApplication(NSObject):
         received = max(0, int(status.get("received") or 0))
         total = max(0, int(status.get("total") or 0))
         if state == "downloading":
-            message += f" {received:,} of {total:,} bytes" if total else f" {received:,} bytes received"
-        self.update_status_label.setStringValue_("\n".join(text for text in (heading, message, reason) if text))
+            message += f" {received / 1_000_000:.1f} of {total / 1_000_000:.1f} MB" if total else f" {received / 1_000_000:.1f} MB received"
+        text = "\n".join(value for value in (heading, message, reason) if value)
+        self.update_status_label.setStringValue_(text)
         self.update_progress.setMaxValue_(max(1, total))
         self.update_progress.setDoubleValue_(min(received, max(1, total)))
-        indeterminate = state == "checking" or (state == "downloading" and not total)
+        indeterminate = state in {"checking", "installing"} or (state == "downloading" and not total)
         self.update_progress.setIndeterminate_(indeterminate)
-        if indeterminate:
+        show_progress = busy or (self.termination_requested and self.update_handoff is not None)
+        if indeterminate and show_progress:
             self.update_progress.startAnimation_(None)
         else:
             self.update_progress.stopAnimation_(None)
-        self.update_progress.setHidden_(state not in {"checking", "downloading", "ready", "installing"})
+        self.update_progress.setHidden_(not show_progress)
         self.update_progress.setToolTip_(f"{received:,} of {total:,} bytes" if total else message)
-        self.update_buttons["check"].setEnabled_(not busy and not self.termination_requested)
-        self.update_buttons["download"].setEnabled_(state == "available" and bool(status.get("installable")) and not self.termination_requested)
-        self.update_buttons["cancel"].setEnabled_((busy or self.update_handoff is not None) and not self.update_committed)
-        self.update_buttons["install"].setEnabled_(state == "ready" and bool(status.get("installable")) and not self.termination_requested)
-        self.update_buttons["install"].setHidden_(not bool(status.get("installable")))
+        title = {
+            "checking": "Cancel Check", "downloading": "Cancel Download",
+            "installing": "Cancel Installation", "available": "Download Update",
+            "ready": "Install & Relaunch", "error": "Try Again…",
+        }.get(state, "Check for Updates…")
+        action = {"checking": "cancel", "downloading": "cancel", "installing": "cancel",
+                  "available": "download", "ready": "install"}.get(state, "check")
+        if state in {"available", "ready"} and not status.get("installable"):
+            title = "Open Releases…"
+            action = "releases"
+        if self.update_handoff is not None:
+            title = "Cancel Installation"
+            action = "cancel"
+        self.update_primary_action = action
+        self.update_release_url = str(status.get("release_url") or RELEASES_URL)
+        primary = self.update_buttons["primary"]
+        primary.setTitle_(title)
+        primary.setAccessibilityLabel_(title)
+        primary.setHidden_(self.update_committed or (self.termination_requested and self.update_handoff is None))
+        layout_state = (text, show_progress, title, primary.isHidden())
+        if layout_state != getattr(self, "_update_layout_state", None):
+            self._update_layout_state = layout_state
+            self._reflow_settings()
 
     @objc.python_method
     def _allow_discard_instruction_drafts(self):

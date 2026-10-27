@@ -12,6 +12,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import plistlib
 import platform as host_platform
 import runpy
 import shutil
@@ -143,6 +144,17 @@ def build(destination: Path, *, replace: bool = False) -> Path:
         bundle = staging / "dist" / ("BroTypist.app" if platform == "darwin" else "BroTypist")
         if not bundle.is_dir():
             raise RuntimeError("PyInstaller did not create the expected native application")
+        if platform == "darwin":
+            # The native catalog must be at the bundle resource root, where
+            # LaunchServices resolves CFBundleIconName, before codesign seals it.
+            resources = bundle / "Contents" / "Resources"
+            with (bundle / "Contents" / "Info.plist").open("rb") as stream:
+                info = plistlib.load(stream)
+            if (info.get("CFBundleIconName") != "BroTypist"
+                    or info.get("CFBundleIconFile") != "app.icns"
+                    or not (resources / "Assets.car").is_file()
+                    or not (resources / "app.icns").is_file()):
+                raise RuntimeError("The macOS bundle is missing its native icon catalog or classic fallback")
         if platform == "linux":
             prepare_linux(bundle, destination)
         reject_private_payload(bundle)

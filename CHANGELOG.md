@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 0.4.6 — Unreleased, macOS native design
+
+- Give AI Models its own settings destination, with recommended/installed catalogue choices, explicit download/import and cancellation. Move backend/file/acceleration/prompt diagnostics behind Advanced; clarify the master prediction switch versus defaults for apps without rules.
+- Select and acquire models directly in Welcome without opening Settings. A pending missing model cannot borrow another model’s readiness; recheck file and native inference-library readiness before Continue. Keep downloads and model use explicit, preserve license gates and never run a prediction just to select a model.
+- Make settings genuinely resizable. Measure and reflow native text and controls while retaining unsaved instruction editors, selection, first responder and scroll position.
+- Replace competing update buttons with one state-based action and progress card. Bind its displayed intent so a stale Cancel click cannot turn into Install; preserve confirmation, dirty-draft, shutdown and transactional-updater safety.
+- Fix the first Setup badge refresh selecting Setup instead of the requested pane. Refresh only that row rather than rebuilding sidebar selection.
+- Compile real light/dark/tinted Icon Composer resources before signing. Preserve Ghost Caret geometry and the classic compact fallback; modern macOS scales the full native artwork and can apply its own enclosure treatment. Do not promise size-specific modern geometry or macOS 15 appearance coverage.
+- Correct public-repository and same-line preview copy. Ordinary completion remains grey inline text, not a popup fallback. Linux/Windows redesign builds, normal installation and publication are not part of this local macOS candidate.
+
+
 ## 0.4.5 — signed app updates
 
 - Add credential-free OTA checks against publisher-signed public GitHub metadata, with pinned Ed25519 identity, native-platform package selection, streamed size/hash verification and cancellable downloads. Automatic checks are configurable and bounded to one attempt per day; download/install require explicit action.

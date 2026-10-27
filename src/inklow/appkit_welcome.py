@@ -1,6 +1,7 @@
 """Native six-step welcome and an isolated, real local-inference try-it field."""
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 import time
 
@@ -186,7 +187,7 @@ class WelcomeWindow(NSObject):
         titles = ("Get started", "Continue", "Continue", "Continue", "Finish", "Start typing")
         self.primary = self.button(titles[self.step], 580, 534, 148, self.advance, "inklow.welcome.next")
         self.primary.setKeyEquivalent_("\r")
-        hints = ("Takes about two minutes", "Optional context stays off unless you turn it on", "Allow both permissions to continue", "Choose a local model to continue", "Use your configured acceptance keys", "Find BroTypist in the menu bar")
+        hints = ("Set up at your own pace", "Optional context is off by default", "Allow both permissions to continue", "Choose a ready local model to continue", "Use your configured acceptance keys", "Find BroTypist in the menu bar")
         self.hint = label(hints[self.step], 138, 541, 424, 22, size=12, secondary=True)
         self.hint.setAlignment_(A.NSTextAlignmentRight)
         self.root.addSubview_(self.hint)
@@ -222,9 +223,9 @@ class WelcomeWindow(NSObject):
         tagline = label("A little help with the words that come next.", 56, 266, 648, 25, secondary=True)
         tagline.setAlignment_(A.NSTextAlignmentCenter)
         self.root.addSubview_(tagline)
-        self.card("Runs locally", "A model on this Mac, or your configured local loopback server. No account required.", 304, height=62)
-        self.card("Stays out of the way", "Suggestions beside your caret. Accept the words you want, or keep typing to ignore them.", 374, height=62)
-        self.card("Source on GitHub", "Browse the repository with an authorized GitHub account.", 444, height=62)
+        self.card("Runs locally", "Use a model on this Mac or a configured local server. No account required.", 304, height=62)
+        self.card("Stays out of the way", "Faint inline suggestions in supported fields. Accept what you want, or keep typing to ignore them.", 374, height=62)
+        self.card("Source on GitHub", "Public source code. No account needed to browse.", 444, height=62)
         self.button("View source", 558, 454, 130, lambda: A.NSWorkspace.sharedWorkspace().openURL_(NSURL.URLWithString_(REPOSITORY_URL)), "inklow.welcome.source")
 
     @objc.python_method
@@ -269,16 +270,190 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def step_3(self):
-        self.heading("Choose your local model", "Use the verified GGUF catalogue, choose a GGUF file, or configure a local loopback server in General. Nothing downloads until you ask.")
-        if self.shell.controller.config.backend == "gguf":
-            from .models import recommended_preset
-            recommended = recommended_preset()
-            self.card("Recommended for this Mac", f"{recommended.label.split(' — ', 1)[-1]} ({float(recommended.size_bytes) / 1_000_000_000:.1f} GB), chosen from this Mac’s memory.", 196, height=66)
-        self.card("Selected model", self.shell._model_name(), 272, height=66)
-        self.model_status = label("", 72, 346, 616, 44, secondary=True)
+        from .models import recommended_preset
+        self.heading("Choose your local model", "Choose a catalogue model or import a local file. Nothing downloads until you ask. Choosing a model does not run a prediction.")
+        self.recommended_model = recommended_preset().id
+        self.model_choice = ""
+        self.model_config_key = None
+        self.model_menu_items = None
+        self.local_backend_error = None
+        self.root.addSubview_(label("The recommendation is based on this Mac’s memory. You can change models later.", 56, 189, 648, 22, size=12, secondary=True))
+        self.model_popup = A.NSPopUpButton.alloc().initWithFrame_pullsDown_(A.NSMakeRect(56, 219, 648, 30), False)
+        self.model_popup.setTarget_(self)
+        self.model_popup.setAction_("chooseCatalogueModel:")
+        self.model_popup.setIdentifier_("inklow.welcome.modelChoice")
+        self.model_popup.setAccessibilityIdentifier_("inklow.welcome.modelChoice")
+        self.model_popup.setAccessibilityLabel_("Local model")
+        self.root.addSubview_(self.model_popup)
+        self.model_description = label("", 56, 260, 648, 44, size=12, secondary=True)
+        self.root.addSubview_(self.model_description)
+        self.model_request = self.button("Download Model", 56, 315, 224, self.request_model, "inklow.welcome.requestModel")
+        self.model_import = self.button("Import Local File…", 292, 315, 184, self.import_model, "inklow.welcome.importModel")
+        self.button("Advanced Settings…", 488, 315, 216, lambda: self.shell.show_settings("models"), "inklow.welcome.models")
+        self.selected_model = label("", 56, 361, 648, 25, size=13, bold=True)
+        self.selected_model.cell().setLineBreakMode_(A.NSLineBreakByTruncatingMiddle)
+        self.root.addSubview_(self.selected_model)
+        self.model_status = label("", 56, 396, 648, 48, size=12, secondary=True)
         self.root.addSubview_(self.model_status)
-        self.button("Open Model Settings…", 56, 396, 210, lambda: self.shell.show_settings("general"), "inklow.welcome.models")
-        self.root.addSubview_(label("Return here when your model is selected. Settings show real download progress, cancellation and local files. This step never silently changes the backend or model.", 56, 440, 648, 53, size=12, secondary=True))
+        self.model_progress = A.NSProgressIndicator.alloc().initWithFrame_(A.NSMakeRect(56, 454, 516, 16))
+        self.model_progress.setStyle_(A.NSProgressIndicatorStyleBar)
+        self.root.addSubview_(self.model_progress)
+        self.model_cancel = self.button("Cancel", 588, 446, 116, self.cancel_model_download, "inklow.welcome.cancelDownload")
+        self.root.addSubview_(label("Downloads are verified before use. Imported files stay where you choose them.", 56, 484, 648, 22, size=11.5, secondary=True))
+        self.refresh_model()
+
+    @objc.python_method
+    def _model_config(self):
+        config = self.shell.controller.config
+        return config.backend, config.model_path, config.model
+
+    @objc.python_method
+    def _current_model_choice(self, inventory):
+        config = self.shell.controller.config
+        pending = self.shell.model_selection
+        if pending is not None and any(str(item["id"]) == pending for item in inventory):
+            return pending
+        if config.backend != "gguf":
+            return ""
+        selected = next((str(item["id"]) for item in inventory
+                         if config.model_path and Path(str(item["path"])).expanduser() == Path(config.model_path).expanduser()), None)
+        return selected if selected is not None else ("" if config.model_path else self.recommended_model)
+
+    @objc.python_method
+    def _populate_models(self, inventory):
+        ordered = sorted(inventory, key=lambda item: (str(item["id"]) != self.recommended_model, not item.get("installed")))
+        options = []
+        config = self.shell.controller.config
+        if config.backend != "gguf" or (config.model_path and not any(
+                Path(str(item["path"])).expanduser() == Path(config.model_path).expanduser() for item in inventory)):
+            options.append(("", self.shell._model_name() + (" — local file" if config.backend == "gguf" else " — local server")))
+        for item in ordered:
+            size = float(item.get("size_bytes") or 0) / 1_000_000_000
+            state = "Installed" if item.get("installed") else f"{size:.2f} GB download"
+            recommended = " — Recommended" if str(item["id"]) == self.recommended_model else ""
+            options.append((str(item["id"]), f"{item['label']}{recommended} · {state}"))
+        signature = tuple(options)
+        if signature != self.model_menu_items:
+            self.model_popup.removeAllItems()
+            self.model_popup.addItemsWithTitles_([title for _, title in options])
+            self.model_menu_items = signature
+        index = next((index for index, (model_id, _) in enumerate(options) if model_id == self.model_choice), -1)
+        self.model_popup.selectItemAtIndex_(index)
+
+    def chooseCatalogueModel_(self, sender):
+        index = int(sender.indexOfSelectedItem())
+        if not self.model_menu_items or not 0 <= index < len(self.model_menu_items):
+            return
+        self.model_choice = self.model_menu_items[index][0]
+        try:
+            if self.model_choice:
+                self.shell._select_model(self.model_choice)
+            else:
+                self.shell.model_selection = None
+        except Exception as exc:
+            self.shell._error(str(exc))
+        finally:
+            self.refresh_model()
+
+    @objc.python_method
+    def request_model(self):
+        try:
+            if self.model_choice:
+                self.shell._request_model(self.model_choice)
+        finally:
+            self.refresh_model()
+
+    @objc.python_method
+    def import_model(self):
+        try:
+            self.shell._choose_model()
+        finally:
+            self.refresh_model()
+
+    @objc.python_method
+    def cancel_model_download(self):
+        self.shell.controller.cancel_download()
+        self.refresh_model()
+
+    @objc.python_method
+    def _model_can_continue(self, model):
+        config = self.shell.controller.config
+        if not self.shell._model_ready():
+            return False
+        if self.model_choice:
+            if not model or not model.get("installed") or config.backend != "gguf":
+                return False
+            if Path(str(model["path"])).expanduser() != Path(config.model_path).expanduser():
+                return False
+        if config.backend == "gguf":
+            return self.local_backend_error == ""
+        return bool(config.model.strip())
+
+    @objc.python_method
+    def refresh_model(self):
+        inventory = self.shell.controller.models()
+        key = self._model_config()
+        if self.model_config_key != key:
+            self.model_choice = self._current_model_choice(inventory)
+            self.model_config_key = key
+        self._populate_models(inventory)
+        model = next((item for item in inventory if str(item["id"]) == self.model_choice), None)
+        config = self.shell.controller.config
+        if config.backend == "gguf" and self.local_backend_error is None:
+            try:
+                # Check the Python/native dependency, never allocate a model or generate text.
+                importlib.import_module("llama_cpp")
+                self.local_backend_error = ""
+            except Exception as exc:
+                self.local_backend_error = "Local inference support could not load. Repair the installation and reopen BroTypist."
+                self.model_status.setToolTip_(str(exc))
+        download = self.shell.controller.status().get("download") or {}
+        active = download.get("state") == "downloading"
+        ready = self._model_can_continue(model)
+        self.primary.setEnabled_(ready)
+        self.selected_model.setStringValue_(f"Current: {self.shell._model_name()}")
+        self.selected_model.setToolTip_(self.shell._model_name())
+        if model:
+            details = str(model.get("description") or "")
+            if model.get("availability"):
+                details = str(model["availability"])
+            elif model.get("requires_license_acceptance") and not model.get("installed"):
+                details += f" You’ll be asked to accept {model['license_name']} before downloading."
+        else:
+            details = "Your imported file is used in place." if config.backend == "gguf" else "Your configured local server is kept. Try it checks inference; setup does not test the connection."
+        self.model_description.setStringValue_(details)
+        self.model_request.setTitle_("Use Model" if model and model.get("installed") else "Download Model")
+        self.model_request.setEnabled_(bool(model) and not active and (bool(model.get("installed")) or not model.get("availability")))
+        self.model_import.setEnabled_(not active)
+        self.model_cancel.setHidden_(not active)
+        self.model_cancel.setEnabled_(active)
+        done = float(download.get("received") or 0)
+        total = float(download.get("total") or 0)
+        self.model_progress.setHidden_(not active)
+        self.model_progress.setIndeterminate_(active and total <= 0)
+        self.model_progress.setMaxValue_(max(1, total))
+        self.model_progress.setDoubleValue_(min(done, max(1, total)))
+        if active and total <= 0:
+            self.model_progress.startAnimation_(None)
+        else:
+            self.model_progress.stopAnimation_(None)
+        if active:
+            downloading = next((str(item["label"]) for item in inventory if str(item["id"]) == str(download.get("id"))), "model")
+            progress = f"{done / 1_000_000:.1f} / {total / 1_000_000:.1f} MB" if total > 0 else f"{done / 1_000_000:.1f} MB"
+            message = f"Downloading {downloading}… {progress}. Verification follows the download."
+        elif download.get("state") in {"error", "cancelled"}:
+            message = str(download.get("error") or download.get("message") or "Download stopped. You can try again.")
+        elif config.backend == "gguf" and self.local_backend_error:
+            message = self.local_backend_error
+        elif ready:
+            message = "Local model file and inference support are ready. Try it next." if config.backend == "gguf" else "Local server configured. Try it next to check inference."
+        elif model and model.get("installed"):
+            message = "Download verified. Choose Use Model to make it current." if download.get("state") == "complete" and str(download.get("id")) == self.model_choice else "Choose Use Model to make this installed model current."
+        elif model:
+            message = str(model.get("availability") or "This model is not installed. Choose Download Model to begin.")
+        else:
+            message = "The current local model is not ready. Import an existing file or choose a catalogue model."
+        self.model_status.setStringValue_(message)
 
     @objc.python_method
     def step_4(self):
@@ -344,6 +519,8 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def advance(self):
+        if self.step == 3:
+            self.refresh_model()
         if not self.primary.isEnabled():
             return
         if self.step == 5:
@@ -392,17 +569,7 @@ class WelcomeWindow(NSObject):
             button.setEnabled_(wanted and not permissions["screen_recording"])
             self.primary.setEnabled_(permissions["accessibility"] and permissions["input_monitoring"])
         elif self.step == 3:
-            config = self.shell.controller.config
-            ready = config.backend != "gguf" or bool(config.model_path and Path(config.model_path).is_file())
-            self.primary.setEnabled_(ready)
-            status = self.shell.controller.status()
-            download = status.get("download") or {}
-            message = str(download.get("error") or download.get("message") or "")
-            if download.get("state") == "downloading" and download.get("total"):
-                message = f"Downloading… {int(float(download.get('received', 0)) * 100 / float(download['total']))}%"
-            if not message:
-                message = ("Local model file ready." if config.backend == "gguf" else "Local server configured. Try it next to check inference.") if ready else "No model file selected. Open Model Settings to download or choose one."
-            self.model_status.setStringValue_(f"{self.shell._model_name()}\n{message}")
+            self.refresh_model()
         elif self.step == 5:
             now = time.monotonic()
             if now - self.last_inline_check >= 1:

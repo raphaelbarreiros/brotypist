@@ -4,13 +4,16 @@
 macOS uses CoreGraphics and iconutil without importing Qt. Other platforms use
 Qt SVG rendering and retain the committed ICNS. Logical sizes at or below 32pt
 use the canonical simplified artwork, including explicit @2x PNG representations.
-These are flat derivatives of the handoff SVGs, not compiled Icon Composer assets.
+The native build also compiles the layered Icon Composer document with actool.
 """
 from __future__ import annotations
 
 import argparse
 import os
+import copy
+import json
 from pathlib import Path
+import plistlib
 import struct
 import subprocess
 import sys
@@ -288,11 +291,102 @@ def write_icns(target: Path) -> None:
                         str(iconset)], check=True)
 
 
+def write_composer_sources() -> None:
+    """Split the supplied full artwork into the one native app-icon document."""
+    namespace = "http://www.w3.org/2000/svg"
+    ET.register_namespace("", namespace)
+    document = SOURCES / "BroTypist.icon"
+    assets = document / "Assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    names = ("enclosure", "caret", "suggestions")
+    for variant in APP_VARIANTS:
+        appearance = "" if variant == "normal" else f"-{variant}"
+        source = ET.parse(SOURCES / f"app-icon{appearance}.svg").getroot()
+        shapes = [node for node in source if node.tag.rsplit("}", 1)[-1] == "rect"]
+        partitions = (shapes[:2], shapes[2:5], shapes[5:])
+        for name, shapes_in_layer in zip(names, partitions):
+            # All layers use the same full canvas; no scale/translation,
+            # alpha, color, radius or geometry is inferred or redesigned.
+            layer = ET.Element(f"{{{namespace}}}svg", {
+                **source.attrib, "width": "1024", "height": "1024",
+            })
+            for node in source:
+                if node.tag.rsplit("}", 1)[-1] == "defs":
+                    layer.append(copy.deepcopy(node))
+            for node in shapes_in_layer:
+                layer.append(copy.deepcopy(node))
+            ET.ElementTree(layer).write(
+                assets / f"{name}{appearance}.svg", encoding="unicode")
+    # Composer serializes front-to-back, opposite SVG's paint order.
+    layers = [{
+        "name": name.title(),
+        "image-name-specializations": [
+            {"value": f"{name}.svg"},
+            {"appearance": "dark", "value": f"{name}-dark.svg"},
+            {"appearance": "tinted", "value": f"{name}-tinted.svg"},
+        ],
+        "glass": False,
+    } for name in reversed(names)]
+    manifest = {
+        "fill": {"solid": "srgb:0.00000,0.00000,0.00000,0.00000"},
+        "groups": [{
+            "name": "Ghost Caret",
+            "layers": layers,
+            "specular": False,
+            "shadow": {"kind": "none", "opacity": 0},
+            "translucency": {"enabled": False, "value": 0},
+            "blur-material": 0,
+        }],
+        "supported-platforms": {"squares": ["macOS"]},
+    }
+    (document / "icon.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+
+def compile_native_icons(output: Path) -> dict:
+    """Compile Apple-owned runtime resources into the caller's build workspace.
+
+    These resources target macOS 26; the app's deployment target is unchanged.
+    Older consumers retain the original classic handoff ICNS, not actool's
+    synthesized legacy drawing.
+    """
+    if sys.platform != "darwin":
+        raise RuntimeError("Icon Composer compilation requires a native macOS build")
+    output.mkdir(parents=True, exist_ok=True)
+    metadata = output / "icon-info.plist"
+    subprocess.run([
+        "/usr/bin/xcrun", "actool",
+        str(SOURCES / "BroTypist.icon"),
+        "--compile", str(output),
+        "--platform", "macosx", "--target-device", "mac",
+        "--minimum-deployment-target", "26.0",
+        "--app-icon", "BroTypist",
+        "--output-partial-info-plist", str(metadata),
+        "--output-format", "human-readable-text", "--warnings", "--notices",
+    ], check=True)
+    with metadata.open("rb") as stream:
+        info = plistlib.load(stream)
+    if not (output / "Assets.car").is_file() or info.get("CFBundleIconName") != "BroTypist":
+        raise RuntimeError("actool did not produce the native app icon and its bundle metadata")
+    return info
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skip-icns", action="store_true",
                         help="Retain the existing ICNS; still regenerate PNG and ICO")
+    parser.add_argument("--composer-only", action="store_true",
+                        help="Regenerate layered .icon source documents only")
+    parser.add_argument("--native-output", type=Path,
+                        help="Compile native resources only, into this scoped directory")
     args = parser.parse_args()
+    if args.composer_only:
+        write_composer_sources()
+        return 0
+    if args.native_output is not None:
+        compile_native_icons(args.native_output.resolve())
+        return 0
+    write_composer_sources()
     application = None if sys.platform == "darwin" else (
         QGuiApplication.instance() or QGuiApplication([]))
     for variant in APP_VARIANTS:

@@ -1,0 +1,78 @@
+{
+  "fill": {
+    "solid": "srgb:0.00000,0.00000,0.00000,0.00000"
+  },
+  "groups": [
+    {
+      "name": "Ghost Caret",
+      "layers": [
+        {
+          "name": "Suggestions",
+          "image-name-specializations": [
+            {
+              "value": "suggestions.svg"
+            },
+            {
+              "appearance": "dark",
+              "value": "suggestions-dark.svg"
+            },
+            {
+              "appearance": "tinted",
+              "value": "suggestions-tinted.svg"
+            }
+          ],
+          "glass": false
+        },
+        {
+          "name": "Caret",
+          "image-name-specializations": [
+            {
+              "value": "caret.svg"
+            },
+            {
+              "appearance": "dark",
+              "value": "caret-dark.svg"
+            },
+            {
+              "appearance": "tinted",
+              "value": "caret-tinted.svg"
+            }
+          ],
+          "glass": false
+        },
+        {
+          "name": "Enclosure",
+          "image-name-specializations": [
+            {
+              "value": "enclosure.svg"
+            },
+            {
+              "appearance": "dark",
+              "value": "enclosure-dark.svg"
+            },
+            {
+              "appearance": "tinted",
+              "value": "enclosure-tinted.svg"
+            }
+          ],
+          "glass": false
+        }
+      ],
+      "specular": false,
+      "shadow": {
+        "kind": "none",
+        "opacity": 0
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      },
+      "blur-material": 0
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
+}

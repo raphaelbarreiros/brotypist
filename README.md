@@ -23,7 +23,7 @@ Packaged applications include Python and their UI runtime. Model weights are sep
 
 ### macOS
 
-Build on Apple Silicon with macOS 15 or newer. Drag the built **BroTypist.app** to Applications; the installed app name has no version suffix. Quit the running copy before replacing it. Open **Welcome** or **Settings → Setup** to review live permission state.
+Use Apple Silicon with macOS 15 or newer. Drag **BroTypist.app** from the disk image to Applications; the installed app name has no version suffix. Quit the running copy before replacing it. Open **Welcome** or **Settings → Setup** to review live permission state.
 
 The Mac distribution is **Apple Development identity-signed, not Developer ID-signed or notarized**. Historical/CI-built packages may be ad-hoc signed; read the specific release receipt. Do not disable Gatekeeper globally.
 
@@ -84,17 +84,22 @@ Versions through 0.4.3 have no updater: **one manual installation of an OTA-capa
 
 Welcome covers privacy, system access, explicit model selection, a real local prediction preview and the resident menu. Reopen it from **About → Show Welcome**. macOS settings contain:
 
+The layout below describes the **unreleased macOS 0.4.6 development version**. Published 0.4.5 keeps model controls in General; no 0.4.6 Linux or Windows package has been published.
+
 - **Setup:** live required/optional permission and model-readiness states.
-- **General:** startup, predictions, accessory icon, model management, completion length, inside-text behavior and typo controls.
+- **General:** startup, accessory icon, master/default prediction switches, completion length, inside-text behavior and typo controls.
+- **AI Models:** recommended and installed catalogue models, explicit download/import, progress and cancellation. Backend, acceleration and prompt settings are under Advanced.
 - **Context:** separate opt-ins for focused-window Accessibility text, clipboard, screenshot OCR and screenshot-based appearance.
 - **Personalization:** encrypted history, local style/vocabulary evidence, recording controls, custom instructions and scoped deletion/counts.
 - **Emoji / Shortcuts:** emoji preferences, configurable physical keys, word/full acceptance, punctuation and Escape behavior.
 - **Battery:** on-demand behavior, installed smaller-model selection and shorter completions.
 - **App Settings:** searchable app/domain rules, compatibility controls, Tab/recording overrides and instructions.
 - **Labs:** explicit alternatives and selected-text synonyms. These numbered tools are separate from ordinary inline suggestions.
-- **Statistics / About:** actual accepted-writing aggregates, source/release links, Welcome and Quit.
+- **Statistics / About:** actual accepted-writing aggregates, source/release links, Welcome and Quit. About shows one state-based software-update action rather than separate competing buttons.
 
 New installations select **Gemma 4 E2B**, a pinned 2.84 GB public GGUF, with a conservative RAM recommendation. **Gemma 3 1B** is an independently sourced 806 MB option requiring explicit acceptance of [Gemma Terms](https://ai.google.dev/gemma/terms). The catalogue also contains larger Gemma 3/4 and Qwen 3 variants with memory guards; catalogue metadata is not a claim that every size has been exercised on this Mac. Qwen2.5 1.5B and the English Tiny preset remain available. Existing saved model choices are not silently replaced. Suggestions are not a grammar or factuality guarantee.
+
+Onboarding selects, downloads or imports a model without opening Settings. Choosing a missing model blocks Continue even if another model is ready; choosing a cached catalogue model activates it without another download. Local file and inference-library readiness are checked before continuing; the next Try it step exercises actual inference. Settings resize without discarding unsaved instruction text, editor selection or scroll position.
 
 | Action | Existing default |
 | --- | --- |
@@ -192,14 +197,19 @@ The authored corpus covers multilingual writing, reference facts, Unicode partia
 uv run python tools/build_app.py
 uv run python tools/smoke_bundle.py
 # Run the matching native packager from a committed build:
-uv run python tools/package_macos.py --bundle dist/BroTypist.app --output release --version 0.4.5
-# On native Linux:
-uv run python tools/package_linux.py --bundle dist/BroTypist --output release --version 0.4.5
+VERSION=$(uv run python -c 'from inklow import __version__; print(__version__)')
+uv run python tools/package_macos.py --bundle dist/BroTypist.app --output release --version "$VERSION"
+# On native Linux; the 0.4.6 redesign/build is currently macOS-only:
+uv run python tools/package_linux.py --bundle dist/BroTypist --output release --version "$VERSION"
 ```
 
 The inference smoke needs an explicitly configured existing model. Installers consume complete native builds; they do not download models or cross-compile. Windows packaging needs .NET SDK 8 and WiX **5.0.2** (`dotnet tool install --global wix --version 5.0.2`). Linux needs `dpkg-dev`, GI/AT-SPI/GTK and Qt libraries; the Wayland client additionally needs a C compiler, `pkg-config`, Wayland/xkbcommon development libraries, protocol XMLs and `wayland-scanner`. Use CPython 3.12 on Ubuntu 24.04 for its distro GI ABI. The [CI workflow](.github/workflows/ci.yml) lists exact build prerequisites.
 
-Canonical artwork is in `design/icons/`. The normal, dark, and small SVGs come directly from the supplied handoff; keep their geometry intact. Rebuild with `python tools/generate_icons.py`: macOS rasterizes the vectors with CoreGraphics and packages ICNS with `iconutil`; Windows/Linux use their existing Qt toolkit. Neither path adds enclosure lighting or a bevel. Runtime apps load committed raster assets and do not require an icon authoring tool.
+Canonical artwork is in `design/icons/`. The normal, dark, tinted and small SVGs preserve the supplied Ghost Caret geometry. `uv run python tools/generate_icons.py` rebuilds classic PNG/ICO/ICNS assets; the small artwork remains the classic and in-app compact variant.
+
+Mac bundles additionally require **full Xcode with `actool` and Icon Composer support**, not Command Line Tools alone. The build compiles `BroTypist.icon` to a real root-level `Assets.car` before signing, with system light/dark/tinted variants. Regenerate its editable layered sources with `uv run python tools/generate_icons.py --composer-only`. Current compiler verification uses Xcode 27.1; runtime apps need no authoring tools.
+
+macOS 26+ chooses and scales the native full-artwork icon. Icon Composer does not select different geometry for small Dock/Finder sizes, and macOS can apply its own enclosure treatment even with authored effects disabled. The classic fallback remains packaged; its appearance has not been runtime-verified on macOS 15.
 
 For stable local Mac permission identity, sign with the **same existing Keychain identity**:
 
