@@ -9,7 +9,7 @@ Local-first predictive typing for macOS and supported Linux inputs. **Linux buil
 
 ## Install
 
-This repository is **private**. Sign in to a GitHub account with access before downloading release assets or cloning it.
+This repository and its GitHub release downloads are public. The in-app updater requires no GitHub account, personal token or built-in maintainer credential.
 
 **[BroTypist 0.4.3](https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.3)** adds encrypted local writing-style learning, reusable fixed-frame preparation and Linux shutdown repairs. Native macOS DMG/ZIP and Linux Debian/portable packages share the latest core. Windows product builds remain held; historical Inklow assets are preserved.
 
@@ -26,6 +26,12 @@ Packaged applications include Python and their UI runtime. Model weights are sep
 Build on Apple Silicon with macOS 15 or newer. Drag the built **BroTypist.app** to Applications; the installed app name has no version suffix. Quit the running copy before replacing it. Open **Welcome** or **Settings → Setup** to review live permission state.
 
 The Mac distribution is **Apple Development identity-signed, not Developer ID-signed or notarized**. Historical/CI-built packages may be ad-hoc signed; read the specific release receipt. Do not disable Gatekeeper globally.
+
+#### “Apple could not verify BroTypist” on first launch
+
+The free distribution path is intentional: **Apple Development signing does not make this app notarized**. After checking the download against `SHA256SUMS`, dismiss the warning with **Done**, open **System Settings → Privacy & Security**, find the blocked BroTypist entry and choose **Open Anyway**, then confirm **Open**. This is an app-specific decision; do not choose Move to Trash if you intend to keep it.
+
+Apple may require approval again for a replacement build. OTA publisher signatures authenticate our packages but do not replace Apple's notarization or your permission to launch them. Do not disable Gatekeeper globally or remove quarantine attributes. A Developer ID/notarized distribution would require a separately approved paid Apple Developer setup; it is not claimed here.
 
 ### Windows — held
 
@@ -61,6 +67,16 @@ KWin owns manual-panel placement. Protected fields, selections, stale contexts, 
 ### Verify downloads
 
 Releases include `SHA256SUMS`. On Linux, use `sha256sum --check SHA256SUMS --ignore-missing`; on macOS, use `shasum -a 256 <file>`; on Windows, use `Get-FileHash <file> -Algorithm SHA256`. Compare against the matching manifest entry. Integrity checks are not a signing or notarization certificate.
+
+### In-app updates
+
+Use **Check for Updates…** in the resident menu or the updates section of **About**. Automatic checks are configurable and run at most once per day; they send no writing, model, history or machine identifier. Downloads and **Install & Relaunch** require your action and do not interrupt typing automatically.
+
+The app verifies an Ed25519-signed manifest using its pinned publisher public key, then checks the selected package's size/hash and native application identity. An independent bundled helper waits for clean shutdown and actual process exit before atomic replacement. A new native GUI must acknowledge startup; failed installation/startup restores the complete previous build. Settings, history, cached models and desktop/startup preferences remain outside the replaced app.
+
+Writable Mac bundles and user-owned Linux portable installations can self-update. Debian-managed installations download the verified `.deb` and hand it to the system package installer for administrator approval and restart; the app never silently replaces `/opt/brotypist` or elevates itself. Source checkouts, disk-image/read-only locations and held platforms cannot self-replace. Move a Mac app out of its DMG before updating.
+
+Versions through 0.4.3 have no updater: **one manual installation of an OTA-capable version is required first**. Free Mac builds retain the per-app launch approval requirement above.
 
 ## First run and daily use
 
@@ -195,9 +211,11 @@ Never export or commit signing keys. Reusing an identity is not a notarization c
 
 The [macOS and Linux checks workflow](.github/workflows/ci.yml) runs deterministic regressions, native settings, source/frozen inference and platform installer checks. Linux installation checks use a private D-Bus/X11 session and invoke the visible own-process Quit button; they do not establish universal desktop typing or Wayland inline support. Windows jobs and automatic release publication remain held.
 
-Update both `pyproject.toml` and `src/inklow/__init__.py` and commit before a release build. **Actions → macOS and Linux checks** accepts a matching `release_tag=v<version>` to validate/build native artifacts; it does not publish a release automatically. Never overwrite published versions or historical assets.
+Update `pyproject.toml`, `src/inklow/__init__.py` and `uv.lock`, then commit before a release build. **Actions → macOS and Linux checks** accepts a matching `release_tag=v<version>` to validate/build native artifacts; it does not publish automatically. Never overwrite published versions or historical assets.
 
-Manual publication uses native packagers, smoke receipts and `tools/release_assets.py`: `manifest` seals artifacts; `publish --inputs <directory> --output <new-directory> --tag v<version> --commit <source-sha> --repo renan-brasilio/brotypist --targets macos-arm64 linux-x86_64` verifies the explicitly requested targets before draft-first publication. Disclose held platforms and compatibility limits. Do not publish unverified installers or label source-only changes as installed.
+Manual publication uses native packagers, smoke receipts and `tools/release_assets.py`. `manifest` seals each verified native package set. `prepare --inputs <directory> --output <new-directory> --tag v<version> --commit <source-sha> --repo renan-brasilio/brotypist --targets macos-arm64 linux-x86_64` works offline: it verifies the requested targets and their receipts, signs `update-manifest.json`, and produces the packages, `release-manifest.json`, `update-manifest.sig` and `SHA256SUMS`. `publish` performs the same verification before draft-first GitHub publication.
+
+Publisher signing requires the Ed25519 private key provisioned in macOS Keychain under service **BroTypist Release Signing**, account **ed25519-v1**. The corresponding public key is pinned in `src/inklow/update_keys.py`; a mismatched signing key is rejected. This key authenticates the update feed and package hashes; it does not replace Apple's code signature or notarization. Never export it, commit it or put credentials in the public feed. Disclose held platforms and compatibility limits; do not publish unverified installers or label source-only changes as installed.
 
 Publishing through `gh` requires a GitHub API credential with repository **Contents: write** access; SSH push authorization does not grant Release API access. The 0.4.0 release used the existing authenticated owner browser after the CLI token refused writes. No token, SSH credential or account permission was changed.
 

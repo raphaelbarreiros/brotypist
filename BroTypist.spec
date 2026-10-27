@@ -63,10 +63,41 @@ if sys.platform == "linux":
         linux_imports.extend(imports)
         pending.extend(tuple(dependency.rsplit("-", 1)) for dependency in info.dependencies)
 
+# An independent onefile runtime keeps the transactional updater alive while the
+# resident application's complete directory is exchanged underneath it.
+native_binaries = list(linux_binaries)
+if sys.platform in ("darwin", "linux"):
+    updater_analysis = Analysis(
+        [str(ROOT / "packaging" / "update_launcher.py")],
+        pathex=[str(ROOT / "src")],
+        binaries=[],
+        datas=[],
+        hiddenimports=["cryptography.hazmat.primitives.asymmetric.ed25519"],
+        hookspath=[str(ROOT / "packaging" / "hooks")],
+        excludes=["pytest", "PySide6", "llama_cpp", "tkinter",
+                  "AppKit", "Foundation", "Quartz", "objc"],
+        noarchive=False,
+        optimize=0,
+    )
+    updater_executable = EXE(
+        PYZ(updater_analysis.pure),
+        updater_analysis.scripts,
+        updater_analysis.binaries,
+        updater_analysis.datas,
+        [],
+        name="BroTypist-updater",
+        debug=False,
+        strip=False,
+        upx=False,
+        console=True,
+        codesign_identity=codesign_identity,
+    )
+    native_binaries.append((updater_executable.name, "helpers"))
+
 analysis = Analysis(
     [str(ROOT / "packaging" / "launcher.py")],
     pathex=[str(ROOT / "src")],
-    binaries=linux_binaries,
+    binaries=native_binaries,
     datas=[(str(ASSETS), "inklow/assets")] + linux_datas,
     hiddenimports=["llama_cpp", keyring_backend] + linux_imports,
     hookspath=[str(ROOT / "packaging" / "hooks")],
@@ -149,5 +180,6 @@ if sys.platform == "darwin":
             "NSHumanReadableCopyright": "BroTypist — independent, local-first predictive typing",
             # A resident typing assistant has settings, not a document window.
             "LSUIElement": True,
+            "LSFileQuarantineEnabled": True,
         },
     )

@@ -9,6 +9,7 @@ from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+import os
 import sys
 import threading
 import time
@@ -33,6 +34,8 @@ from .models import PRESETS
 from .resources import REPOSITORY_URL, app_icon, configure_identity, tray_icon
 from .runtime import Controller, ShutdownPending
 from .shortcuts import normalize_shortcut, shortcut_from_event
+from .updates import UpdateService
+from .update_install import HEALTH_NONCE, HEALTH_PATH, acknowledge_startup
 
 PANES = ("General", "AI Models", "Autocomplete", "Languages", "Privacy", "About")
 
@@ -992,6 +995,70 @@ class SettingsWindow(QDialog):
         settings.clicked.connect(self._reveal_settings)
         form.addRow(settings)
         form.addRow(_label("Use Quit BroTypist at the bottom of this window to stop the app, or Close window to return to the tray."))
+        updates = self._group(layout, "Updates")
+        self._check(updates, "check_updates_automatically", "Check for updates automatically",
+                    "Checks once a day when the resident app starts. Downloads and installation always require your approval.")
+        self.update_status = _label("")
+        self.update_status.setAccessibleName("Software update status")
+        updates.addRow(self.update_status)
+        self.update_installation = _label("")
+        updates.addRow(self.update_installation)
+        self.update_progress = QProgressBar()
+        self.update_progress.setAccessibleName("Software update download progress")
+        updates.addRow(self.update_progress)
+        buttons = QHBoxLayout()
+        self.update_check = QPushButton("Check for Updates…")
+        self.update_check.clicked.connect(self.shell.check_updates)
+        self.update_download = QPushButton("Download Update")
+        self.update_download.clicked.connect(lambda: self.shell._update_action(self.shell.updates.start_download))
+        self.update_cancel = QPushButton("Cancel")
+        self.update_cancel.clicked.connect(lambda: self.shell._update_action(self.shell.updates.cancel))
+        self.update_install = QPushButton("Install & Relaunch")
+        self.update_install.clicked.connect(self.shell.install_update)
+        for name, button in (("update_check", self.update_check), ("update_download", self.update_download),
+                             ("update_cancel", self.update_cancel), ("update_install", self.update_install)):
+            button.setObjectName(name)
+            button.setAutoDefault(False)
+            buttons.addWidget(button)
+        updates.addRow(buttons)
+        self.refresh_updates()
+
+    def refresh_updates(self, snapshot: dict | None = None) -> None:
+        status = self.shell.updates.snapshot() if snapshot is None else snapshot
+        state = status.get("state", "idle")
+        kind = status.get("install_kind", "source")
+        version = status.get("version")
+        current = status.get("current_version") or __version__
+        message = str(status.get("message") or "Check for a newer signed release.")
+        self.update_status.setText(f"Installed version: {current}" + (f" · Update: {version}" if version else "") + f"\n{message}")
+        if kind == "linux_debian":
+            explanation = ("Managed Debian installation. The verified .deb opens in your system's package installer, "
+                           "which may request administrator approval. BroTypist does not replace /opt itself. "
+                           "After installation finishes, quit and reopen BroTypist to use the new version.")
+        else:
+            explanation = str(status.get("install_reason") or "")
+            if kind == "macos_bundle":
+                explanation += ("\nMac releases use free per-app approval, not paid Developer ID notarization. "
+                                "macOS may require approval of the replacement app and review of system access.")
+        self.update_installation.setText(explanation)
+        shutting_down = self.shell._shutdown_pending or self.shell._stopping or self.shell._stopped
+        busy = state in {"checking", "downloading", "installing"}
+        self.update_check.setEnabled(not busy and not shutting_down)
+        can_install = bool(status.get("installable")) or kind == "linux_debian"
+        self.update_download.setEnabled(state == "available" and can_install and not shutting_down)
+        self.update_cancel.setVisible(state in {"checking", "downloading"})
+        self.update_cancel.setEnabled(not shutting_down)
+        self.update_install.setText("Open System Installer" if kind == "linux_debian" else "Install & Relaunch")
+        self.update_install.setVisible(can_install)
+        self.update_install.setEnabled(state == "ready" and can_install and not shutting_down)
+        self.update_progress.setVisible(state == "downloading")
+        received, total = int(status.get("received") or 0), int(status.get("total") or 0)
+        if total > 0:
+            self.update_progress.setRange(0, 1000)
+            self.update_progress.setValue(min(1000, received * 1000 // total))
+            self.update_progress.setFormat(f"{_size(received)} / {_size(total)} · %p%")
+        else:
+            self.update_progress.setRange(0, 0)
 
     def _reveal_settings(self) -> None:
         from PySide6.QtCore import QUrl
@@ -1238,6 +1305,7 @@ class SettingsWindow(QDialog):
         self.history.setChecked(self.controller.config.record_history)
         self._loading = False
         self._changed()
+        self.refresh_updates()
 
     def closeEvent(self, event) -> None:
         if self._closing or self.shell._stopped:
@@ -1761,6 +1829,11 @@ class MenuAgent:
     def __init__(self, app: QApplication, config: Config, *, no_tray: bool = False):
         self.app = app
         self.controller = Controller(config)
+        self.updates = UpdateService()
+        self._update_snapshot: dict | None = None
+        self._update_handoff = None
+        self._install_requested = False
+        self._shutdown_pending = False
         self.controller.show_settings = self.show_settings
         self._clipboard_reader = ClipboardReader(app)
         self.controller.set_clipboard_reader(self._clipboard_reader.read)
@@ -1825,6 +1898,8 @@ class MenuAgent:
         missing_model = config.backend == "gguf" and not (config.model_path and Path(config.model_path).is_file())
         if not config.setup_completed or missing_model:
             self.show_welcome()
+        if config.check_updates_automatically:
+            self.updates.start_check(automatic=True)
 
     def create_menu(self) -> QMenu:
         menu = QMenu()
@@ -1872,6 +1947,7 @@ class MenuAgent:
         menu.addAction("Settings…", lambda: self._menu_action(self.show_settings, "General"))
         menu.addAction("Welcome…", lambda: self._menu_action(self.show_welcome))
         menu.addAction("Models…", lambda: self._menu_action(self.open_models))
+        menu.addAction("Check for Updates…", lambda: self._menu_action(self.check_updates)).setObjectName("check_updates")
         menu.addSeparator()
         # DBus tray exporters need not emit QMenu.aboutToHide when an exported
         # action is invoked. Quit must not depend on that menu-tracking fence.
@@ -2103,6 +2179,59 @@ class MenuAgent:
         self.show_settings("AI Models")
         self.settings.open_models()
 
+    def check_updates(self) -> None:
+        if self._shutdown_pending or self._stopped:
+            return
+        self.show_settings("About")
+        self._update_action(self.updates.start_check)
+
+    def _update_action(self, function) -> None:
+        if self._shutdown_pending or self._stopped:
+            return
+        try:
+            function()
+        except Exception:
+            self.show_settings("About")
+            _error(self.settings, "The update action could not be completed. Check the update status and try again.")
+        self._poll_updates()
+
+    def _poll_updates(self) -> None:
+        snapshot = self.updates.snapshot()
+        if snapshot != self._update_snapshot:
+            self._update_snapshot = snapshot
+            if self.settings:
+                self.settings.refresh_updates(snapshot)
+        for action in self.menu.actions():
+            if action.objectName() == "check_updates":
+                action.setEnabled(not self._shutdown_pending and snapshot.get("state") not in {"checking", "downloading", "installing"})
+
+    def install_update(self) -> None:
+        if self._shutdown_pending or self._stopped:
+            return
+        status = self.updates.snapshot()
+        if status.get("state") != "ready":
+            return
+        self.show_settings("About")
+        if status.get("install_kind") == "linux_debian":
+            choice = QMessageBox.question(
+                self.settings, "Open system package installer?",
+                "Open the verified Debian package in the system installer? It may ask for administrator approval. "
+                "BroTypist cannot report whether installation succeeds; quit and reopen it after the installer finishes.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
+            if choice == QMessageBox.StandardButton.Yes:
+                self._update_action(self.updates.open_package_installer)
+            return
+        if not status.get("installable"):
+            return
+        choice = QMessageBox.question(
+            self.settings, "Install update and relaunch?",
+            "Stop typing assistance, install the verified update and reopen BroTypist? Your settings, history and models are kept.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
+        if choice != QMessageBox.StandardButton.Yes:
+            return
+        self._install_requested = True
+        self.quit()
+
     def _position(self, rect, *, clamp: bool = True) -> tuple[QPoint, int]:
         x, y, width, height = (float(value) for value in rect)
         # Native Windows and X11 caret rectangles use device pixels. Qt widgets
@@ -2256,6 +2385,9 @@ class MenuAgent:
             self._tray_ticks += 1
             if self._tray_requested and self._tray_ticks % 40 == 0:
                 self._refresh_tray_availability()
+            if not self._shutdown_pending and self.controller.config.check_updates_automatically:
+                self.updates.start_check(automatic=True)
+            self._poll_updates()
             if self._menu_session or self._native_menu_active:
                 return
             self.controller.tick()
@@ -2316,13 +2448,28 @@ class MenuAgent:
                     self.welcome._close_preview()
             finally:
                 self.controller.stop()
+            for window in (self.welcome, self.settings):
+                if window and window.model_manager:
+                    window.model_manager._refresh_timer.stop()
+                    window.model_manager.hide()
+            if self._update_handoff is not None:
+                # prepare_install settles the update worker before it creates
+                # a helper. Approval is only sent after all controller-owned
+                # work has stopped; its pipe stays open until actual exit.
+                self._update_handoff.commit()
+            self.updates.close()
+        except ShutdownPending:
+            self.timer.start()
+            raise
         except Exception:
+            self._abort_update_install()
             # Keep a visible, working Quit button so incomplete cleanup can be
             # retried; never strand an invisible process marked as stopped.
             self.timer.start()
             raise
         else:
             self._stopped = True
+            self._shutdown_pending = False
             retry = getattr(self, "_quit_retry", None)
             if retry is not None:
                 retry.stop()
@@ -2345,6 +2492,14 @@ class MenuAgent:
         finally:
             self._stopping = False
 
+    def _abort_update_install(self) -> None:
+        handoff = self._update_handoff
+        if handoff is not None and not handoff.committed:
+            handoff.abort()
+            self.updates.cancel()
+            self._update_handoff = None
+        self._install_requested = False
+
     def quit(self) -> bool:
         if self._quitting:
             return False
@@ -2353,30 +2508,45 @@ class MenuAgent:
             if self.settings and self.settings._changes():
                 choice = QMessageBox.question(self.settings, "Save before quitting?", "Save your settings changes before quitting BroTypist?", QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Save)
                 if choice == QMessageBox.StandardButton.Cancel or (choice == QMessageBox.StandardButton.Save and not self.settings.apply()):
+                    self._abort_update_install()
                     return False
                 if choice == QMessageBox.StandardButton.Discard:
                     self.settings.reload()
+            updating = self._install_requested or self._update_handoff is not None
             try:
+                if self._install_requested and self._update_handoff is None:
+                    self._update_handoff = self.updates.prepare_install()
+                elif self._update_handoff is None:
+                    self.updates.cancel()
                 self.stop()
             except ShutdownPending:
+                self._shutdown_pending = True
                 retry = getattr(self, "_quit_retry", None)
                 if retry is None:
                     retry = self._quit_retry = QTimer(self.app)
                     retry.setSingleShot(True)
                     retry.timeout.connect(self.quit)
                 self.tray_notice = "Closing BroTypist — cancelling local background work…"
-                self.show_settings("General")
+                self.show_settings("About" if self._install_requested else "General")
                 for window in (self.settings, self.welcome):
                     if window:
                         window.setEnabled(False)
                 retry.start(100)
                 return False
             except Exception:
+                self._abort_update_install()
+                self._shutdown_pending = False
+                retry = getattr(self, "_quit_retry", None)
+                if retry is not None:
+                    retry.stop()
                 for window in (self.settings, self.welcome):
                     if window:
                         window.setEnabled(True)
-                self.tray_notice = "Shutdown is incomplete. Choose Quit BroTypist again to finish releasing local resources."
-                self.show_settings("General")
+                self.tray_notice = ("Update installation was cancelled because shutdown could not finish. "
+                                    "No update was approved; choose Quit BroTypist again to release local resources."
+                                    if updating and self._update_handoff is None else
+                                    "Shutdown is incomplete. Choose Quit BroTypist again to finish releasing local resources.")
+                self.show_settings("About" if updating else "General")
                 _error(self.settings, self.tray_notice)
                 return False
             if self.settings:
@@ -2396,9 +2566,22 @@ def launch(config: Config, *, background: bool = False, no_tray: bool = False, p
     # Retain ownership independently of Python's local frame for embedded smoke
     # entrypoints and application shutdown callbacks.
     app._inklow_menu_agent = shell
-    shell.start(background=background)
-    if pane is not None:
-        shell.show_settings(pane)
+    def start_resident():
+        # Prove that the replacement reached its real GUI event loop, then
+        # remove the private receipt environment before model workers can start.
+        expected_ack = bool(os.environ.get(HEALTH_PATH) or os.environ.get(HEALTH_NONCE))
+        try:
+            acknowledged = acknowledge_startup()
+        except Exception:
+            acknowledged = False
+        if expected_ack and not acknowledged:
+            app.exit(1)
+            return
+        shell.start(background=background)
+        if pane is not None:
+            shell.show_settings(pane)
+
+    QTimer.singleShot(0, start_resident)
     try:
         return app.exec()
     finally:

@@ -2,6 +2,16 @@
 
 # Changelog
 
+## Unreleased — signed app updates
+
+- Add credential-free OTA checks against publisher-signed public GitHub metadata, with pinned Ed25519 identity, native-platform package selection, streamed size/hash verification and cancellable downloads. Automatic checks are configurable and bounded to one attempt per day; download/install require explicit action.
+- Add resident-menu and About update controls on macOS/Linux without expanding the minimal field menu or running downloads on the GUI thread.
+- Bundle an independent offline updater that waits for successful resource shutdown and actual process exit, validates the complete native build and atomically exchanges directories. A verified native GUI startup acknowledgment completes installation; failure rolls back while retaining the previous build.
+- Preserve models, encrypted history, preferences, startup identities and quarantined download provenance. Prevent unconfirmed update launches from starting inference; publish startup receipts atomically so readers cannot mistake incomplete files for failed startup.
+- Respect managed Debian installs by handing the verified package to the system installer instead of silently replacing `/opt`; source/read-only/held installations cannot self-replace.
+- Publish source/downloads without embedding a GitHub credential. Keep free Apple Development signing and document app-specific Open Anyway approval; no Developer ID, notarization, global Gatekeeper bypass or quarantine removal is claimed. Existing versions through 0.4.3 need one manual bootstrap installation. Windows and iCloud remain held.
+
+
 ## 0.4.3 — macOS and Linux
 
 - Learn bounded local style and recurring vocabulary from newly observed authored edits under existing encrypted-history consent. Keep exact app/website and confident language matching, exclude BroTypist-generated edits and unproven existing drafts, and treat learned evidence as advisory data rather than instructions or model-weight training.

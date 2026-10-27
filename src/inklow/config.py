@@ -131,6 +131,7 @@ class Config:
     )
     setup_completed: bool = False
     launch_at_login: bool = False
+    check_updates_automatically: bool = True
     show_accessory: bool = True
     complete_inside_text: bool = True
     completion_length: str = "medium"

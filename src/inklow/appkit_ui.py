@@ -9,6 +9,7 @@ from copy import deepcopy
 from collections import deque
 from dataclasses import replace
 import math
+import os
 from pathlib import Path
 import time
 import threading
@@ -21,7 +22,9 @@ from Foundation import NSAttributedString, NSBundle, NSIndexSet, NSObject, NSRun
 from . import __version__, system
 from .appkit_overlay import CaretOverlay, _dark, _rgb
 from .resources import APP_NAME, REPOSITORY_URL, asset_path
-from .runtime import Controller
+from .runtime import Controller, ShutdownPending
+from .updates import UpdateService
+from .update_install import HEALTH_NONCE, HEALTH_PATH, acknowledge_startup
 from .shortcuts import mac_key_name, normalize_shortcut, shortcut_from_event
 
 PANES = (
@@ -539,6 +542,21 @@ class BroTypistApplication(NSObject):
         self.last_stats_refresh = 0.0
         self.last_setup_refresh = 0.0
         self.stopping = False
+        self.updates = UpdateService()
+        self.update_status_label = self.update_progress = None
+        self.update_buttons = {}
+        self.update_handoff = None
+        self.update_committed = False
+        self.termination_requested = False
+        self.termination_waiting = False
+        self.termination_drafts_approved = False
+        self.shutdown_complete = False
+        self.shutdown_next_retry = 0.0
+        self.shutdown_error = ""
+        self.startup_initialized = False
+        self.startup_acknowledged = False
+        self.startup_failed = False
+        self.shutdown_started = False
         self._wake_lock = threading.Lock()
         self._wake_pending = False
         self.window = None
@@ -579,19 +597,19 @@ class BroTypistApplication(NSObject):
             except Exception as exc:
                 self.no_tray = True
                 self.last_error = str(exc)
-        try:
-            self.controller.start()
-        except Exception as exc:
-            self.last_error = str(exc)
         self.timer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(0.025, self, "tick:", None, True)
         self.timer.setTolerance_(0.008)
         NSRunLoop.mainRunLoop().addTimer_forMode_(self.timer, NSRunLoopCommonModes)
         self.controller.set_wake_callback(self._wake_controller)
         self._refresh_status()
+        self._refresh_updates()
+        if self.controller.config.check_updates_automatically:
+            self.updates.start_check(automatic=True)
         if self.requested_pane == "welcome" or (not self.requested_pane and (not self.controller.config.setup_completed or not self._model_ready())):
             self.show_welcome()
         elif self.requested_pane or self.no_tray or self.status_item is None:
             self.show_settings(self.pane)
+        self.startup_initialized = True
         if self.last_error and (self.window or self.welcome):
             self._error(self.last_error)
 
@@ -742,6 +760,7 @@ class BroTypistApplication(NSObject):
         self.menu.addItem_(A.NSMenuItem.separatorItem())
         self.stats_line = self._menu_item(self.menu, "Today", "inklow.menu.stats", lambda: self.show_settings("statistics"))
         self._menu_item(self.menu, "Settings…", "inklow.menu.settings", lambda: self.show_settings("general"), ",")
+        self.update_item = self._menu_item(self.menu, "Check for Updates…", "inklow.menu.checkUpdates", self._check_updates)
         self._menu_item(self.menu, f"Quit {APP_NAME}", "inklow.menu.quit", lambda: A.NSApplication.sharedApplication().terminate_(None), "q")
         self._build_field_menu()
         self.menu_binding_limit = self.next_tag
@@ -885,10 +904,11 @@ class BroTypistApplication(NSObject):
         return self.field_menu
 
     def menuWillOpen_(self, menu):
-        if not self.tracking_menus and not self.resume_menu_shortcuts:
+        if not self.shutdown_started and not self.tracking_menus and not self.resume_menu_shortcuts:
             self.menu_shortcuts_were_enabled = bool(self.controller.bridge._enabled)
         self.tracking_menus.add(menu)
-        self.controller.bridge.set_shortcuts_enabled(False)
+        if not self.shutdown_started:
+            self.controller.bridge.set_shortcuts_enabled(False)
         try:
             if menu == getattr(self, "field_menu", None):
                 self._refresh_field_menu()
@@ -900,7 +920,7 @@ class BroTypistApplication(NSObject):
 
     def menuDidClose_(self, menu):
         self.tracking_menus.discard(menu)
-        if not self.tracking_menus:
+        if not self.tracking_menus and not self.shutdown_started:
             self.resume_menu_shortcuts = True
 
     @objc.python_method
@@ -927,18 +947,46 @@ class BroTypistApplication(NSObject):
     def tick_(self, timer):
         if self.stopping or self.tracking_menus:
             return
+        if not self.startup_initialized:
+            return
+        if self.termination_requested:
+            self._advance_shutdown()
+            return
+        if self.startup_failed:
+            return
+        if not self.startup_acknowledged:
+            # This is the first real event-loop turn after native UI setup,
+            # before controller/welcome ticks can start model subprocesses.
+            try:
+                expected_ack = bool(os.environ.get(HEALTH_PATH) or os.environ.get(HEALTH_NONCE))
+                if not acknowledge_startup() and expected_ack:
+                    raise RuntimeError("The updated app did not acknowledge startup.")
+            except Exception:
+                self.last_error = "The updated app could not confirm a healthy startup. Quitting without starting local inference."
+                self.startup_failed = True
+                A.NSApplication.sharedApplication().terminate_(None)
+                return
+            self.startup_acknowledged = True
+            try:
+                self.controller.start()
+            except Exception as exc:
+                self.last_error = str(exc)
+                self._error(self.last_error)
         try:
             while self.pending_menu_actions:
                 callback, sender = self.pending_menu_actions.popleft()
                 callback(sender)
-                if self.stopping:
+                if self.stopping or self.termination_requested:
                     return
             self.controller.tick()
             if self.resume_menu_shortcuts:
                 self.resume_menu_shortcuts = False
-                self.controller.bridge.set_shortcuts_enabled(self.menu_shortcuts_were_enabled)
+                if not self.shutdown_started:
+                    self.controller.bridge.set_shortcuts_enabled(self.menu_shortcuts_were_enabled)
             for event in self.controller.drain_events():
                 kind = event.get("type")
+                if self.overlay is None and kind in {"suggestion", "caret", "docs_help", "clear"}:
+                    continue
                 if kind == "suggestion":
                     self.overlay.present(event)
                 elif kind == "caret":
@@ -953,8 +1001,11 @@ class BroTypistApplication(NSObject):
             now = time.monotonic()
             if now - getattr(self, "_last_status_refresh", 0) >= 0.1:
                 self._last_status_refresh = now
+                if not self.shutdown_started and self.controller.config.check_updates_automatically:
+                    self.updates.start_check(automatic=True)
+                self._refresh_updates()
                 self._refresh_status()
-            if self.welcome:
+            if self.welcome and not self.shutdown_started:
                 self.welcome.tick()
             if self.window and self.window.isVisible() and self.pane == "statistics" and time.monotonic() - self.last_stats_refresh > 5:
                 self._refresh_statistics()
@@ -982,6 +1033,8 @@ class BroTypistApplication(NSObject):
         enabled = bool(status.get("enabled"))
         state = str(status.get("state", "idle"))
         message = str(status.get("message") or state.capitalize())
+        if self.shutdown_error:
+            enabled, state, message = False, "error", self.shutdown_error
         if enabled and state in {"idle", "ready"} and not status.get("inline_available", True):
             message = str(status.get("inline_message") or message)
         if enabled:
@@ -1062,7 +1115,8 @@ class BroTypistApplication(NSObject):
         status["icon_frame"] = frame
         if hasattr(self, "sidebar_status"):
             self.sidebar_status.setStringValue_(f"{badge} · {model_name}" if enabled else badge)
-        self.overlay.configure(self.controller.config.show_accessory, self.controller.config.shortcuts.get("all", ""))
+        if self.overlay:
+            self.overlay.configure(self.controller.config.show_accessory, self.controller.config.shortcuts.get("all", ""))
         for field in ("enabled", "global_enabled"):
             control = self.controls.get(field)
             if control:
@@ -1142,6 +1196,9 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def show_welcome(self):
+        if self.shutdown_started:
+            self.show_settings("about")
+            return
         from .appkit_welcome import WelcomeWindow
         if self.welcome is None:
             self.welcome = WelcomeWindow.alloc().init().configure(self)
@@ -1349,6 +1406,8 @@ class BroTypistApplication(NSObject):
             self.instruction_buttons = {}
             self.setup_rows = {}
             self.model_description = self.download_progress = self.download_label = None
+            self.update_status_label = self.update_progress = None
+            self.update_buttons = {}
             # Keep only menu bindings; released pane controls must not retain actions.
             self.bindings = {tag: action for tag, action in self.bindings.items() if tag <= self.menu_binding_limit}
             self.pane = pane
@@ -1371,6 +1430,7 @@ class BroTypistApplication(NSObject):
         self._remember_drafts()
         if self.no_tray or self.status_item is None:
             A.NSApplication.sharedApplication().terminate_(None)
+            return False
         return True
 
     @objc.python_method
@@ -1714,6 +1774,8 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _download(self):
+        if self.shutdown_started:
+            raise ValueError("Local cleanup has started. Quit and reopen BroTypist before starting another model download.")
         model = self._selected_model()
         if model is None:
             raise ValueError("Select a model preset before downloading.")
@@ -2092,7 +2154,7 @@ class BroTypistApplication(NSObject):
                 self._error(str(exc))
                 return False
         recorder.configure(self.controller.config.shortcuts.get(action, ""), save,
-                           lambda recording: self.controller.bridge.set_shortcuts_enabled(not recording))
+                           lambda recording: self.controller.bridge.set_shortcuts_enabled(not recording and not self.shutdown_started))
         self.form.row(title, detail, recorder, height=87)
 
     @objc.python_method
@@ -2542,6 +2604,135 @@ class BroTypistApplication(NSObject):
             f"Estimated time saved: ≈{_minutes(stats.get('estimated_seconds', 0))} minutes (from accepted characters).")
         self.last_stats_refresh = time.monotonic()
 
+    @objc.python_method
+    def _check_updates(self):
+        if self.termination_requested or self.update_committed:
+            return
+        self.show_settings("about")
+        if self.updates.snapshot().get("state") not in {"checking", "downloading", "installing"}:
+            self.updates.start_check()
+        self._refresh_updates()
+
+    @objc.python_method
+    def _download_update(self):
+        if not self.termination_requested:
+            self.updates.start_download()
+            self._refresh_updates()
+
+    @objc.python_method
+    def _cancel_update(self):
+        if self.update_committed:
+            return
+        if self.update_handoff is not None:
+            self._cancel_termination()
+        else:
+            self.updates.cancel()
+        self._refresh_updates()
+
+    @objc.python_method
+    def _update_controls(self):
+        self.form.section("Software Updates")
+        self._switch("check_updates_automatically", "Check automatically",
+                     "Check for signed releases at launch, at most once a day. Downloads and installation require your approval.")
+        self.update_status_label = _label("", A.NSMakeRect(0, 0, self.form.width, 92), small=True)
+        _identify(self.update_status_label, "inklow.about.updateStatus", "Software update status")
+        self.form.custom(self.update_status_label, 92)
+        self.update_progress = A.NSProgressIndicator.alloc().initWithFrame_(A.NSMakeRect(0, 0, self.form.width, 16))
+        self.update_progress.setStyle_(A.NSProgressIndicatorStyleBar)
+        self.update_progress.setIndeterminate_(False)
+        self.update_progress.setMinValue_(0)
+        self.update_progress.setMaxValue_(1)
+        _identify(self.update_progress, "inklow.about.updateProgress", "Software update download progress")
+        self.form.custom(self.update_progress, 16)
+        self.form.section()
+        actions = (
+            ("check", "Check for Updates…", self._check_updates),
+            ("download", "Download Update", self._download_update),
+            ("cancel", "Cancel", self._cancel_update),
+            ("install", "Install & Relaunch", self._install_update),
+        )
+        for key, title, callback in actions:
+            button = self._button(title, f"inklow.about.update.{key}", callback)
+            self.update_buttons[key] = button
+            self.form.row(title, control=button, control_width=180)
+        self.form.note("Free macOS signing: this app is not notarized. macOS may require per-app approval in System Settings → Privacy & Security → Open Anyway after an update. Approve only this app if you trust it; never disable Gatekeeper. Accessibility, Input Monitoring or Screen Recording access may need approval again.")
+        self._refresh_updates()
+
+    @objc.python_method
+    def _refresh_updates(self):
+        status = self.updates.snapshot()
+        state = status.get("state", "idle")
+        busy = state in {"checking", "downloading", "installing"}
+        version = status.get("version") or ""
+        if hasattr(self, "update_item"):
+            self.update_item.setEnabled_(not busy and not self.termination_requested)
+            self.update_item.setToolTip_(str(status.get("message") or "Check for a signed software update."))
+        if self.update_status_label is None:
+            return
+        message = str(status.get("message") or "No update check has run yet.")
+        heading = f"Installed: {status.get('current_version') or __version__}"
+        if version:
+            heading += f" · Release: {version}"
+        reason = str(status.get("install_reason") or "")
+        if self.termination_requested:
+            message = "Finishing local work before quitting…" if self.update_handoff is None else "Finishing local work before installing…"
+        elif self.shutdown_error:
+            message = self.shutdown_error
+        received = max(0, int(status.get("received") or 0))
+        total = max(0, int(status.get("total") or 0))
+        if state == "downloading":
+            message += f" {received:,} of {total:,} bytes" if total else f" {received:,} bytes received"
+        self.update_status_label.setStringValue_("\n".join(text for text in (heading, message, reason) if text))
+        self.update_progress.setMaxValue_(max(1, total))
+        self.update_progress.setDoubleValue_(min(received, max(1, total)))
+        indeterminate = state == "checking" or (state == "downloading" and not total)
+        self.update_progress.setIndeterminate_(indeterminate)
+        if indeterminate:
+            self.update_progress.startAnimation_(None)
+        else:
+            self.update_progress.stopAnimation_(None)
+        self.update_progress.setHidden_(state not in {"checking", "downloading", "ready", "installing"})
+        self.update_progress.setToolTip_(f"{received:,} of {total:,} bytes" if total else message)
+        self.update_buttons["check"].setEnabled_(not busy and not self.termination_requested)
+        self.update_buttons["download"].setEnabled_(state == "available" and bool(status.get("installable")) and not self.termination_requested)
+        self.update_buttons["cancel"].setEnabled_((busy or self.update_handoff is not None) and not self.update_committed)
+        self.update_buttons["install"].setEnabled_(state == "ready" and bool(status.get("installable")) and not self.termination_requested)
+        self.update_buttons["install"].setHidden_(not bool(status.get("installable")))
+
+    @objc.python_method
+    def _allow_discard_instruction_drafts(self):
+        self._remember_drafts()
+        config = self.controller.config
+        dirty = False
+        for key, value in self.drafts.items():
+            if key == "global_instructions":
+                saved = config.custom_instructions
+            elif key.startswith("rule:"):
+                saved = config.app_rules.get(key[5:], {}).get("custom_instructions", "")
+            else:
+                continue
+            if value != saved:
+                dirty = True
+                break
+        return not dirty or self._confirm("Discard unsaved instructions?",
+                                         "Custom instruction drafts have not been saved. Continue to discard them and quit, or cancel and use Save Changes in Settings.")
+
+    @objc.python_method
+    def _install_update(self):
+        status = self.updates.snapshot()
+        if self.termination_requested or status.get("state") != "ready" or not status.get("installable"):
+            return
+        if not self._confirm("Install update and relaunch?",
+                             "BroTypist will stop local activity, quit, replace this app with the verified update and relaunch. macOS may require per-app approval; this free-signed release is not notarized. Your model, history and settings are not replaced."):
+            return
+        if not self._allow_discard_instruction_drafts():
+            return
+        if self.termination_requested or self.shutdown_complete:
+            return
+        self.update_handoff = self.updates.prepare_install()
+        self.termination_drafts_approved = True
+        A.NSApplication.sharedApplication().terminate_(None)
+
     # ----- About -------------------------------------------------------------
 
     @objc.python_method
@@ -2554,13 +2745,108 @@ class BroTypistApplication(NSObject):
         self.form.custom(wordmark(552, 44, 32), 44)
         self.form.section()
         self.form.row(f"Version {__version__}", "Local-first predictive typing. A menu utility, not a document editor. No account, subscription or telemetry.", height=74)
-        self.form.row("Releases", "Updates are manual: download a new version from GitHub Releases. BroTypist never updates itself.", self._button("Open Releases…", "inklow.about.releases", lambda: self._open_url(RELEASES_URL)), control_width=145)
+        self._update_controls()
+        self.form.section()
+        self.form.row("Releases", "Release notes and downloadable packages on GitHub.", self._button("Open Releases…", "inklow.about.releases", lambda: self._open_url(RELEASES_URL)), control_width=145)
         self.form.row("Support", "Report a problem or ask a question on GitHub. Nothing is sent automatically.", self._button("Open Support…", "inklow.about.support", lambda: self._open_url(SUPPORT_URL)), control_width=145)
-        self.form.row("Source repository", "Private repository access requires authorization.", self._button("View on GitHub", "inklow.about.source", lambda: self._open_url(REPOSITORY_URL)), control_width=145)
+        self.form.row("Source repository", "Public source code and releases on GitHub. No account or access token is required.", self._button("View on GitHub", "inklow.about.source", lambda: self._open_url(REPOSITORY_URL)), control_width=145)
         self.form.row("Welcome & setup", "Review privacy, permissions, model setup and the real typing preview.", self._button("Show Welcome…", "inklow.about.welcome", self.show_welcome), control_width=145)
         self.form.row("Typing safety", "Secure fields, excluded apps and unsupported controls are skipped before capture. Insertion revalidates the original target.", height=92)
         self.form.row("Settings links", f"Other apps and scripts can open a pane with {URL_SCHEME}://settings/<pane>, for example {URL_SCHEME}://settings/shortcuts.", height=74)
         self.form.row(f"Quit {APP_NAME}", "Stops monitoring, cancels downloads and releases the inference worker.", self._button("Quit", "inklow.about.quit", lambda: A.NSApplication.sharedApplication().terminate_(None)), control_width=100)
+
+    def applicationShouldTerminate_(self, app):
+        if self.shutdown_complete:
+            return A.NSTerminateNow
+        # Always defer: a menu may still own tracking, and cleanup may need
+        # several bounded cancellation attempts on the existing main-loop timer.
+        self.termination_requested = True
+        self.termination_waiting = True
+        return A.NSTerminateLater
+
+    @objc.python_method
+    def _cancel_termination(self):
+        if self.update_committed:
+            return
+        try:
+            if self.update_handoff is not None:
+                handoff, self.update_handoff = self.update_handoff, None
+                try:
+                    handoff.abort()
+                finally:
+                    self.updates.cancel()
+        finally:
+            self.termination_requested = False
+            self.termination_drafts_approved = False
+            self.shutdown_next_retry = 0.0
+            if self.shutdown_started:
+                self.shutdown_error = "Installation or quit was cancelled. Local activity is stopped; use Quit to finish cleanup, then reopen BroTypist."
+            if self.termination_waiting:
+                self.termination_waiting = False
+                A.NSApplication.sharedApplication().replyToApplicationShouldTerminate_(False)
+
+    @objc.python_method
+    def _advance_shutdown(self):
+        if getattr(self, "_shutdown_advancing", False) or time.monotonic() < self.shutdown_next_retry:
+            return
+        self._shutdown_advancing = True
+        try:
+            if not self.termination_drafts_approved:
+                if not self._allow_discard_instruction_drafts():
+                    self._cancel_termination()
+                    return
+                self.termination_drafts_approved = True
+            self.shutdown_started = True
+            cleanup = []
+            if self.welcome:
+                cleanup.append(("preview", self.welcome.stop_preview))
+            cleanup.append(("controller", self.controller.stop))
+            if self.overlay:
+                cleanup.append(("overlay", self.overlay.close))
+            if self.update_handoff is None:
+                cleanup.append(("updates", self.updates.close))
+            pending, failed = False, False
+            for name, action in cleanup:
+                try:
+                    action()
+                except ShutdownPending:
+                    pending = True
+                except Exception:
+                    failed = True
+                else:
+                    if name == "overlay":
+                        self.overlay = None
+            if failed:
+                raise RuntimeError("Local cleanup failed.")
+            if pending:
+                raise ShutdownPending("Finishing cancellation of local work.")
+            if self.window:
+                self.window.makeFirstResponder_(None)
+            if self.welcome:
+                self.welcome.close()
+            if self.update_handoff is not None:
+                # close() aborts a prepared handoff. Keep it alive until all
+                # preview, model and native ownership has stopped successfully.
+                self.update_handoff.commit()
+                self.update_committed = True
+        except ShutdownPending:
+            self.shutdown_next_retry = time.monotonic() + 0.1
+            self._refresh_updates()
+        except Exception:
+            self._cancel_termination()
+            self.shutdown_error = "Quit was cancelled because local cleanup failed. No update was installed. Local activity is stopped; try Quit again to finish cleanup, then reopen BroTypist."
+            self.last_error = self.shutdown_error
+            self._refresh_updates()
+            self.show_settings("about")
+            self._error(self.shutdown_error)
+        else:
+            self.shutdown_complete = True
+            self.termination_requested = False
+            if self.termination_waiting:
+                self.termination_waiting = False
+                A.NSApplication.sharedApplication().replyToApplicationShouldTerminate_(True)
+        finally:
+            self._shutdown_advancing = False
 
     def applicationShouldTerminateAfterLastWindowClosed_(self, app):
         return False
@@ -2572,22 +2858,31 @@ class BroTypistApplication(NSObject):
     def shutdown(self):
         if self.stopping:
             return
+        # Unexpected event-loop exit must never approve a waiting installer.
+        if not self.shutdown_complete:
+            if self.update_handoff is not None and not self.update_committed:
+                self.update_handoff.abort()
+                self.update_handoff = None
+                self.updates.cancel()
+            if self.welcome:
+                self.welcome.close()
+            self.controller.stop()
+            if self.overlay:
+                self.overlay.close()
+                self.overlay = None
+        # UpdateService preserves the committed writer until actual process
+        # exit; closing it must not release the installer's EOF fence early.
+        self.updates.close()
+        self.shutdown_complete = True
         self.stopping = True
-        if self.welcome:
-            self.welcome.close()
         if self.window:
             self.window.makeFirstResponder_(None)
         if self.timer:
             self.timer.invalidate()
             self.timer = None
-        if self.overlay:
-            self.overlay.close()
-        try:
-            self.controller.stop()
-        finally:
-            if self.status_item:
-                A.NSStatusBar.systemStatusBar().removeStatusItem_(self.status_item)
-                self.status_item = None
+        if self.status_item:
+            A.NSStatusBar.systemStatusBar().removeStatusItem_(self.status_item)
+            self.status_item = None
 
 
 def launch(config, *, background=False, no_tray=False, pane=None) -> int:

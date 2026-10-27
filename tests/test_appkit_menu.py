@@ -7,6 +7,7 @@ import pytest
 
 A = pytest.importorskip("AppKit")
 from inklow import appkit_overlay, appkit_ui, appkit_welcome
+from inklow.config import Config
 
 
 @pytest.fixture
@@ -15,8 +16,15 @@ def shell(monkeypatch):
     bridge = SimpleNamespace(_enabled=True)
     bridge.set_shortcuts_enabled = lambda enabled: setattr(bridge, "_enabled", enabled)
     calls = []
-    shell.controller = SimpleNamespace(bridge=bridge, tick=lambda: calls.append("capture"), drain_events=lambda: [])
+    shell.controller = SimpleNamespace(config=Config(check_updates_automatically=False), bridge=bridge,
+                                       tick=lambda: calls.append("capture"), drain_events=lambda: [])
     shell.stopping = False
+    shell.shutdown_started = False
+    shell.shutdown_error = ""
+    shell.termination_requested = False
+    shell.startup_initialized = True
+    shell.startup_acknowledged = True
+    shell.startup_failed = False
     shell._wake_lock = threading.Lock()
     shell._wake_pending = False
     shell.tracking_menus = set()
@@ -27,6 +35,7 @@ def shell(monkeypatch):
     shell.window = None
     shell.welcome = None
     monkeypatch.setattr(shell, "_refresh_status", lambda: None)
+    monkeypatch.setattr(shell, "_refresh_updates", lambda: None)
     monkeypatch.setattr(shell, "_refresh_menu_stats", lambda: None)
     return shell, bridge, calls
 
@@ -117,7 +126,7 @@ def field_menu(shell, monkeypatch):
     status = {"current_app": "fixture.writer", "current_domain": "writing.example",
               "current_app_enabled": True, "paused_until": 0}
     shell.next_tag = 0
-    shell.controller.config = Config()
+    shell.controller.config = Config(check_updates_automatically=False)
     shell.controller.status = lambda: dict(status)
     shell.controller.toggle_current_app = lambda **context: calls.append(("app_toggle", context))
     shell.controller.pause = lambda minutes: calls.append(("pause", minutes))

@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import platform
 import sys
+import time
 
 from .config import config_path, load_config, save_config
 from .providers import create_provider
@@ -47,6 +48,8 @@ def main(argv: list[str] | None = None) -> int:
     model.add_argument("--no-select", action="store_true", help="Download without changing the selected model")
     model.add_argument("--accept-model-license", action="store_true",
                        help="Accept the selected model's displayed license, including Gemma Terms of Use for Gemma 3")
+    update = commands.add_parser("update", help="Check or download publisher-signed app updates")
+    update.add_argument("action", choices=["check", "download"])
     args = parser.parse_args(arguments)
     prepared_input_method = False
     try:
@@ -64,6 +67,33 @@ def main(argv: list[str] | None = None) -> int:
             if wayland_input_method_selected():
                 return 0
         config = load_config()
+        if args.command == "update":
+            from .updates import UpdateService
+            service = UpdateService()
+            try:
+                service.start_check()
+                deadline = time.monotonic() + 120
+                while service.snapshot()["state"] == "checking":
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError("The update check did not finish.")
+                    time.sleep(0.05)
+                status = service.snapshot()
+                if status["state"] == "error":
+                    raise RuntimeError(status["message"])
+                if args.action == "download" and status["state"] == "available":
+                    service.start_download()
+                    deadline = time.monotonic() + 600
+                    while service.snapshot()["state"] == "downloading":
+                        if time.monotonic() >= deadline:
+                            raise RuntimeError("The update download did not finish.")
+                        time.sleep(0.05)
+                    status = service.snapshot()
+                    if status["state"] != "ready":
+                        raise RuntimeError(status["message"])
+                print(json.dumps(status, indent=2))
+                return 0
+            finally:
+                service.close()
         if args.model_path:
             known = next((p for p in PRESETS if p.filename == Path(args.model_path).name), None)
             config = replace(config, backend="gguf", model_path=args.model_path,
