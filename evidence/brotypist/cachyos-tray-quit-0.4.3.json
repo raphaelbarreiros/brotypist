@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "version": "0.4.3",
+  "platform": "CachyOS x86_64, existing KDE Wayland desktop",
+  "payload_sha256": "7218b1370c11c7961140fa45b2657524b70caab2672ee239e386fc3f6e877d57",
+  "profile": "isolated; predictions paused; no model or normal settings touched",
+  "action": "Actual candidate-PID StatusNotifierItem exported-menu AboutToShow then Quit click, without AboutToHide",
+  "quit_exit_code": 0,
+  "user_desktop_install": "not changed",
+  "kde_input_method_selection": "not changed",
+  "inline_typing": "not tested; ordinary Wayland inline unavailable",
+  "source_commit": "6f7b8d0b3a8776ccebfd94a2b13250e77178d575"
+}

@@ -1,0 +1,893 @@
+{
+  "version": "0.4.3",
+  "source_commit": "6f7b8d0b3a8776ccebfd94a2b13250e77178d575",
+  "macos": {
+    "runtime_regressions": {
+      "passed": 1081,
+      "skipped": 22,
+      "seconds": 22.54,
+      "runtime_commit": "2b68027c9b9e59b6f09f070944dca73647935561",
+      "source_note": "Final 6f changes native Linux packaging, CI/docs and Mac smoke guard, not Mac product runtime."
+    },
+    "installer": {
+      "dmg": "isolated-build-root/release-input/macos-arm64/BroTypist-0.4.3-macos-arm64.dmg",
+      "version": "0.4.3",
+      "checks": {
+        "read_only_mount": "passed",
+        "drag_install_layout": "passed",
+        "mounted_bundle": {
+          "version": "0.4.3",
+          "architecture": "arm64",
+          "source_commit": "6f7b8d0b3a8776ccebfd94a2b13250e77178d575",
+          "executable": "BroTypist",
+          "signature": "identity-signed",
+          "notarization": "not checked; no notarization claim"
+        },
+        "copied_bundle": {
+          "version": "0.4.3",
+          "architecture": "arm64",
+          "source_commit": "6f7b8d0b3a8776ccebfd94a2b13250e77178d575",
+          "executable": "BroTypist",
+          "signature": "identity-signed",
+          "notarization": "not checked; no notarization claim"
+        },
+        "copied_executable_version": "BroTypist 0.4.3",
+        "gui": {
+          "status": "skipped",
+          "reason": "Current-user Aqua desktop is locked; no GUI or typing pass claimed"
+        },
+        "untouched_settings": "passed",
+        "uninstall_preserves_user_data": "passed",
+        "detach": "passed"
+      },
+      "normal_user_profile": "not accessed",
+      "notarization": "not assessed",
+      "status": "passed"
+    },
+    "frozen_prepare": {
+      "methodology": "Real native cached Gemma weights through production anonymous-pipe prepare/ready/proceed/generation/release. No GUI, focus, pixel, desktop latency or installed-identity claim.",
+      "model_basename": "gemma-4-E2B-it-Q4_0.gguf",
+      "launch": "Actual frozen executable worker; source supervisor at the same candidate revision.",
+      "frozen_executable_sha256": "3dcd9f549f559b3f1dd8bd6ecba71e19ba5956841bb539895bb835e1f5697fce",
+      "configuration_prepare_ms": 7886.56529200307,
+      "writing_results_before_submit": 0,
+      "same_worker_for_writing": true,
+      "first_displayable_protocol_ms": 413.86337500080117,
+      "completed_protocol_ms": 504.0714160022617,
+      "synthetic_prefix": "Thank you for your help with the report. I really",
+      "native_continuation": " appreciate it.",
+      "assembled_synthetic_draft": "Thank you for your help with the report. I really appreciate it.",
+      "native_worker_stopped_after_release": true,
+      "status": "completed",
+      "source_commit": "6f7b8d0b3a8776ccebfd94a2b13250e77178d575",
+      "normal_settings_unchanged": true
+    },
+    "normal_installed_version": "0.4.2",
+    "normal_app_replaced": false,
+    "fresh_gui_or_messenger_typing": "not performed; current Aqua desktop locked"
+  },
+  "linux": {
+    "runtime_regressions": {
+      "passed": 1118,
+      "skipped": 7,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 31.605,
+      "source_commit": "6f7b8d0b3a8776ccebfd94a2b13250e77178d575"
+    },
+    "source_inference": {
+      "model": "checksum-verified Tiny SmolLM2 135M Q4_K_M",
+      "worker_exit_code": 0,
+      "stream_updates": 4,
+      "continuation": " interest in the",
+      "worker_elapsed_ms": 26086.73
+    },
+    "frozen_inference": {
+      "model": "same Tiny preset",
+      "cli_exit_code": 0,
+      "worker_exit_code": 0,
+      "stream_updates": 4,
+      "continuation": " interest in the",
+      "worker_elapsed_ms": 24650.38
+    },
+    "inference_environment": "Ubuntu 24.04 amd64 isolated Docker container, 1.5 CPU quota/3 GiB memory; not a desktop speed or Gemma benchmark",
+    "installer": {
+      "package": "/work/release-final/linux-x86_64/BroTypist-0.4.3-linux-amd64.deb",
+      "portable_archive": "/work/release-final/linux-x86_64/BroTypist-0.4.3-linux-amd64.tar.gz",
+      "metadata": {
+        "Package": "brotypist",
+        "Version": "0.4.3",
+        "Architecture": "amd64"
+      },
+      "interactive_keyboard_compatibility": "NOT TESTED: package smoke is not native typing proof",
+      "installed": {
+        "version": "BroTypist 0.4.3",
+        "doctor": {
+          "platform": "Linux",
+          "python": "3.12.3",
+          "settings": "/tmp/inklow-installer-smoke-u1x2qhgk/home/.config/inklow/settings.json",
+          "backend": "gguf",
+          "version": "0.4.3",
+          "acceleration": "auto",
+          "shell": "Qt menu utility",
+          "idle_release_seconds": 300,
+          "input_source_kind": null,
+          "model_file_exists": false,
+          "native": "Linux AT-SPI/X11 ready. Supports focused editable Entry/Text controls exposing Text and EditableText. Inline additionally requires explicit inactive IME state, font/direction attributes and matching visible native metrics; unsupported providers stay silent. Enable toolkit accessibility (GTK: GTK_MODULES=gail:atk-bridge where required; Qt: QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1) before starting target apps. Password fields are excluded. Browser URLs are not observable through documented window metadata; domain rules cannot apply here.",
+          "global_enabled": false
+        },
+        "offscreen_settings": {
+          "pid": 437,
+          "mode": "offscreen",
+          "window_mapped": false,
+          "window": null,
+          "accessibility": null,
+          "survived_seconds": 4.01,
+          "quit": null,
+          "termination": "SIGTERM after offscreen observation; not a Quit test"
+        },
+        "x11_settings": {
+          "pid": 450,
+          "mode": "xcb",
+          "window_mapped": true,
+          "window": {
+            "id": "0x200007",
+            "pid": 450,
+            "title": "BroTypist Settings — BroTypist",
+            "map_state": "IsViewable",
+            "width": 900,
+            "height": 620
+          },
+          "accessibility": {
+            "pid": 450,
+            "title": "BroTypist Settings — BroTypist",
+            "role": "dialog",
+            "accessible_children": 8,
+            "visible_showing_enabled": true,
+            "settings_sections": true,
+            "native_bridge": "Linux AT-SPI/X11 ready. Supports focused editable Entry/Text controls exposing Text and EditableText. Inline additionally requires explicit inactive IME state, font/direction attributes and matching visible native metrics; unsupported providers stay silent. Enable toolkit accessibility (GTK: GTK_MODULES=gail:atk-bridge where required; Qt: QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1) before starting target apps. Password fields are excluded. Browser URLs are not observable through documented window metadata; domain rules cannot apply here. Atomic text replacement is unavailable: emoji/emoticon conversion and selected-word synonyms are disabled; continuation alternatives remain available.",
+            "visible_quit_button": true
+          },
+          "survived_seconds": 1.28,
+          "quit": {
+            "pid": 450,
+            "title": "BroTypist Settings — BroTypist",
+            "role": "dialog",
+            "accessible_children": 8,
+            "visible_showing_enabled": true,
+            "settings_sections": true,
+            "native_bridge": "Linux AT-SPI/X11 ready. Supports focused editable Entry/Text controls exposing Text and EditableText. Inline additionally requires explicit inactive IME state, font/direction attributes and matching visible native metrics; unsupported providers stay silent. Enable toolkit accessibility (GTK: GTK_MODULES=gail:atk-bridge where required; Qt: QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1) before starting target apps. Password fields are excluded. Browser URLs are not observable through documented window metadata; domain rules cannot apply here. Atomic text replacement is unavailable: emoji/emoticon conversion and selected-word synonyms are disabled; continuation alternatives remain available.",
+            "visible_quit_button": true,
+            "quit_invoked_via": "visible own-PID AT-SPI button"
+          },
+          "termination": "normal exit 0 through visible native Quit"
+        }
+      },
+      "portable": {
+        "version": "BroTypist 0.4.3",
+        "doctor": {
+          "platform": "Linux",
+          "python": "3.12.3",
+          "settings": "/tmp/inklow-installer-smoke-u1x2qhgk/portable-home/.config/inklow/settings.json",
+          "backend": "gguf",
+          "version": "0.4.3",
+          "acceleration": "auto",
+          "shell": "Qt menu utility",
+          "idle_release_seconds": 300,
+          "input_source_kind": null,
+          "model_file_exists": false,
+          "native": "Linux AT-SPI/X11 ready. Supports focused editable Entry/Text controls exposing Text and EditableText. Inline additionally requires explicit inactive IME state, font/direction attributes and matching visible native metrics; unsupported providers stay silent. Enable toolkit accessibility (GTK: GTK_MODULES=gail:atk-bridge where required; Qt: QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1) before starting target apps. Password fields are excluded. Browser URLs are not observable through documented window metadata; domain rules cannot apply here.",
+          "global_enabled": true
+        },
+        "offscreen_settings": {
+          "pid": 489,
+          "mode": "offscreen",
+          "window_mapped": false,
+          "window": null,
+          "accessibility": null,
+          "survived_seconds": 4.0,
+          "quit": null,
+          "termination": "SIGTERM after offscreen observation; not a Quit test"
+        },
+        "x11_settings": {
+          "pid": 502,
+          "mode": "xcb",
+          "window_mapped": true,
+          "window": {
+            "id": "0x200007",
+            "pid": 502,
+            "title": "BroTypist Settings — BroTypist",
+            "map_state": "IsViewable",
+            "width": 900,
+            "height": 620
+          },
+          "accessibility": {
+            "pid": 502,
+            "title": "BroTypist Settings — BroTypist",
+            "role": "dialog",
+            "accessible_children": 8,
+            "visible_showing_enabled": true,
+            "settings_sections": true,
+            "native_bridge": "Linux AT-SPI/X11 ready. Supports focused editable Entry/Text controls exposing Text and EditableText. Inline additionally requires explicit inactive IME state, font/direction attributes and matching visible native metrics; unsupported providers stay silent. Enable toolkit accessibility (GTK: GTK_MODULES=gail:atk-bridge where required; Qt: QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1) before starting target apps. Password fields are excluded. Browser URLs are not observable through documented window metadata; domain rules cannot apply here. Atomic text replacement is unavailable: emoji/emoticon conversion and selected-word synonyms are disabled; continuation alternatives remain available.",
+            "visible_quit_button": true
+          },
+          "survived_seconds": 1.24,
+          "quit": {
+            "pid": 502,
+            "title": "BroTypist Settings — BroTypist",
+            "role": "dialog",
+            "accessible_children": 8,
+            "visible_showing_enabled": true,
+            "settings_sections": true,
+            "native_bridge": "Linux AT-SPI/X11 ready. Supports focused editable Entry/Text controls exposing Text and EditableText. Inline additionally requires explicit inactive IME state, font/direction attributes and matching visible native metrics; unsupported providers stay silent. Enable toolkit accessibility (GTK: GTK_MODULES=gail:atk-bridge where required; Qt: QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1) before starting target apps. Password fields are excluded. Browser URLs are not observable through documented window metadata; domain rules cannot apply here. Atomic text replacement is unavailable: emoji/emoticon conversion and selected-word synonyms are disabled; continuation alternatives remain available.",
+            "visible_quit_button": true,
+            "quit_invoked_via": "visible own-PID AT-SPI button"
+          },
+          "termination": "normal exit 0 through visible native Quit"
+        }
+      },
+      "external_state_preserved_after_install_and_purge": [
+        ".config/inklow/settings.json",
+        ".cache/inklow/models/preserve.gguf",
+        ".local/share/inklow/history.enc"
+      ],
+      "uninstall": "dpkg --purge completed; app, launcher and desktop/icon integration removed",
+      "result": "passed"
+    },
+    "native_pixels": {
+      "path": "linux-settings-quit-0.4.3.png",
+      "method": "Uncomposited own frozen Settings window in private D-Bus/Xvfb; visible own-PID AT-SPI Quit exited 0"
+    },
+    "existing_user_installation": "not changed"
+  },
+  "learning": {
+    "methodology": "Synthetic declared-authored writing, ephemeral test encryption key in memory, real AEAD storage and actual stdio worker using cached public Gemma; no user profile, desktop capture, remote inference or model download. Outputs are observations, not a quality score.",
+    "model": "gemma-4-E2B-it-Q4_0.gguf",
+    "profiles": {
+      "off": null,
+      "formal": {
+        "language": "en",
+        "records": 1,
+        "strength": 90,
+        "style": {
+          "commas_per_100_words": 12.5,
+          "contractions_per_100_words": 0.0,
+          "exclamations_per_100_words": 0.0,
+          "lowercase_sentence_start_ratio": 0.0,
+          "mean_sentence_words": 16.0,
+          "questions_per_100_words": 0.0
+        },
+        "vocabulary": [
+          "observability",
+          "report",
+          "telemetry"
+        ]
+      },
+      "informal": {
+        "language": "en",
+        "records": 1,
+        "strength": 90,
+        "style": {
+          "commas_per_100_words": 0.0,
+          "contractions_per_100_words": 11.5,
+          "exclamations_per_100_words": 23.1,
+          "lowercase_sentence_start_ratio": 1.0,
+          "mean_sentence_words": 4.3,
+          "questions_per_100_words": 0.0
+        },
+        "vocabulary": [
+          "dashboard",
+          "ready",
+          "telemetry"
+        ]
+      }
+    },
+    "requests": [
+      {
+        "prefix": "We should review the",
+        "learning": "off",
+        "text": " proposal carefully.",
+        "first_displayable_ms": 293.732624999393,
+        "total_ms": 383.9136669994332
+      },
+      {
+        "prefix": "We should review the",
+        "learning": "formal",
+        "text": " telemetry data.",
+        "first_displayable_ms": 519.6374579973053,
+        "total_ms": 594.8212910006987
+      },
+      {
+        "prefix": "We should review the",
+        "learning": "informal",
+        "text": " dashboard now.",
+        "first_displayable_ms": 338.4648749997723,
+        "total_ms": 428.63733299964224
+      },
+      {
+        "prefix": "I will share the report with our team about the",
+        "learning": "off",
+        "text": " findings.",
+        "first_displayable_ms": 369.24166699827765,
+        "total_ms": 369.251959000394
+      },
+      {
+        "prefix": "I will share the report with our team about the",
+        "learning": "formal",
+        "text": " telemetry.",
+        "first_displayable_ms": 595.288292002806,
+        "total_ms": 595.2992920028919
+      },
+      {
+        "prefix": "I will share the report with our team about the",
+        "learning": "informal",
+        "text": " dashboard and telemetry.",
+        "first_displayable_ms": 336.59650000117836,
+        "total_ms": 453.3518329990329
+      }
+    ],
+    "worker_launch": "Exact signed frozen executable, same-source supervisor",
+    "frozen_executable_sha256": "3dcd9f549f559b3f1dd8bd6ecba71e19ba5956841bb539895bb835e1f5697fce",
+    "prepare_ms": 1144.674582999869,
+    "deletion_unlearned_all_profiles": true,
+    "worker_exited_after_close": true,
+    "status": "passed",
+    "source_commit": "6f7b8d0b3a8776ccebfd94a2b13250e77178d575"
+  },
+  "performance_experiments": {
+    "methodology": "Fresh serial native processes; full SWA/prefix reuse, unchanged KV precision/context/microbatch; OS/file/Metal caches not cleared; provider phys_footprint, not desktop parity or latency SLA.",
+    "fixed_frame_samples": [
+      {
+        "batch": 64,
+        "model_basename": "gemma-4-E2B-it-Q4_0.gguf",
+        "methodology": "Fresh serial native processes; full SWA/prefix reuse, unchanged KV precision/context/microbatch; OS/file/Metal caches not cleared; provider phys_footprint, not desktop parity or latency SLA.",
+        "states": {
+          "before_prepare": 16777696,
+          "prepared": 310332368,
+          "after_predictions": 486100136,
+          "after_close": 162972704
+        },
+        "requests": [
+          {
+            "round": 0,
+            "case": 0,
+            "first_displayable_ms": 477.84362499987765,
+            "total_ms": 554.7269170001528,
+            "text": " appreciate it."
+          },
+          {
+            "round": 0,
+            "case": 1,
+            "first_displayable_ms": 408.91595799985225,
+            "total_ms": 770.6652500000928,
+            "text": " Ipê, terça-feira às 10h."
+          },
+          {
+            "round": 0,
+            "case": 2,
+            "first_displayable_ms": 210.63104200038651,
+            "total_ms": 404.2422920010722,
+            "text": " Tuesday at 10 AM "
+          },
+          {
+            "round": 1,
+            "case": 0,
+            "first_displayable_ms": 266.88854200074275,
+            "total_ms": 343.7809170009132,
+            "text": " appreciate it."
+          },
+          {
+            "round": 1,
+            "case": 1,
+            "first_displayable_ms": 395.77537500008475,
+            "total_ms": 756.091875000493,
+            "text": " Ipê, terça-feira às 10h."
+          },
+          {
+            "round": 1,
+            "case": 2,
+            "first_displayable_ms": 218.15391600102885,
+            "total_ms": 411.08033300042734,
+            "text": " Tuesday at 10 AM "
+          }
+        ],
+        "framed_warmup": false,
+        "prepare_ms": 1800.0610830004007,
+        "native_parameters": {
+          "n_ctx": 4096,
+          "n_batch": 64,
+          "n_ubatch": 32,
+          "swa_full": true,
+          "type_k": 1,
+          "type_v": 1
+        },
+        "python_scores_virtual_bytes": 2097152,
+        "status": "completed"
+      },
+      {
+        "batch": 64,
+        "model_basename": "gemma-4-E2B-it-Q4_0.gguf",
+        "methodology": "Fresh serial native processes; full SWA/prefix reuse, unchanged KV precision/context/microbatch; OS/file/Metal caches not cleared; provider phys_footprint, not desktop parity or latency SLA.",
+        "states": {
+          "before_prepare": 17056224,
+          "prepared": 315476968,
+          "after_predictions": 484887768,
+          "after_close": 160121888
+        },
+        "requests": [
+          {
+            "round": 0,
+            "case": 0,
+            "first_displayable_ms": 266.39245900150854,
+            "total_ms": 345.32566699999734,
+            "text": " appreciate it."
+          },
+          {
+            "round": 0,
+            "case": 1,
+            "first_displayable_ms": 396.9737499992334,
+            "total_ms": 743.7549589994887,
+            "text": " Ipê, terça-feira às 10h."
+          },
+          {
+            "round": 0,
+            "case": 2,
+            "first_displayable_ms": 213.19654100079788,
+            "total_ms": 406.64579100121045,
+            "text": " Tuesday at 10 AM "
+          },
+          {
+            "round": 1,
+            "case": 0,
+            "first_displayable_ms": 282.04633300083515,
+            "total_ms": 359.1043329997774,
+            "text": " appreciate it."
+          },
+          {
+            "round": 1,
+            "case": 1,
+            "first_displayable_ms": 403.38558300027216,
+            "total_ms": 749.4134999997186,
+            "text": " Ipê, terça-feira às 10h."
+          },
+          {
+            "round": 1,
+            "case": 2,
+            "first_displayable_ms": 209.73004200095602,
+            "total_ms": 401.3578329995653,
+            "text": " Tuesday at 10 AM "
+          }
+        ],
+        "framed_warmup": true,
+        "prepare_ms": 956.5564170006837,
+        "native_parameters": {
+          "n_ctx": 4096,
+          "n_batch": 64,
+          "n_ubatch": 32,
+          "swa_full": true,
+          "type_k": 1,
+          "type_v": 1
+        },
+        "python_scores_virtual_bytes": 67108864,
+        "status": "completed"
+      },
+      {
+        "batch": 64,
+        "model_basename": "gemma-4-E2B-it-Q4_0.gguf",
+        "methodology": "Fresh serial native processes; full SWA/prefix reuse, unchanged KV precision/context/microbatch; OS/file/Metal caches not cleared; provider phys_footprint, not desktop parity or latency SLA.",
+        "states": {
+          "before_prepare": 17023456,
+          "prepared": 316378088,
+          "after_predictions": 485100736,
+          "after_close": 159843360
+        },
+        "requests": [
+          {
+            "round": 0,
+            "case": 0,
+            "first_displayable_ms": 271.58624999901804,
+            "total_ms": 352.5028749991179,
+            "text": " appreciate it."
+          },
+          {
+            "round": 0,
+            "case": 1,
+            "first_displayable_ms": 419.7431669999787,
+            "total_ms": 765.9887499994511,
+            "text": " Ipê, terça-feira às 10h."
+          },
+          {
+            "round": 0,
+            "case": 2,
+            "first_displayable_ms": 211.56120799969358,
+            "total_ms": 404.9836670001241,
+            "text": " Tuesday at 10 AM "
+          },
+          {
+            "round": 1,
+            "case": 0,
+            "first_displayable_ms": 266.27745800033154,
+            "total_ms": 343.77499999936845,
+            "text": " appreciate it."
+          },
+          {
+            "round": 1,
+            "case": 1,
+            "first_displayable_ms": 399.9311249990569,
+            "total_ms": 747.5930000000517,
+            "text": " Ipê, terça-feira às 10h."
+          },
+          {
+            "round": 1,
+            "case": 2,
+            "first_displayable_ms": 214.98966599938285,
+            "total_ms": 408.1291659986164,
+            "text": " Tuesday at 10 AM "
+          }
+        ],
+        "framed_warmup": true,
+        "prepare_ms": 950.2664170013304,
+        "native_parameters": {
+          "n_ctx": 4096,
+          "n_batch": 64,
+          "n_ubatch": 32,
+          "swa_full": true,
+          "type_k": 1,
+          "type_v": 1
+        },
+        "python_scores_virtual_bytes": 67108864,
+        "status": "completed"
+      },
+      {
+        "batch": 64,
+        "model_basename": "gemma-4-E2B-it-Q4_0.gguf",
+        "methodology": "Fresh serial native processes; full SWA/prefix reuse, unchanged KV precision/context/microbatch; OS/file/Metal caches not cleared; provider phys_footprint, not desktop parity or latency SLA.",
+        "states": {
+          "before_prepare": 16581088,
+          "prepared": 311331792,
+          "after_predictions": 488672448,
+          "after_close": 163382280
+        },
+        "requests": [
+          {
+            "round": 0,
+            "case": 0,
+            "first_displayable_ms": 452.41354099925957,
+            "total_ms": 528.953332999663,
+            "text": " appreciate it."
+          },
+          {
+            "round": 0,
+            "case": 1,
+            "first_displayable_ms": 400.2419589996862,
+            "total_ms": 747.8286250006931,
+            "text": " Ipê, terça-feira às 10h."
+          },
+          {
+            "round": 0,
+            "case": 2,
+            "first_displayable_ms": 209.6016249997774,
+            "total_ms": 401.2768339998729,
+            "text": " Tuesday at 10 AM "
+          },
+          {
+            "round": 1,
+            "case": 0,
+            "first_displayable_ms": 267.3884999985603,
+            "total_ms": 345.0397090000479,
+            "text": " appreciate it."
+          },
+          {
+            "round": 1,
+            "case": 1,
+            "first_displayable_ms": 396.5735000001587,
+            "total_ms": 742.5255840007594,
+            "text": " Ipê, terça-feira às 10h."
+          },
+          {
+            "round": 1,
+            "case": 2,
+            "first_displayable_ms": 211.13975000116625,
+            "total_ms": 403.46012500049255,
+            "text": " Tuesday at 10 AM "
+          }
+        ],
+        "framed_warmup": false,
+        "prepare_ms": 827.914375000546,
+        "native_parameters": {
+          "n_ctx": 4096,
+          "n_batch": 64,
+          "n_ubatch": 32,
+          "swa_full": true,
+          "type_k": 1,
+          "type_v": 1
+        },
+        "python_scores_virtual_bytes": 2097152,
+        "status": "completed"
+      }
+    ],
+    "batch_samples": [
+      {
+        "batch": 64,
+        "model_basename": "gemma-4-E2B-it-Q4_0.gguf",
+        "methodology": "Fresh serial native processes; full SWA/prefix reuse, unchanged KV precision/context/microbatch; OS/file/Metal caches not cleared; provider phys_footprint, not desktop parity or latency SLA.",
+        "states": {
+          "before_prepare": 16744928,
+          "prepared": 311675904,
+          "after_predictions": 488475864,
+          "after_close": 163415096
+        },
+        "requests": [
+          {
+            "round": 0,
+            "case": 0,
+            "first_displayable_ms": 476.41133300021465,
+            "total_ms": 553.5376670013648,
+            "text": " appreciate it."
+          },
+          {
+            "round": 0,
+            "case": 1,
+            "first_displayable_ms": 402.34400000008463,
+            "total_ms": 752.4967919998744,
+            "text": " Ipê, terça-feira às 10h."
+          },
+          {
+            "round": 0,
+            "case": 2,
+            "first_displayable_ms": 210.63970799878007,
+            "total_ms": 408.1288750003296,
+            "text": " Tuesday at 10 AM "
+          },
+          {
+            "round": 1,
+            "case": 0,
+            "first_displayable_ms": 270.95654199911223,
+            "total_ms": 348.81599999971513,
+            "text": " appreciate it."
+          },
+          {
+            "round": 1,
+            "case": 1,
+            "first_displayable_ms": 397.70516700082226,
+            "total_ms": 748.2596670015482,
+            "text": " Ipê, terça-feira às 10h."
+          },
+          {
+            "round": 1,
+            "case": 2,
+            "first_displayable_ms": 212.7235420011857,
+            "total_ms": 407.5237090000883,
+            "text": " Tuesday at 10 AM "
+          }
+        ],
+        "prepare_ms": 2071.1855420013308,
+        "native_parameters": {
+          "n_ctx": 4096,
+          "n_batch": 64,
+          "n_ubatch": 32,
+          "swa_full": true,
+          "type_k": 1,
+          "type_v": 1
+        },
+        "python_scores_virtual_bytes": 2097152,
+        "status": "completed"
+      },
+      {
+        "batch": 32,
+        "model_basename": "gemma-4-E2B-it-Q4_0.gguf",
+        "methodology": "Fresh serial native processes; full SWA/prefix reuse, unchanged KV precision/context/microbatch; OS/file/Metal caches not cleared; provider phys_footprint, not desktop parity or latency SLA.",
+        "states": {
+          "before_prepare": 16679392,
+          "prepared": 311659472,
+          "after_predictions": 486001856,
+          "after_close": 162513976
+        },
+        "requests": [
+          {
+            "round": 0,
+            "case": 0,
+            "first_displayable_ms": 444.6857499988255,
+            "total_ms": 523.9784169989434,
+            "text": " appreciate it."
+          },
+          {
+            "round": 0,
+            "case": 1,
+            "first_displayable_ms": 407.21750000011525,
+            "total_ms": 754.4663330008916,
+            "text": " Ipê, terça-feira às 10h."
+          },
+          {
+            "round": 0,
+            "case": 2,
+            "first_displayable_ms": 214.6097919994645,
+            "total_ms": 410.0465419996908,
+            "text": " Tuesday at 10 AM "
+          },
+          {
+            "round": 1,
+            "case": 0,
+            "first_displayable_ms": 271.56537500013656,
+            "total_ms": 350.2594159999717,
+            "text": " appreciate it."
+          },
+          {
+            "round": 1,
+            "case": 1,
+            "first_displayable_ms": 405.9726249997766,
+            "total_ms": 760.2678750008636,
+            "text": " Ipê, terça-feira às 10h."
+          },
+          {
+            "round": 1,
+            "case": 2,
+            "first_displayable_ms": 239.87133300033747,
+            "total_ms": 444.564082999932,
+            "text": " Tuesday at 10 AM "
+          }
+        ],
+        "prepare_ms": 814.1171250008483,
+        "native_parameters": {
+          "n_ctx": 4096,
+          "n_batch": 32,
+          "n_ubatch": 32,
+          "swa_full": true,
+          "type_k": 1,
+          "type_v": 1
+        },
+        "python_scores_virtual_bytes": 2097152,
+        "status": "completed"
+      },
+      {
+        "batch": 32,
+        "model_basename": "gemma-4-E2B-it-Q4_0.gguf",
+        "methodology": "Fresh serial native processes; full SWA/prefix reuse, unchanged KV precision/context/microbatch; OS/file/Metal caches not cleared; provider phys_footprint, not desktop parity or latency SLA.",
+        "states": {
+          "before_prepare": 16794080,
+          "prepared": 311167952,
+          "after_predictions": 485641408,
+          "after_close": 162317344
+        },
+        "requests": [
+          {
+            "round": 0,
+            "case": 0,
+            "first_displayable_ms": 472.0465829996101,
+            "total_ms": 557.5778329985042,
+            "text": " appreciate it."
+          },
+          {
+            "round": 0,
+            "case": 1,
+            "first_displayable_ms": 408.12758399988525,
+            "total_ms": 758.2143339986942,
+            "text": " Ipê, terça-feira às 10h."
+          },
+          {
+            "round": 0,
+            "case": 2,
+            "first_displayable_ms": 211.09462499953224,
+            "total_ms": 404.4135419990198,
+            "text": " Tuesday at 10 AM "
+          },
+          {
+            "round": 1,
+            "case": 0,
+            "first_displayable_ms": 268.8328750009532,
+            "total_ms": 346.75091600001906,
+            "text": " appreciate it."
+          },
+          {
+            "round": 1,
+            "case": 1,
+            "first_displayable_ms": 406.3854169999104,
+            "total_ms": 754.374292000648,
+            "text": " Ipê, terça-feira às 10h."
+          },
+          {
+            "round": 1,
+            "case": 2,
+            "first_displayable_ms": 217.08345800107054,
+            "total_ms": 412.4371660000179,
+            "text": " Tuesday at 10 AM "
+          }
+        ],
+        "prepare_ms": 797.2099580001668,
+        "native_parameters": {
+          "n_ctx": 4096,
+          "n_batch": 32,
+          "n_ubatch": 32,
+          "swa_full": true,
+          "type_k": 1,
+          "type_v": 1
+        },
+        "python_scores_virtual_bytes": 2097152,
+        "status": "completed"
+      },
+      {
+        "batch": 64,
+        "model_basename": "gemma-4-E2B-it-Q4_0.gguf",
+        "methodology": "Fresh serial native processes; full SWA/prefix reuse, unchanged KV precision/context/microbatch; OS/file/Metal caches not cleared; provider phys_footprint, not desktop parity or latency SLA.",
+        "states": {
+          "before_prepare": 16761312,
+          "prepared": 312036304,
+          "after_predictions": 489524416,
+          "after_close": 163349536
+        },
+        "requests": [
+          {
+            "round": 0,
+            "case": 0,
+            "first_displayable_ms": 447.32241699966835,
+            "total_ms": 523.6315000001923,
+            "text": " appreciate it."
+          },
+          {
+            "round": 0,
+            "case": 1,
+            "first_displayable_ms": 401.5319170011935,
+            "total_ms": 751.4851670002827,
+            "text": " Ipê, terça-feira às 10h."
+          },
+          {
+            "round": 0,
+            "case": 2,
+            "first_displayable_ms": 209.4159589996707,
+            "total_ms": 401.60766699955275,
+            "text": " Tuesday at 10 AM "
+          },
+          {
+            "round": 1,
+            "case": 0,
+            "first_displayable_ms": 265.9892920000857,
+            "total_ms": 341.8688750007277,
+            "text": " appreciate it."
+          },
+          {
+            "round": 1,
+            "case": 1,
+            "first_displayable_ms": 399.42716599944106,
+            "total_ms": 752.1667909986718,
+            "text": " Ipê, terça-feira às 10h."
+          },
+          {
+            "round": 1,
+            "case": 2,
+            "first_displayable_ms": 223.80029099986132,
+            "total_ms": 417.5268330000108,
+            "text": " Tuesday at 10 AM "
+          }
+        ],
+        "prepare_ms": 820.0431669993122,
+        "native_parameters": {
+          "n_ctx": 4096,
+          "n_batch": 64,
+          "n_ubatch": 32,
+          "swa_full": true,
+          "type_k": 1,
+          "type_v": 1
+        },
+        "python_scores_virtual_bytes": 2097152,
+        "status": "completed"
+      }
+    ],
+    "decision": "Keep context, KV precision, full SWA and native batch64/microbatch32. Adopt only trusted-policy framing. Batch32 not adopted because small footprint gains sometimes increased first-display latency. No active-original memory-parity claim."
+  },
+  "privacy": {
+    "learning_default": "off; no silent upgrade opt-in",
+    "normal_settings_unchanged": true,
+    "user_writing_in_receipt": false,
+    "synthetic_authorship": "Declared storage-API authored ranges; not physical-key evidence",
+    "remote_user_data_or_credentials_in_payload": false
+  },
+  "limits": [
+    "Ordinary KDE Wayland inline unavailable; no unsafe preedit or popup fallback",
+    "X11 requires explicit inactive composition and compatible native metrics; unsupported providers stay silent",
+    "Cold native preparation still takes seconds; source/provider samples are not visible-desktop SLA",
+    "Docs and terminal compatibility remain consent/provider bounded",
+    "No calibrated multilingual grammar accuracy or [redacted reference] memory parity",
+    "Windows held; iCloud deferred"
+  ],
+  "repository_history_redaction": "Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations."
+}

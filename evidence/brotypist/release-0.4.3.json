@@ -1,0 +1,81 @@
+{
+  "version": "0.4.3",
+  "source_commit": "6f7b8d0b3a8776ccebfd94a2b13250e77178d575",
+  "repository_private": true,
+  "release_id": 425442503,
+  "url": "https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.3",
+  "draft": false,
+  "prerelease": false,
+  "latest_at_verification": true,
+  "published_at": "2026-10-27T12:49:40Z",
+  "remote_tag_commit": "6f7b8d0b3a8776ccebfd94a2b13250e77178d575",
+  "downloaded_assets": [
+    {
+      "name": "BroTypist-0.4.3-linux-amd64.deb",
+      "size": 76376364,
+      "sha256": "2efd4f777d868f0054024a0c0632f6411693c9ca217f2620cc9bebbedd04dc45",
+      "github_digest_matches_download": true,
+      "download_matches_smoke_tested_local_bytes": true
+    },
+    {
+      "name": "BroTypist-0.4.3-linux-amd64.tar.gz",
+      "size": 104719751,
+      "sha256": "7218b1370c11c7961140fa45b2657524b70caab2672ee239e386fc3f6e877d57",
+      "github_digest_matches_download": true,
+      "download_matches_smoke_tested_local_bytes": true
+    },
+    {
+      "name": "BroTypist-0.4.3-macos-arm64.dmg",
+      "size": 36935455,
+      "sha256": "a970ab0c3864e61b5af549596f02d18a259e3f3c2c4bd312e67b90497aad1836",
+      "github_digest_matches_download": true,
+      "download_matches_smoke_tested_local_bytes": true
+    },
+    {
+      "name": "BroTypist-0.4.3-macos-arm64.zip",
+      "size": 33416342,
+      "sha256": "d4010d7e90166bc3e823cbe71644299da1a40d004ca353853e61bea4309227db",
+      "github_digest_matches_download": true,
+      "download_matches_smoke_tested_local_bytes": true
+    },
+    {
+      "name": "release-manifest.json",
+      "size": 11964,
+      "sha256": "d5b553e454fcd80a37fbaf547fce06744174b03812e0fb42675cefad17227534",
+      "github_digest_matches_download": true,
+      "download_matches_smoke_tested_local_bytes": true
+    },
+    {
+      "name": "SHA256SUMS",
+      "size": 483,
+      "sha256": "e31dbbb59692f6081d35ceaf490f9218bd719bd6b8d356166bdb1ca9e404b348",
+      "github_digest_matches_download": true,
+      "download_matches_smoke_tested_local_bytes": true
+    }
+  ],
+  "downloaded_sha256sums_check": "Four native packages and release manifest passed downloaded SHA256SUMS. All six downloaded files, including SHA256SUMS itself, matched GitHub digests and pre-upload local bytes.",
+  "native_verification": "evidence/brotypist/native-learning-linux-0.4.3.json",
+  "actual_cachyos_tray_quit": "evidence/brotypist/cachyos-tray-quit-0.4.3.json",
+  "installer_smoke": {
+    "macos": "Read-only mount/copy/signature/source/version/data-preservation/detach passed; GUI explicitly skipped because current Aqua desktop locked. Not a fresh messenger typing pass.",
+    "linux": "Debian install and portable native Settings visible Quit gave exit 0; purge preserved external state; actual paused CachyOS exported-menu Quit also exited 0."
+  },
+  "normal_installations": "Existing user installations were not replaced; Mac remains 0.4.2. QA ran isolated copies/profiles.",
+  "unpublished_targets": [
+    "windows-x86_64"
+  ],
+  "signing_limit": "Mac Apple Development, not Developer ID or notarized. Linux unsigned.",
+  "hosted_ci": {
+    "url": "https://github.com/renan-brasilio/brotypist/actions/runs/40504778408",
+    "metadata_steps": 0,
+    "verify": "skipped",
+    "owner_visible_annotation": "Job not started because recent account payments failed or spending limit needs increasing; no billing/account settings changed."
+  },
+  "limits": [
+    "Ordinary KDE Wayland inline unavailable",
+    "X11 capability/metric requirements; no universal input pass",
+    "Cold model loading still seconds; Linux Tiny quota sample is not a speed/Gemma claim",
+    "Docs/terminal/provider permissions remain bounded",
+    "No calibrated multilingual grammar quality or active-original memory-parity claim"
+  ]
+}
