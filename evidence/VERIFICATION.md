@@ -2,7 +2,32 @@
 
 # Observed verification
 
-## 0.4.2 unreleased source candidate
+## 0.4.2 installed macOS native verification — 2026-10-27
+
+Runtime source **`811fa1e785b70cb7f4189f8361a358f96a736b09`** was Apple Development-signed and atomically installed at **`/Applications/BroTypist.app`**, retaining the prior designated requirement and unversioned app name. The old application has a private CRC-verified rollback. Normal settings bytes were unchanged. [Actual native receipt](brotypist/installed-0.4.2.json).
+
+- **Exact installed executable:** grey same-line text and real HID Tab acceptance passed in both native WhatsApp and Telegram message composers. Tab appended ` appreciate ` after the authored `Thank you for your help with the report. I really`; both drafts were cleared and no messages were sent. Focused-window/clipboard/screenshot context and history/statistics were disabled in the isolated acceptance profile. [WhatsApp pixels](brotypist/whatsapp-installed-0.4.2.png) · [Telegram pixels](brotypist/telegram-installed-0.4.2.png).
+- **Normal profile:** the canonical app was separately launched through LaunchServices and visibly offered the same grey continuation in the owned native fixture, whose OS inline prediction was disabled. This check did not accept text or change saved preferences. [Uncomposited normal-profile pixels](brotypist/normal-installed-0.4.2.png).
+- **Changed context, real defect:** before the fix, changing an owned visible reference from Thursday to Friday still produced Thursday. An independent Accessibility read saw Friday correctly. Each actual prediction now invalidates the older reference and requests a fresh authorized background read, with a 250 ms optional-context budget; timeout never authorizes reuse of the old reference. The exact signed correction offered Thursday, then **Friday at 09:45** after the visible reference changed. [Actual changed-reference pixels](brotypist/context-friday-0.4.2.png). This proves that transition, not general factual accuracy.
+- **Preparation before typing:** an empty native field has no glyph run/caret to verify. Configuration-only preparation now accepts its writable field/window authority without authorizing generation, drawing or insertion. The final signed app completed its loading-state transition in 3,087.09 ms while that owned field was empty. Earlier native backend-label and same-worker observations are separately source-bound in the receipt. Loading still costs seconds; the change moves preparation before typing when focus gives it time.
+- **Native controls:** the actual compact field menu contained only current-app completions, writing recording, Tab acceptance and Settings; no model/statistics dashboard. Actual status-menu Quit exited normally. Closing Settings kept the app running. Accessibility, Input Monitoring and Screen Recording badges showed their real granted state; no grant action was invoked, and product screenshot options remained off. [Actual status glyph](brotypist/status-icon-0.4.2.png) stayed visible at 24×24 through both Thaw toggle states; the transient hider toggle was restored.
+- **Integrated regressions:** 1,057 passed, 21 skipped in 21.74 seconds. Both empty-field preparation and changed-reference tests failed before their respective corrections and passed afterward.
+- **Installer:** the actual signed DMG passed read-only mount, drag-install layout, copied source/signature/version, visible own-PID Settings, normal Quit, unchanged isolated settings, preservation of external data on removal and detach. Apple Development signing is not Developer ID distribution or notarization.
+
+**Published private release:** [`v0.4.2`](https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.2) is published and latest, not draft or pre-release. All four uploaded assets—DMG, ZIP, `release-manifest.json` and `SHA256SUMS`—were independently downloaded. Packages and manifest passed the downloaded checksum file; all four files matched GitHub's recorded digests and their pre-upload bytes. The remote annotated tag resolves to runtime source `811fa1e785b70cb7f4189f8361a358f96a736b09`. [Publication and integrity receipt](brotypist/release-0.4.2.json). Later `main` commits contain verification documentation only.
+
+Individual overlay observations, not percentiles or a controlled cache/SLA comparison:
+
+| Native app | Final signed candidate, observed ms | Canonical installed app, observed ms |
+| --- | ---: | ---: |
+| WhatsApp | 643.35 | 2893.59 |
+| Telegram | 387.77 | 382.97 |
+
+The canonical WhatsApp observation was the first request in that verifier process; OS/Metal/file caches were not cleared. Cold preparation is not claimed solved.
+
+**Interference and remaining limits:** Grammarly and TypeAhead were initially running over the fixture. Those initial Tab/original-active comparisons were invalidated. Both predictor UIs were closed for the valid runs; the user explicitly chose to leave them closed without changing saved/startup settings. The original app finished launching but did not expose a usable status extra or offer in the isolated run, so no comparable active-original RAM claim is made. A paired Q8-cache experiment reduced active provider footprint by 53,084,184 bytes but slowed the three observed first-display requests by approximately 45/167/6 ms; it was not adopted. Known mixed-language/factual/synonym model defects remain documented below. Docs/terminal support remains bounded; Linux/Windows product builds and iCloud remain held. This is not complete [redacted reference] parity, calibrated multilingual quality, or a RAM/latency superiority claim.
+
+## Historical 0.4.2 source candidate before the unlocked native pass
 
 Source **`4546f6e2dfdaab3a1d23155694edcd161f2882e0`** was also frozen and Apple Development-signed locally, retaining the installed 0.4.1 designated requirement. Its actual executable worker prepared the cached Gemma model without producing writing results, reused that worker for generation, and stopped on release; normal saved settings were unchanged. **Preparation took 4,317.03 ms** in this individual frozen sample, followed by **508.09 ms** from request submission to first displayable protocol text. This is not a solved cold-start or visible-latency claim. [Signed frozen headless receipt](brotypist/frozen-headless-0.4.2.json). The candidate remains outside `/Applications`, with no new tag/release/installer or GUI pass.
 

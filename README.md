@@ -11,11 +11,11 @@ Local-first predictive typing. **Current development and release verification fo
 
 This repository is **private**. Sign in to a GitHub account with access before downloading release assets or cloning it.
 
-**[macOS 0.4.1](https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.1)** is the real-messenger/crash-fix update, with DMG/ZIP, checksums and native receipts. Linux/Windows product builds are held; historical Inklow 0.3.0 assets are preserved and do not contain the macOS changes.
+**[macOS 0.4.2](https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.2)** adds preparation before typing, fresh focused-window references and verified native messenger/menu behavior, with DMG/ZIP, checksums and native receipts. Linux/Windows product builds are held; historical Inklow 0.3.0 assets are preserved and do not contain the macOS changes.
 
 | Platform | Download | Status |
 | --- | --- | --- |
-| macOS, Apple Silicon | `BroTypist-0.4.1-macos-arm64.dmg` / `.zip` | Native/frozen and installer checks exercised; see compatibility limits below |
+| macOS, Apple Silicon | `BroTypist-0.4.2-macos-arm64.dmg` / `.zip` | Exact installed typing/Tab, native context and installer checks exercised; see compatibility limits below |
 | Windows, x86-64 | No published native installer | Port/build held; packaging definitions retained |
 | Linux, x86-64 | Historical `Inklow-0.3.0-linux-amd64.deb` / `.tar.gz` only | Port/build held; not macOS-parity builds |
 
@@ -87,7 +87,7 @@ New installations select **Gemma 4 E2B**, a pinned 2.84 GB public GGUF, with a c
 
 Closing Settings leaves BroTypist running. Normal keys pass through when no eligible suggestion is active. Shortcuts and existing model choices are **not reset by the redesign**. The design document's proposed new defaults do not override saved preferences.
 
-In development source, a cached local GGUF model prepares when an authorized multiline writing field is focused, before the typing threshold/debounce needs a prediction. This includes an empty, writable native field with verified window ownership and valid field bounds: it has no glyph run to measure yet, but preparation sends configuration only, not a draft. Drawing and acceptance still require independently verified same-line layout. Protected/unsupported fields and battery force-only mode do not trigger it. The published **0.4.1** binary still starts loading only when an eligible prediction request needs inference; source changes are not an installed update.
+A cached local GGUF model prepares when an authorized multiline writing field is focused, before the typing threshold/debounce needs a prediction. This includes an empty, writable native field with verified window ownership and valid field bounds: it has no glyph run to measure yet, but preparation sends configuration only, not a draft. Drawing and acceptance still require independently verified same-line layout. Protected/unsupported fields and battery force-only mode do not trigger it. Loading still costs seconds; this is not a guarantee that every first keystroke receives an immediate prediction.
 
 Models use a separate process and unload after five minutes idle by default, on model replacement, privacy revocation, pause or Quit. Focus preparation does not eliminate loading cost or override your saved idle timeout. Temporary field-scoped Escape suppression keeps the worker warm. The typing-delay default is 150 ms; saved values are preserved. UI-thread readiness notifications deliver prepared requests and streamed results without waiting for the fallback polling timer. Welcome's private preview does not record text and closes its worker on focus loss/close. Separately managed loopback servers have their own lifetimes.
 

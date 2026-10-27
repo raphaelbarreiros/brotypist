@@ -1,0 +1,46 @@
+{
+  "version": "0.4.2",
+  "source_commit": "811fa1e785b70cb7f4189f8361a358f96a736b09",
+  "repository_private": true,
+  "release_id": 425289772,
+  "url": "https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.2",
+  "draft": false,
+  "prerelease": false,
+  "latest_at_verification": true,
+  "published_at": "2026-10-27T10:19:27Z",
+  "remote_tag_commit": "811fa1e785b70cb7f4189f8361a358f96a736b09",
+  "downloaded_assets": [
+    {
+      "name": "BroTypist-0.4.2-macos-arm64.dmg",
+      "size": 36921463,
+      "sha256": "a3a084229db8e2fa4a33d98edb907e5d08eb5216993df5ec91aef6d93bbb58c6",
+      "github_digest_matches_download": true
+    },
+    {
+      "name": "BroTypist-0.4.2-macos-arm64.zip",
+      "size": 33406391,
+      "sha256": "3fa5b8ce31c2dfe01a5dc8e77ab215812eb9f59f5f26af86c1c077578ca74e07",
+      "github_digest_matches_download": true
+    },
+    {
+      "name": "release-manifest.json",
+      "size": 2567,
+      "sha256": "4f506444c791a31c67940c5dbd0f9f5181928f9075e26a027887cc6115c129d7",
+      "github_digest_matches_download": true
+    },
+    {
+      "name": "SHA256SUMS",
+      "size": 284,
+      "sha256": "84630af572eccf3b9d4d8cca25d8ba422da8673d829eda6215c0cacc54449d90",
+      "github_digest_matches_download": true
+    }
+  ],
+  "downloaded_sha256sums_check": "DMG, ZIP and release manifest passed; all four files, including SHA256SUMS itself, matched GitHub digests and pre-upload local bytes",
+  "installer_smoke": "passed; native signed read-only mount/install/GUI/normal quit/data preservation/detach; published DMG bytes match the smoke-tested artifact",
+  "native_messenger_proof": "evidence/brotypist/installed-0.4.2.json",
+  "unpublished_targets": [
+    "linux-x86_64",
+    "windows-x86_64"
+  ],
+  "signing_limit": "Apple Development; not Developer ID distribution or notarization"
+}

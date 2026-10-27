@@ -2,7 +2,7 @@
 
 # Changelog
 
-## 0.4.2 — Unreleased macOS candidate
+## 0.4.2 — macOS
 
 - Prepare cached local weights in authorized multiline fields before ordinary prediction is due, including empty writable native fields with verified window identity/bounds. Use a configuration-only worker command; never evaluate writing during that preparation or relax same-line drawing/acceptance checks. Do not download/select a model automatically. Preserve saved idle release and battery force-only behavior.
 - Reuse model allocations across prompt, length and context-budget changes that do not replace the backend/path/acceleration. Keep pause, privacy revocation and Quit release barriers, including newer preparation racing an older release and typing cancellation.
@@ -12,7 +12,7 @@
 - Preserve lexical token healing for ordinary suffix/append requests; allow native EOS immediately after replay when no insertion is needed. Fix streamed decimal and CJK sentence boundaries.
 - Bind browser suggestions to native window/document identity, reject unsafe ancestry and malformed/stale attributed runs, and stop visual clipping at the owning window rather than nonvisual application metadata.
 - Validate the running Codex process against the exact signed 0.162.1 renderer identity rather than its installation pathname. Tighten native row/clip/attachment leases; retain the existing terminal, other-agent, multiplexer and Docs exclusions.
-- Keep this candidate separate from installed/published 0.4.1 until signed native typing/acceptance is exercised. Headless regression/model checks do not establish complete [redacted reference] compatibility, human-calibrated multilingual quality, desktop latency or RAM parity. Linux/Windows builds and iCloud remain held.
+- Verify the separately signed, installed app in native WhatsApp/Telegram composers, including real Tab acceptance, changed visible reference facts, live permission badges and persistent menu-bar controls. These bounded checks do not establish complete [redacted reference] compatibility, human-calibrated multilingual quality, desktop latency or RAM parity. Linux/Windows builds and iCloud remain held.
 
 ## 0.4.1 — macOS
 

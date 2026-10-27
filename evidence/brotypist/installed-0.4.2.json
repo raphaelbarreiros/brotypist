@@ -1,0 +1,417 @@
+{
+  "version": "0.4.2",
+  "source_commit": "811fa1e785b70cb7f4189f8361a358f96a736b09",
+  "installed_path": "/Applications/BroTypist.app",
+  "installed_executable_sha256": "0203bc0e5c64dabcf81fb8dce5f4bae07e683c09ca040ad9c159ed745b8fa896",
+  "same_designated_requirement": true,
+  "regressions": {
+    "passed": 1057,
+    "skipped": 21,
+    "seconds": 21.74,
+    "changed_reference_red_then_green": true,
+    "empty_field_red_then_green": true
+  },
+  "installed_isolated_composers": {
+    "whatsapp": {
+      "target_bundle": "net.whatsapp.WhatsApp",
+      "synthetic_prefix": "Thank you for your help with the report. I really",
+      "method": "Existing empty native multiline composer; actual HID Unicode/last-key and Tab. No chat navigation, clipboard, Return or send action. Focused-window/clipboard/screenshot context disabled in isolated product profile.",
+      "no_return_or_send_action": true,
+      "empty_multiline_candidates": 1,
+      "first_prediction_sized_overlay": {
+        "elapsed_ms": 2893.586416999824,
+        "windows": [
+          {
+            "id": 603,
+            "rect": [
+              818.0,
+              942.0,
+              68.0,
+              16.0
+            ]
+          }
+        ]
+      },
+      "native_capture": true,
+      "inline_safe": true,
+      "render_source": "macos-ax-attributed-run",
+      "caret_rect": [
+        818.0,
+        942.0,
+        1.0,
+        17.0
+      ],
+      "owned_composer_row_crop": [
+        530,
+        940,
+        465,
+        21
+      ],
+      "screenshot": "whatsapp-installed-acceptance.png",
+      "after_tab": "Thank you for your help with the report. I really appreciate ",
+      "tab_accepted_prediction": true,
+      "status": "observed",
+      "owned_draft_cleared": true
+    },
+    "telegram": {
+      "target_bundle": "com.tdesktop.Telegram",
+      "synthetic_prefix": "Thank you for your help with the report. I really",
+      "method": "Existing empty native multiline composer; actual HID Unicode/last-key and Tab. No chat navigation, clipboard, Return or send action. Focused-window/clipboard/screenshot context disabled in isolated product profile.",
+      "no_return_or_send_action": true,
+      "empty_multiline_candidates": 1,
+      "first_prediction_sized_overlay": {
+        "elapsed_ms": 382.9675420001877,
+        "windows": [
+          {
+            "id": 603,
+            "rect": [
+              518.0,
+              1888.0,
+              69.0,
+              16.0
+            ]
+          }
+        ]
+      },
+      "native_capture": true,
+      "inline_safe": true,
+      "render_source": "macos-ax-caret-row",
+      "caret_rect": [
+        518.0,
+        1887.0,
+        1.0,
+        18.0
+      ],
+      "owned_composer_row_crop": [
+        228,
+        1883,
+        764,
+        26
+      ],
+      "screenshot": "telegram-installed-acceptance.png",
+      "after_tab": "Thank you for your help with the report. I really appreciate ",
+      "tab_accepted_prediction": true,
+      "status": "observed",
+      "owned_draft_cleared": true
+    }
+  },
+  "final_signed_candidate_composers": {
+    "whatsapp": {
+      "target_bundle": "net.whatsapp.WhatsApp",
+      "synthetic_prefix": "Thank you for your help with the report. I really",
+      "method": "Existing empty native multiline composer; actual HID Unicode/last-key and Tab. No chat navigation, clipboard, Return or send action. Focused-window/clipboard/screenshot context disabled in isolated product profile.",
+      "no_return_or_send_action": true,
+      "empty_multiline_candidates": 1,
+      "first_prediction_sized_overlay": {
+        "elapsed_ms": 643.3453749996261,
+        "windows": [
+          {
+            "id": 552,
+            "rect": [
+              818.0,
+              942.0,
+              68.0,
+              16.0
+            ]
+          }
+        ]
+      },
+      "native_capture": true,
+      "inline_safe": true,
+      "render_source": "macos-ax-attributed-run",
+      "caret_rect": [
+        818.0,
+        942.0,
+        1.0,
+        17.0
+      ],
+      "owned_composer_row_crop": [
+        530,
+        940,
+        465,
+        21
+      ],
+      "screenshot": "whatsapp-final-signed.png",
+      "after_tab": "Thank you for your help with the report. I really appreciate ",
+      "tab_accepted_prediction": true,
+      "status": "observed",
+      "owned_draft_cleared": true
+    },
+    "telegram": {
+      "target_bundle": "com.tdesktop.Telegram",
+      "synthetic_prefix": "Thank you for your help with the report. I really",
+      "method": "Existing empty native multiline composer; actual HID Unicode/last-key and Tab. No chat navigation, clipboard, Return or send action. Focused-window/clipboard/screenshot context disabled in isolated product profile.",
+      "no_return_or_send_action": true,
+      "empty_multiline_candidates": 1,
+      "first_prediction_sized_overlay": {
+        "elapsed_ms": 387.7715829994486,
+        "windows": [
+          {
+            "id": 552,
+            "rect": [
+              518.0,
+              1888.0,
+              69.0,
+              16.0
+            ]
+          }
+        ]
+      },
+      "native_capture": true,
+      "inline_safe": true,
+      "render_source": "macos-ax-caret-row",
+      "caret_rect": [
+        518.0,
+        1887.0,
+        1.0,
+        18.0
+      ],
+      "owned_composer_row_crop": [
+        228,
+        1883,
+        764,
+        26
+      ],
+      "screenshot": "telegram-final-signed.png",
+      "after_tab": "Thank you for your help with the report. I really appreciate ",
+      "tab_accepted_prediction": true,
+      "status": "observed",
+      "owned_draft_cleared": true
+    }
+  },
+  "native_context_transition": {
+    "before_fix": {
+      "source_commit": "68ef265477b27d7e9be5da68fda1cec382674360",
+      "reference": "Friday at09:45 in Room Maple",
+      "actual_inserted": "Thursday",
+      "passed": false
+    },
+    "after_fix": {
+      "source_commit": "811fa1e785b70cb7f4189f8361a358f96a736b09",
+      "first_reference": "The launch review is scheduled for Thursday at 14:30 in Room Cedar.",
+      "first_after_tab": "The launch review is scheduled for Thursday ",
+      "changed_reference": "The launch review is scheduled for Friday at 09:45 in Room Maple.",
+      "changed_after_tab": "The launch review is scheduled for Friday ",
+      "actual_screenshot": "context-friday-0.4.2.png"
+    }
+  },
+  "empty_field_preparation": {
+    "source_commit": "811fa1e785b70cb7f4189f8361a358f96a736b09",
+    "field_empty_before_typing": true,
+    "status_transitions": {
+      "saw_loading": true,
+      "transitions": [
+        {
+          "ms": 16.203958000005514,
+          "state": ""
+        },
+        {
+          "ms": 1165.7457910005178,
+          "state": " BroTypist, Loading BroTypist — Loading the local model…"
+        },
+        {
+          "ms": 3087.0769160001146,
+          "state": " BroTypist, Unavailable here BroTypist — This field does not expose verified same-line rendering; ordinary completion is silent."
+        }
+      ],
+      "elapsed_ms": 3087.0850000001155
+    },
+    "native_worker_ready_label_observed_in_preceding_68ef265_build": true,
+    "same_worker_verified_before_after_typing_in_preceding_build": true,
+    "rendering_and_acceptance_checks_not_relaxed": true
+  },
+  "settings_bytes_preserved": true,
+  "rollback_archive_crc": "passed",
+  "history_and_unaccepted_recording_in_normal_profile": false,
+  "normal_profile": {
+    "launched_by": "LaunchServices",
+    "pid_not_a_persistent_identity": true,
+    "same_line_ghost_observed": true,
+    "real_screenshot": "normal-installed-0.4.2.png",
+    "acceptance_requested": false
+  },
+  "permissions": {
+    "inklow.setup.screen_recording.status": "Granted",
+    "inklow.setup.input_monitoring.status": "Granted",
+    "inklow.setup.accessibility.status": "Granted"
+  },
+  "menus": {
+    "actual_visible_field_actions": [
+      {
+        "title": "Settings…",
+        "id": "inklow.field.settings",
+        "rect": [
+          152.0,
+          350.0,
+          302.0,
+          24.0
+        ]
+      },
+      {
+        "title": "",
+        "id": "None",
+        "rect": [
+          152.0,
+          339.0,
+          302.0,
+          11.0
+        ]
+      },
+      {
+        "title": "Accept with Tab in BroTypistSyntheticHost",
+        "id": "inklow.field.tab",
+        "rect": [
+          152.0,
+          315.0,
+          302.0,
+          24.0
+        ]
+      },
+      {
+        "title": "Record Writing in BroTypistSyntheticHost",
+        "id": "inklow.field.record",
+        "rect": [
+          152.0,
+          291.0,
+          302.0,
+          24.0
+        ]
+      },
+      {
+        "title": "Completions in BroTypistSyntheticHost",
+        "id": "inklow.field.currentApp",
+        "rect": [
+          152.0,
+          267.0,
+          302.0,
+          24.0
+        ]
+      }
+    ],
+    "actual_status_quit_exit": 0,
+    "closing_settings_kept_app_running": true,
+    "status_item_remained_visible_through_thaw_toggle": true,
+    "transient_hider_toggle_restored": true
+  },
+  "other_typing_assistants": {
+    "initial_tab_attribution_contaminated": true,
+    "initial_samples_invalidated": true,
+    "user_choice": "Leave TypeAhead and Grammarly Desktop closed; preferences and startup settings unchanged."
+  },
+  "memory_experiment": {
+    "method": "Fresh native processes, identical independently acquired cached Gemma weights, n_ctx4096/batch64/ubatch32, full SWA and prefix reuse. No other BroTypist/[redacted reference] predictor active. OS/Metal/file caches not cleared. Single samples, not latency percentiles.",
+    "baseline": {
+      "native_parameters": {
+        "n_ctx": 4096,
+        "n_batch": 64,
+        "n_ubatch": 32,
+        "flash_attn_type": 0,
+        "type_k": 1,
+        "type_v": 1,
+        "swa_full": true,
+        "offload_kqv": true
+      },
+      "prepare_ms": 815.2039169999625,
+      "requests": [
+        {
+          "index": 0,
+          "first_displayable_ms": 450.87162500021805,
+          "total_ms": 528.4532499999841,
+          "text": " appreciate it."
+        },
+        {
+          "index": 1,
+          "first_displayable_ms": 396.7188750002606,
+          "total_ms": 744.4751670000187,
+          "text": " Ipê, terça-feira às 10h."
+        },
+        {
+          "index": 2,
+          "first_displayable_ms": 217.37037500042788,
+          "total_ms": 407.85070800029644,
+          "text": " Tuesday at 10 AM "
+        }
+      ],
+      "states": {
+        "before_prepare": {
+          "phys_footprint_bytes": 30048928,
+          "native_receipt": "paired-baseline-profile-before_prepare-footprint.json"
+        },
+        "prepared": {
+          "phys_footprint_bytes": 312822760,
+          "native_receipt": "paired-baseline-profile-prepared-footprint.json"
+        },
+        "after_predictions": {
+          "phys_footprint_bytes": 469454040,
+          "native_receipt": "paired-baseline-profile-after_predictions-footprint.json"
+        },
+        "after_close": {
+          "phys_footprint_bytes": 151847968,
+          "native_receipt": "paired-baseline-profile-after_close-footprint.json"
+        }
+      }
+    },
+    "q8_experiment": {
+      "native_parameters": {
+        "n_ctx": 4096,
+        "n_batch": 64,
+        "n_ubatch": 32,
+        "flash_attn_type": 1,
+        "type_k": 8,
+        "type_v": 8,
+        "swa_full": true,
+        "offload_kqv": true
+      },
+      "prepare_ms": 2247.8975419999188,
+      "requests": [
+        {
+          "index": 0,
+          "first_displayable_ms": 496.07291699976486,
+          "total_ms": 585.6672499994602,
+          "text": " appreciate it."
+        },
+        {
+          "index": 1,
+          "first_displayable_ms": 563.2672080000702,
+          "total_ms": 960.454375000154,
+          "text": " Ipê, terça-feira às 10h."
+        },
+        {
+          "index": 2,
+          "first_displayable_ms": 223.6579589998655,
+          "total_ms": 446.1266250000335,
+          "text": " Tuesday at 10 AM "
+        }
+      ],
+      "states": {
+        "before_prepare": {
+          "phys_footprint_bytes": 30081696,
+          "native_receipt": "paired-q8-profile-v2-before_prepare-footprint.json"
+        },
+        "prepared": {
+          "phys_footprint_bytes": 253430712,
+          "native_receipt": "paired-q8-profile-v2-prepared-footprint.json"
+        },
+        "after_predictions": {
+          "phys_footprint_bytes": 416369856,
+          "native_receipt": "paired-q8-profile-v2-after_predictions-footprint.json"
+        },
+        "after_close": {
+          "phys_footprint_bytes": 152339512,
+          "native_receipt": "paired-q8-profile-v2-after_close-footprint.json"
+        }
+      }
+    },
+    "adopted": false,
+    "reason": "53,084,184 fewer active phys_footprint bytes in this pair, but first display was45.20/166.55/6.29ms slower for the three requests. Preserve speed/full-cache behavior and avoid an unreviewed KV-precision default."
+  },
+  "original_comparison_limit": "Unmodified original finished launching but did not expose a usable status extra or offer in the isolated owned-field run. Its active comparable model state was not established; no RAM-parity claim.",
+  "limits": [
+    "No calibrated semantic/grammar accuracy score or universal-language/input guarantee.",
+    "Single native overlay observations include capture/debounce/worker/render but are not visible latency percentiles or an SLA.",
+    "Cold model loading still costs seconds; early preparation moves the cost before typing when the user leaves time.",
+    "Apple Development signing, not Developer ID or notarization.",
+    "Docs/terminal compatibility remains bounded as documented. Linux/Windows product builds and iCloud remain held."
+  ],
+  "repository_history_redaction": "Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations."
+}
