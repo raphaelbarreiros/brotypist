@@ -1,0 +1,162 @@
+{
+  "schema": 1,
+  "version": "0.4.9",
+  "platform": "macos-arm64",
+  "runtime_source_commit": "273fb600f76123f8f8a5a25c5a5970a8007d282d",
+  "status": "signed local candidate with source, frozen inference and headless installer proof; normal installation and live WhatsApp overlay verification blocked by locked console",
+  "artifacts": [
+    {
+      "name": "BroTypist-0.4.9-macos-arm64.dmg",
+      "bytes": 54367441,
+      "sha256": "728b3b9bf1672029c0e6ead51cad1916bc576b721cbc55b80549f38432070705"
+    },
+    {
+      "name": "BroTypist-0.4.9-macos-arm64.zip",
+      "bytes": 50784231,
+      "sha256": "14d8bd45a0a0800bf168f976ac77d71b721db568efb78d1cf6dd6a885a9b2830"
+    }
+  ],
+  "executable": {
+    "name": "BroTypist",
+    "sha256": "7929bf617d3b5fe8189c7e34a92cf253b1758c1c585fdd5613aee119d65f28f1"
+  },
+  "signing": {
+    "strict_deep_verification": "passed",
+    "signer_class": "Apple Development",
+    "leaf_identity_sha1": "1AF11A65BB6EF906798D4D1B4B140C4F568D8DEB",
+    "designated_requirement_matches_installed": true,
+    "developer_id_distribution": "not claimed",
+    "notarization": "not claimed"
+  },
+  "source_regressions": {
+    "passed": 1330,
+    "skipped": 22,
+    "native_contract_slice_passed": 238
+  },
+  "actual_whatsapp_component": {
+    "cause": "Identical typography split into word/blank runs by spell-check metadata; the former all-attribute run rejected a blank before inference.",
+    "inline_safe_before": false,
+    "inline_safe_after": true,
+    "draft_caret_selection_unchanged": true,
+    "previous_foreground_restored": true,
+    "full_chat_tree_read": false,
+    "live_prediction_pixels": "not verified",
+    "physical_typing_acceptance_or_sending": "not exercised"
+  },
+  "source_native_ui": {
+    "exact_owned_window_compositor_images": 7,
+    "surfaces": [
+      "General",
+      "App Settings",
+      "Models",
+      "Battery",
+      "charging",
+      "reduced-motion/contrast charging",
+      "synthetic 20% preview"
+    ],
+    "external_window_or_desktop_capture": false,
+    "foreground_unchanged": true,
+    "key_or_main_window_taken": false,
+    "preview_sidebar": "within-window blending to exclude underlying content",
+    "limit": "Source layout/state proof precedes the final presentation-opacity retarget adjustment; not frozen-GUI proof. The later probe produced no images; a separate session check positively confirmed the console was locked."
+  },
+  "power": {
+    "actual_hardware_sample": {
+      "available": true,
+      "has_battery": true,
+      "on_battery": false,
+      "charging": false,
+      "percent": 80
+    },
+    "actual_sampling_thread": "brotypist-power",
+    "optimized_charge_hold_parser_regression": "failed before, passed after",
+    "normal_charging_cue_seconds": 3.6,
+    "reduced_motion_or_contrast_pulse": false,
+    "reduced_arrival_fade_seconds": 0.12,
+    "low_help_policy": "once per known discharge at <=20%; genuine AC rearms; unknown/absent/invalid states do not ask",
+    "native_console_anchor_regression": "failed with literal key, passed with SDK constants and login/lock guards",
+    "physical_20_percent_discharge_trial": "not exercised",
+    "false_low_battery_notification_during_preview": false
+  },
+  "writing_provider": {
+    "model": "Gemma 4 E2B it Q4_0, existing cached model",
+    "synthetic_cases": 31,
+    "repetitions": 2,
+    "nonblank_insertions": 60,
+    "samples": 62,
+    "first_displayable_provider_ms": {
+      "median": 163.59285449652816,
+      "min": 81.9580000024871,
+      "max": 437.18783400254324
+    },
+    "quality": "Assistant-inspected assembled drafts; not human-calibrated grammar or factuality accuracy.",
+    "known_limits": [
+      "One Portuguese work-message case abstained twice.",
+      "Explicit language overrides remained unreliable.",
+      "Suggestions can add unsupported specifics.",
+      "Ambiguous short prefixes do not determine the user's intended language."
+    ],
+    "timing_excludes": [
+      "desktop debounce",
+      "IPC",
+      "AX capture",
+      "native rendering"
+    ]
+  },
+  "frozen_inference": {
+    "cli_version": "BroTypist 0.4.9",
+    "cli_exit_code": 0,
+    "cli_synthetic_example": {
+      "prefix": "Hey, I'll text you when",
+      "suggestion": " I get home."
+    },
+    "configuration_only_prepare": {
+      "event_types": [
+        "loading",
+        "prepared",
+        "done"
+      ],
+      "generated_writing": false,
+      "elapsed_ms": 1411.0006670016446
+    },
+    "medium_worker_examples": [
+      {
+        "prefix": "Então ",
+        "suggestion": "preciso confirmar se o ",
+        "first_protocol_result_ms_after_preparation": 264.65445900248596
+      },
+      {
+        "prefix": "Could you send me your feedb",
+        "suggestion": "ack on this draft?",
+        "first_protocol_result_ms_after_preparation": 386.7212500044843
+      }
+    ],
+    "worker_exit_code": 0,
+    "note": "Real signed frozen executable and worker, private profile, actual cached model; not GUI or desktop latency proof.",
+    "observer_correction": "The initial prepared-worker observer stopped at prepared and mistook its following done for the next request. The corrected observer drains the terminal done. Only that observer's owned worker was killed during cleanup; no product deadlock is claimed."
+  },
+  "frozen_installer_and_runtime": {
+    "read_only_mount": "passed",
+    "drag_install_layout": "passed",
+    "copy_signature_source_version": "passed",
+    "copied_cli_version": "passed",
+    "external_data_preservation_and_detach": "passed",
+    "gui": "skipped: current-user Aqua console locked"
+  },
+  "preservation": {
+    "normal_installation_performed": false,
+    "normal_profile_edited": false,
+    "normal_app_force_killed": false,
+    "normal_settings_hash_unchanged_after_foreground_attempt": true,
+    "observed_installed_version": "0.4.8",
+    "observed_installed_source": "853bea377ff51cd5838e9a87b6ff5844fd0f0a93",
+    "new_learning_consent_or_security_policy_change": false
+  },
+  "limits": [
+    "Live WhatsApp compositor, physical-key and acceptance behavior remain unverified.",
+    "The final normal-installation GUI acknowledgment requires an unlocked console.",
+    "No Linux/Windows build, push, tag, GitHub release or public OTA manifest was produced.",
+    "No [redacted reference] parity, memory superiority, universal input support, grammar guarantee or spoken TTS is claimed."
+  ],
+  "repository_history_redaction": "Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations."
+}

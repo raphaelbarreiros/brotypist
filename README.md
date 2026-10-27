@@ -243,9 +243,9 @@ Publishing through `gh` requires a GitHub API credential with repository **Conte
 
 - `src/inklow/runtime.py`, `core.py`: controller, exact snapshots, acceptance guards.
 - `process_client.py`, `process_worker.py`, `providers.py`, `writing.py`, `models.py`: isolated local inference, prompts, verified downloads.
-- `appkit_ui.py`, `appkit_welcome.py`, `qt_ui.py`, `appkit_overlay.py`: resident native/portable interfaces.
+- `appkit_ui.py`, `appkit_welcome.py`, `appkit_power.py`, `qt_ui.py`, `appkit_overlay.py`: resident native/portable interfaces.
 - `preview.py`: owned-field ephemeral Welcome inference; no global capture or persistent history.
-- `native/`, `system.py`: OS integration, supported accessibility/text-input paths and explicit OS actions.
+- `native/`, `system.py`, `power.py`: OS integration, shared power sampling/discharge policy, supported accessibility/text-input paths and explicit OS actions.
 - `config.py`, `storage.py`: preferences, encryption and statistics.
 - `tools/`, `packaging/`, `.github/workflows/`: verification, native packaging and releases.
 
