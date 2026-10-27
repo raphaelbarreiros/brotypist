@@ -2451,23 +2451,40 @@ class BroTypistApplication(NSObject):
             self.selected_rule = min(rules, default="", key=lambda key: (key.startswith("domain:"), self._rule_title(key).casefold()))
         toolbar = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, f.width, 28))
         search = A.NSSearchField.alloc().initWithFrame_(A.NSMakeRect(0, 1, 220, 26))
-        search.setAutoresizingMask_(A.NSViewWidthSizable)
         search.setPlaceholderString_("Search apps and websites")
         search.setStringValue_(self.rule_query)
         search.setSendsSearchStringImmediately_(True)
         _identify(search, "inklow.appSettings.search", "Search apps and websites")
         self._bind(search, lambda sender: self._filter_rules(sender.stringValue()))
         toolbar.addSubview_(search)
-        for x, width, title, identifier, callback in (
-            (232, 104, "Add App…", "addApp", self._choose_app),
-            (342, 118, "Add Current App", "addCurrentApp", self._add_current_app),
-            (466, 120, "Add Domain…", "addDomain", self._add_domain),
+        buttons = []
+        for title, identifier, callback in (
+            ("Add App…", "addApp", self._choose_app),
+            ("Add Current App", "addCurrentApp", self._add_current_app),
+            ("Add Domain…", "addDomain", self._add_domain),
         ):
             button = self._button(title, f"inklow.appSettings.{identifier}", callback)
-            button.setFrame_(A.NSMakeRect(x, 0, width, 28))
-            button.setAutoresizingMask_(A.NSViewMinXMargin)
             toolbar.addSubview_(button)
-        f.custom(toolbar, 28)
+            buttons.append(button)
+
+        def layout_toolbar(width):
+            natural = 0
+            for button in buttons:
+                button.sizeToFit()
+                button.setFrameSize_(A.NSMakeSize(max(100, A.NSWidth(button.frame()) + 16), 28))
+                natural += A.NSWidth(button.frame()) + 8
+            natural -= 8
+            inline = width - natural - 12 >= 180
+            search.setFrame_(A.NSMakeRect(0, 1, width - natural - 12 if inline else width, 26))
+            x, y = (width - natural, 0) if inline else (0, 36)
+            for button in buttons:
+                if x and x + A.NSWidth(button.frame()) > width:
+                    x, y = 0, y + 36
+                button.setFrameOrigin_(A.NSMakePoint(x, y))
+                x += A.NSWidth(button.frame()) + 8
+            return y + 28
+
+        f.custom(toolbar, 28, layout=layout_toolbar)
         self.rule_source = RuleListSource.alloc().init().configure(self)
         self.rule_source.rows = self._rule_rows()
         table = A.NSTableView.alloc().initWithFrame_(A.NSMakeRect(0, 0, f.width, 220))
