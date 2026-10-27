@@ -132,9 +132,17 @@ def main() -> int:
             raise ValueError("Copied executable --version did not match release metadata")
         checks["copied_executable_version"] = result.stdout.strip()
         gui_available = os.stat("/dev/console").st_uid == os.getuid() and os.getuid() != 0
+        gui_reason = "Requires an unlocked current-user Aqua console session and PyObjC AppKit/Quartz"
         try:
-            import AppKit  # noqa: F401
-            import Quartz  # noqa: F401
+            import AppKit
+            import Quartz
+            foreground = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
+            session = Quartz.CGSessionCopyCurrentDictionary() or {}
+            locked = (foreground is None or str(foreground.bundleIdentifier()) == "com.apple.loginwindow"
+                      or bool(session.get("CGSSessionScreenIsLocked", False)))
+            if locked:
+                gui_available = False
+                gui_reason = "Current-user Aqua desktop is locked; no GUI or typing pass claimed"
         except ImportError:
             gui_available = False
         if gui_available:
@@ -145,7 +153,7 @@ def main() -> int:
                 preserve = True
                 raise
         else:
-            checks["gui"] = {"status": "skipped", "reason": "Requires current-user Aqua console session and PyObjC AppKit/Quartz"}
+            checks["gui"] = {"status": "skipped", "reason": gui_reason}
             if args.require_gui:
                 raise RuntimeError(checks["gui"]["reason"])
         if settings_path.read_bytes() != before:

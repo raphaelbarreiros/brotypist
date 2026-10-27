@@ -33,8 +33,11 @@ if sys.platform == "linux":
         import pyatspi
         import Xlib
         gi.require_version("Atspi", "2.0")
-        from gi.repository import Atspi
-        return callable(Atspi.get_desktop)
+        gi.require_version("Pango", "1.0")
+        gi.require_version("PangoCairo", "1.0")
+        from gi.repository import Atspi, Pango, PangoCairo
+        return (callable(Atspi.get_desktop) and callable(Pango.FontDescription)
+                and callable(PangoCairo.FontMap.get_default))
 
     require_linux_bindings()  # Fail the build, never ship an UnavailableBridge.
     wayland_library = ROOT / "src/inklow/native/libinklow_wayland.so"
@@ -42,7 +45,7 @@ if sys.platform == "linux":
         raise RuntimeError("Build the native Wayland client with tools/build_wayland.py before freezing Linux.")
     linux_binaries.append((str(wayland_library), "inklow/native"))
     linux_imports = collect_submodules("pyatspi") + ["gi", "gi._gi", "Xlib"]
-    pending = [("Atspi", "2.0")]
+    pending = [("Atspi", "2.0"), ("Pango", "1.0"), ("PangoCairo", "1.0")]
     collected = set()
     while pending:
         namespace, version = pending.pop()

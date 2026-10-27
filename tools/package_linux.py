@@ -60,7 +60,7 @@ def validate_bundle(bundle: Path, version: str) -> None:
         if path.is_file() and (path.suffix.lower() in FORBIDDEN_SUFFIXES or path.name.lower() in FORBIDDEN_NAMES):
             raise ValueError(f"Refusing private/model payload: {path.relative_to(bundle)}")
     internal = bundle / "_internal"
-    for namespace in ("Atspi-2.0", "GLib-2.0", "GObject-2.0"):
+    for namespace in ("Atspi-2.0", "GLib-2.0", "GObject-2.0", "Pango-1.0", "PangoCairo-1.0"):
         if not (internal / "gi_typelibs" / f"{namespace}.typelib").is_file():
             raise ValueError(f"Frozen accessibility typelib missing: {namespace}")
     if not any(internal.glob("gi/_gi*.so")) or not any(internal.glob("libatspi.so*")):

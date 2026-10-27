@@ -43,6 +43,8 @@ Native Debian releases target Ubuntu 24.04+/Debian 13+ amd64, with D-Bus and an 
 
 BroTypist uses KWin's private **input-method-v1** connection for its opt-in brand/manual-menu controls, not raw input devices, global injection, or a screen-reader identity. **Ordinary inline completion is currently unavailable on this Wayland path.** A real isolated KWin/Qt test showed that delayed preedit could replace a newly selected range and did not expose inactive styling. The unsafe preedit path was removed; missing native font metrics are not replaced with a suggestion popup.
 
+X11 is also capability-bound: ordinary overlays require explicit inactive-composition state, native font/direction attributes and matching visible glyph metrics. Many providers omit these; those inputs remain silent. A passing installer or local-model preview is not proof that an arbitrary Linux input supports inline completion.
+
 ```sh
 .venv/bin/python tools/build_wayland.py
 .venv/bin/brotypist wayland install
