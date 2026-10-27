@@ -886,13 +886,28 @@ class MacBridge(BridgeBase):
             if (error or attributed is None or attributed.length() != expected_units
                     or str(attributed.string()) != expected_text):
                 return None, None
-            attributes, run = attributed.attributesAtIndex_effectiveRange_(caret_offset - 1, None)
-            if run is None:
-                return None, None
-            run_start, run_end = int(run[0]), int(run[0]) + int(run[1])
-            if not 0 <= run_start <= caret_offset - 1 < run_end <= expected_units:
-                return None, None
-            # Calibrate only within the uniform run that ends at the caret.
+            # All-attribute runs split at spelling and other non-typographic
+            # metadata. Intersect native longest ranges for typography alone.
+            run_start, run_end = 0, expected_units
+            attributes = {}
+            marked_keys = ("NSMarkedClauseSegment", "NSMarkedClauseSegmentAttributeName")
+            shifted_keys = ("AXSuperscript", "NSBaselineOffset", "AXMarkedText")
+            for key in ("AXFont", *shifted_keys, *marked_keys):
+                value, run = attributed.attribute_atIndex_longestEffectiveRange_inRange_(
+                    key, caret_offset - 1, None, (0, expected_units))
+                if run is None:
+                    return None, None
+                start, end = int(run[0]), int(run[0]) + int(run[1])
+                if not 0 <= start <= caret_offset - 1 < end <= expected_units:
+                    return None, None
+                if (index_to_utf16(expected_text, utf16_to_index(expected_text, start)) != start
+                        or index_to_utf16(expected_text, utf16_to_index(expected_text, end)) != end):
+                    return None, None
+                if (key in marked_keys and value is not None) or (key in shifted_keys and value):
+                    return None, None
+                attributes[key] = value
+                run_start, run_end = max(run_start, start), min(run_end, end)
+            # Calibrate only within the typography-equivalent caret run.
             if run_start > 0:
                 span = span[utf16_to_index(span, run_start):]
             if not span.strip():
@@ -901,11 +916,6 @@ class MacBridge(BridgeBase):
             whole = (self._range_bounds(field, span_location, location - span_location)
                      if run_start > 0 else whole)
             descriptor = attributes.get("AXFont")
-            # Superscripts, baseline shifts and host IME runs are not plain text.
-            if (any(attributes.get(key) for key in ("AXSuperscript", "NSBaselineOffset", "AXMarkedText"))
-                    or any(key in attributes for key in ("NSMarkedClauseSegment",
-                                                         "NSMarkedClauseSegmentAttributeName"))):
-                return None, None
             if not descriptor:
                 return ((self._fitted_system_render(span, whole, rect, clip), None)
                         if not after else (None, None))

@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import plistlib
+import re
 import shutil
 import subprocess
 import sys
@@ -14,7 +15,7 @@ import time
 _AUTOSTART_ID = "com.inklow.Inklow"
 _INPUT_METHOD_ID = _AUTOSTART_ID + ".InputMethod"
 _battery_lock = threading.Lock()
-_battery_cache = (0.0, False)
+_battery_cache = None
 
 
 def _launch_arguments() -> list[str]:
@@ -222,38 +223,135 @@ def clipboard_text(*, authorized) -> str:
     return value[:4000] if authorized() else ""
 
 
-def on_battery() -> bool:
+def _unknown_power_status() -> dict:
+    return {"available": False, "has_battery": False, "on_battery": False,
+            "charging": None, "percent": None}
+
+
+def _mac_power_status(output: str) -> dict:
+    reading = _unknown_power_status()
+    source = re.search(r"^Now drawing from '(Battery Power|AC Power)'\s*$", output, re.MULTILINE)
+    if source is None:
+        return reading
+    reading["on_battery"] = source[1] == "Battery Power"
+    batteries = [line for line in output.splitlines()
+                 if re.match(r"\s*-InternalBattery-\d+\b", line)]
+    reading["has_battery"] = bool(batteries) or reading["on_battery"]
+    if not batteries:
+        # A battery-powered report without its battery row is incomplete, not a
+        # desktop Mac and not a valid low-battery sample.
+        remainder = (output[:source.start()] + output[source.end():]).strip()
+        reading["available"] = not reading["on_battery"] and remainder in {"", "No batteries."}
+        return reading
+    if len(batteries) != 1:
+        # Do not invent an average for an unfamiliar multi-pack report.
+        return reading
+    record = re.match(r"\s*-InternalBattery-\d+\s+\(id=\d+\)\s+(.+)$", batteries[0])
+    if record is None:
+        return reading
+    if re.search(r"\bpresent:\s*false\b", record[1]):
+        reading["has_battery"] = False
+        reading["available"] = not reading["on_battery"]
+        return reading
+    fields = [field.strip() for field in record[1].split(";")]
+    if len(fields) < 2:
+        return reading
+    percentage = re.fullmatch(r"(\d{1,3})%", fields[0])
+    if percentage and 0 <= int(percentage[1]) <= 100:
+        reading["percent"] = int(percentage[1])
+    # pmset can attach presence metadata directly to the charging state when
+    # there is no time-remaining field (for example, an optimized-charge hold).
+    states = {re.sub(r"\s+present:\s*(?:true|false)\s*$", "", field).strip()
+              for field in fields[1:]}
+    if states & {"charging", "finishing charge"}:
+        if reading["on_battery"]:
+            return reading
+        reading["charging"] = True
+    elif states & {"discharging", "charged", "not charging"}:
+        reading["charging"] = False
+    reading["available"] = True
+    return reading
+
+
+def _sample_power_status() -> dict:
+    if sys.platform == "darwin":
+        result = subprocess.run(["/usr/bin/pmset", "-g", "batt"], capture_output=True,
+                                text=True, timeout=3, check=True)
+        return _mac_power_status(result.stdout)
+    reading = _unknown_power_status()
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+        class PowerStatus(ctypes.Structure):
+            _fields_ = [("ACLineStatus", wintypes.BYTE), ("BatteryFlag", wintypes.BYTE),
+                        ("BatteryLifePercent", wintypes.BYTE), ("SystemStatusFlag", wintypes.BYTE),
+                        ("BatteryLifeTime", wintypes.DWORD), ("BatteryFullLifeTime", wintypes.DWORD)]
+        status = PowerStatus()
+        if ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status)):
+            reading["available"] = status.ACLineStatus in (0, 1)
+            reading["on_battery"] = status.ACLineStatus == 0
+            reading["has_battery"] = status.BatteryFlag != 255 and not status.BatteryFlag & 128
+            if reading["has_battery"]:
+                reading["charging"] = bool(status.BatteryFlag & 8)
+                if status.BatteryLifePercent <= 100:
+                    reading["percent"] = int(status.BatteryLifePercent)
+        return reading
+    supplies = Path("/sys/class/power_supply")
+    if not supplies.exists():
+        return reading
+    batteries = []
+    incomplete = False
+    for supply in supplies.iterdir():
+        try:
+            if (supply / "type").read_text().strip() != "Battery":
+                continue
+            reading["has_battery"] = True
+            state = (supply / "status").read_text().strip()
+            batteries.append((supply, state))
+            if state == "Discharging":
+                reading["on_battery"] = True
+        except (OSError, UnicodeError):
+            incomplete = True
+    reading["available"] = not incomplete and all(
+        state in {"Discharging", "Charging", "Full", "Not charging"}
+        for _, state in batteries)
+    if batteries and reading["available"]:
+        reading["charging"] = any(state == "Charging" for _, state in batteries)
+        if len(batteries) == 1:
+            try:
+                percent = int((batteries[0][0] / "capacity").read_text().strip())
+                if 0 <= percent <= 100:
+                    reading["percent"] = percent
+            except (OSError, UnicodeError, ValueError):
+                pass
+    return reading
+
+
+def power_status() -> dict:
+    """Return a truthful copy of one shared, at-most-once-per-15s OS sample.
+
+    ``available`` means the power source was read successfully. A missing or
+    unrecognized charge/percentage remains None; no battery never means 100%.
+    Failure replaces stale data with unknown and is cached at the same cadence.
+    """
     global _battery_cache
-    now = time.monotonic()
     with _battery_lock:
-        if now - _battery_cache[0] < 15:
-            return _battery_cache[1]
-        value = False
-        if sys.platform == "darwin":
-            result = subprocess.run(["/usr/bin/pmset", "-g", "batt"], capture_output=True, text=True, timeout=3, check=True)
-            value = "Now drawing from 'Battery Power'" in result.stdout
-        elif sys.platform == "win32":
-            import ctypes
-            from ctypes import wintypes
-            class PowerStatus(ctypes.Structure):
-                _fields_ = [("ACLineStatus", wintypes.BYTE), ("BatteryFlag", wintypes.BYTE),
-                            ("BatteryLifePercent", wintypes.BYTE), ("SystemStatusFlag", wintypes.BYTE),
-                            ("BatteryLifeTime", wintypes.DWORD), ("BatteryFullLifeTime", wintypes.DWORD)]
-            status = PowerStatus()
-            if ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status)):
-                value = status.ACLineStatus == 0
-        else:
-            supplies = Path("/sys/class/power_supply")
-            if supplies.exists():
-                for supply in supplies.iterdir():
-                    try:
-                        if (supply / "type").read_text().strip() == "Battery" and (supply / "status").read_text().strip() == "Discharging":
-                            value = True
-                            break
-                    except (OSError, UnicodeError):
-                        continue
-        _battery_cache = (now, value)
-        return value
+        now = time.monotonic()
+        if _battery_cache is not None and 0 <= now - _battery_cache[0] < 15:
+            return dict(_battery_cache[1])
+        try:
+            reading = _sample_power_status()
+        except (OSError, UnicodeError, subprocess.SubprocessError):
+            reading = _unknown_power_status()
+        # Cache from completion so even a slow/failing sample cannot cause a
+        # burst of subprocess polls from the UI and runtime's separate readers.
+        _battery_cache = (time.monotonic(), reading)
+        return dict(reading)
+
+
+def on_battery() -> bool:
+    """Compatibility reader for runtime policy; shares the UI's cached sample."""
+    return power_status()["on_battery"]
 
 
 def screen_capture_granted() -> bool:

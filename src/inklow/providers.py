@@ -164,7 +164,7 @@ def _data_tokens(model, text: str, *, add_bos: bool = False) -> list[int]:
 
 def _prompt_tokens(model, config: Config, prefix: str, suffix: str, options: dict, *,
                    framing_tokens=None, language_prefix: str | None = None):
-    """Fit complete framing and mandatory data using the loaded context/tokenizer."""
+    """Fit framing and exact data; language_prefix is the original pre-healing draft."""
     utility = options.get("utility", "")
     guided = config.prompt_style == "writing" or bool(utility)
     family = _guided_family(model) if guided else None
@@ -176,9 +176,18 @@ def _prompt_tokens(model, config: Config, prefix: str, suffix: str, options: dic
     instructions = options.get("instructions", "")
     personalization = options.get("personalization", "")
     language_hint = ""
-    if guided and not utility:
+    if guided and not utility and not instructions:
         from .writing import _draft_language
         language_hint = _draft_language(prefix if language_prefix is None else language_prefix) or ""
+    # Healing removes the typed tail from the model prefill so its token boundary
+    # can be resampled. Keep that tail visible as task data as well: otherwise a
+    # short draft has no lexical context until grammar-constrained generation.
+    # This is not cached, optional reference context, or an inferred completion.
+    replay = ""
+    if guided and not utility and language_prefix is not None:
+        tail = _healing_tail(language_prefix)
+        if tail and prefix == language_prefix[:-len(tail)]:
+            replay = tail
 
     def reference_size(text):
         return len(_data_tokens(model, text))
@@ -207,6 +216,11 @@ def _prompt_tokens(model, config: Config, prefix: str, suffix: str, options: dic
             spans = writing_prompt_spans(draft, suffix, instructions, context,
                                          family=family, language_hint=language_hint,
                                          personalization=personalization)
+            if replay:
+                spans[-2:-2] = [
+                    ("\nAlready typed final characters (possibly part of an unfinished word): ", True),
+                    (json.dumps(replay, ensure_ascii=False), False),
+                ]
         else:
             spans = [(_prompt(config, draft, suffix, dict(
                 options, context=context, personalization=personalization)), False)]

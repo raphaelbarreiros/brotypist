@@ -827,6 +827,37 @@ def test_native_preedit_is_eligible_only_at_a_collapsed_safe_line_end():
 # two host spans match AX geometry; private system aliases reproduce the
 # system font; unverifiable runs return vision evidence instead of a guess;
 # mid-line displacement needs measured colours. Widths are synthetic doubles.
+class NativeAttributedRuns:
+    """NSAttributedString's per-attribute longest ranges, in UTF-16 units."""
+
+    def __init__(self, text, runs):
+        self.text = text
+        self.runs = runs
+
+    def string(self):
+        return self.text
+
+    def length(self):
+        return index_to_utf16(self.text, len(self.text))
+
+    def attribute_atIndex_longestEffectiveRange_inRange_(self, key, index, output, bounds):
+        for position, (start, length, attributes) in enumerate(self.runs):
+            if start <= index < start + length:
+                value = attributes.get(key)
+                end = start + length
+                for left in reversed(self.runs[:position]):
+                    if left[0] + left[1] != start or left[2].get(key) != value:
+                        break
+                    start = left[0]
+                for right in self.runs[position + 1:]:
+                    if right[0] != end or right[2].get(key) != value:
+                        break
+                    end = right[0] + right[1]
+                start, end = max(start, bounds[0]), min(end, sum(bounds))
+                return value, (start, end - start)
+        raise IndexError(index)
+
+
 def mac_metrics(monkeypatch, text="Hello world", *, ax_name="Host-Regular", widths=None):
     import sys
     bridge = MacBridge.__new__(MacBridge)
@@ -845,10 +876,8 @@ def mac_metrics(monkeypatch, text="Hello world", *, ax_name="Host-Regular", widt
     def attributed_range(field, name, value, output):
         start, units = value
         requested = text[utf16_to_index(text, start):utf16_to_index(text, start + units)]
-        return 0, SimpleNamespace(
-            length=lambda: units, string=lambda: requested,
-            attributesAtIndex_effectiveRange_=lambda index, out:
-                ({"AXFont": {"AXFontName": ax_name, "AXFontSize": 13}}, (0, units)))
+        return 0, NativeAttributedRuns(requested, [
+            (0, units, {"AXFont": {"AXFontName": ax_name, "AXFontSize": 13}})])
     bridge._attribute = lambda *args: None
     bridge.ax = SimpleNamespace(kAXValueCFRangeType=4, AXValueCreate=lambda kind, value: value,
                                 AXUIElementCopyParameterizedAttributeValue=attributed_range)
@@ -857,15 +886,84 @@ def mac_metrics(monkeypatch, text="Hello world", *, ax_name="Host-Regular", widt
     return bridge
 
 
+@pytest.mark.parametrize("part_x,part_y,clip_width,available", [
+    (551, 40, 253, True), (548, 40, 253, False),
+    (551, 44, 253, False), (551, 40, 69, False),
+])
+def test_mac_coalesced_spelling_runs_still_require_independent_geometry(
+        monkeypatch, part_x, part_y, clip_width, available):
+    text = "Então "
+    bridge = mac_metrics(monkeypatch, text, widths={text: 38.0, "ão ": 18.0})
+    font = {"AXFontName": "Host-Regular", "AXFontSize": 13}
+    attributed = NativeAttributedRuns(text, [
+        (0, 5, {"AXFont": font, "AXMisspelled": True}), (5, 1, {"AXFont": font})])
+    bridge.ax.AXUIElementCopyParameterizedAttributeValue = lambda *args: (0, attributed)
+    rows = {(0, 6): (531, 40, 39, 20), (3, 3): (part_x, part_y, 569 - part_x, 20)}
+    bridge._range_bounds = lambda field, location, length: rows.get((location, length))
+    render, _ = bridge._inline_metrics(
+        "field", text, 6, 6, (569, 40, 1, 20), (500, 30, clip_width, 40))
+    assert (render is not None) is available
+
+
+@pytest.mark.parametrize("text", ["Então ", "😀Então "])
+@pytest.mark.parametrize("boundary", [
+    None, ("AXFont", {"AXFontName": "Other", "AXFontSize": 13}),
+    ("AXSuperscript", 1), ("NSBaselineOffset", 2), ("AXMarkedText", True),
+    ("NSMarkedClauseSegment", 0), ("NSMarkedClauseSegmentAttributeName", 0),
+])
+@pytest.mark.parametrize("affected_run", ["word", "blank"])
+def test_mac_word_and_blank_coalesce_only_when_typography_is_equivalent(
+        monkeypatch, text, boundary, affected_run):
+    half = len(text) // 2
+    units = index_to_utf16(text, len(text))
+    half_units = index_to_utf16(text, half)
+    bridge = mac_metrics(monkeypatch, text, widths={text: 38.0, text[half:]: 18.0})
+    font = {"AXFontName": "Host-Regular", "AXFontSize": 13}
+    word = {"AXFont": font, "AXMisspelled": True, "WAGlyphReplacementNeeded": True}
+    blank = {"AXFont": dict(font)}
+    if boundary:
+        (word if affected_run == "word" else blank)[boundary[0]] = boundary[1]
+    attributed = NativeAttributedRuns(text, [(0, units - 1, word), (units - 1, 1, blank)])
+    bridge.ax.AXUIElementCopyParameterizedAttributeValue = lambda *args: (0, attributed)
+    rows = {(0, units): (531, 40, 39, 20),
+            (half_units, units - half_units): (551, 40, 19, 20),
+            (units - 1, 1): (565.5, 40, 4.5, 20)}
+    bridge._range_bounds = lambda field, location, length: rows.get((location, length))
+    rect = (569, 40, 1, 20)
+    render, evidence = bridge._inline_metrics(
+        "field", text, len(text), units, rect, (500, 30, 253, 40))
+    assert (render is not None) is (boundary is None)
+    if render is not None:
+        assert evidence is None
+        assert render.baseline == 56
+        assert Snapshot("editor", "field", text, len(text), caret_rect=rect,
+                        inline_render=render).inline_safe
+
+
+@pytest.mark.parametrize("key,value", [
+    ("AXFont", {"AXFontName": "Other", "AXFontSize": 13}),
+    ("NSBaselineOffset", 2), ("AXSuperscript", 1), ("AXMarkedText", True),
+    ("NSMarkedClauseSegment", 0),
+])
+def test_mac_typography_coalescing_never_displaces_a_different_suffix(monkeypatch, key, value):
+    text = "Hello world "
+    bridge = mac_metrics(monkeypatch, text, widths={" ": 6.0})
+    font = {"AXFontName": "Host-Regular", "AXFontSize": 13}
+    attributed = NativeAttributedRuns(text, [
+        (0, 11, {"AXFont": font}), (11, 1, {"AXFont": font, key: value})])
+    bridge.ax.AXUIElementCopyParameterizedAttributeValue = lambda *args: (0, attributed)
+    render, evidence = bridge._inline_metrics(
+        "field", text, 11, 11, (100, 40, 1, 20), (0, 0, 400, 200))
+    assert render is None and evidence is None
+
+
 @pytest.mark.parametrize("glyph_width,available", [(7, True), (10, False)])
 def test_mac_font_calibration_uses_caret_advance_not_padded_glyph_box(
         monkeypatch, glyph_width, available):
     bridge = mac_metrics(monkeypatch, widths={"d": 6.0})
-    attributed = SimpleNamespace(
-        length=lambda: 11,
-        string=lambda: "Hello world",
-        attributesAtIndex_effectiveRange_=lambda index, out:
-            ({"AXFont": {"AXFontName": "Host-Regular", "AXFontSize": 13}}, (10, 1)))
+    attributed = NativeAttributedRuns("Hello world", [
+        (0, 10, {"AXFont": {"AXFontName": "Other", "AXFontSize": 13}}),
+        (10, 1, {"AXFont": {"AXFontName": "Host-Regular", "AXFontSize": 13}})])
     bridge.ax.AXUIElementCopyParameterizedAttributeValue = lambda *args: (0, attributed)
     rows = {(0, 11): (40, 40, 60, 20), (10, 1): (94, 40, glyph_width, 20)}
     bridge._range_bounds = lambda field, location, length: rows.get((location, length))
@@ -911,10 +1009,7 @@ def test_mac_missing_host_font_still_draws_at_a_safe_line_end_without_repainting
         monkeypatch, suffix, available):
     text = "Hello world" + suffix
     bridge = mac_metrics(monkeypatch, text)
-    attributed = SimpleNamespace(
-        length=lambda: len(text),
-        string=lambda: text,
-        attributesAtIndex_effectiveRange_=lambda index, out: ({}, (0, len(text))))
+    attributed = NativeAttributedRuns(text, [(0, len(text), {})])
     bridge.ax.AXUIElementCopyParameterizedAttributeValue = lambda *args: (0, attributed)
     render, _ = bridge._inline_metrics(
         "field", text, 11, 11, (100, 40, 1, 20), (0, 0, 400, 200))
@@ -1503,8 +1598,8 @@ def test_mac_attributed_range_must_match_captured_text_and_contain_caret(
     bridge = mac_metrics(monkeypatch)
     attributed = SimpleNamespace(
         length=lambda: len(returned_text), string=lambda: returned_text,
-        attributesAtIndex_effectiveRange_=lambda index, out:
-            ({"AXFont": {"AXFontName": "Host-Regular", "AXFontSize": 13}}, run))
+        attribute_atIndex_longestEffectiveRange_inRange_=lambda key, index, out, bounds:
+            ({"AXFontName": "Host-Regular", "AXFontSize": 13} if key == "AXFont" else None, run))
     bridge.ax.AXUIElementCopyParameterizedAttributeValue = lambda *args: (0, attributed)
     render, evidence = bridge._inline_metrics(
         "field", "Hello world", 11, 11, (100, 40, 1, 20), (0, 0, 400, 200))

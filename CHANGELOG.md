@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.4.9 — Unreleased, inline capture and bilingual/power polish
+
+- Fix short WhatsApp drafts rejected before inference when spell-check metadata split a word and its trailing space into separate attributed runs. Coalesce typography-equivalent ranges only; retain independent AX geometry, UTF-16 boundaries, real font/baseline/IME changes, suffix and focus/privacy guards. Ordinary suggestions remain grey same-line text, never a popup fallback.
+- Preserve the full typed lexical ending as bounded, separately tokenized task data during healing. Guide Brazilian Portuguese/English code-switching by the current clause, avoid forced slang and keep explicit preferences ahead of uncertain language hints. Generation remains probabilistic: model abstention and unreliable explicit language overrides are documented, not hidden behind a grammar-quality claim.
+- Use accessible native icon actions in app/model toolbars and short, interruptible pane-arrival fades. Keep semantic/destructive controls readable, existing unsaved-draft behavior, menu-bar presence, minimal field controls and Quit.
+- Add asynchronous shared power sampling, live menu/Battery percentages, distinct charging/plugged-in/unknown/no-battery states and a bounded charging cue. Honor Reduce Motion, contrast and session/visibility changes without putting hardware sampling on the typing path.
+- Ask for charging help once per known discharge at 20% or below, without taking keyboard focus or moving Spaces. Rearm only on verified external power; never prompt from missing/unknown capacity. Use native SDK session keys and recognize optimized-charge-hold reports where presence metadata directly follows “not charging.”
+- This is macOS work only. Preserve saved models, local-learning consent, privacy switches, history, shortcuts and resident-model settings; new Linux/Windows builds remain held.
+
+
 ## 0.4.8 — Unreleased, opt-in resident model
 
 - Make an explicit idle timeout of `0` prepare the selected cached GGUF at startup, before any writing field is needed, and keep it loaded through inactivity. Preserve the five-minute default and every nonzero saved timeout; disclose the higher steady memory use in Battery settings.

@@ -2,7 +2,7 @@
 
 # BroTypist
 
-Local-first predictive typing for macOS and supported Linux inputs. **Linux builds have resumed; Windows remains held.** BroTypist lives in the menu bar/tray and offers grey same-line suggestions where the host exposes safe layout and insertion. Settings are not a writing editor. Ordinary KDE Wayland inline completion remains unavailable; see the explicit limits below.
+Local-first predictive typing for macOS and supported Linux inputs. **Current development focuses on macOS; new Linux and Windows builds are held.** BroTypist lives in the menu bar/tray and offers grey same-line suggestions where the host exposes safe layout and insertion. Settings are not a writing editor. Ordinary KDE Wayland inline completion remains unavailable; see the explicit limits below.
 
 [Releases](https://github.com/renan-brasilio/brotypist/releases) · [Changelog](CHANGELOG.md) · [Design specification](DESIGN.md) · [Verification](evidence/VERIFICATION.md)
 
@@ -84,7 +84,7 @@ Versions through 0.4.3 have no updater: **one manual installation of an OTA-capa
 
 Welcome covers privacy, system access, explicit model selection, a real local prediction preview and the resident menu. Reopen it from **About → Show Welcome**. macOS settings contain:
 
-The layout below describes the **unreleased macOS 0.4.8 development version**, including the 0.4.6 native redesign. Published 0.4.5 keeps model controls in General; no 0.4.6–0.4.8 Linux or Windows package has been published.
+The layout below describes the **unreleased macOS 0.4.9 development version**, including the 0.4.6 native redesign. Published 0.4.5 keeps model controls in General; no 0.4.6–0.4.9 Linux or Windows package has been published.
 
 - **Setup:** live required/optional permission and model-readiness states.
 - **General:** startup, accessory icon, master/default prediction switches, completion length, inside-text behavior and typo controls.
@@ -92,8 +92,8 @@ The layout below describes the **unreleased macOS 0.4.8 development version**, i
 - **Context:** separate opt-ins for focused-window Accessibility text, clipboard, screenshot OCR and screenshot-based appearance.
 - **Personalization:** encrypted history, local style/vocabulary evidence, recording controls, custom instructions and scoped deletion/counts.
 - **Emoji / Shortcuts:** emoji preferences, configurable physical keys, word/full acceptance, punctuation and Escape behavior.
-- **Battery:** on-demand behavior, installed smaller-model selection and shorter completions.
-- **App Settings:** searchable app/domain rules, compatibility controls, Tab/recording overrides and instructions.
+- **Battery:** live percentage and distinct charging/external-power states, on-demand behavior, installed smaller-model selection and shorter completions.
+- **App Settings:** searchable app/domain rules, accessible icon actions with tooltips, compatibility controls, Tab/recording overrides and instructions.
 - **Labs:** explicit alternatives and selected-text synonyms. These numbered tools are separate from ordinary inline suggestions.
 - **Statistics / About:** actual accepted-writing aggregates, source/release links, Welcome and Quit. About shows one state-based software-update action rather than separate competing buttons.
 
@@ -102,6 +102,10 @@ New installations select **Gemma 4 E2B**, a pinned 2.84 GB public GGUF, with a c
 Onboarding selects, downloads or imports a model without opening Settings. Choosing a missing model blocks Continue even if another model is ready; choosing a cached catalogue model activates it without another download. Local file and inference-library readiness are checked before continuing; the next Try it step exercises actual inference. Settings resize without discarding unsaved instruction text, editor selection or scroll position.
 
 Automatic completion is eligible after one non-whitespace character by default, following the 150 ms typing pause and normal field-safety checks. Existing saved thresholds are preserved: if an older profile waits for eight characters, change **Labs → Minimum preceding characters** to `1`. Eligibility is not a guarantee of a useful model result; cold loading can still take seconds. Superseded optional-context waits are cancelled without reducing the current draft’s fresh-context budget.
+
+Writing prompts follow the clause at the cursor rather than forcing the dominant language of the whole message. Brazilian Portuguese and English can coexist without translating existing text or introducing gratuitous slang. The original typed ending remains exact, untrusted task data while token healing restores its native token boundary. Explicit language preferences are model guidance, not a guaranteed language switch; short ambiguous prefixes can remain uncertain, and a model can return no useful suggestion.
+
+The native resident menu and Battery pane show verified power readings sampled off the UI thread at most once per 15 seconds. A brief charging cue animates the resident icon and visible power card; Reduce Motion or increased contrast keeps the charging indicator static. Reduced pane-arrival fades remain short, and hiding the surface, locking/switching sessions or quitting stops motion. At a known discharging level of **20% or below**, BroTypist asks for charging help once per discharge cycle in a nonactivating menu-bar-anchored hint; dismissing it or battery-level fluctuations do not repeat it. Reconnecting to verified external power rearms the next cycle. Unknown/no-battery readings never invent a percentage or a low-battery request.
 
 | Action | Existing default |
 | --- | --- |

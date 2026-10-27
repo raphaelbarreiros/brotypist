@@ -21,6 +21,7 @@ from Foundation import NSAttributedString, NSBundle, NSIndexSet, NSObject, NSRun
 
 from . import __version__, system
 from .appkit_overlay import CaretOverlay, _dark, _rgb
+from .appkit_power import NativePowerUI
 from .resources import APP_NAME, REPOSITORY_URL, asset_path
 from .runtime import Controller, ShutdownPending
 from .updates import UpdateService
@@ -578,7 +579,10 @@ class BroTypistApplication(NSObject):
         self.controller.show_settings = self.show_settings
         self.controller.set_clipboard_reader(system.clipboard_text)
         self.controller.set_screen_reader(system.screen_text)
-        self.controller.set_battery_reader(system.on_battery)
+        # The shared OS sample runs off-main. Until the first sample arrives,
+        # conservatively honor battery-only safeguards rather than preload.
+        self.controller.set_battery_reader(
+            lambda: self._power_reading is None or bool(self._power_reading.get("on_battery")))
         self.bindings = {}
         self.next_tag = 0
         self.controls = {}
@@ -631,6 +635,11 @@ class BroTypistApplication(NSObject):
         self.last_error = ""
         self.welcome = None
         self.status_images = {}
+        self.power_ui = None
+        self._power_reading = None
+        self._power_sampling = False
+        self._presented_power_reading = None
+        self._next_power_sample = 0.0
         self.model_description = self.download_progress = self.download_label = None
         return self
 
@@ -648,7 +657,7 @@ class BroTypistApplication(NSObject):
                                     on_present=self.controller.presentation_result)
         if not self.no_tray:
             try:
-                self.status_item = A.NSStatusBar.systemStatusBar().statusItemWithLength_(A.NSSquareStatusItemLength)
+                self.status_item = A.NSStatusBar.systemStatusBar().statusItemWithLength_(A.NSVariableStatusItemLength)
                 if self.status_item is None or self.status_item.button() is None:
                     raise RuntimeError("The macOS menu bar is unavailable. Settings will stay accessible instead.")
                 self.status_item.setMenu_(self.menu)
@@ -659,6 +668,7 @@ class BroTypistApplication(NSObject):
             except Exception as exc:
                 self.no_tray = True
                 self.last_error = str(exc)
+        self.power_ui.status_item = self.status_item
         self.timer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(0.025, self, "tick:", None, True)
         self.timer.setTolerance_(0.008)
         NSRunLoop.mainRunLoop().addTimer_forMode_(self.timer, NSRunLoopCommonModes)
@@ -735,6 +745,25 @@ class BroTypistApplication(NSObject):
     def _button(self, title, identifier, callback):
         button = A.NSButton.buttonWithTitle_target_action_(title, None, None)
         _identify(button, identifier, title)
+        symbols = {
+            "addApp": "plus.app", "addCurrentApp": "scope", "addDomain": "globe",
+            "chooseModel": "square.and.arrow.down", "cancelDownload": "xmark.circle",
+            "download": "arrow.down.circle", "revealModels": "folder",
+            "saveInstructions": "checkmark.circle", "revertInstructions": "arrow.uturn.backward",
+            "resetInstructions": "arrow.counterclockwise", "welcome": "hand.wave",
+            "releases": "shippingbox", "support": "questionmark.bubble", "source": "chevron.left.forwardslash.chevron.right",
+            "quit": "power",
+        }
+        action = identifier.rsplit(".", 1)[-1]
+        symbol = symbols.get(action)
+        if symbol:
+            image = A.NSImage.imageWithSystemSymbolName_accessibilityDescription_(symbol, title)
+            if image:
+                button.setImage_(image)
+                button.setImagePosition_(A.NSImageOnly if action in {"addApp", "addCurrentApp", "addDomain", "chooseModel", "cancelDownload"} else A.NSImageLeft)
+                button.setToolTip_(title)
+                button.setBezelStyle_(A.NSBezelStyleRounded)
+                button.setImageScaling_(A.NSImageScaleProportionallyDown)
         return self._bind(button, lambda sender: callback())
 
     @objc.python_method
@@ -745,6 +774,15 @@ class BroTypistApplication(NSObject):
     def _menu_item(self, menu, title, identifier, callback=None, key=""):
         item = A.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, key)
         item.setIdentifier_(identifier)
+        action = identifier.rsplit(".", 1)[-1]
+        symbol = {
+            "toggle": "sparkles", "resume": "play", "60": "pause", "tomorrow": "moon",
+            "force": "wand.and.stars", "settings": "slider.horizontal.3", "quit": "power",
+            "checkUpdates": "arrow.triangle.2.circlepath", "stats": "chart.bar",
+            "battery": "battery.75percent", "dismissPowerHelp": "xmark.circle",
+        }.get(action)
+        if symbol:
+            item.setImage_(A.NSImage.imageWithSystemSymbolName_accessibilityDescription_(symbol, title))
         if callback:
             self._bind(item, lambda sender: callback())
         menu.addItem_(item)
@@ -778,11 +816,13 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _build_status_menu(self):
+        if self.power_ui is None:
+            self.power_ui = NativePowerUI.alloc().init().configure()
         self.menu = A.NSMenu.alloc().initWithTitle_(APP_NAME)
         self.menu.setAutoenablesItems_(False)
         self.menu.setDelegate_(self)
         header = A.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(APP_NAME, None, "")
-        panel = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 300, 150))
+        panel = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 300, 205))
         panel.setAccessibilityLabel_(f"{APP_NAME} status and local model")
         icon = A.NSImageView.alloc().initWithFrame_(A.NSMakeRect(14, 12, 28, 28))
         icon.setImage_(A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("app.icns"))))
@@ -802,6 +842,9 @@ class BroTypistApplication(NSObject):
         self.menu_backend = _label("", A.NSMakeRect(18, 116, 264, 25), small=True)
         for label in (self.menu_badge, self.menu_subtitle, self.menu_model, self.menu_backend):
             panel.addSubview_(label)
+        power_card = self.power_ui.make_card("menu", compact=True)
+        power_card.setFrame_(A.NSMakeRect(8, 152, 284, 46))
+        panel.addSubview_(power_card)
         header.setView_(panel)
         self.menu.addItem_(header)
         self.status_line = self._menu_item(self.menu, APP_NAME, "inklow.menu.status")
@@ -821,6 +864,9 @@ class BroTypistApplication(NSObject):
         self._menu_item(self.menu, "Suggest Now", "inklow.menu.force", self.controller.force)
         self.menu.addItem_(A.NSMenuItem.separatorItem())
         self.stats_line = self._menu_item(self.menu, "Today", "inklow.menu.stats", lambda: self.show_settings("statistics"))
+        self.power_item = self._menu_item(self.menu, "Battery…", "inklow.menu.battery", lambda: self.show_settings("battery"))
+        self.power_help_item = self._menu_item(self.menu, "Dismiss charging help", "inklow.menu.dismissPowerHelp", self.power_ui.dismiss_help)
+        self.power_help_item.setHidden_(True)
         self._menu_item(self.menu, "Settings…", "inklow.menu.settings", lambda: self.show_settings("general"), ",")
         self.update_item = self._menu_item(self.menu, "Check for Updates…", "inklow.menu.checkUpdates", self._check_updates)
         self._menu_item(self.menu, f"Quit {APP_NAME}", "inklow.menu.quit", lambda: A.NSApplication.sharedApplication().terminate_(None), "q")
@@ -966,6 +1012,9 @@ class BroTypistApplication(NSObject):
         return self.field_menu
 
     def menuWillOpen_(self, menu):
+        if getattr(self, "power_ui", None):
+            self.power_ui.set_visibility(menu=menu == self.menu)
+            self.power_ui.hide_help_surface()
         if not self.shutdown_started and not self.tracking_menus and not self.resume_menu_shortcuts:
             self.menu_shortcuts_were_enabled = bool(self.controller.bridge._enabled)
         self.tracking_menus.add(menu)
@@ -982,6 +1031,8 @@ class BroTypistApplication(NSObject):
 
     def menuDidClose_(self, menu):
         self.tracking_menus.discard(menu)
+        if getattr(self, "power_ui", None) and menu == self.menu:
+            self.power_ui.set_visibility(menu=False)
         if not self.tracking_menus and not self.shutdown_started:
             self.resume_menu_shortcuts = True
 
@@ -1092,6 +1143,7 @@ class BroTypistApplication(NSObject):
     @objc.python_method
     def _refresh_status(self):
         status = self.controller.status()
+        self._refresh_power_status()
         enabled = bool(status.get("enabled"))
         state = str(status.get("state", "idle"))
         message = str(status.get("message") or state.capitalize())
@@ -1166,13 +1218,17 @@ class BroTypistApplication(NSObject):
         self._refresh_scope_items(self.record_item, self.tab_item, status)
         if self.status_item and not self.status_item.isVisible():
             self.status_item.setVisible_(True)
-        frame = int(time.monotonic() / 0.6) % 3 if icon_state == "loading" and not A.NSWorkspace.sharedWorkspace().accessibilityDisplayShouldReduceMotion() else -1
+        frame = -1  # Static Ghost Caret; no Python frame-redraw loop while typing.
         if self.status_item and (self.last_status is None or self.last_status.get("icon_state") != icon_state or self.last_status.get("icon_frame") != frame):
             self.status_item.button().setImage_(self._status_image(icon_state, frame))
         if self.status_item:
             spoken = f"{APP_NAME}, {subtitle if paused else badge.lstrip('▲◌■●○ ')}"
             self.status_item.button().setAccessibilityLabel_(spoken)
             self.status_item.button().setToolTip_(f"{APP_NAME} — {subtitle}")
+            if self.power_ui:
+                power_title = self.power_ui.presentation.title
+                self.status_item.button().setAccessibilityLabel_(spoken + ", " + power_title)
+                self.status_item.button().setToolTip_(f"{APP_NAME} — {subtitle}\n{power_title}")
         status["icon_state"] = icon_state
         status["icon_frame"] = frame
         if hasattr(self, "sidebar_status"):
@@ -1186,6 +1242,36 @@ class BroTypistApplication(NSObject):
         self.last_status = status
         if self.window and self.window.isVisible():
             self._refresh_live_pane(status)
+
+    @objc.python_method
+    def _refresh_power_status(self):
+        power_ui = getattr(self, "power_ui", None)
+        if power_ui is None:
+            return
+        now = time.monotonic()
+        power_ui.tick(now)
+        if not self._power_sampling and now >= self._next_power_sample and not self.shutdown_started:
+            self._power_sampling = True
+            self._next_power_sample = now + 15
+            def sample():
+                try:
+                    reading = system.power_status()
+                except Exception:
+                    reading = {"available": False, "has_battery": False, "on_battery": False, "charging": None, "percent": None}
+                self._power_reading = reading
+                self._power_sampling = False
+            threading.Thread(target=sample, name="brotypist-power", daemon=True).start()
+        reading = self._power_reading
+        if reading is not None and reading is not self._presented_power_reading:
+            self._presented_power_reading = reading
+            power_ui.present(reading, allow_help=not self.tracking_menus and not self.shutdown_started)
+        if hasattr(self, "power_item"):
+            if getattr(self, "_power_menu_presentation", None) != power_ui.presentation:
+                self._power_menu_presentation = power_ui.presentation
+                self.power_item.setTitle_(power_ui.presentation.title + "…")
+                self.power_item.setImage_(A.NSImage.imageWithSystemSymbolName_accessibilityDescription_(
+                    power_ui.presentation.symbol, power_ui.presentation.title))
+            self.power_help_item.setHidden_(not power_ui.help_showing)
 
     @objc.python_method
     def _refresh_live_pane(self, status):
@@ -1456,12 +1542,36 @@ class BroTypistApplication(NSObject):
         self.content_scroll.setAutohidesScrollers_(True)
         self.content_scroll.setDrawsBackground_(False)
         root.addSubview_(self.content_scroll)
+        self.sidebar_material = sidebar
+        self._apply_accessible_materials()
+        A.NSWorkspace.sharedWorkspace().notificationCenter().addObserver_selector_name_object_(
+            self, "displayOptionsChanged:", A.NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification, None)
+
+    def displayOptionsChanged_(self, notification):
+        self._apply_accessible_materials()
+
+    @objc.python_method
+    def _apply_accessible_materials(self):
+        workspace = A.NSWorkspace.sharedWorkspace()
+        solid = workspace.accessibilityDisplayShouldReduceTransparency() or workspace.accessibilityDisplayShouldIncreaseContrast()
+        if hasattr(self, "sidebar_material"):
+            self.sidebar_material.setState_(A.NSVisualEffectStateInactive if solid else A.NSVisualEffectStateFollowsWindowActiveState)
+            self.sidebar_material.setWantsLayer_(True)
+            self.sidebar_material.layer().setBackgroundColor_(A.NSColor.windowBackgroundColor().CGColor() if solid else A.NSColor.clearColor().CGColor())
         self.last_setup_refresh = 0.0
 
     def windowDidResize_(self, notification):
         if notification.object() == self.window:
             self._reflow_settings()
 
+    def windowDidChangeOcclusionState_(self, notification):
+        if notification.object() == self.window and self.power_ui:
+            visible = bool(self.window.isVisible() and self.window.occlusionState() & A.NSWindowOcclusionStateVisible)
+            self.power_ui.set_visibility(pane=visible and self.pane == "battery")
+
+    def windowWillClose_(self, notification):
+        if notification.object() == self.window and self.power_ui:
+            self.power_ui.set_visibility(pane=False)
     @objc.python_method
     def _reflow_settings(self):
         form = getattr(self, "form", None)
@@ -1490,6 +1600,9 @@ class BroTypistApplication(NSObject):
         self.rendering = True
         try:
             self.window.makeFirstResponder_(None)
+            if self.power_ui:
+                self.power_ui.set_visibility(pane=False)
+                self.power_ui.release_card("pane")
             self._remember_drafts()
             self.editors = {}
             self.controls = {}
@@ -1517,6 +1630,11 @@ class BroTypistApplication(NSObject):
         self.last_setup_refresh = 0.0
         if self.last_status is not None:
             self._refresh_live_pane(self.last_status)
+        if self.power_ui:
+            self.power_ui.set_visibility(pane=self.pane == "battery" and self.window.isVisible())
+            event = A.NSApplication.sharedApplication().currentEvent()
+            if event is not None and event.type() in {A.NSEventTypeLeftMouseUp, A.NSEventTypeLeftMouseDown}:
+                self.power_ui.reveal(view)
 
     def windowShouldClose_(self, sender):
         self._remember_drafts()
@@ -1846,7 +1964,7 @@ class BroTypistApplication(NSObject):
             if control.isHidden():
                 continue
             control.sizeToFit()
-            cw = min(width, max(100, A.NSWidth(control.frame()) + 16))
+            cw = min(width, 36 if control.imagePosition() == A.NSImageOnly else max(100, A.NSWidth(control.frame()) + 16))
             if x and x + cw > width:
                 x, y = 0, y + 36
             control.setFrame_(A.NSMakeRect(x, y, cw, 28))
@@ -1998,7 +2116,12 @@ class BroTypistApplication(NSObject):
         else:
             self.download_progress.stopAnimation_(None)
         model = self._selected_model()
-        self.controls["download"].setTitle_("Use Model" if model and model.get("installed") else "Download Model")
+        download_title = "Use Model" if model and model.get("installed") else "Download Model"
+        self.controls["download"].setTitle_(download_title)
+        self.controls["download"].setAccessibilityLabel_(download_title)
+        self.controls["download"].setToolTip_(download_title)
+        self.controls["download"].setImage_(A.NSImage.imageWithSystemSymbolName_accessibilityDescription_(
+            "checkmark.circle" if model and model.get("installed") else "arrow.down.circle", download_title))
         self.controls["download"].setEnabled_(bool(model) and not active and not self.shutdown_started)
         self.controls["cancelDownload"].setHidden_(not active)
         self.controls["chooseModel"].setEnabled_(not active and not self.shutdown_started)
@@ -2364,9 +2487,8 @@ class BroTypistApplication(NSObject):
     @objc.python_method
     def _pane_battery(self):
         f = self.form
-        self.power_banner = _label("", A.NSMakeRect(0, 0, 552, 36), small=True)
-        _identify(self.power_banner, "inklow.battery.powerSource")
-        f.custom(self.power_banner, 36)
+        card = self.power_ui.make_card("pane")
+        f.custom(card, 84)
         f.section("On Battery Power")
         self._switch("battery_on_demand", "Only show completions on demand", "On battery, generate after the force-activation shortcut instead of automatically after typing.")
         options = [("Same as usual", "same")]
@@ -2384,15 +2506,12 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _refresh_power(self, status):
-        banner = getattr(self, "power_banner", None)
-        if banner is None:
-            return
-        if status.get("on_battery"):
-            banner.setStringValue_("🔋 Running on battery power: the settings below are in effect now.")
-            banner.setTextColor_(A.NSColor.systemGreenColor())
-        else:
-            banner.setStringValue_("🔌 This Mac is plugged in. These settings take effect when it runs on battery power.")
-            banner.setTextColor_(A.NSColor.secondaryLabelColor())
+        if self.power_ui:
+            visible = bool(self.window and self.window.isVisible() and self.window.occlusionState() & A.NSWindowOcclusionStateVisible)
+            # Visibility events own the charging cue; refreshing a value never
+            # restarts its finite Core Animation indication.
+            if self.power_ui.pane_visible != visible:
+                self.power_ui.set_visibility(pane=visible)
 
     # ----- App Settings ------------------------------------------------------
 
@@ -2471,7 +2590,7 @@ class BroTypistApplication(NSObject):
             natural = 0
             for button in buttons:
                 button.sizeToFit()
-                button.setFrameSize_(A.NSMakeSize(max(100, A.NSWidth(button.frame()) + 16), 28))
+                button.setFrameSize_(A.NSMakeSize(36, 28))
                 natural += A.NSWidth(button.frame()) + 8
             natural -= 8
             inline = width - natural - 12 >= 180
@@ -3047,6 +3166,9 @@ class BroTypistApplication(NSObject):
                     return
                 self.termination_drafts_approved = True
             self.shutdown_started = True
+            if self.power_ui:
+                self.power_ui.dismiss_help()
+                self.power_ui.stop_motion()
             cleanup = []
             if self.welcome:
                 cleanup.append(("preview", self.welcome.stop_preview))
@@ -3125,6 +3247,9 @@ class BroTypistApplication(NSObject):
         self.updates.close()
         self.shutdown_complete = True
         self.stopping = True
+        if self.power_ui:
+            self.power_ui.close()
+        A.NSWorkspace.sharedWorkspace().notificationCenter().removeObserver_(self)
         if self.window:
             self.window.makeFirstResponder_(None)
         if self.timer:

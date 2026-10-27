@@ -88,22 +88,3 @@ def test_first_setup_badge_refresh_does_not_leave_requested_models_pane(settings
     assert shell.sidebar_source.rows[row]["id"] == "models"
 
 
-def test_app_rule_toolbar_keeps_action_titles_unclipped(settings_shell):
-    shell = settings_shell
-    shell._show_pane("appSettings")
-
-    def descendants(view):
-        for child in view.subviews():
-            yield child
-            yield from descendants(child)
-
-    actions = {"inklow.appSettings.addApp", "inklow.appSettings.addCurrentApp",
-               "inklow.appSettings.addDomain"}
-    for width, height in ((900, 640), (1200, 800)):
-        shell.window.setContentSize_(A.NSMakeSize(width, height))
-        shell._reflow_settings()
-        for identifier in actions:
-            button = next(view for view in descendants(shell.form.view)
-                          if str(view.identifier() or "") == identifier)
-            drawn = button.cell().titleRectForBounds_(button.bounds())
-            assert A.NSWidth(drawn) >= button.attributedTitle().size().width
