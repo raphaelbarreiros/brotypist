@@ -4,7 +4,7 @@
 
 ## 0.4.2 — Unreleased macOS candidate
 
-- Prepare cached local weights in authorized, inline-capable multiline fields before ordinary prediction is due. Use a configuration-only worker command; never evaluate writing during that preparation or download/select a model automatically. Preserve saved idle release and battery force-only behavior.
+- Prepare cached local weights in authorized multiline fields before ordinary prediction is due, including empty writable native fields with verified window identity/bounds. Use a configuration-only worker command; never evaluate writing during that preparation or relax same-line drawing/acceptance checks. Do not download/select a model automatically. Preserve saved idle release and battery force-only behavior.
 - Reuse model allocations across prompt, length and context-budget changes that do not replace the backend/path/acceleration. Keep pause, privacy revocation and Quit release barriers, including newer preparation racing an older release and typing cancellation.
 - Cache only bounded trusted framing token IDs, not drafts, references or writing preferences. Retain full-cache/prefix reuse rather than trade warm latency for an unproven compact-cache default.
 - Match relevant references with canonical Unicode keys and bounded links for unspaced scripts, without normalizing the user's inserted text. Keep reference data in the actual user task. Optional on-device language evidence is advisory, not a locale override or a grammar guarantee.

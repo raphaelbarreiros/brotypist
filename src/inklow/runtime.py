@@ -1086,9 +1086,17 @@ class Controller:
         # Capture has already established current foreground/privacy authority.
         # Remember activity, not worker state: idle release must remain idle
         # until a new focus or real input arrives.
-        if (snapshot is None or not self._active() or snapshot.protected
+        if snapshot is None:
+            return
+        # An empty native control has no glyph run/caret to measure yet. Loading
+        # weights needs only its writable field/window authority, not permission
+        # to evaluate writing or draw; those still require verified inline layout.
+        empty_native_field = (
+            not snapshot.text and snapshot.caret == 0 and snapshot.window_pid > 0
+            and bool(snapshot.window_id) and self._rect(snapshot.field_rect) is not None)
+        if (not self._active() or snapshot.protected
                 or not snapshot.multiline or not snapshot.can_replace
-                or not snapshot.inline_safe or not snapshot.has_anchor
+                or not (snapshot.inline_safe or empty_native_field) or not snapshot.has_anchor
                 or snapshot.selection_length or snapshot.on_demand_only
                 or self._field_paused(snapshot)
                 or (self._on_battery and self.config.battery_on_demand)):

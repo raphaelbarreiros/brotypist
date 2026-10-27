@@ -1984,6 +1984,33 @@ def test_focused_preparation_overlaps_typing_without_idle_reload(runtime, tmp_pa
     assert len(client.preparations) == 2
 
 
+@pytest.mark.parametrize("changes,prepares", [
+    ({}, True),
+    ({"window_pid": 0}, False),
+    ({"window_id": ""}, False),
+    ({"field_rect": None}, False),
+    ({"field_rect": (0, 0, 0, 200)}, False),
+    ({"field_rect": (0, float("nan"), 400, 200)}, False),
+    ({"can_replace": False}, False),
+])
+def test_empty_native_field_prepares_without_evaluating_or_accepting_writing(runtime, tmp_path, changes, prepares):
+    controller, bridge, client = runtime
+    model = tmp_path / "local.gguf"
+    model.touch()
+    controller.config = replace(controller.config, model_path=str(model))
+    bridge.snapshot = replace(
+        field_snapshot("", window_pid=42, field_rect=(10, 20, 400, 200)),
+        caret_rect=None, inline_render=None, **changes)
+
+    controller.tick()
+
+    assert bool(client.preparations) is prepares
+    assert not client.requests
+    assert not controller.invoke("word")
+    assert not bridge.insertions
+    assert not any(event.get("type") == "suggestion" for event in controller.drain_events())
+
+
 @pytest.mark.parametrize("changes", [
     {"multiline": False}, {"protected": True}, {"selection_length": 1},
     {"on_demand_only": True}, {"can_replace": False}, {"inline_render": None},
