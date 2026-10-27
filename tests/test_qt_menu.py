@@ -110,7 +110,8 @@ def shell(monkeypatch, tmp_path, request):
     monkeypatch.setattr(qt_ui.system, "launch_at_login_state", lambda: False)
     tray_available = getattr(request, "param", False)
     monkeypatch.setattr(qt_ui.QSystemTrayIcon, "isSystemTrayAvailable", lambda: tray_available)
-    shell = qt_ui.MenuAgent(app, Config(global_enabled=False), no_tray=not tray_available)
+    shell = qt_ui.MenuAgent(app, Config(global_enabled=False, check_updates_automatically=False),
+                           no_tray=not tray_available)
     yield shell
     shell.stop()
     app.aboutToQuit.disconnect(shell.stop)

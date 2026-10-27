@@ -2,7 +2,7 @@
 
 # Changelog
 
-## Unreleased — signed app updates
+## 0.4.5 — signed app updates
 
 - Add credential-free OTA checks against publisher-signed public GitHub metadata, with pinned Ed25519 identity, native-platform package selection, streamed size/hash verification and cancellable downloads. Automatic checks are configurable and bounded to one attempt per day; download/install require explicit action.
 - Add resident-menu and About update controls on macOS/Linux without expanding the minimal field menu or running downloads on the GUI thread.

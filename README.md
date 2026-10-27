@@ -11,13 +11,13 @@ Local-first predictive typing for macOS and supported Linux inputs. **Linux buil
 
 This repository and its GitHub release downloads are public. The in-app updater requires no GitHub account, personal token or built-in maintainer credential.
 
-**[BroTypist 0.4.3](https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.3)** adds encrypted local writing-style learning, reusable fixed-frame preparation and Linux shutdown repairs. Native macOS DMG/ZIP and Linux Debian/portable packages share the latest core. Windows product builds remain held; historical Inklow assets are preserved.
+**[BroTypist 0.4.5](https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.5)** adds publisher-signed update checks, verified downloads and native restart/rollback support to the local writing-style learning core. Windows product builds remain held; historical assets are preserved.
 
 | Platform | Download | Status |
 | --- | --- | --- |
-| macOS, Apple Silicon | `BroTypist-0.4.3-macos-arm64.dmg` / `.zip` | Native AppKit; compatibility and signing limits below |
+| macOS, Apple Silicon | `BroTypist-0.4.5-macos-arm64.dmg` / `.zip` | Native AppKit; free-signing approval limits below |
 | Windows, x86-64 | No new native installer | Port/build held; packaging definitions retained |
-| Linux, x86-64 | `BroTypist-0.4.3-linux-amd64.deb` / `.tar.gz` | X11 requirements below; KDE Wayland ordinary inline remains unavailable |
+| Linux, x86-64 | `BroTypist-0.4.5-linux-amd64.deb` / `.tar.gz` | Portable self-updates; Debian upgrades use the system installer |
 
 Packaged applications include Python and their UI runtime. Model weights are separate and download only when requested. Installers never include settings, writing history, credentials, or model weights.
 
@@ -190,9 +190,9 @@ The authored corpus covers multilingual writing, reference facts, Unicode partia
 uv run python tools/build_app.py
 uv run python tools/smoke_bundle.py
 # Run the matching native packager from a committed build:
-uv run python tools/package_macos.py --bundle dist/BroTypist.app --output release --version 0.4.3
+uv run python tools/package_macos.py --bundle dist/BroTypist.app --output release --version 0.4.5
 # On native Linux:
-uv run python tools/package_linux.py --bundle dist/BroTypist --output release --version 0.4.3
+uv run python tools/package_linux.py --bundle dist/BroTypist --output release --version 0.4.5
 ```
 
 The inference smoke needs an explicitly configured existing model. Installers consume complete native builds; they do not download models or cross-compile. Windows packaging needs .NET SDK 8 and WiX **5.0.2** (`dotnet tool install --global wix --version 5.0.2`). Linux needs `dpkg-dev`, GI/AT-SPI/GTK and Qt libraries; the Wayland client additionally needs a C compiler, `pkg-config`, Wayland/xkbcommon development libraries, protocol XMLs and `wayland-scanner`. Use CPython 3.12 on Ubuntu 24.04 for its distro GI ABI. The [CI workflow](.github/workflows/ci.yml) lists exact build prerequisites.
