@@ -2327,3 +2327,64 @@ def test_battery_force_only_and_pause_revoke_preparation(runtime, tmp_path):
     controller.tick()
     assert client.released
     assert len(client.preparations) == 1
+
+
+def test_resident_model_prepares_without_focus_or_writing_and_only_once(runtime, tmp_path):
+    controller, bridge, client = runtime
+    model = tmp_path / "resident.gguf"
+    model.touch()
+    controller.config = replace(controller.config, model_path=str(model), idle_release_seconds=0)
+    bridge.info = bridge.snapshot = None
+
+    for _ in range(4):
+        controller.tick()
+
+    assert len(client.preparations) == 1
+    assert bridge.captures == 0
+    assert not client.requests and not bridge.insertions
+    assert not any(event.get("type") == "suggestion" for event in controller.drain_events())
+
+
+@pytest.mark.parametrize("changes,on_battery", [
+    ({"idle_release_seconds": 300}, False),
+    ({"global_enabled": False}, False),
+    ({"battery_on_demand": True}, True),
+    ({"backend": "ollama"}, False),
+])
+def test_resident_policy_never_preloads_when_inactive_or_server_managed(runtime, tmp_path, changes, on_battery):
+    controller, bridge, client = runtime
+    model = tmp_path / "resident.gguf"
+    model.touch()
+    controller.config = replace(
+        replace(controller.config, model_path=str(model), idle_release_seconds=0), **changes)
+    controller._on_battery = on_battery
+    bridge.info = bridge.snapshot = None
+    controller.tick()
+    assert not client.preparations and not client.requests
+
+
+def test_resident_model_reprepares_after_pause_expires_and_explicit_reenable(runtime, tmp_path, monkeypatch):
+    controller, bridge, client = runtime
+    clock = [100.0]
+    monkeypatch.setattr("inklow.runtime.time.monotonic", lambda: clock[0])
+    model = tmp_path / "resident.gguf"
+    model.touch()
+    bridge.info = bridge.snapshot = None
+    controller.update_config(replace(controller.config, model_path=str(model), idle_release_seconds=0), persist=False)
+    controller.tick()
+    assert len(client.preparations) == 1
+
+    controller.pause(5)
+    controller.tick()
+    assert client.released and len(client.preparations) == 1
+    clock[0] += 301
+    controller.tick()
+    assert len(client.preparations) == 2
+
+    controller.update_config(replace(controller.config, global_enabled=False), persist=False)
+    controller.tick()
+    assert len(client.preparations) == 2
+    controller.update_config(replace(controller.config, global_enabled=True), persist=False)
+    controller.tick()
+    assert len(client.preparations) == 3
+    assert not client.requests and not bridge.insertions

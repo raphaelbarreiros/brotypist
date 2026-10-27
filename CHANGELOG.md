@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.4.8 — Unreleased, opt-in resident model
+
+- Make an explicit idle timeout of `0` prepare the selected cached GGUF at startup, before any writing field is needed, and keep it loaded through inactivity. Preserve the five-minute default and every nonzero saved timeout; disclose the higher steady memory use in Battery settings.
+- Use the existing configuration-only preparation protocol: no draft, references, custom instructions or learned writing enter startup preparation, and it generates no suggestion. Respect global pause/disable, battery on-demand and the selected installed battery model. Keep lifecycle/privacy release barriers and prepare fresh state after reactivation.
+- Attempt resident preparation once per activation/model rather than silently retrying a failed load on each GUI tick. Keep short-input, insertion, native layout and context-safety behavior unchanged.
+
+
 ## 0.4.7 — Unreleased, early-input prediction
 
 - Make automatic completion eligible after the first non-whitespace character by default, rather than requiring eight preceding characters. Keep the typing-pause, native layout, privacy, selection and stale-target guards; explicit higher saved thresholds are still respected.

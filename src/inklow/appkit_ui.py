@@ -2379,8 +2379,8 @@ class BroTypistApplication(NSObject):
         self._popup("battery_model", "Use a smaller model", options, "Only downloaded catalogue models are offered; nothing downloads automatically. Applies to local GGUF models.")
         self._switch("battery_shorter", "Generate slightly shorter completions", "Reduce generated completion length on battery.")
         f.section("Inference Memory")
-        self._number("idle_release_seconds", "Release model after idle (seconds)", "0 keeps the worker ready. 1–3600 releases the entire inference process after inactivity. Pause and Quit release it immediately.", 0, 3600)
-        f.note("The cached model prepares when you focus a supported multiline writing field, so loading can overlap typing. It does not start blindly at launch or download automatically. Your idle timeout is preserved.")
+        self._number("idle_release_seconds", "Release model after idle (seconds)", "0 preloads the cached model at startup and keeps it ready, using more memory. 1–3600 releases the inference process after inactivity. Pause and Quit release it immediately.", 0, 3600)
+        f.note("With a nonzero timeout, the cached model prepares when you focus a supported multiline writing field. Startup preparation at 0 sends no writing and respects battery on-demand mode. Models never download automatically.")
 
     @objc.python_method
     def _refresh_power(self, status):

@@ -79,6 +79,7 @@ class Controller:
         self._candidate_revision = None
         self._capture_revision = None
         self._model_activity = None
+        self._resident_preparation = None
         self._attempted = None
         self._failed_correction_key = None
         self._request = None
@@ -1169,6 +1170,27 @@ class Controller:
             return False
         return pause[0] == (snapshot.app_id, snapshot.field_id, getattr(snapshot, "domain", ""))
 
+    def _release_model(self):
+        with self._lock:
+            self._resident_preparation = None
+            self._client.release()
+
+    def _prepare_resident_model(self):
+        if (self.config.idle_release_seconds != 0 or not self._active()
+                or self._history_mutating
+                or (self._on_battery and self.config.battery_on_demand)):
+            self._resident_preparation = None
+            return
+        config = self._effective_config("completion")
+        identity = provider_identity(config)
+        if identity == self._resident_preparation:
+            return
+        # One configuration-only attempt per activation/model. A failed load
+        # must not become an automatic worker-restart loop on every GUI tick.
+        self._resident_preparation = identity
+        if config.backend == "gguf" and Path(config.model_path).expanduser().is_file():
+            self._client.prepare(config)
+
     def _prepare_focused_model(self, snapshot):
         # Capture has already established current foreground/privacy authority.
         # Remember activity, not worker state: idle release must remain idle
@@ -1266,6 +1288,7 @@ class Controller:
             except Exception:
                 self._on_battery = False
         with self._lock:
+            self._prepare_resident_model()
             self._expire_temporary()
             if self._screen_cache is not None and now - self._screen_cache[1] > _CONTEXT_TTL:
                 self._screen_cache = None
@@ -1819,6 +1842,7 @@ class Controller:
             old = self.config
             self._finish_session()
             self.config = config
+            self._resident_preparation = None
             self._clear_docs_help()
             if sys.platform == "darwin" and old.screenshot_context and not config.screenshot_context:
                 from .native.macos_vision import clear_text_cache
@@ -1837,7 +1861,7 @@ class Controller:
             self._client.set_idle_timeout(config.idle_release_seconds)
             if (not self._active() or provider_identity(old) != provider_identity(config)
                     or self._privacy_revoked(old, config)):
-                self._client.release()
+                self._release_model()
             if not self._recording_configured(config):
                 self._session_text = ""
                 self._session_authored.clear()
@@ -1867,7 +1891,7 @@ class Controller:
             self._screen_cache = None
             self._clear(hide_accessory=True)
             self._candidate = None
-            self._client.release()
+            self._release_model()
 
     def toggle_current_app(self, *, app=None, domain=""):
         if app is not None:
@@ -2050,7 +2074,7 @@ class Controller:
             try:
                 with self._lock:
                     self._clear(hide_accessory=True)
-                self._client.release()
+                self._release_model()
             finally:
                 # Model cleanup failure must not prevent the requested unlearning.
                 self._storage.delete_history(app_id, domain=domain, unlock=app_id is not None or domain is not None)
