@@ -1,0 +1,155 @@
+{
+  "schema": 1,
+  "version": "0.4.5",
+  "runtime_source_commit": "838c2bdaf1d1c7bdfd147f53b71738e33b4cafa2",
+  "qa_client": {
+    "version": "0.4.4",
+    "source_commit": "0a2f15aa34f344f72318f9de2055e6fa9a9afe66",
+    "public_release": false
+  },
+  "repository": {
+    "url": "https://github.com/renan-brasilio/brotypist",
+    "visibility": "public",
+    "history": "preserved as explicitly authorized"
+  },
+  "release": {
+    "id": 425631068,
+    "url": "https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.5",
+    "tag": "v0.4.5",
+    "latest": true,
+    "draft": false,
+    "prerelease": false,
+    "tag_resolves_to_runtime_source": true,
+    "all_eight_assets_independently_downloaded_and_sha256_verified": true,
+    "downloaded_update_manifest_signature_verified_with_pinned_key": true,
+    "assets": [
+      {
+        "name": "BroTypist-0.4.5-linux-amd64.deb",
+        "size": 99307762,
+        "digest": "sha256:dd8fe7ab248545b8d88b26fb826442d754ba4929d10afcc3022febcb0887c781"
+      },
+      {
+        "name": "BroTypist-0.4.5-linux-amd64.tar.gz",
+        "size": 127805894,
+        "digest": "sha256:0ee4366cf254c764a0556e7b9ce8e2dc8158732f206bd9406642eb63a8feeb58"
+      },
+      {
+        "name": "BroTypist-0.4.5-macos-arm64.dmg",
+        "size": 52772123,
+        "digest": "sha256:bae7a7822046c48acd2ebccd03b13e4b42b954d5545a3644e315f69072429569"
+      },
+      {
+        "name": "BroTypist-0.4.5-macos-arm64.zip",
+        "size": 49175622,
+        "digest": "sha256:33aa7e0739e785a4ddf9c235de71206a2530b0ae0f11aa37bab932090a9831f1"
+      },
+      {
+        "name": "release-manifest.json",
+        "size": 14672,
+        "digest": "sha256:dae0d551fd6fb2175544ca72709bca1cd9b32d6fa07ec4201dd32f68ca0b8aec"
+      },
+      {
+        "name": "SHA256SUMS",
+        "size": 656,
+        "digest": "sha256:ab82b06c1eda8dc1eb1d017a6561654ebbaa5a3ad29da4249f4168bb9c3c1ed8"
+      },
+      {
+        "name": "update-manifest.json",
+        "size": 836,
+        "digest": "sha256:a1168232a5ade729a8ff0d91521f5eac20af5a83bb48ac0ec4cfd56d58e560b4"
+      },
+      {
+        "name": "update-manifest.sig",
+        "size": 89,
+        "digest": "sha256:919dfab27e9c10fb7ef26eb7726fb328679ad3360a2ec40c1488848e41d6022a"
+      }
+    ]
+  },
+  "publisher": {
+    "algorithm": "Ed25519",
+    "pinned_public_key": "pB0JKiHFFxEyLxxVCuxpB+A71/m42Mg98HC709zRsHI=",
+    "private_key_exported": false,
+    "github_token_embedded": false
+  },
+  "source_regressions": {
+    "macos": {
+      "passed": 1182,
+      "skipped": 22
+    },
+    "linux": {
+      "passed": 1215,
+      "skipped": 11
+    },
+    "hosted_actions_green": "not claimed"
+  },
+  "macos": {
+    "target": "macos-arm64",
+    "signature": "Apple Development; not Developer ID or notarization",
+    "native_installer": "passed read-only DMG mount, install-copy, signature/version/source, own-PID About geometry, normal Quit, uninstall preservation and detach",
+    "frozen_cli_and_worker_inference": "passed with existing cached Gemma4; no model download",
+    "public_frozen_client": {
+      "check": "available 0.4.5 from fixed public latest feed",
+      "download": "ready; 49175622 bytes, exact published ZIP hash",
+      "actual_download_quarantine": "0081;6ae0c3e9;;4B1B2DCA-2A72-4EB2-BF92-CE698030C374",
+      "separate_check_with_github_provider_and_ssh_environment_removed": "passed",
+      "gui_install_button": "not exercised: console locked"
+    },
+    "local_signed_helper": {
+      "parent": "exiting transient driver; not a GUI Install click",
+      "result": "healthy; real first-native-GUI-loop live PID/nonce/version acknowledgment",
+      "previous_build_retained": true,
+      "external_settings_history_model_sentinels_unchanged": true,
+      "invalid_signature_and_hash": "refused before swap"
+    },
+    "native_quarantined_helper": {
+      "provenance": "production NSURL metadata, not synthetic flags",
+      "observed": "promoted 0.4.5 then rolled_back after missing native GUI acknowledgment",
+      "original_inode": 35994098,
+      "restored_inode": 35994098,
+      "restored_executable_sha256": "05a1a4ea1a1196a0776b1e16f42d8c8c786cc53d614cb053cb39051e148c9764",
+      "restored_source_commit": "0a2f15aa34f344f72318f9de2055e6fa9a9afe66",
+      "outside_bytes_unchanged": true,
+      "quarantine_flags_and_uuid_retained": "native extraction normalized timestamp; byte-identical xattr is not claimed",
+      "rollback_relaunch": "stalled before dyld; GUI health not claimed; exact owned QA process cleaned with targeted SIGTERM"
+    },
+    "fixed_real_defect": "Running staged quarantined --version timed out30s after successful extraction/signature verification. Version preflight now checks code-signature-sealed plist without executing staged code; native LaunchServices startup ACK remains required. Three regressions failed before and passed after."
+  },
+  "linux": {
+    "target": "linux-x86_64",
+    "native_installer": "actual Debian install/portable mapped Settings/own-PID visible Quit exit0 and purge preservation passed",
+    "frozen_cli_and_worker_inference": "passed cached Tiny/SmolLM2; not a desktop latency or Gemma performance claim",
+    "public_native_gui": {
+      "result": "passed",
+      "flow": "real resident Check -> native About Download -> fixed public signed feed -> Install/Yes -> old GUI exit0 -> real frozen helper -> native0.4.5 startup ACK -> resident Quit",
+      "old_gui_pid": 8245,
+      "helper_parent_matched_actual_old_gui": true,
+      "new_native_ack_pid": 8291,
+      "test_url_replacement_or_state_injection": false,
+      "downloaded_manifest_sha256": "a1168232a5ade729a8ff0d91521f5eac20af5a83bb48ac0ec4cfd56d58e560b4",
+      "downloaded_signature_sha256": "919dfab27e9c10fb7ef26eb7726fb328679ad3360a2ec40c1488848e41d6022a",
+      "downloaded_package_sha256": "0ee4366cf254c764a0556e7b9ce8e2dc8158732f206bd9406642eb63a8feeb58",
+      "external_settings_model_hashes_and_synthetic_history_rows_unchanged": true,
+      "observer_failure": "First harness stripped ampersands only from the actual label. Corrected observer normalization on both names; no application code change.",
+      "screenshots": ["linux-ota-before-0.4.5.png", "linux-ota-after-0.4.5.png"]
+    },
+    "local_signed_helper": {
+      "parent": "exiting transient driver",
+      "result": "healthy, actual native Qt GUI startup ACK/live PID, visible native Quit exit",
+      "unhealthy_actual_frozen_launch": "rolled_back to original0.4.4/source 0a2f15aa34f344f72318f9de2055e6fa9a9afe66",
+      "external_settings_history_model_sentinels_and_synthetic_encrypted_history_rows": "preserved"
+    },
+    "debian_gui_installer_handoff": "not exercised: isolated image has no xdg-open or desktop .deb handler; actual dpkg package install/purge was exercised"
+  },
+  "preservation": {
+    "normal_app_not_replaced": true,
+    "normal_saved_settings_match_start_sha256": true,
+    "normal_model_or_history_migration": "not performed"
+  },
+  "limits": [
+    "One manual bootstrap installation required for versions through0.4.3.",
+    "Free Mac signing may require per-app Open Anyway or manual verified DMG installation; no quarantine removal or global Gatekeeper disable.",
+    "Locked console prevented Mac GUI Install clicks and new third-party typing verification.",
+    "Ordinary KDE Wayland inline remains unavailable; X11 requires verified provider metadata and metrics.",
+    "Windows and iCloud held."
+  ]
+}
