@@ -649,6 +649,14 @@ def _read_header(path: Path) -> bytes:
 
 
 def _health_version(bundle: Path, version: str, native: str) -> None:
+    if native == "darwin":
+        # codesign has verified this sealed plist. Do not execute quarantined
+        # code for a CLI probe before LaunchServices can request OS approval.
+        info = plistlib.loads(_read_file(bundle / "Contents/Info.plist", 64 * 1024))
+        if (not isinstance(info, dict) or info.get("CFBundleShortVersionString") != version
+                or info.get("CFBundleVersion") != version):
+            raise InstallError("Updated application's sealed bundle version does not match the signed release.")
+        return
     result = subprocess.run([str(_executable(bundle, native)), "--version"],
                             capture_output=True, timeout=30, check=True, env=_clean_environment(), cwd=bundle.parent)
     if result.stdout.decode("utf-8").strip() != f"BroTypist {version}":

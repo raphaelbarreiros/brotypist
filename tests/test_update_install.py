@@ -4,6 +4,8 @@ import io
 import json
 import os
 from pathlib import Path, PurePosixPath
+import plistlib
+import shlex
 import subprocess
 import sys
 import tarfile
@@ -593,3 +595,25 @@ def test_native_darwin_metadata_handles_binary_values_and_exclusive_creation(tmp
         installer._darwin_setxattr(path, name, b"replacement", create=True)
     assert error.value.errno == errno.EEXIST
     assert _native_read_attribute(path, name) == original
+
+
+@pytest.mark.parametrize("short_version,build_version", [
+    ("0.4.5", "0.4.5"), ("0.4.4", "0.4.5"), ("0.4.5", "0.4.4"),
+])
+def test_mac_version_validation_never_executes_unapproved_candidate(tmp_path, short_version, build_version):
+    bundle = tmp_path / "BroTypist.app"
+    executable = bundle / "Contents/MacOS/BroTypist"
+    executable.parent.mkdir(parents=True)
+    executed = tmp_path / "candidate-executed-before-native-launch"
+    executable.write_text("#!/bin/sh\n: > " + shlex.quote(str(executed)) +
+                          "\nprintf 'BroTypist 0.4.5\\n'\n")
+    executable.chmod(0o700)
+    (bundle / "Contents/Info.plist").write_bytes(plistlib.dumps({
+        "CFBundleShortVersionString": short_version, "CFBundleVersion": build_version,
+    }))
+    if short_version == build_version == "0.4.5":
+        installer._health_version(bundle, "0.4.5", "darwin")
+    else:
+        with pytest.raises(installer.InstallError, match="version"):
+            installer._health_version(bundle, "0.4.5", "darwin")
+    assert not executed.exists(), "A quarantined Mac candidate must first launch through LaunchServices"

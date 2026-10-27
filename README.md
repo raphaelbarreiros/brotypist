@@ -76,6 +76,8 @@ The app verifies an Ed25519-signed manifest using its pinned publisher public ke
 
 Writable Mac bundles and user-owned Linux portable installations can self-update. Debian-managed installations download the verified `.deb` and hand it to the system package installer for administrator approval and restart; the app never silently replaces `/opt/brotypist` or elevates itself. Source checkouts, disk-image/read-only locations and held platforms cannot self-replace. Move a Mac app out of its DMG before updating.
 
+On macOS, the helper checks code-signature-sealed bundle versions without executing an unapproved staged app. The actual replacement launches through LaunchServices and must acknowledge its first native GUI event-loop iteration. If macOS blocks that launch or startup is not confirmed within a minute, the helper restores the previous build; approve the app-specific OS prompt when available, or install the verified DMG manually. Free signing does not promise unattended updates.
+
 Versions through 0.4.3 have no updater: **one manual installation of an OTA-capable version is required first**. Free Mac builds retain the per-app launch approval requirement above.
 
 ## First run and daily use
