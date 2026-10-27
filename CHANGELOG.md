@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.4.7 — Unreleased, early-input prediction
+
+- Make automatic completion eligible after the first non-whitespace character by default, rather than requiring eight preceding characters. Keep the typing-pause, native layout, privacy, selection and stale-target guards; explicit higher saved thresholds are still respected.
+- Wake obsolete optional-context preparation immediately when its request is superseded, cancelled or stopped. A newer draft no longer waits behind the old request’s unused context budget; the current request retains the same bounded fresh-context opportunity.
+- Preserve the selected model, context budget, idle-release policy and configuration-only model preparation. These corrections do not promise instantaneous cold model loading or a suggestion for every prefix.
+
+
 ## 0.4.6 — Unreleased, macOS native design
 
 - Give AI Models its own settings destination, with recommended/installed catalogue choices, explicit download/import and cancellation. Move backend/file/acceleration/prompt diagnostics behind Advanced; clarify the master prediction switch versus defaults for apps without rules.

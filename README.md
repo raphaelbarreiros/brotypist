@@ -84,7 +84,7 @@ Versions through 0.4.3 have no updater: **one manual installation of an OTA-capa
 
 Welcome covers privacy, system access, explicit model selection, a real local prediction preview and the resident menu. Reopen it from **About → Show Welcome**. macOS settings contain:
 
-The layout below describes the **unreleased macOS 0.4.6 development version**. Published 0.4.5 keeps model controls in General; no 0.4.6 Linux or Windows package has been published.
+The layout below describes the **unreleased macOS 0.4.7 development version**, including the 0.4.6 native redesign. Published 0.4.5 keeps model controls in General; no 0.4.6/0.4.7 Linux or Windows package has been published.
 
 - **Setup:** live required/optional permission and model-readiness states.
 - **General:** startup, accessory icon, master/default prediction switches, completion length, inside-text behavior and typo controls.
@@ -100,6 +100,8 @@ The layout below describes the **unreleased macOS 0.4.6 development version**. P
 New installations select **Gemma 4 E2B**, a pinned 2.84 GB public GGUF, with a conservative RAM recommendation. **Gemma 3 1B** is an independently sourced 806 MB option requiring explicit acceptance of [Gemma Terms](https://ai.google.dev/gemma/terms). The catalogue also contains larger Gemma 3/4 and Qwen 3 variants with memory guards; catalogue metadata is not a claim that every size has been exercised on this Mac. Qwen2.5 1.5B and the English Tiny preset remain available. Existing saved model choices are not silently replaced. Suggestions are not a grammar or factuality guarantee.
 
 Onboarding selects, downloads or imports a model without opening Settings. Choosing a missing model blocks Continue even if another model is ready; choosing a cached catalogue model activates it without another download. Local file and inference-library readiness are checked before continuing; the next Try it step exercises actual inference. Settings resize without discarding unsaved instruction text, editor selection or scroll position.
+
+Automatic completion is eligible after one non-whitespace character by default, following the 150 ms typing pause and normal field-safety checks. Existing saved thresholds are preserved: if an older profile waits for eight characters, change **Labs → Minimum preceding characters** to `1`. Eligibility is not a guarantee of a useful model result; cold loading can still take seconds. Superseded optional-context waits are cancelled without reducing the current draft’s fresh-context budget.
 
 | Action | Existing default |
 | --- | --- |
@@ -199,7 +201,7 @@ uv run python tools/smoke_bundle.py
 # Run the matching native packager from a committed build:
 VERSION=$(uv run python -c 'from inklow import __version__; print(__version__)')
 uv run python tools/package_macos.py --bundle dist/BroTypist.app --output release --version "$VERSION"
-# On native Linux; the 0.4.6 redesign/build is currently macOS-only:
+# On native Linux; the latest redesign/early-input build is currently macOS-only:
 uv run python tools/package_linux.py --bundle dist/BroTypist --output release --version "$VERSION"
 ```
 

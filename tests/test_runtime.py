@@ -1125,6 +1125,45 @@ def test_prediction_refreshes_changed_window_reference_before_model_submission(r
         release.set()
 
 
+def test_superseded_optional_context_wait_does_not_hold_new_prediction(runtime, monkeypatch):
+    controller, bridge, client = runtime
+    controller.config = replace(controller.config, screen_context=True, personalization_strength=0)
+    waiting, release_reader, ready = threading.Event(), threading.Event(), threading.Event()
+    original_wait = threading.Condition.wait
+
+    def hold_context_budget(condition, timeout=None):
+        if threading.current_thread() is controller._context_thread and timeout is not None:
+            waiting.set()
+            # Expose cancellation rather than let the normal finite budget mask it.
+            return original_wait(condition, 5)
+        return original_wait(condition, timeout)
+
+    def read_stalled(snapshot, **options):
+        release_reader.wait(10)
+        return {"text": "Obsolete reference.", "provenance": "accessibility", "status": "ready",
+                "window_id": snapshot.window_id, "revision": snapshot.window_revision}
+
+    monkeypatch.setattr(threading.Condition, "wait", hold_context_budget)
+    controller.set_screen_reader(read_stalled)
+    controller.set_wake_callback(ready.set)
+    try:
+        assert controller.force()
+        controller.tick()
+        assert waiting.wait(1)
+        controller.update_config(replace(controller.config, screen_context=False), persist=False)
+        bridge.snapshot = field_snapshot("A different current draft")
+        ready.clear()
+        assert controller.force()
+        controller.tick()
+        assert ready.wait(2), "The obsolete context budget blocked the current prediction"
+        controller.tick()
+        assert len(client.requests) == 1
+        assert client.requests[0][1] == bridge.snapshot.text
+        assert "Obsolete reference" not in client.requests[0][3]["context"]
+    finally:
+        release_reader.set()
+
+
 def test_context_errors_expose_only_fixed_non_content_diagnostic(runtime):
     controller, bridge, _ = runtime
     controller.config = replace(controller.config, screen_context=True)
@@ -1287,6 +1326,44 @@ def test_typing_pause_uses_native_input_time_only_for_the_same_field(runtime, mo
     else:
         assert not ready.is_set()
         assert not client.requests
+
+
+@pytest.mark.parametrize("prefix,continuation", [("Então", " vamos"), ("猫", "が")])
+def test_first_short_input_can_offer_and_accept_without_more_typing(runtime, monkeypatch, prefix, continuation):
+    controller, bridge, client = runtime
+    clock = [100.0]
+    monkeypatch.setattr("inklow.runtime.time.monotonic", lambda: clock[0])
+    ready = threading.Event()
+    controller.set_wake_callback(ready.set)
+    bridge.snapshot = field_snapshot(prefix)
+    controller.tick()
+    clock[0] += controller.config.debounce_ms / 1000 + 0.001
+    controller.tick()
+    assert ready.wait(1), "A completed pause after the short first input must schedule prediction"
+    controller.tick()
+    client.events.append({"type": "result", "id": client.identifier,
+                          "text": continuation, "final": True})
+    controller.tick()
+    assert any(event["type"] == "suggestion" for event in controller.drain_events())
+    assert bridge.snapshot.text == prefix
+    assert controller.invoke("all")
+    assert bridge.snapshot.text == prefix + continuation
+
+
+def test_explicit_longer_input_threshold_still_defers_short_first_word(runtime, monkeypatch):
+    controller, bridge, client = runtime
+    controller.config = replace(controller.config, min_chars=12)
+    clock = [100.0]
+    monkeypatch.setattr("inklow.runtime.time.monotonic", lambda: clock[0])
+    ready = threading.Event()
+    controller.set_wake_callback(ready.set)
+    bridge.snapshot = field_snapshot("Hello")
+    controller.tick()
+    clock[0] += 1
+    controller.tick()
+    assert not ready.is_set()
+    assert not client.requests
+    assert not any(event["type"] == "suggestion" for event in controller.drain_events())
 
 
 def wait_request(controller, previous):

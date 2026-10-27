@@ -153,7 +153,7 @@ class Snapshot:
                 self.selection_length, self.protected, self.domain, self.multiline,
                 self.on_demand_only, self.can_replace)
 
-    def eligible(self, min_chars: int = 8) -> bool:
+    def eligible(self, min_chars: int = 1) -> bool:
         return (not self.protected and self.selection_length == 0
                 and 0 <= self.caret <= len(self.text)
                 and len(self.prefix.strip()) >= min_chars)

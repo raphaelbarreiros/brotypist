@@ -93,7 +93,7 @@ class Controller:
         self._screen_pending = None
         self._screen_job = None
         self._screen_wake = threading.Event()
-        self._screen_ready = threading.Event()
+        self._context_condition = threading.Condition(self._lock)
         self._screen_thread = None
         self._screen_cache = None
         self._context_status = "off"
@@ -427,6 +427,8 @@ class Controller:
         self._preparing = None
         self._context_pending = None
         self._prepared.clear()
+        with self._context_condition:
+            self._context_condition.notify_all()
         if cancel_context:
             self._screen_pending = None
             self._screen_job = None
@@ -677,7 +679,6 @@ class Controller:
         token = (object(), snapshot.key, key)
         self._screen_job = token
         self._screen_pending = (token, snapshot)
-        self._screen_ready.clear()
         self._context_status = "pending"
         if self._screen_thread is None:
             self._screen_thread = threading.Thread(
@@ -704,7 +705,7 @@ class Controller:
                     self._screen_job = None
                     self._context_status = "blocked"
                     self._screen_cache = (self._window_key(snapshot), time.monotonic(), "", "", "blocked")
-                    self._screen_ready.set()
+                    self._context_condition.notify_all()
         guard = lambda: self._context_allowed(token, snapshot, "screen")
         if not guard():
             blocked()
@@ -746,7 +747,7 @@ class Controller:
                                   provenance, text[:2400], status)
             self._context_status = status
             self._screen_job = None
-            self._screen_ready.set()
+            self._context_condition.notify_all()
 
     def _reference_options(self, snapshot, references, *, use_window=True):
         from .writing import reference_context
@@ -863,6 +864,8 @@ class Controller:
         self._attempted = (snapshot.key, mode)
         token = (snapshot.key, self._suggestion.generation, mode)
         self._preparing = token
+        with self._context_condition:
+            self._context_condition.notify_all()
 
         self._queue_window_context(snapshot, fresh=True)
         self._context_pending = (token, snapshot, mode, anchor if anchored else "")
@@ -874,15 +877,19 @@ class Controller:
 
     def _prepare_options(self, token, snapshot, mode, anchor=""):
         try:
-            with self._lock:
+            with self._context_condition:
                 if self._preparing != token or not self._active():
                     return
-                awaiting_window = (self._window_context_enabled() and self._screen_job is not None
-                                   and self._screen_job[1] == snapshot.key)
-            if awaiting_window:
-                # Optional native context may not stall typing indefinitely.
-                # The previous cache was invalidated before this request.
-                self._screen_ready.wait(0.25)
+                window_job = self._screen_job
+                if (self._window_context_enabled() and window_job is not None
+                        and window_job[1] == snapshot.key):
+                    # Keep the freshness budget, but a superseded request must
+                    # not hold newer writing behind its leftover context wait.
+                    self._context_condition.wait_for(
+                        lambda: self._preparing != token or not self._active()
+                        or self._screen_job != window_job, timeout=0.25)
+                    if self._preparing != token or not self._active():
+                        return
             options = self._options(snapshot, mode, token, anchor)
         except Exception:
             options = None
@@ -2091,7 +2098,7 @@ class Controller:
             self._screen_cache = None
             self._context_wake.set()
             self._screen_wake.set()
-            self._screen_ready.set()
+            self._context_condition.notify_all()
             finish("download", self.cancel_download)
             finish("presentation", lambda: self._clear(hide_accessory=True))
             if self._spelling is not None:

@@ -117,7 +117,7 @@ class Config:
     endpoint: str = "http://127.0.0.1:11434"
     model: str = "qwen3:0.6b"
     debounce_ms: int = 150
-    min_chars: int = 8
+    min_chars: int = 1
     max_tokens: int = 24
     context_chars: int = 2000
     enabled: bool = True
