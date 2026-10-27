@@ -95,7 +95,7 @@ def set_launch_at_login(enabled: bool) -> bool:
     if not enabled:
         path.unlink(missing_ok=True)
         return True
-    arguments = _launch_arguments()
+    arguments = [*_launch_arguments(), *(["--login-startup"] if sys.platform.startswith("linux") else [])]
     if sys.platform == "darwin":
         content = plistlib.dumps({
             "Label": _AUTOSTART_ID, "ProgramArguments": arguments,
@@ -126,7 +126,7 @@ def install_wayland_input_method() -> Path:
     icon = str(Path(__file__).parent / "assets/icons/app-256.png").replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r")
     content = ("[Desktop Entry]\nType=Application\nName=BroTypist\n"
                "GenericName=Predictive typing input method\n"
-               "Comment=Local predictions for supported KDE Wayland text inputs\n"
+               "Comment=Manual controls for supported KDE Wayland text inputs; ordinary inline completion unavailable\n"
                f"Exec={command}\nIcon={icon}\nTerminal=false\nNoDisplay=true\n"
                "X-KDE-Wayland-VirtualKeyboard=true\nX-Inklow-Owned=true\n")
     _atomic_write(path, content.encode("utf-8"))
@@ -134,8 +134,8 @@ def install_wayland_input_method() -> Path:
 
 
 def wayland_input_method_selected() -> bool:
-    """Avoid a competing normal autostart when KWin owns this application's launch."""
-    if not sys.platform.startswith("linux") or not (
+    """Defer only login startup to KWin; never consult it for an isolated profile."""
+    if os.environ.get("INKLOW_HOME") or not sys.platform.startswith("linux") or not (
             os.environ.get("WAYLAND_DISPLAY") or os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland"):
         return False
     reader = shutil.which("kreadconfig6")

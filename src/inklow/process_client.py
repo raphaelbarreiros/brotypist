@@ -68,7 +68,7 @@ class ProcessClient:
             self._thread.start()
 
     def prepare(self, config) -> int | None:
-        """Load a local provider without sending writing or authorizing evaluation."""
+        """Prepare fixed model framing without sending or evaluating writing."""
         if config.backend != "gguf" or not Path(config.model_path).expanduser().is_file():
             return None
         with self._condition:

@@ -136,8 +136,8 @@ def append_distro_bindings() -> None:
         sys.path.append(bindings)
 
 
-def inspect_atspi_window(pid: int) -> dict:
-    """Query only the launched app's settings metadata, never editable values."""
+def inspect_atspi_window(pid: int, *, quit_app: bool = False) -> dict:
+    """Inspect only the owned settings; optionally invoke its visible Quit button."""
     append_distro_bindings()
     import pyatspi
     pyatspi.setTimeout(200, 500)
@@ -164,6 +164,7 @@ def inspect_atspi_window(pid: int) -> dict:
                 raise RuntimeError("Own-process settings AT-SPI window has no accessible controls")
             native = ""
             sections = False
+            quit_button = None
             stack = [window]
             remaining = 512
             while stack and remaining:
@@ -173,24 +174,38 @@ def inspect_atspi_window(pid: int) -> dict:
                 sections = sections or element.getRole() == pyatspi.ROLE_LIST
                 if name.startswith("Linux AT-SPI/X11 ready."):
                     native = name
-                if native and sections:
+                if name == "Quit BroTypist" and element.getRole() == pyatspi.ROLE_PUSH_BUTTON:
+                    button_state = element.getState()
+                    if all(button_state.contains(flag) for flag in
+                           (pyatspi.STATE_VISIBLE, pyatspi.STATE_SHOWING, pyatspi.STATE_ENABLED)):
+                        quit_button = element
+                if native and sections and quit_button is not None:
                     break
                 for index in range(min(element.childCount, 128)):
                     descendant = element.getChildAtIndex(index)
                     if descendant is not None:
                         stack.append(descendant)
-            if not native or not sections:
-                raise RuntimeError("Own-process settings did not expose its ready Linux bridge and settings controls through AT-SPI")
-            return {"pid": pid, "title": window.name, "role": window.getRoleName(),
-                    "accessible_children": children, "visible_showing_enabled": True,
-                    "settings_sections": sections, "native_bridge": native}
+            if not native or not sections or quit_button is None:
+                continue  # A first-run Welcome window is not the settings window.
+            receipt = {"pid": pid, "title": window.name, "role": window.getRoleName(),
+                       "accessible_children": children, "visible_showing_enabled": True,
+                       "settings_sections": sections, "native_bridge": native,
+                       "visible_quit_button": True}
+            if quit_app:
+                action = quit_button.queryAction()
+                index = next((index for index in range(action.nActions)
+                              if action.getName(index).casefold() in {"press", "click", "activate"}), None)
+                if index is None or not action.doAction(index):
+                    raise RuntimeError("Owned visible Quit button did not accept its native action")
+                receipt["quit_invoked_via"] = "visible own-PID AT-SPI button"
+            return receipt
     raise RuntimeError(f"AT-SPI did not expose a usable settings window for PID {pid}")
 
 
 def launch_settings(executable: Path, environment: dict, log: Path, *, offscreen: bool) -> dict:
     environment = dict(environment, QT_QPA_PLATFORM="offscreen" if offscreen else "xcb")
     with log.open("w", encoding="utf-8") as stream:
-        process = subprocess.Popen([str(executable), "--settings", "--no-tray", "--paused", "--pane", "setup"],
+        process = subprocess.Popen([str(executable), "--settings", "--no-tray", "--paused", "--pane", "general"],
                                    env=environment, stdout=stream, stderr=subprocess.STDOUT,
                                    start_new_session=True)
         started = time.monotonic()
@@ -216,23 +231,33 @@ def launch_settings(executable: Path, environment: dict, log: Path, *, offscreen
                     environment=environment, timeout=5))
             if process.poll() is not None:
                 raise RuntimeError(f"Settings exited during native observation ({process.returncode})")
+            quit_receipt = None
+            if window is not None:
+                quit_receipt = json.loads(command(
+                    [sys.executable, str(Path(__file__).resolve()), "--quit-atspi-window", str(window["pid"])],
+                    environment=environment, timeout=10))
+                if process.wait(timeout=12) != 0:
+                    raise RuntimeError("Visible native Quit did not exit normally")
             return {"pid": process.pid, "mode": environment["QT_QPA_PLATFORM"],
                     "window_mapped": window is not None, "window": window, "accessibility": accessibility,
                     "survived_seconds": round(time.monotonic() - started, 2),
-                    "termination": "SIGTERM by smoke after observation, not an app quit test"}
+                    "quit": quit_receipt,
+                    "termination": "normal exit 0 through visible native Quit" if quit_receipt else
+                                   "SIGTERM after offscreen observation; not a Quit test"}
         except Exception as error:
             diagnostics = startup_diagnostics(process, environment, log, error)
             raise RuntimeError(f"{error}\nNative startup diagnostics: {diagnostics}") from error
         finally:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait(timeout=10)
+            if process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait(timeout=10)
 
 
 def exercise(executable: Path, home: Path, report: Path, version: str) -> dict:
@@ -336,11 +361,15 @@ def main() -> int:
     parser.add_argument("--archive", type=Path)
     parser.add_argument("--version")
     parser.add_argument("--inspect-atspi-window", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--quit-atspi-window", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--report", type=Path, default=Path("reports/linux-installer-smoke.json"))
     args = parser.parse_args()
     try:
         if args.inspect_atspi_window is not None:
             print(json.dumps(inspect_atspi_window(args.inspect_atspi_window)))
+            return 0
+        if args.quit_atspi_window is not None:
+            print(json.dumps(inspect_atspi_window(args.quit_atspi_window, quit_app=True)))
             return 0
         if not all((args.deb, args.archive, args.version)):
             parser.error("--deb, --archive and --version are required for installer smoke")

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "brotypist"
-version = "0.4.2"
+version = "0.4.3"
 description = "Local-first predictive typing across macOS, Windows, and Linux"
 requires-python = ">=3.11"
 dependencies = [

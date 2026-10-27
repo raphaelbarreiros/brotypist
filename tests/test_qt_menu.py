@@ -568,3 +568,128 @@ def test_verified_host_suffix_is_transparent_same_line_and_does_not_take_focus(s
     assert shell.overlay.y() == round(100 - metrics.ascent())
     assert QApplication.focusWidget() is focused
     assert shell.overlay.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+
+def run_until_quit(shell, action):
+    timeout = QTimer()
+    timeout.setSingleShot(True)
+    timeout.timeout.connect(lambda: shell.app.exit(87))
+    timeout.start(2000)
+    QTimer.singleShot(0, action)
+    try:
+        assert shell.app.exec() == 0
+    finally:
+        timeout.stop()
+    assert shell.controller.stopped
+    assert shell.controller.bridge._stopped.is_set()
+    assert not shell.timer.isActive()
+
+
+def test_exported_tray_quit_ignores_missing_menu_hide_notification(shell):
+    shell.controller.start()
+    # The DBus tray host can activate an exported QAction without delivering
+    # QMenu.aboutToHide. Ordinary field actions must still defer; Quit must not.
+    shell._menu_opened(shell.menu)
+    quit_action = next(action for action in shell.menu.actions() if action.objectName() == "quit")
+    run_until_quit(shell, quit_action.trigger)
+    assert not shell._tracking_menus
+    assert not shell._deferred_actions
+
+
+@pytest.mark.parametrize("surface", ["settings", "welcome"])
+def test_visible_quit_without_tray_or_completed_setup(shell, surface):
+    shell.start(background=True)
+    window = shell.settings if surface == "settings" else shell.welcome
+    button = window.findChild(qt_ui.QPushButton, "quit")
+    assert button is not None and button.isVisible() and button.isEnabled()
+    run_until_quit(shell, button.click)
+    assert not shell.settings.isVisible()
+    assert not shell.welcome.isVisible()
+
+
+@pytest.mark.parametrize("surface", ["settings", "welcome"])
+def test_no_tray_window_x_can_really_quit(shell, monkeypatch, surface):
+    shell.start(background=True)
+    monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.StandardButton.Yes)
+    window = shell.settings if surface == "settings" else shell.welcome
+    run_until_quit(shell, window.close)
+
+
+def test_welcome_finish_without_tray_returns_to_settings_instead_of_quitting(shell):
+    shell.start(background=True)
+    shell.welcome._select(5)
+    shell.welcome.next.click()
+    assert not shell.welcome.isVisible()
+    assert shell.settings.isVisible()
+    assert not shell.controller.stopped
+
+
+@pytest.mark.parametrize("choice", [QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Discard,
+                                   QMessageBox.StandardButton.Save])
+def test_footer_quit_preserves_unsaved_confirmation(shell, monkeypatch, choice):
+    shell.show_settings("General")
+    settings = shell.settings
+    settings._bindings["show_accessory"][0].setChecked(False)
+    prompts = []
+    def answer(*arguments):
+        prompts.append(arguments[1])
+        return choice
+    monkeypatch.setattr(QMessageBox, "question", answer)
+    button = settings.findChild(qt_ui.QPushButton, "quit")
+    if choice == QMessageBox.StandardButton.Cancel:
+        button.click()
+        assert settings.isVisible()
+        assert settings._changes() == {"show_accessory": False}
+        assert not shell.controller.stopped
+    else:
+        run_until_quit(shell, button.click)
+        assert shell.controller.config.show_accessory is (choice != QMessageBox.StandardButton.Save)
+    assert prompts == ["Save before quitting?"]
+
+
+def test_failed_shutdown_keeps_visible_controls_and_can_retry(shell, monkeypatch):
+    shell.show_settings("General")
+    stop = shell.controller.stop
+    attempts = []
+    def fail_once():
+        attempts.append(True)
+        if len(attempts) == 1:
+            raise RuntimeError("Synthetic cleanup failure")
+        stop()
+    monkeypatch.setattr(shell.controller, "stop", fail_once)
+    errors = []
+    monkeypatch.setattr(qt_ui, "_error", lambda _parent, error: errors.append(str(error)))
+    button = shell.settings.findChild(qt_ui.QPushButton, "quit")
+    button.click()
+    assert errors
+    assert "Shutdown is incomplete" in shell.settings.notice.text()
+    assert "Synthetic cleanup failure" not in errors[0]
+    assert not shell._stopped
+    assert shell.settings.isVisible()
+    assert button.isEnabled()
+    run_until_quit(shell, button.click)
+    assert len(attempts) == 2
+
+
+def test_quit_stops_both_model_dialogs_and_welcome_preview(shell):
+    shell.start(background=True)
+    shell.settings.open_models()
+    shell.welcome._models()
+    dialogs = (shell.settings.model_manager, shell.welcome.model_manager)
+    assert all(dialog._refresh_timer.isActive() for dialog in dialogs)
+    run_until_quit(shell, shell.welcome.findChild(qt_ui.QPushButton, "quit").click)
+    assert all(not dialog._refresh_timer.isActive() and not dialog.isVisible() for dialog in dialogs)
+    assert shell.welcome.preview is None
+
+
+@pytest.mark.parametrize("shell", [True], indirect=True)
+def test_disappearing_tray_host_cannot_strand_a_stale_exported_menu(shell, monkeypatch):
+    shell.controller.start()
+    shell._menu_opened(shell.menu)
+    monkeypatch.setattr(qt_ui.QSystemTrayIcon, "isSystemTrayAvailable", lambda: False)
+    for _ in range(40):
+        shell.tick()
+    assert not shell.tray_available
+    assert shell.settings.isVisible()
+    assert shell.menu not in shell._tracking_menus
+    run_until_quit(shell, shell.settings.quit_button.click)

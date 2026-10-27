@@ -19,7 +19,8 @@ _prepared_fd: int | None = None
 _preparation_lock = threading.Lock()
 
 
-def _close_prepared() -> None:
+def close_prepared_input_method() -> None:
+    """Release an unused private socket, including an early duplicate launch."""
     global _prepared_fd
     with _preparation_lock:
         fd, _prepared_fd = _prepared_fd, None
@@ -27,7 +28,7 @@ def _close_prepared() -> None:
         os.close(fd)
 
 
-atexit.register(_close_prepared)
+atexit.register(close_prepared_input_method)
 
 
 def prepare_input_method(fd: int) -> None:

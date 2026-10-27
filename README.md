@@ -2,7 +2,7 @@
 
 # BroTypist
 
-Local-first predictive typing. **Current development and release verification focus on macOS; Linux and Windows ports/builds are paused until the macOS experience is accepted.** BroTypist lives in the menu bar and offers grey same-line suggestions in supported inputs. Settings are not a writing editor.
+Local-first predictive typing for macOS and supported Linux inputs. **Linux builds have resumed; Windows remains held.** BroTypist lives in the menu bar/tray and offers grey same-line suggestions where the host exposes safe layout and insertion. Settings are not a writing editor. Ordinary KDE Wayland inline completion remains unavailable; see the explicit limits below.
 
 [Releases](https://github.com/renan-brasilio/brotypist/releases) · [Changelog](CHANGELOG.md) · [Design specification](DESIGN.md) · [Verification](evidence/VERIFICATION.md)
 
@@ -11,13 +11,13 @@ Local-first predictive typing. **Current development and release verification fo
 
 This repository is **private**. Sign in to a GitHub account with access before downloading release assets or cloning it.
 
-**[macOS 0.4.2](https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.2)** adds preparation before typing, fresh focused-window references and verified native messenger/menu behavior, with DMG/ZIP, checksums and native receipts. Linux/Windows product builds are held; historical Inklow 0.3.0 assets are preserved and do not contain the macOS changes.
+**[BroTypist 0.4.3](https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.3)** adds encrypted local writing-style learning, reusable fixed-frame preparation and Linux shutdown repairs. Native macOS DMG/ZIP and Linux Debian/portable packages share the latest core. Windows product builds remain held; historical Inklow assets are preserved.
 
 | Platform | Download | Status |
 | --- | --- | --- |
-| macOS, Apple Silicon | `BroTypist-0.4.2-macos-arm64.dmg` / `.zip` | Exact installed typing/Tab, native context and installer checks exercised; see compatibility limits below |
-| Windows, x86-64 | No published native installer | Port/build held; packaging definitions retained |
-| Linux, x86-64 | Historical `Inklow-0.3.0-linux-amd64.deb` / `.tar.gz` only | Port/build held; not macOS-parity builds |
+| macOS, Apple Silicon | `BroTypist-0.4.3-macos-arm64.dmg` / `.zip` | Native AppKit; compatibility and signing limits below |
+| Windows, x86-64 | No new native installer | Port/build held; packaging definitions retained |
+| Linux, x86-64 | `BroTypist-0.4.3-linux-amd64.deb` / `.tar.gz` | X11 requirements below; KDE Wayland ordinary inline remains unavailable |
 
 Packaged applications include Python and their UI runtime. Model weights are separate and download only when requested. Installers never include settings, writing history, credentials, or model weights.
 
@@ -33,13 +33,13 @@ The MSI installs per user and adds a **BroTypist** Start Menu shortcut. Extract 
 
 Windows 10/11 and an AVX2, FMA, and F16C-capable x86-64 CPU are required for the portable inference build. Releases are unsigned unless explicitly stated otherwise. Do not bypass Windows security protections globally.
 
-### Linux — held
+### Linux
 
 Install the specific Debian package you built or downloaded with `sudo apt install ./<package>.deb`, then run **`brotypist` as your desktop user, not with sudo**. The current package replaces the old `inklow` package while leaving external user data alone. Portable builds run through `launch-brotypist`; keep their directory intact.
 
-The published 0.3.0 package supports **X11 only**, including its restriction on XWayland applications. Current source also has the opt-in KDE Wayland path below. Native Debian releases target Ubuntu 24.04+/Debian 13+ amd64, with D-Bus and AVX2/FMA/F16C. Other distributions, architectures, and CPU baselines require a target-system build.
+Native Debian releases target Ubuntu 24.04+/Debian 13+ amd64, with D-Bus and an AVX2/FMA/F16C-capable CPU. **CachyOS/Arch and other distributions use the portable archive, not the Debian package:** extract the whole directory and run `./launch-brotypist` as your desktop user. Keep the complete payload together. Other architectures and CPU baselines require a target-system build.
 
-#### KDE Wayland: current source
+#### KDE Wayland
 
 BroTypist uses KWin's private **input-method-v1** connection for its opt-in brand/manual-menu controls, not raw input devices, global injection, or a screen-reader identity. **Ordinary inline completion is currently unavailable on this Wayland path.** A real isolated KWin/Qt test showed that delayed preedit could replace a newly selected range and did not expose inactive styling. The unsafe preedit path was removed; missing native font metrics are not replaced with a suggestion popup.
 
@@ -67,7 +67,7 @@ Welcome covers privacy, system access, explicit model selection, a real local pr
 - **Setup:** live required/optional permission and model-readiness states.
 - **General:** startup, predictions, accessory icon, model management, completion length, inside-text behavior and typo controls.
 - **Context:** separate opt-ins for focused-window Accessibility text, clipboard, screenshot OCR and screenshot-based appearance.
-- **Personalization:** encrypted history, recording controls, derived word preferences, custom instructions and scoped deletion/counts.
+- **Personalization:** encrypted history, local style/vocabulary evidence, recording controls, custom instructions and scoped deletion/counts.
 - **Emoji / Shortcuts:** emoji preferences, configurable physical keys, word/full acceptance, punctuation and Escape behavior.
 - **Battery:** on-demand behavior, installed smaller-model selection and shorter completions.
 - **App Settings:** searchable app/domain rules, compatibility controls, Tab/recording overrides and instructions.
@@ -85,9 +85,11 @@ New installations select **Gemma 4 E2B**, a pinned 2.84 GB public GGUF, with a c
 | Open field controls | Click the small caret icon above/beside the field |
 | Stop the app and worker | **Quit BroTypist** in the menu-bar/tray menu |
 
-Closing Settings leaves BroTypist running. Normal keys pass through when no eligible suggestion is active. Shortcuts and existing model choices are **not reset by the redesign**. The design document's proposed new defaults do not override saved preferences.
+Closing Settings keeps BroTypist running when a tray is available. Without a tray, closing offers a real Quit; Settings and Welcome also have a persistent **Quit BroTypist** button. Quit works independently of exported tray-menu tracking and does not change KDE's selected input method. Normal keys pass through when no eligible suggestion is active. Saved shortcuts, models and recording preferences are preserved.
 
 A cached local GGUF model prepares when an authorized multiline writing field is focused, before the typing threshold/debounce needs a prediction. This includes an empty, writable native field with verified window ownership and valid field bounds: it has no glyph run to measure yet, but preparation sends configuration only, not a draft. Drawing and acceptance still require independently verified same-line layout. Protected/unsupported fields and battery force-only mode do not trigger it. Loading still costs seconds; this is not a guarantee that every first keystroke receives an immediate prediction.
+
+Preparation evaluates only fixed, trusted policy text to warm native kernels and reuse its KV prefix. It never sends a draft, references, custom instructions or learned writing to the preparation command, and produces no suggestions. First post-ready provider samples improved; loading itself still costs seconds.
 
 Models use a separate process and unload after five minutes idle by default, on model replacement, privacy revocation, pause or Quit. Focus preparation does not eliminate loading cost or override your saved idle timeout. Temporary field-scoped Escape suppression keeps the worker warm. The typing-delay default is 150 ms; saved values are preserved. UI-thread readiness notifications deliver prepared requests and streamed results without waiting for the fallback polling timer. Welcome's private preview does not record text and closes its worker on focus loss/close. Separately managed loopback servers have their own lifetimes.
 
@@ -102,6 +104,18 @@ Ordinary completions are transparent, mouse-through grey text at the host caret:
 **Bounded compatibility:** Google Docs needs both screen-reader and braille support in **Tools → Accessibility**. The metadata-only setup offer is not proof that document typing works. Aside Browser's native preference actions failed persisted-state verification; BroTypist does not change Docs preferences through that provider and shows manual instructions instead. Terminal completion is an additional explicit opt-in with separate per-host Automation consent. Its current input adapter recognizes only the source-verified standalone Codex 0.162.1 single-line composer in Terminal.app; iTerm, other agents, multiplexers, shells, wrapped drafts and hidden paste/image elements remain unavailable. Terminal consent never authorizes scrollback as window context.
 
 When focused-window context is enabled, a prediction refreshes its authorized reference text rather than treating unchanged window geometry as unchanged content. The background request waits up to 250 ms for that read. If it is too slow, the previous reference is not reused; optional context may be absent for that prediction. Local model output still needs review for grammar and factual accuracy.
+
+### Learn your writing locally
+
+1. Open **Personalization** on macOS or **Privacy → Encrypted local writing learning** on Linux.
+2. Enable local learning after reviewing the consent dialog. OS-backed encrypted storage must be available; there is no plaintext fallback.
+3. To learn from sessions where you accept nothing, explicitly enable **Also learn when no suggestion is accepted**. Existing app/site recording overrides still take precedence.
+
+This is bounded local evidence, **not model-weight training**. Newly observed small edits supply sentence-length, punctuation, contraction/casing and recurring-vocabulary statistics. Existing drafts, bulk replacements, legacy records and BroTypist's own generated edits do not establish authorship. Small observed changes are conservative evidence, not proof of every physical keystroke or third-party autocorrection.
+
+Learning uses the same app for domainless fields, or the same exact website host, and confidently matched English, Portuguese, Spanish, French or German. Unknown/ambiguous language abstains; prediction language support still depends on the chosen model. Current draft language, grammar and explicit instructions outrank inferred style. Learned evidence is untrusted task data, not commands or facts.
+
+History is off by default and is not silently enabled during upgrades. Strength **Off** excludes learned evidence. App/site exclusions take effect on the next request. Locking or deleting history clears derived state; deletion also cancels pending suggestions and releases model context so the old profile is not reused.
 
 ## Privacy and data preservation
 
@@ -158,7 +172,9 @@ The authored corpus covers multilingual writing, reference facts, Unicode partia
 uv run python tools/build_app.py
 uv run python tools/smoke_bundle.py
 # Run the matching native packager from a committed build:
-uv run python tools/package_macos.py --bundle dist/BroTypist.app --output release --version 0.4.2
+uv run python tools/package_macos.py --bundle dist/BroTypist.app --output release --version 0.4.3
+# On native Linux:
+uv run python tools/package_linux.py --bundle dist/BroTypist --output release --version 0.4.3
 ```
 
 The inference smoke needs an explicitly configured existing model. Installers consume complete native builds; they do not download models or cross-compile. Windows packaging needs .NET SDK 8 and WiX **5.0.2** (`dotnet tool install --global wix --version 5.0.2`). Linux needs `dpkg-dev`, GI/AT-SPI/GTK and Qt libraries; the Wayland client additionally needs a C compiler, `pkg-config`, Wayland/xkbcommon development libraries, protocol XMLs and `wayland-scanner`. Use CPython 3.12 on Ubuntu 24.04 for its distro GI ABI. The [CI workflow](.github/workflows/ci.yml) lists exact build prerequisites.
@@ -175,11 +191,11 @@ Never export or commit signing keys. Reusing an identity is not a notarization c
 
 ### Release workflow
 
-The [macOS checks workflow](.github/workflows/ci.yml) runs deterministic regressions, native settings, source/frozen inference and DMG mount/launch checks on Apple Silicon. Linux/Windows product jobs and automatic cross-platform release publication are paused.
+The [macOS and Linux checks workflow](.github/workflows/ci.yml) runs deterministic regressions, native settings, source/frozen inference and platform installer checks. Linux installation checks use a private D-Bus/X11 session and invoke the visible own-process Quit button; they do not establish universal desktop typing or Wayland inline support. Windows jobs and automatic release publication remain held.
 
-Update both `pyproject.toml` and `src/inklow/__init__.py` and commit before a release build. **Actions → macOS checks** accepts a matching `release_tag=v<version>` to validate/build macOS artifacts; it does not publish a release automatically. Never overwrite published versions or historical assets.
+Update both `pyproject.toml` and `src/inklow/__init__.py` and commit before a release build. **Actions → macOS and Linux checks** accepts a matching `release_tag=v<version>` to validate/build native artifacts; it does not publish a release automatically. Never overwrite published versions or historical assets.
 
-Manual publication still uses native packagers, smoke receipts and `tools/release_assets.py`: `manifest` seals artifacts; `publish --inputs <directory> --output <new-directory> --tag v<version> --commit <source-sha> --repo renan-brasilio/brotypist` verifies them before draft-first publication. A macOS-only release must explicitly select its target and disclose the held platforms. Do not publish unverified Windows/Linux installers or label source-only changes as installed.
+Manual publication uses native packagers, smoke receipts and `tools/release_assets.py`: `manifest` seals artifacts; `publish --inputs <directory> --output <new-directory> --tag v<version> --commit <source-sha> --repo renan-brasilio/brotypist --targets macos-arm64 linux-x86_64` verifies the explicitly requested targets before draft-first publication. Disclose held platforms and compatibility limits. Do not publish unverified installers or label source-only changes as installed.
 
 Publishing through `gh` requires a GitHub API credential with repository **Contents: write** access; SSH push authorization does not grant Release API access. The 0.4.0 release used the existing authenticated owner browser after the CLI token refused writes. No token, SSH credential or account permission was changed.
 

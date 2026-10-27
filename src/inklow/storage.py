@@ -1,7 +1,7 @@
 """Aggregate counters and opt-in AEAD history. No plaintext history fallback."""
 from __future__ import annotations
 
-from collections import Counter, OrderedDict
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 import base64
@@ -18,13 +18,81 @@ from .config import config_path, normalize_domain
 
 _AAD = b"inklow-history-v1"
 _MIN_HISTORY_CHARS = 80
-_VOCABULARY_ENTRIES = 200
-_VOCABULARY_CACHE = 32
+_LEARNING_ENTRIES = 200
+_MAX_AUTHORSHIP_SPANS = 1024
 _WORD = re.compile(r"[^\W\d_][\w’'-]{3,31}", re.UNICODE)
 _SENSITIVE = re.compile(
     r"(?i)(?:password|passwd|api[_ -]?key|access[_ -]?token|secret|one[ -]time|verification[ -]code)\s*[:=]"
     r"|\b(?:\d[ -]?){13,19}\b|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk|ghp|github_pat)[_-][A-Za-z0-9_-]{16,}"
 )
+_TOKENS = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*", re.UNICODE)
+# Conservative, portable language evidence. Unknown/mixed drafts abstain rather
+# than borrowing a different language's preferences. These are not translators.
+_LANGUAGE_WORDS = {
+    "en": frozenset("the and is are we our with for before during which this that don't doesn't can't won't".split()),
+    "pt": frozenset("de da do das dos e é são nós nossa com para durante reunião próxima mais uma".split()),
+    "es": frozenset("el los las y es son nosotros nuestra con para durante reunión próxima más una".split()),
+    "fr": frozenset("le les des et est sont nous notre avec pour pendant réunion prochaine plus une".split()),
+    "de": frozenset("der die das und ist sind wir unser mit für während nächste mehr eine".split()),
+}
+_COMMON_WORDS = frozenset().union(*_LANGUAGE_WORDS.values())
+
+
+def _writing_language(text: str) -> str:
+    words = [word.casefold() for word in _TOKENS.findall(text[-4000:])]
+    scores = sorted(((sum(word in markers for word in words), language)
+                     for language, markers in _LANGUAGE_WORDS.items()), reverse=True)
+    best, language = scores[0]
+    return language if best >= 2 and best >= scores[1][0] + 2 else ""
+
+
+def _authored_fragments(text: str, spans) -> list[str]:
+    """Only explicit, validated non-overlapping ranges establish authorship."""
+    if not isinstance(spans, (list, tuple)) or len(spans) > _MAX_AUTHORSHIP_SPANS:
+        return []
+    fragments, previous = [], 0
+    for span in spans:
+        if (not isinstance(span, (list, tuple)) or len(span) != 2
+                or any(type(bound) is not int for bound in span)):
+            return []
+        start, end = span
+        if not previous <= start < end <= len(text):
+            return []
+        previous = end
+        # A changed suffix inside a generated/unknown word is not a newly
+        # authored word. Do not turn partial-token fragments into vocabulary.
+        if start and text[start - 1].isalpha():
+            while start < end and (text[start].isalpha() or text[start] in "'’"):
+                start += 1
+        if end < len(text) and text[end].isalpha():
+            while end > start and (text[end - 1].isalpha() or text[end - 1] in "'’"):
+                end -= 1
+        if start < end:
+            fragments.append(text[start:end])
+    return fragments
+
+
+def _style_features(fragments):
+    words, totals = Counter(), Counter()
+    for fragment in fragments:
+        tokens = _TOKENS.findall(fragment)
+        totals["words"] += len(tokens)
+        totals["commas"] += fragment.count(",")
+        totals["exclamations"] += fragment.count("!")
+        totals["questions"] += fragment.count("?")
+        totals["contractions"] += sum("'" in token or "’" in token for token in tokens)
+        for sentence in re.findall(r"[^.!?\n]+[.!?]+", fragment):
+            sentence_words = _TOKENS.findall(sentence)
+            if sentence_words:
+                totals["sentences"] += 1
+                totals["sentence_words"] += len(sentence_words)
+                totals["lowercase_starts"] += sentence_words[0][0].islower()
+        words.update(word.casefold() for word in _WORD.findall(fragment)
+                     if word.casefold() not in _COMMON_WORDS)
+    # Only bounded lexical counts and numeric features survive the operation,
+    # never raw sentences/drafts. Ties are deterministic across reloads.
+    vocabulary = Counter(dict(sorted(words.items(), key=lambda item: (-item[1], item[0]))[:128]))
+    return vocabulary, totals
 
 
 def history_safe(text: str) -> bool:
@@ -92,15 +160,12 @@ class LocalStorage:
         self._broken = False
         self._error = ""
         self._lock = RLock()
-        # Derived plaintext exists only in memory while unlocked and is dropped
-        # on every history mutation or lock.
-        self._word_index = None
-        self._vocabulary_cache: OrderedDict[tuple, str] = OrderedDict()
+        # Bounded derived lexical/numeric features exist only while unlocked.
+        self._learning_index = None
         self._counts = None
 
     def _invalidate(self) -> None:
-        self._word_index = None
-        self._vocabulary_cache.clear()
+        self._learning_index = None
         self._counts = None
 
     @contextmanager
@@ -155,8 +220,9 @@ class LocalStorage:
         finally:
             self.lock_history()
 
-    def record_history(self, identifier: str, app_id: str, text: str, domain: str = "") -> bool:
-        """False when unsafe, locked, or scoped to an unusable domain; never unlocks."""
+    def record_history(self, identifier: str, app_id: str, text: str, domain: str = "",
+                       *, authored_spans=()) -> bool:
+        """Seal history plus observed authored ranges; absent proof never learns."""
         if not history_safe(text):
             return False
         try:
@@ -166,7 +232,9 @@ class LocalStorage:
         with self._lock:
             if self._cipher is None:
                 return False
+            spans = list(authored_spans) if _authored_fragments(text, authored_spans) else []
             payload = json.dumps({"app": app_id[:512], "domain": domain, "text": text,
+                                  "authorship": 1, "authored_spans": spans,
                                   "time": datetime.now(timezone.utc).isoformat()}, ensure_ascii=False).encode()
             nonce = secrets.token_bytes(12)
             sealed = nonce + self._cipher.encrypt(nonce, payload, _AAD + identifier.encode())
@@ -203,42 +271,66 @@ class LocalStorage:
             raise RuntimeError(self._error) from error
         return entries
 
-    def vocabulary(self, strength: int, app_id: str = "", domain: str = "") -> str:
-        """Recurring words from recent history; empty while locked."""
+    def personalization(self, strength: int, app_id: str, domain: str = "", *,
+                        text: str, source_allowed: Callable[[str, str], bool]) -> str:
+        """Bounded descriptive evidence, never instructions or a weight update.
+
+        The caller supplies current recording/source consent. No implicit unlock,
+        cross-language fallback, historical-policy cache, or unproven old drafts.
+        Website context is exact-host; domainless context stays in the same app.
+        """
         if strength <= 0:
             return ""
         try:
             domain = _scope_domain(domain)
         except ValueError:
-            domain = ""
+            return ""
+        language = _writing_language(text)
+        if not language or not source_allowed(app_id, domain):
+            return ""
         with self._lock:
             if self._cipher is None:
                 return ""
-            key = (strength, app_id, domain)
-            cached = self._vocabulary_cache.get(key)
-            if cached is not None:
-                self._vocabulary_cache.move_to_end(key)
-                return cached
-            if self._word_index is None:
-                self._word_index = [
-                    (value["app"], value["domain"], Counter(word.casefold() for word in _WORD.findall(value["text"])))
-                    for _, value in self._entries(limit=_VOCABULARY_ENTRIES)]
             words = Counter()
-            for entry_app, entry_domain, counts in self._word_index:
-                weight = 1 + (entry_app == app_id) + bool(domain and entry_domain == domain)
-                for word, frequency in counts.items():
-                    words[word] += frequency * weight
-            count = max(1, round(strength * 0.4))
+            totals = Counter()
+            records = 0
+            if self._learning_index is None:
+                index = []
+                for _, value in self._entries(limit=_LEARNING_ENTRIES):
+                    if value.get("authorship") != 1:
+                        continue
+                    fragments = _authored_fragments(value["text"], value.get("authored_spans"))
+                    authored = "\n".join(fragments)
+                    entry_language = _writing_language(authored)
+                    if not history_safe(authored) or not entry_language:
+                        continue
+                    vocabulary, features = _style_features(fragments)
+                    index.append((value["app"], value["domain"], entry_language, vocabulary, features))
+                self._learning_index = index
+            for entry_app, entry_domain, entry_language, vocabulary, features in self._learning_index:
+                same_context = entry_domain == domain if domain else not entry_domain and entry_app == app_id
+                # Policy is deliberately not cached: new app/domain exclusions
+                # remove old source evidence on the very next request.
+                if not same_context or entry_language != language or not source_allowed(entry_app, entry_domain):
+                    continue
+                records += 1
+                words.update(vocabulary)
+                totals.update(features)
+            if not records or not totals["words"]:
+                return ""
+            style = {}
+            if totals["sentences"]:
+                style.update(
+                    mean_sentence_words=round(totals["sentence_words"] / totals["sentences"], 1),
+                    lowercase_sentence_start_ratio=round(totals["lowercase_starts"] / totals["sentences"], 2),
+                )
+            for feature in ("commas", "exclamations", "questions", "contractions"):
+                style[feature + "_per_100_words"] = round(100 * totals[feature] / totals["words"], 1)
             ranked = sorted(words.items(), key=lambda item: (-item[1], item[0]))
-            selected = [word for word, frequency in ranked[:count] if frequency >= 2]
-            result = ""
-            if selected:
-                degree = "lightly" if strength < 34 else "moderately" if strength < 67 else "strongly"
-                result = f"When natural, {degree} prefer this user's recurring vocabulary ({strength}/100): " + ", ".join(selected)
-            self._vocabulary_cache[key] = result
-            if len(self._vocabulary_cache) > _VOCABULARY_CACHE:
-                self._vocabulary_cache.popitem(last=False)
-            return result
+            vocabulary = [word for word, frequency in ranked if frequency >= 2][:max(1, min(24, round(strength * 0.24)))]
+            return json.dumps({"strength": min(strength, 100), "language": language,
+                               "records": records, "style": style, "vocabulary": vocabulary},
+                              ensure_ascii=False, sort_keys=True)
 
     def delete_history(self, app_id: str | None = None, *, domain: str | None = None, unlock: bool = False) -> None:
         """Delete all history, one app's records, or one exact website host's records.

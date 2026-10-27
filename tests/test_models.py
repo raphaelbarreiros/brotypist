@@ -50,3 +50,86 @@ def test_cancellation_after_last_download_chunk_does_not_replace_model(monkeypat
         models.download_model(preset.id, progress=cancel_after_bytes, cancel=cancel)
     assert target.read_bytes() == previous
     assert list(target.parent.glob(".download-*")) == []
+
+
+def test_cancellation_interrupts_stalled_body_read_and_removes_partial(monkeypatch, model_source):
+    import http.client
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import threading
+
+    preset, payload, target, previous = model_source
+    release, reading = threading.Event(), threading.Event()
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload[:8])
+            self.wfile.flush()
+            release.wait(5)
+            try:
+                self.wfile.write(payload[8:])
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    class Response:
+        def __init__(self):
+            self.connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+            self.connection.request("GET", "/")
+            self.response = self.connection.getresponse()
+            self.fp = self.response.fp
+            self.reads = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            self.response.close()
+            self.connection.close()
+
+        def read(self, size):
+            return self.read1(size)
+
+        def read1(self, size):
+            self.reads += 1
+            if self.reads == 2:
+                reading.set()
+            return self.response.read1(size)
+
+    class Source:
+        def open(self, _request, timeout):
+            return Response()
+
+    monkeypatch.setattr(models.urllib.request, "build_opener", lambda *_args: Source())
+    cancel, errors = models.DownloadCancellation(), []
+
+    def download():
+        try:
+            models.download_model(preset.id, cancel=cancel)
+        except RuntimeError as error:
+            errors.append(str(error))
+
+    thread = threading.Thread(target=download, daemon=True)
+    try:
+        thread.start()
+        assert reading.wait(3), "The owned response never entered its stalled read"
+        cancel.set()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+        assert errors == ["Model download cancelled."]
+        assert target.read_bytes() == previous
+        assert list(target.parent.glob(".download-*")) == []
+    finally:
+        cancel.set()
+        release.set()
+        thread.join(timeout=5)
+        server.shutdown()
+        server.server_close()

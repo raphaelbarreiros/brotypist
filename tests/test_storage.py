@@ -18,19 +18,23 @@ def unlocked(path):
     return store
 
 
-def test_history_ciphertext_has_no_plaintext_and_vocabulary_strength_changes_guidance(tmp_path):
+def learn(store, strength=90, app="writer", domain="", text=TEXT, allowed=lambda app, domain: True):
+    return store.personalization(strength, app, domain, text=text, source_allowed=allowed)
+
+
+def test_history_ciphertext_has_no_plaintext_and_strength_scales_evidence(tmp_path):
     path = tmp_path / "local.sqlite3"
     store = unlocked(path)
-    assert store.record_history("one", "writer", TEXT)
+    assert store.record_history("one", "writer", TEXT, authored_spans=[(0, len(TEXT))])
     assert TEXT.encode() not in path.read_bytes()
     assert b"observability" not in path.read_bytes()
     assert store.history_info()["count"] == 1
-    assert store.vocabulary(0, "writer") == ""
-    weak = store.vocabulary(20, "writer")
-    strong = store.vocabulary(90, "writer")
-    assert "observability" in weak and "instrumentation" in strong
-    assert "lightly" in weak and "strongly" in strong
-    assert weak != strong
+    assert learn(store, 0) == ""
+    weak = json.loads(learn(store, 20))
+    strong = json.loads(learn(store, 90))
+    assert "observability" in weak["vocabulary"]
+    assert "instrumentation" in strong["vocabulary"]
+    assert weak["strength"] == 20 and strong["strength"] == 90
 
 
 def test_tampered_ciphertext_cannot_be_used_for_personalization(tmp_path):
@@ -41,7 +45,7 @@ def test_tampered_ciphertext_cannot_be_used_for_personalization(tmp_path):
         sealed = connection.execute("SELECT sealed FROM history").fetchone()[0]
         connection.execute("UPDATE history SET sealed=?", (sealed[:-1] + bytes([sealed[-1] ^ 1]),))
     with pytest.raises(RuntimeError, match="authenticated"):
-        store.vocabulary(80)
+        learn(store)
     assert not store.history_info()["available"]
     store.delete_history()
     assert store.history_info()["count"] == 0
@@ -107,10 +111,10 @@ def test_consent_off_never_reunlocks_or_serves_cached_history(tmp_path):
         return b"a" * 32
     store = LocalStorage(tmp_path / "local.sqlite3", key)
     store.enable_history()
-    store.record_history("one", "writer", TEXT)
-    assert "observability" in store.vocabulary(90, "writer")
+    store.record_history("one", "writer", TEXT, authored_spans=[(0, len(TEXT))])
+    assert "observability" in learn(store)
     store.lock_history()
-    assert store.vocabulary(90, "writer") == ""
+    assert learn(store) == ""
     assert not store.record_history("two", "writer", TEXT)
     assert store.history_counts() == {"available": False, "apps": {}, "domains": {}}
     with pytest.raises(HistoryLocked):
@@ -142,15 +146,85 @@ def test_domain_delete_is_exact_and_explicit_unlock_relocks(tmp_path):
     assert not store.history_info()["available"]
 
 
-def test_vocabulary_cache_follows_every_history_mutation(tmp_path):
+def test_learning_follows_writes_deletion_and_current_source_policy(tmp_path):
     store = unlocked(tmp_path / "local.sqlite3")
-    store.record_history("one", "writer", TEXT)
-    before = store.vocabulary(10, "writer")
-    assert store.vocabulary(10, "writer") == before
-    other = ("Kubernetes kubernetes clusters need kubernetes upgrades, kubernetes dashboards and kubernetes "
-             "alerts before every kubernetes release reaches the production kubernetes environment.")
-    store.record_history("two", "mail", other, domain="mail.example")
-    after = store.vocabulary(10, "writer")
-    assert "kubernetes" in after and after != before
-    store.delete_history(domain="mail.example")
-    assert store.vocabulary(10, "writer") == before
+    store.record_history("one", "writer", TEXT, authored_spans=[(0, len(TEXT))])
+    before = learn(store)
+    assert before
+    assert learn(store, allowed=lambda app, domain: app != "writer") == ""
+    assert learn(store) == before
+    store.delete_history("writer")
+    assert learn(store) == ""
+    store.record_history("one", "writer", TEXT, authored_spans=[(0, len(TEXT))])
+    assert learn(store) == before
+    store.delete_history()
+    assert learn(store) == ""
+
+
+def test_learning_uses_authored_same_language_and_context_only(tmp_path):
+    store = unlocked(tmp_path / "local.sqlite3")
+    informal = ("we don't wait! we don't stop! we don't worry! the observability review is ready! "
+                "the instrumentation review is ready! we don't need another observability review!")
+    formal = ("The observability review, which includes the instrumentation results, is ready for the "
+              "team to evaluate carefully before the next meeting, and the observability report, "
+              "which covers the instrumentation review, will support the entire planning process.")
+    portuguese = ("Nós discutimos observabilidade e instrumentação durante a reunião de planejamento. "
+                  "A observabilidade precisa de mais instrumentação para a próxima reunião da equipe.")
+    for identifier, text, app, domain in (
+            ("a", informal, "chat", ""), ("b", formal, "writer", ""),
+            ("c", portuguese, "writer", ""), ("d", informal, "browser", "chat.example")):
+        store.record_history(identifier, app, text, domain, authored_spans=[(0, len(text))])
+    chat = json.loads(learn(store, app="chat"))
+    work = json.loads(learn(store))
+    assert chat["style"]["mean_sentence_words"] < work["style"]["mean_sentence_words"]
+    assert chat["style"]["exclamations_per_100_words"] > work["style"]["exclamations_per_100_words"]
+    assert chat["style"]["contractions_per_100_words"] > work["style"]["contractions_per_100_words"]
+    assert chat["style"]["lowercase_sentence_start_ratio"] > work["style"]["lowercase_sentence_start_ratio"]
+    assert json.loads(learn(store, text=portuguese))["language"] == "pt"
+    assert "observabilidade" not in learn(store)
+    assert learn(store, app="unrelated") == ""
+    assert learn(store, app="browser", domain="other.example") == ""
+    assert json.loads(learn(store, app="browser", domain="chat.example"))["style"] == chat["style"]
+    assert learn(store, text="x y z") == ""
+
+
+def test_generated_and_legacy_history_is_not_authored_learning(tmp_path):
+    store = unlocked(tmp_path / "local.sqlite3")
+    store.record_history("legacy", "writer", TEXT)
+    assert learn(store) == ""
+    generated = " Generatedphantom generatedphantom generatedphantom generatedphantom."
+    store.record_history("mixed", "writer", TEXT + generated, authored_spans=[(0, len(TEXT))])
+    assert "observability" in learn(store)
+    assert "generatedphantom" not in learn(store)
+    store.record_history("mixed", "writer", TEXT + generated, authored_spans=[])
+    assert learn(store) == ""
+
+
+def test_learning_requires_unlock_without_implicit_key_access(tmp_path):
+    loads = []
+    store = LocalStorage(tmp_path / "local.sqlite3", lambda: loads.append(True) or b"a" * 32)
+    assert learn(store) == ""
+    assert loads == []
+    assert not store.path.exists()
+
+
+def test_learning_evidence_is_bounded_and_contains_no_raw_sentences(tmp_path):
+    store = unlocked(tmp_path / "local.sqlite3")
+    tokens = ["term" + chr(97 + first) + chr(97 + second)
+              for first in range(8) for second in range(8)]
+    text = TEXT + " " + " ".join(tokens + tokens) + "."
+    store.record_history("bounded", "writer", text, authored_spans=[(0, len(text))])
+    evidence = learn(store)
+    assert len(evidence) <= 2048
+    assert len(json.loads(evidence)["vocabulary"]) <= 24
+    assert TEXT not in evidence
+
+
+def test_authored_chat_without_terminal_punctuation_still_teaches_vocabulary(tmp_path):
+    store = unlocked(tmp_path / "local.sqlite3")
+    text = ("we check the telemetry with our team and we review the telemetry before "
+            "sharing the report with our team")
+    store.record_history("chat", "writer", text, authored_spans=[(0, len(text))])
+    evidence = json.loads(learn(store))
+    assert "telemetry" in evidence["vocabulary"]
+    assert "mean_sentence_words" not in evidence["style"]

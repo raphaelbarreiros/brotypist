@@ -27,6 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model-path", help="Use a GGUF model for this launch without changing settings")
     parser.add_argument("--version", action="version", version=f"BroTypist {__version__}")
     parser.add_argument("--background", action="store_true", help="Start in the menu bar/system tray when available")
+    parser.add_argument("--login-startup", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--no-tray", action="store_true", help="Open recoverable settings without a tray icon")
     parser.add_argument("--wayland-input-method", action="store_true",
                         help="Run as the KDE-selected input method using KWin's private socket")
@@ -47,6 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     model.add_argument("--accept-model-license", action="store_true",
                        help="Accept the selected model's displayed license, including Gemma Terms of Use for Gemma 3")
     args = parser.parse_args(arguments)
+    prepared_input_method = False
     try:
         if args.wayland_input_method:
             if not sys.platform.startswith("linux") or args.command:
@@ -56,7 +58,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("Select BroTypist in KDE Virtual Keyboard settings; KWin must supply the private input-method socket.")
             from .native.wayland import prepare_input_method
             prepare_input_method(int(descriptor))
-        elif args.background and not args.command and not args.settings and not args.pane:
+            prepared_input_method = True
+        elif args.login_startup and args.background and not args.command and not args.settings and not args.pane:
             from .system import wayland_input_method_selected
             if wayland_input_method_selected():
                 return 0
@@ -91,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "wayland":
             from .system import install_wayland_input_method
             path = install_wayland_input_method()
-            print(f"Installed {path}\nQuit BroTypist, then select BroTypist in KDE System Settings → Keyboard → Virtual Keyboard.\nKDE starts the input-method instance; no desktop setting was changed automatically.")
+            print(f"Installed {path}\nQuit BroTypist, then select BroTypist in KDE System Settings → Keyboard → Virtual Keyboard.\nKDE starts the input-method instance; no desktop setting was changed automatically.\nOrdinary inline completion remains unavailable; this entry provides guarded manual controls.")
             return 0
         if args.command == "doctor":
             from .native import create_bridge
@@ -126,6 +129,10 @@ def main(argv: list[str] | None = None) -> int:
         if sys.stderr is not None:
             print(f"BroTypist: {error}", file=sys.stderr)
         return 1
+    finally:
+        if prepared_input_method:
+            from .native.wayland import close_prepared_input_method
+            close_prepared_input_method()
 
 
 if __name__ == "__main__":

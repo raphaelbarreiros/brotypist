@@ -31,7 +31,7 @@ def _validate_request(value: dict) -> tuple[int, Config, dict]:
     config.validate()
     payload = {}
     limits = {"prefix": 8000, "suffix": 8000, "instructions": 26000, "context": 8000,
-              "utility": 24000, "anchor": MAX_RESULT_CHARS}
+              "personalization": 2048, "utility": 24000, "anchor": MAX_RESULT_CHARS}
     for key, limit in limits.items():
         text = value.get(key, "")
         if not isinstance(text, str) or len(text) > limit:

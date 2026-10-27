@@ -1170,7 +1170,7 @@ class BroTypistApplication(NSObject):
     @objc.python_method
     def _confirm_recording(self):
         """The one consent dialog for every way of turning on writing history."""
-        return self._confirm("Enable encrypted local history?", "Accepted writing will be stored encrypted on this Mac to personalize future suggestions. Your OS secure storage must be available; BroTypist never falls back to plaintext.")
+        return self._confirm("Enable encrypted local learning?", "Eligible writing will be stored encrypted on this Mac. New observed edits can teach local style and vocabulary; existing drafts, bulk pastes and BroTypist-generated suggestions do not establish authorship. Your OS secure storage must be available. Nothing is uploaded and there is no plaintext fallback.")
 
     @objc.python_method
     def _change(self, **changes):
@@ -1888,7 +1888,7 @@ class BroTypistApplication(NSObject):
         if info.get("error"):
             text = f"Secure storage unavailable: {info['error']}"
         elif not info.get("available"):
-            text = "Encrypted storage is not initialized. Enable history to initialize secure storage."
+            text = "Encrypted history is locked; learning is off." if info.get("count") else "No encrypted history yet. Enable recording to learn locally."
         else:
             text = f"{int(info.get('count', 0))} encrypted records · {int(info.get('bytes', 0)):,} bytes on disk"
         if hasattr(self, "history_label"):
@@ -1938,7 +1938,7 @@ class BroTypistApplication(NSObject):
         slider.setFrame_(A.NSMakeRect(32, 2, 210, 24))
         slider.setNumberOfTickMarks_(6)
         slider.setContinuous_(False)
-        _identify(slider, "inklow.personalization.personalization_strength", "Personalize word choice")
+        _identify(slider, "inklow.personalization.personalization_strength", "Personalize writing style and word choice")
         self._bind(slider, lambda sender: self._change(personalization_strength=int(round(float(sender.doubleValue())))))
         self.controls["personalization_strength"] = slider
         container.addSubview_(slider)
@@ -1948,10 +1948,12 @@ class BroTypistApplication(NSObject):
     @objc.python_method
     def _pane_personalization(self):
         f = self.form
-        f.section("Writing History")
-        self._switch("record_history", "Record your writing for personalization", "Opt-in encrypted history; the key stays in OS secure storage. Short texts and likely secrets are never recorded. App and website rules take precedence.", callback=self._history_toggle)
-        self._switch("record_unaccepted", "Record text even when you accept no suggestion", "Only recorded while history is enabled for that app or website.")
-        f.row("Personalize word choice", "How strongly your recorded vocabulary guides local suggestions. Off ignores history.", self._strength_slider(), control_width=280, height=70)
+        f.section("Local Writing Learning")
+        self._switch("record_history", "Learn locally from recorded writing", "Opt-in encrypted history; the key stays in OS secure storage. Short texts and likely secrets are skipped. App and website rules take precedence.", callback=self._history_toggle)
+        self._switch("record_unaccepted", "Also learn when you accept no suggestion", "Records eligible writing only while history is enabled for that app or website. Leave off to record only sessions with an accepted suggestion.")
+        f.row("Personalize style and word choice", "Bounded evidence from your observed edits guides local suggestions. Off ignores learned evidence; explicit instructions and the draft's language win.", self._strength_slider(), control_width=280, height=85)
+        f.note("Learning does not retrain model weights. It matches the current app or exact website and a confidently detected writing language: English, Portuguese, Spanish, French or German. Unknown or ambiguous language means no learned context.")
+        f.note("Learning starts with new observed edits, not existing drafts, bulk pastes, older history or BroTypist-generated text. Deleting history forgets the derived style and cancels suggestions using it.")
         self.history_label = _label("", A.NSMakeRect(0, 0, 340, 43), small=True)
         f.row("Encrypted history", control=self.history_label, control_width=360, height=65)
         self._update_history_info()
@@ -1970,7 +1972,7 @@ class BroTypistApplication(NSObject):
                 button = self._button("Delete…", f"inklow.personalization.delete.{key}",
                                       lambda k=key: self._delete_history(app_id=k[4:]) if k.startswith("app:") else self._delete_history(domain=k[7:]))
                 f.row(f"{name} — {count} text{'s' if count != 1 else ''}", control=button, control_width=100)
-        f.row("Delete all recorded texts", "Irreversible. Aggregate statistics are not deleted.", self._button("Delete All…", "inklow.personalization.deleteHistory", self._delete_history), control_width=145)
+        f.row("Forget all learned writing", "Deletes encrypted history and derived style. Aggregate statistics are unchanged.", self._button("Delete All…", "inklow.personalization.deleteHistory", self._delete_history), control_width=145)
         f.section("Custom AI Instructions")
         f.row("Your writing preferences", "Pre-filled from your Mac’s language and region. App and website instructions are added after these. Keep them to a few hundred words; edits apply after Save Changes.", height=85)
         self._instructions_editor("global_instructions", self.controller.config.custom_instructions)

@@ -1,11 +1,11 @@
-name: macOS checks
+name: macOS and Linux checks
 on:
   push:
   pull_request:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Validate this version and build macOS installers; cross-platform release publication is paused'
+        description: 'Validate this version and build macOS/Linux installers; Windows publication remains held'
         required: false
         type: string
 permissions:
@@ -37,6 +37,8 @@ jobs:
         include:
           - os: macos-15
             target: macos-arm64
+          - os: ubuntu-24.04
+            target: linux-x86_64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     env:
@@ -49,6 +51,12 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: pyproject.toml
+      - name: Install native Linux accessibility, build and desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-gi python3-pyatspi build-essential cmake ninja-build pkg-config libwayland-dev libxkbcommon-dev wayland-protocols gir1.2-atspi-2.0 libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 dbus-x11 xvfb xauth x11-utils xdotool dpkg-dev patchelf
+          echo 'CMAKE_ARGS=-DGGML_NATIVE=OFF -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_CUDA=OFF -DGGML_BLAS=OFF' >> "$GITHUB_ENV"
       - name: Install desktop, local inference, and test dependencies
         run: python -m pip install -e ".[dev,local,build]"
       - name: Check syntax on every platform module
@@ -63,7 +71,12 @@ jobs:
         run: python tools/smoke_bundle.py --source-worker
       - name: Launch real native settings utility
         timeout-minutes: 1
-        run: python tools/smoke_desktop.py
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            dbus-run-session -- xvfb-run -a python tools/smoke_desktop.py
+          else
+            python tools/smoke_desktop.py
+          fi
       - name: Build installable wheel
         run: python -m pip wheel --no-deps . --wheel-dir dist
       - name: Build native desktop application
@@ -71,13 +84,21 @@ jobs:
       - name: Exercise packaged local inference
         run: python tools/smoke_bundle.py
       - name: Package macOS disk image and portable application
+        if: runner.os == 'macOS'
         run: python tools/package_macos.py --bundle dist/BroTypist.app --output release --version "$INKLOW_VERSION"
       - name: Mount and exercise actual macOS installer
+        if: runner.os == 'macOS'
         run: python tools/smoke_macos_dmg.py --dmg "release/BroTypist-$INKLOW_VERSION-macos-arm64.dmg" --version "$INKLOW_VERSION" --require-gui
+      - name: Package Linux Debian and portable installers
+        if: runner.os == 'Linux'
+        run: python tools/package_linux.py --bundle dist/BroTypist --output release --version "$INKLOW_VERSION"
+      - name: Install, exercise visible Quit and remove actual Linux package
+        if: runner.os == 'Linux'
+        run: dbus-run-session -- xvfb-run -a python tools/smoke_linux_installer.py --deb "release/BroTypist-$INKLOW_VERSION-linux-amd64.deb" --archive "release/BroTypist-$INKLOW_VERSION-linux-amd64.tar.gz" --version "$INKLOW_VERSION"
       - name: Seal successful native asset provenance
         shell: bash
         run: |
-          receipt=reports/macos-dmg-smoke.json
+          if [ "$RUNNER_OS" = Linux ]; then receipt=reports/linux-installer-smoke.json; else receipt=reports/macos-dmg-smoke.json; fi
           python tools/release_assets.py manifest --assets release --target "${{ matrix.target }}" --commit "${{ github.sha }}" --receipt "$receipt"
       - uses: actions/upload-artifact@v7
         with:

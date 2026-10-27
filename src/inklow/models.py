@@ -1,14 +1,16 @@
 """Explicit, pinned model acquisition. No typing content or settings are touched."""
 from __future__ import annotations
 
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from functools import cache
 import hashlib
 import os
 from pathlib import Path
+import socket
 import subprocess
 import sys
-from threading import Event
+from threading import Event, Lock
 import tempfile
 from typing import Callable
 from urllib.parse import urlsplit
@@ -186,6 +188,42 @@ def is_installed(preset: ModelPreset) -> bool:
         return False
 
 
+class DownloadCancellation(Event):
+    """Interrupt an owned urllib body read without waiting for its IO lock."""
+
+    def __init__(self):
+        super().__init__()
+        self._interrupt_lock = Lock()
+        self._socket = None
+
+    def _interrupt(self):
+        if self.is_set() and self._socket is not None:
+            try:
+                self._socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass  # The owned connection may already have closed.
+
+    def set(self):
+        super().set()
+        with self._interrupt_lock:
+            self._interrupt()
+
+    @contextmanager
+    def response(self, response):
+        # urllib's HTTPResponse owns a BufferedReader over SocketIO. In-memory
+        # response doubles need only the normal cooperative Event checks.
+        raw = getattr(getattr(response, "fp", None), "raw", None)
+        connection = getattr(raw, "_sock", None)
+        with self._interrupt_lock:
+            self._socket = connection if isinstance(connection, socket.socket) else None
+            self._interrupt()
+        try:
+            yield
+        finally:
+            with self._interrupt_lock:
+                self._socket = None
+
+
 def _check_cancel(cancel: Event | None) -> None:
     if cancel is not None and cancel.is_set():
         raise RuntimeError("Model download cancelled.")
@@ -239,10 +277,16 @@ def download_model(
         request = urllib.request.Request(url, headers={"User-Agent": "inklow/0.2"})
         opener = urllib.request.build_opener(_HTTPSRedirects())
         with os.fdopen(fd, "wb") as destination:
-            with opener.open(request, timeout=30) as response:
+            with opener.open(request, timeout=30) as response, (
+                    cancel.response(response) if isinstance(cancel, DownloadCancellation) else nullcontext()):
+                read = getattr(response, "read1", response.read)
                 while True:
                     _check_cancel(cancel)
-                    chunk = response.read(1024 * 1024)
+                    try:
+                        chunk = read(64 * 1024)
+                    except OSError:
+                        _check_cancel(cancel)
+                        raise
                     if not chunk:
                         break
                     count += len(chunk)

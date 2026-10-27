@@ -530,7 +530,7 @@ class LinuxBridge(BridgeBase):
         except Exception as exc:
             self._set_status(
                 f"X11 keyboard grabs unavailable ({type(exc).__name__}). Check DISPLAY/Xauthority and conflicting shortcuts; "
-                "Wayland is unsupported."
+                "KDE Wayland requires the separately selected native input-method entry."
             )
         finally:
             if connection is not None:
@@ -549,7 +549,14 @@ class LinuxBridge(BridgeBase):
     def stop(self) -> None:
         super().stop()
         self._wake()
-        if self._thread is None:
+        thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            # The hook owns its X connection and releases all grabs in finally.
+            # Wake select and wait for that boundary, not a process-wide kill.
+            thread.join(timeout=1.0)
+            if thread.is_alive():
+                raise RuntimeError("X11 keyboard cleanup is incomplete. Try Quit again.")
+        if thread is None:
             for channel in (self._wake_read, self._wake_write):
                 if channel is not None:
                     channel.close()

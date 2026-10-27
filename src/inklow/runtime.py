@@ -45,6 +45,10 @@ _COMMAND_ACTIONS = frozenset({"force", "alternatives", "synonyms", "toggle", "ap
 _SHORTER = {"long": "medium", "medium": "short", "short": "short", "word": "word"}
 
 
+class ShutdownPending(RuntimeError):
+    """Cancellation succeeded; owned background threads are still unwinding."""
+
+
 class Controller:
     def __init__(self, config: Config, bridge=None):
         config.validate()
@@ -104,6 +108,7 @@ class Controller:
         self._completion_counted = False
         self._started = False
         self._stopped = False
+        self._shutdown_done = set()
         self._browser_apps = set()
         self._temporary_apps = {}
         self._escape_app = ""
@@ -129,9 +134,11 @@ class Controller:
         self._session_key = None
         self._session_id = ""
         self._session_text = ""
+        self._session_authored = bytearray()
         self._session_domain = ""
         self._session_accepted = False
         self._history_suppressed = None
+        self._history_mutating = False
         self.show_settings = None
         self.on_suggestion = None
         self.on_clear = None
@@ -445,13 +452,55 @@ class Controller:
         self._disarm("choices")
         self._emit({"type": "clear", "panel": "chooser"})
 
+    def _authored_spans(self):
+        spans = []
+        start = None
+        for index, authored in enumerate(self._session_authored):
+            if authored and start is None:
+                start = index
+            elif not authored and start is not None:
+                spans.append((start, index))
+                start = None
+        if start is not None:
+            spans.append((start, len(self._session_authored)))
+        return tuple(spans) if len(spans) <= 1024 else ()
+
+    def _update_session_text(self, text, *, authored):
+        """Carry provenance through one contiguous observed edit.
+
+        Initial/native-loaded drafts are unknown. Only small observed edits are
+        evidence of typing/corrections; bulk replacements/pastes abstain. Every
+        app-generated insertion/replacement is explicitly marked non-authored.
+        Unchanged characters retain their provenance, including generated text.
+        """
+        previous = self._session_text
+        if previous == text:
+            return
+        start = 0
+        while start < min(len(previous), len(text)) and previous[start] == text[start]:
+            start += 1
+        tail = 0
+        while (tail < min(len(previous), len(text)) - start
+               and previous[len(previous) - tail - 1] == text[len(text) - tail - 1]):
+            tail += 1
+        old_end, new_end = len(previous) - tail, len(text) - tail
+        observed = authored and max(old_end - start, new_end - start) <= 64
+        self._session_authored[start:old_end] = bytes([int(observed)]) * (new_end - start)
+        self._session_text = text
+
+    def _queue_session(self):
+        app = self._session_key[0]
+        self._records.append(("history", self._session_id, app, self._session_domain,
+                              self._session_text, self._authored_spans()))
+
     def _finish_session(self):
         if self._session_key and (self._session_accepted or self.config.record_unaccepted):
             app = self._session_key[0]
             if self._record_allowed(app, self._session_domain):
-                self._records.append(("history", self._session_id, app, self._session_domain, self._session_text))
+                self._queue_session()
         self._session_key = None
         self._session_text = ""
+        self._session_authored.clear()
         self._session_accepted = False
 
     def _observe_session(self, snapshot):
@@ -462,12 +511,18 @@ class Controller:
         if not self._record_allowed(snapshot.app_id, getattr(snapshot, "domain", "")):
             self._finish_session()
             return
+        if len(snapshot.text) > 32000:
+            self._finish_session()
+            return
         if key != self._session_key:
             self._finish_session()
             self._session_key = key
             self._session_id = uuid.uuid4().hex
             self._session_domain = getattr(snapshot, "domain", "")
-        self._session_text = snapshot.text
+            self._session_text = snapshot.text
+            self._session_authored = bytearray(len(snapshot.text))
+        else:
+            self._update_session_text(snapshot.text, authored=True)
 
     def _observe(self, snapshot):
         now = time.monotonic()
@@ -560,7 +615,8 @@ class Controller:
         domain = getattr(snapshot, "domain", "")
         if kind == "personalization":
             # History is read only under the recording consent that applies now.
-            enabled = bool(self.config.personalization_strength) and self._record_allowed(snapshot.app_id, domain)
+            enabled = (not self._history_mutating and bool(self.config.personalization_strength)
+                       and self._record_allowed(snapshot.app_id, domain))
         elif kind.startswith("screen"):
             enabled = self._window_context_enabled()
         else:
@@ -712,13 +768,16 @@ class Controller:
         instructions = "\n".join(value for value in (
             self.config.custom_instructions, app_rule.get("custom_instructions", ""), domain_rule.get("custom_instructions", "")) if value)
         warning = ""
+        personalization = ""
         strength = self.config.personalization_strength
         if strength:
             try:
                 if self._context_allowed(token, snapshot, "personalization"):
-                    vocabulary = self._storage.vocabulary(strength, snapshot.app_id, domain)
-                    if vocabulary and self._context_allowed(token, snapshot, "personalization"):
-                        instructions += "\n" + vocabulary
+                    evidence = self._storage.personalization(
+                        strength, snapshot.app_id, domain, text=snapshot.prefix,
+                        source_allowed=self._record_allowed)
+                    if evidence and self._context_allowed(token, snapshot, "personalization"):
+                        personalization = evidence
             except (RuntimeError, OSError, sqlite3.Error):
                 warning = "Encrypted history is unavailable for personalization. Unlock your OS credential store or clear damaged history."
         context = []
@@ -740,7 +799,7 @@ class Controller:
             reference = self._reference_options(snapshot, context)
             length = self._length()
         options = {"instructions": instructions[:26000], "context": reference, "_references": context,
-                   "max_words": completion_limits(length)[1]}
+                   "personalization": personalization, "max_words": completion_limits(length)[1]}
         if warning:
             options["_warning"] = warning
         if mode == "alternatives":
@@ -1069,11 +1128,12 @@ class Controller:
                 if event.get("final"):
                     self._request = None
 
-    def _flush_records(self):
+    def _flush_records(self, *, raise_errors=False):
+        failed = False
         while True:
             with self._lock:
                 if not self._records:
-                    return
+                    break
                 record = self._records.popleft()
                 allowed = self.config.statistics_enabled if record[0] == "stats" else self._record_allowed(record[2], record[3])
             if not allowed:
@@ -1083,11 +1143,15 @@ class Controller:
                     _, app, text, completion = record
                     self._storage.record_acceptance(app, text, completion=completion)
                 else:
-                    _, identifier, app, domain, text = record
-                    self._storage.record_history(identifier, app, text, domain=domain)
+                    _, identifier, app, domain, text, authored_spans = record
+                    self._storage.record_history(identifier, app, text, domain=domain,
+                                                 authored_spans=authored_spans)
             except (RuntimeError, OSError, sqlite3.Error) as error:
+                failed = True
                 with self._lock:
-                    self._error = str(error)
+                    self._error = str(error) if not raise_errors else "Local history or statistics could not be saved."
+        if failed and raise_errors:
+            raise RuntimeError("Local history or statistics could not be saved.")
 
     def _field_paused(self, snapshot):
         pause = self._field_pause
@@ -1291,16 +1355,24 @@ class Controller:
                 and (mode != "completion" or (not self._suggestion.text and self._correction is None))):
             self._submit(snapshot, mode)
 
-    def _accepted(self, current, text, resulting_text):
+    def _accepted(self, current, text, resulting_text, *, start, length=0):
         if self.config.statistics_enabled:
             self._records.append(("stats", current.app_id, text, not self._completion_counted))
         self._completion_counted = True
         if self._record_allowed(current.app_id, getattr(current, "domain", "")):
             self._history_suppressed = None
             self._observe_session(current)
+            if self._session_key is None:
+                return
+            if len(resulting_text) > 32000:
+                self._finish_session()
+                return
+            # Exact edit geometry avoids attributing repeated generated words
+            # to a matching authored prefix/suffix.
+            self._session_authored[start:start + length] = bytes(len(text))
             self._session_text = resulting_text
             self._session_accepted = True
-            self._records.append(("history", self._session_id, current.app_id, self._session_domain, resulting_text))
+            self._queue_session()
 
     def _drawn(self, kind, key, claimed):
         """What the overlay confirmed it drew for key: None = no acknowledgment protocol."""
@@ -1351,7 +1423,7 @@ class Controller:
             return False
         mode = self._mode
         resulting = current.text[:start] + text + current.text[start + length:]
-        self._accepted(current, text, resulting)
+        self._accepted(current, text, resulting, start=start, length=length)
         self._clear()
         self._attempted = (current.key, mode)
         return True
@@ -1369,7 +1441,7 @@ class Controller:
             self._clear()
             return False
         resulting = current.text[:result.start] + result.replacement + current.text[result.start + result.length:]
-        self._accepted(current, result.replacement, resulting)
+        self._accepted(current, result.replacement, resulting, start=result.start, length=result.length)
         self._clear()
         self._attempted = None
         self._capture_after = 0.0
@@ -1396,7 +1468,7 @@ class Controller:
         self._client.cancel()
         self._request = None
         self._preparing = None
-        self._accepted(current, text, updated.text)
+        self._accepted(current, text, updated.text, start=current.caret)
         self._candidate = updated
         self._candidate_revision = self._capture_revision
         self._capture_after = 0.0
@@ -1761,6 +1833,7 @@ class Controller:
                 self._client.release()
             if not self._recording_configured(config):
                 self._session_text = ""
+                self._session_authored.clear()
                 self._session_key = None
         if spelling is not None:
             spelling.close()
@@ -1885,12 +1958,12 @@ class Controller:
                  "availability": model_availability(preset)} for preset in PRESETS]
 
     def download_model(self, preset_id, *, accept_license=False):
-        from .models import download_model, get_preset
+        from .models import DownloadCancellation, download_model, get_preset
         preset = get_preset(preset_id)
         with self._lock:
             if self._download_thread is not None and self._download_thread.is_alive():
                 raise RuntimeError("Cancel the current model download before starting another.")
-            cancel = self._download_cancel = threading.Event()
+            cancel = self._download_cancel = DownloadCancellation()
             self._download = {"id": preset_id, "received": 0, "total": preset.size_bytes, "state": "downloading", "error": ""}
 
             def progress(received, total):
@@ -1957,12 +2030,26 @@ class Controller:
                     or (candidate and matches(candidate.app_id, getattr(candidate, "domain", "")))):
                 self._session_key = None
                 self._session_text = ""
+                self._session_authored.clear()
                 self._session_accepted = False
                 self._history_suppressed = (
                     ((candidate.app_id, candidate.field_id, getattr(candidate, "domain", "")), candidate.text)
                     if candidate else None)
-        # A scoped delete is an explicit user action: decrypt only to delete.
-        self._storage.delete_history(app_id, domain=domain, unlock=app_id is not None or domain is not None)
+            self._history_mutating = True
+            # Cancel prepared/in-flight prompts and their model KV cache, not
+            # merely the on-disk records and derived feature index.
+            self._candidate = None
+        try:
+            try:
+                with self._lock:
+                    self._clear(hide_accessory=True)
+                self._client.release()
+            finally:
+                # Model cleanup failure must not prevent the requested unlearning.
+                self._storage.delete_history(app_id, domain=domain, unlock=app_id is not None or domain is not None)
+        finally:
+            with self._lock:
+                self._history_mutating = False
 
     def set_history_enabled(self, enabled):
         if type(enabled) is not bool:
@@ -1981,29 +2068,64 @@ class Controller:
         self._battery_reader = reader
 
     def stop(self):
-        with self._lock:
-            if self._stopped:
+        """Stop activity immediately; attempt every cleanup and retry failures."""
+        failures = []
+
+        def finish(name, action):
+            if name in self._shutdown_done:
                 return
-            self.set_wake_callback(None)
-            self._finish_session()
+            try:
+                action()
+            except Exception:
+                # Native/provider errors may quote private writing or paths.
+                failures.append(name)
+            else:
+                self._shutdown_done.add(name)
+
+        with self._lock:
             self._stopped = True
-            if sys.platform == "darwin":
-                from .native.macos_vision import clear_text_cache
-                clear_text_cache()
+            self._wake_ui = None
+            finish("callbacks", lambda: self.set_wake_callback(None))
+            finish("session", self._finish_session)
             self._deferred.clear()
             self._screen_cache = None
             self._context_wake.set()
             self._screen_wake.set()
             self._screen_ready.set()
-            self.cancel_download()
-            self._clear(hide_accessory=True)
-            self.bridge.stop()
-            spelling, self._spelling = self._spelling, None
-        if spelling is not None:
-            spelling.close()
-        self._client.close()
-        self._flush_records()
-        self._storage.lock_history()
-        for thread in (self._download_thread, self._context_thread, self._screen_thread):
+            finish("download", self.cancel_download)
+            finish("presentation", lambda: self._clear(hide_accessory=True))
+            if self._spelling is not None:
+                finish("spelling", self._spelling.close)
+                if "spelling" in self._shutdown_done:
+                    self._spelling = None
+            if sys.platform == "darwin":
+                def clear_vision():
+                    from .native.macos_vision import clear_text_cache
+                    clear_text_cache()
+                finish("vision", clear_vision)
+        finish("bridge", self.bridge.stop)
+        finish("client", self._client.close)
+        finish("records", lambda: self._flush_records(raise_errors=True))
+        finish("history", self._storage.lock_history)
+        pending = []
+        for name, thread in (("download_thread", self._download_thread),
+                             ("context_thread", self._context_thread),
+                             ("screen_thread", self._screen_thread)):
+            if name in self._shutdown_done:
+                continue
             if thread is not None and thread is not threading.current_thread():
-                thread.join(timeout=0.2)
+                try:
+                    thread.join(timeout=0.2)
+                except RuntimeError:
+                    failures.append(name)
+                else:
+                    if thread.is_alive():
+                        pending.append(name)
+                    else:
+                        self._shutdown_done.add(name)
+        if failures:
+            with self._lock:
+                self._error = "Shutdown is incomplete. Try Quit again to finish releasing local resources."
+            raise RuntimeError(self._error)
+        if pending:
+            raise ShutdownPending("Finishing cancellation of local background work.")

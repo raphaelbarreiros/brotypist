@@ -1,5 +1,6 @@
 """Consumer-visible headless typing, privacy and confirmed insertion behavior."""
 from dataclasses import replace
+import json
 import threading
 import time
 
@@ -417,35 +418,207 @@ def test_slow_statistics_write_never_holds_the_keyboard_decision_lock(runtime):
         flush.join(3)
 
 
-def test_recorded_vocabulary_reaches_real_prompt_only_under_current_recording_consent(runtime):
+def test_authored_style_reaches_prompt_only_under_current_recording_consent(runtime):
     from inklow.providers import _prompt
     controller, bridge, client = runtime
     controller.update_config(replace(controller.config, record_history=True, custom_instructions="Use Portuguese.",
         personalization_strength=90, app_rules={
             "app:writer": {"custom_instructions": "Keep a professional tone."},
             "domain:work.example": {"custom_instructions": "Prefer short sentences."}}), persist=False)
-    assert controller._storage.record_history("seed", "writer", LONG_SESSION, domain="work.example")
+    assert controller._storage.record_history("seed", "writer", LONG_SESSION, domain="work.example",
+                                              authored_spans=[(0, len(LONG_SESSION))])
     bridge.info = {"app_id": "writer", "name": "Writer", "domain": "work.example", "browser": True, "domain_observable": True}
-    bridge.snapshot = replace(bridge.snapshot, domain="work.example")
+    bridge.snapshot = replace(bridge.snapshot, domain="work.example", text=LONG_SESSION, caret=len(LONG_SESSION))
     submit_command(controller, "force")
     config, prefix, suffix, options = client.requests[-1]
+    evidence = json.loads(options["personalization"])
+    assert evidence["language"] == "en" and evidence["style"]["mean_sentence_words"] > 0
+    assert "observability" in evidence["vocabulary"]
+    assert "observability" not in options["instructions"]
     prompt = _prompt(config, prefix, suffix, options)
-    assert all(value in prompt for value in ("Use Portuguese.", "professional tone", "short sentences", "observability", "strongly"))
+    assert all(value in prompt for value in ("Use Portuguese.", "professional tone", "short sentences", "observability"))
     controller.update_config(replace(controller.config, personalization_strength=0), persist=False)
     submit_command(controller, "force")
-    config, prefix, suffix, options = client.requests[-1]
-    prompt = _prompt(config, prefix, suffix, options)
-    assert "recurring vocabulary" not in prompt
-    assert "professional tone" in prompt
-    # Turning recording off withdraws retrieval too: existing history is not read.
+    assert client.requests[-1][3]["personalization"] == ""
+    assert "professional tone" in client.requests[-1][3]["instructions"]
     controller.update_config(replace(controller.config, record_history=False, personalization_strength=90), persist=False)
-    reads = []
-    vocabulary = controller._storage.vocabulary
-    controller._storage.vocabulary = lambda *args, **kwargs: reads.append(args) or vocabulary(*args, **kwargs)
     submit_command(controller, "force")
-    config, prefix, suffix, options = client.requests[-1]
-    assert "observability" not in _prompt(config, prefix, suffix, options)
-    assert reads == []
+    assert client.requests[-1][3]["personalization"] == ""
+
+
+def type_text(controller, bridge, text):
+    for start in range(0, len(text), 8):
+        current = bridge.snapshot
+        addition = text[start:start + 8]
+        bridge.snapshot = replace(current, text=current.prefix + addition + current.suffix,
+                                  caret=current.caret + len(addition))
+        controller.tick()
+
+
+def leave_writer(controller, bridge):
+    bridge.info = {"app_id": "other", "name": "Other", "domain": ""}
+    controller.tick()
+
+
+def learned_style(controller, text=LONG_SESSION):
+    return controller._storage.personalization(90, "writer", text=text,
+                                              source_allowed=lambda app, domain: True)
+
+
+def test_generated_acceptance_never_trains_itself_but_later_typing_and_corrections_learn(runtime):
+    controller, bridge, _ = runtime
+    controller.update_config(replace(controller.config, record_history=True,
+                                    typo_suppression=False, typo_fixes=False), persist=False)
+    generated = (" The generatedphantom report is ready for the generatedphantom review. "
+                 "The generatedphantom review is ready for the team.")
+    offer(controller, bridge, generated)
+    assert controller.invoke("all")
+    controller.tick()
+    assert controller.history_info()["count"] == 1
+    assert learned_style(controller) == ""
+    # The acceptance admits this session under record_unaccepted=False, but only
+    # subsequent observed edits provide authorship evidence.
+    type_text(controller, bridge, " " + LONG_SESSION)
+    for _ in range(2):
+        corrected = bridge.snapshot.text.replace("observability", "traceability", 1)
+        bridge.snapshot = replace(bridge.snapshot, text=corrected, caret=len(corrected))
+        controller.tick()
+    leave_writer(controller, bridge)
+    evidence = json.loads(learned_style(controller))
+    assert "instrumentation" in evidence["vocabulary"]
+    assert "traceability" in evidence["vocabulary"]
+    assert "generatedphantom" not in evidence["vocabulary"]
+
+
+def test_unaccepted_authored_typing_requires_the_existing_extra_consent(runtime):
+    controller, bridge, _ = runtime
+    controller.update_config(replace(controller.config, record_history=True,
+                                    typo_suppression=False, typo_fixes=False), persist=False)
+    controller.tick()
+    type_text(controller, bridge, " " + LONG_SESSION)
+    leave_writer(controller, bridge)
+    assert controller.history_info()["count"] == 0
+    controller.update_config(replace(controller.config, record_unaccepted=True), persist=False)
+    bridge.info = {"app_id": "writer", "name": "Writer", "domain": ""}
+    bridge.snapshot = field_snapshot("")
+    controller.tick()
+    type_text(controller, bridge, LONG_SESSION)
+    leave_writer(controller, bridge)
+    assert "instrumentation" in json.loads(learned_style(controller))["vocabulary"]
+    controller.delete_history("writer")
+    assert learned_style(controller) == ""
+
+
+def test_current_source_exclusions_remove_old_history_from_predictions(runtime):
+    controller, bridge, client = runtime
+    controller.update_config(replace(controller.config, record_history=True), persist=False)
+    assert controller._storage.record_history("old", "archived-writer", LONG_SESSION, "work.example",
+                                              authored_spans=[(0, len(LONG_SESSION))])
+    bridge.info = {"app_id": "writer", "name": "Writer", "domain": "work.example"}
+    bridge.snapshot = replace(field_snapshot(LONG_SESSION), domain="work.example")
+    submit_command(controller, "force")
+    assert "observability" in client.requests[-1][3]["personalization"]
+    controller.update_config(replace(controller.config,
+        app_rules={"app:archived-writer": {"record_history": False}}), persist=False)
+    submit_command(controller, "force")
+    assert client.requests[-1][3]["personalization"] == ""
+    assert controller.history_info()["count"] == 1
+    controller.update_config(replace(controller.config, app_rules={}), persist=False)
+    submit_command(controller, "force")
+    assert client.requests[-1][3]["personalization"]
+    controller.update_config(replace(controller.config, excluded_apps=("archived-writer",)), persist=False)
+    submit_command(controller, "force")
+    assert client.requests[-1][3]["personalization"] == ""
+
+
+def test_paused_or_locked_history_never_reaches_prediction_options(runtime):
+    controller, bridge, client = runtime
+    controller.update_config(replace(controller.config, record_history=True), persist=False)
+    controller._storage.record_history("seed", "writer", LONG_SESSION,
+                                      authored_spans=[(0, len(LONG_SESSION))])
+    bridge.snapshot = field_snapshot(LONG_SESSION)
+    controller._storage.lock_history()
+    submit_command(controller, "force")
+    assert client.requests[-1][3]["personalization"] == ""
+    controller.pause(1)
+    requests = len(client.requests)
+    assert not controller.invoke("force")
+    controller.tick()
+    assert len(client.requests) == requests
+
+
+def test_deleting_history_discards_already_prepared_suggestions_and_model_context(runtime):
+    controller, bridge, client = runtime
+    controller.update_config(replace(controller.config, record_history=True), persist=False)
+    controller._storage.record_history("seed", "writer", LONG_SESSION,
+                                      authored_spans=[(0, len(LONG_SESSION))])
+    bridge.snapshot = field_snapshot(LONG_SESSION)
+    offer(controller, bridge, " The review can proceed.")
+    before = bridge.snapshot.text
+    controller.delete_history()
+    assert client.released
+    assert not controller.invoke("all")
+    assert bridge.snapshot.text == before
+    submit_command(controller, "force")
+    assert client.requests[-1][3]["personalization"] == ""
+
+
+def test_stop_attempts_all_resources_after_failures_and_retries_only_incomplete_steps(runtime, monkeypatch):
+    controller, bridge, client = runtime
+    calls = []
+
+    def bridge_stop():
+        calls.append("bridge")
+        if calls.count("bridge") == 1:
+            raise RuntimeError("Synthetic private native details")
+
+    class Spelling:
+        def close(self):
+            calls.append("spelling")
+            if calls.count("spelling") == 1:
+                raise RuntimeError("Synthetic private spelling details")
+
+    controller._spelling = Spelling()
+    monkeypatch.setattr(bridge, "stop", bridge_stop)
+    monkeypatch.setattr(client, "close", lambda: calls.append("client"))
+    original_lock = controller._storage.lock_history
+    monkeypatch.setattr(controller._storage, "lock_history",
+                        lambda: (calls.append("history"), original_lock()))
+    with pytest.raises(RuntimeError, match="Shutdown is incomplete") as failure:
+        controller.stop()
+    assert "private" not in str(failure.value)
+    assert {"bridge", "spelling", "client", "history"} <= set(calls)
+    controller.stop()
+    controller.stop()
+    assert calls.count("bridge") == calls.count("spelling") == 2
+    assert calls.count("client") == calls.count("history") == 1
+
+
+def test_quit_allows_pending_native_key_callback_to_finish_before_join(runtime, monkeypatch):
+    controller, bridge, client = runtime
+    completed = threading.Event()
+    results, threads = [], []
+
+    def dispatch():
+        results.append(controller.invoke("word"))
+        completed.set()
+
+    def stop_native_hook():
+        thread = threading.Thread(target=dispatch)
+        threads.append(thread)
+        thread.start()
+        if not completed.wait(2):
+            raise RuntimeError("Pending native callback could not finish")
+        thread.join(timeout=2)
+
+    monkeypatch.setattr(bridge, "stop", stop_native_hook)
+    try:
+        controller.stop()
+    finally:
+        for thread in threads:
+            thread.join(timeout=2)
+    assert results == [False]
+    assert bridge.insertions == [] and client.requests == []
 
 
 def test_trailing_material_can_be_accepted_later_without_counting_punctuation_as_word(runtime):

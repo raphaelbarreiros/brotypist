@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.4.3 — macOS and Linux
+
+- Learn bounded local style and recurring vocabulary from newly observed authored edits under existing encrypted-history consent. Keep exact app/website and confident language matching, exclude BroTypist-generated edits and unproven existing drafts, and treat learned evidence as advisory data rather than instructions or model-weight training.
+- Preserve recording defaults, scoped exclusions, strength and unaccepted-session consent. Deletion cancels prepared/in-flight suggestions, releases model context and clears derived state; locked history never unlocks implicitly.
+- Prepare the trusted fixed policy prefix without generating text or evaluating drafts, preferences, references or learned writing. Reuse its native KV prefix; retain context, KV precision, saved idle lifetime and privacy gates.
+- Fix Linux Quit blocked behind exported tray menus, inaccessible no-tray close loops and controller/native-keyboard shutdown lock inversion. Keep a visible Quit button in Settings and Welcome, preserve unsaved Save/Discard/Cancel, release owned hooks/workers and keep recovery controls on real cleanup errors.
+- Interrupt an owned stalled model body read on cancellation, report smaller available chunks, preserve existing weights and remove partial files. Pending background cancellation unwinds asynchronously during Quit rather than requiring another click.
+- Resume Linux builds from the latest shared core, with explicit model-license controls and native installer/Quit checks. Preserve desktop identities and KDE selection; ordinary KDE Wayland inline completion remains unavailable, with no unsafe preedit or popup substitute. Windows and iCloud remain held.
+
 ## 0.4.2 — macOS
 
 - Prepare cached local weights in authorized multiline fields before ordinary prediction is due, including empty writable native fields with verified window identity/bounds. Use a configuration-only worker command; never evaluate writing during that preparation or relax same-line drawing/acceptance checks. Do not download/select a model automatically. Preserve saved idle release and battery force-only behavior.

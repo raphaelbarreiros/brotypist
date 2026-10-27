@@ -31,7 +31,7 @@ from .config import Config
 from .core import InlineRender
 from .models import PRESETS
 from .resources import REPOSITORY_URL, app_icon, configure_identity, tray_icon
-from .runtime import Controller
+from .runtime import Controller, ShutdownPending
 from .shortcuts import normalize_shortcut, shortcut_from_event
 
 PANES = ("General", "AI Models", "Autocomplete", "Languages", "Privacy", "About")
@@ -395,9 +395,9 @@ class ModelManager(QDialog):
         self._refresh_timer.stop()
         super().hideEvent(event)
 
-    def _call(self, function, *args) -> None:
+    def _call(self, function, *args, **kwargs) -> None:
         try:
-            function(*args)
+            function(*args, **kwargs)
         except Exception as exc:
             _error(self, exc)
 
@@ -428,10 +428,16 @@ class ModelManager(QDialog):
         model = self._models[index] if 0 <= index < len(self._models) else None
         download = self.controller.status().get("download") or {}
         active = bool(download.get("active", download.get("state") in {"downloading", "verifying", "cancelling"}))
-        self.description.setText(model["description"] if model else "No downloadable models are available.")
+        unavailable = str(model.get("availability") or "") if model else ""
+        details = [model["description"]] if model else ["No downloadable models are available."]
+        if model and model.get("license_name"):
+            details.append(f"License: {model['license_name']}\n{model.get('license_url', '')}")
+        if unavailable:
+            details.append(unavailable)
+        self.description.setText("\n\n".join(details))
         self.current.setText(f"Selected model: {self.controller.config.model_path or 'None'}")
-        self.download.setEnabled(bool(model) and not active)
-        self.use.setEnabled(bool(model and model["installed"]) and not active)
+        self.download.setEnabled(bool(model) and not active and not unavailable)
+        self.use.setEnabled(bool(model and model["installed"]) and not active and not unavailable)
         self.models.setEnabled(not active)
         self.custom.setEnabled(not active)
         self.cancel.setEnabled(active)
@@ -447,9 +453,18 @@ class ModelManager(QDialog):
         self.status.setText(str(message))
 
     def _download(self) -> None:
-        model = self._models[self.models.currentIndex()]
-        if QMessageBox.question(self, "Download local model?", f"Download {model['label']} ({_size(model['size_bytes'])})?\nOnly model weights are downloaded.") == QMessageBox.StandardButton.Yes:
-            self._call(self.controller.download_model, model["id"])
+        index = self.models.currentIndex()
+        if not self.download.isEnabled() or not 0 <= index < len(self._models):
+            return
+        model = self._models[index]
+        requires_acceptance = bool(model.get("requires_license_acceptance"))
+        consent = (f"\n\nRead and accept {model.get('license_name', 'the model license')} before downloading:\n"
+                   f"{model.get('license_url', '')}\n\nChoosing Yes accepts these terms for this download."
+                   if requires_acceptance else "")
+        if QMessageBox.question(self, "Download local model?", f"Download {model['label']} ({_size(model['size_bytes'])})?\nOnly model weights are downloaded.{consent}",
+                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
+            self._call(self.controller.download_model, model["id"], accept_license=requires_acceptance)
             self.refresh()
 
     def _use(self) -> None:
@@ -608,7 +623,13 @@ class SettingsWindow(QDialog):
         bottom.addWidget(self.dirty_label, 1)
         self.revert = QPushButton("Revert")
         self.save = QPushButton("Save")
-        close = QPushButton("Close")
+        close = QPushButton("Close window")
+        self.quit_button = QPushButton("Quit BroTypist")
+        self.quit_button.setObjectName("quit")
+        self.quit_button.setAutoDefault(False)
+        self.quit_button.setToolTip("Stop typing assistance and exit, including when no system tray is available.")
+        self.quit_button.clicked.connect(self.shell.quit)
+        bottom.addWidget(self.quit_button)
         bottom.addWidget(self.revert)
         bottom.addWidget(self.save)
         bottom.addWidget(close)
@@ -634,6 +655,8 @@ class SettingsWindow(QDialog):
         self.revert.clicked.connect(self.reload)
         self.save.clicked.connect(self.apply)
         close.clicked.connect(self.close)
+        quit_shortcut = QShortcut(QKeySequence(QKeySequence.StandardKey.Quit), self)
+        quit_shortcut.activated.connect(self.shell.quit)
         self.reload()
         self.sidebar.setCurrentRow(0)
         for index in range(len(PANES)):
@@ -702,7 +725,7 @@ class SettingsWindow(QDialog):
         form.addRow(permissions)
         form.addRow(_label("Windows uses accessible edit controls and the native keyboard hook. Linux/X11 uses AT-SPI and replayable key grabs. KDE Wayland uses an explicitly selected native input method, not raw keyboard-device access. Only eligible, unprotected fields are used for predictions."))
         if sys.platform.startswith("linux"):
-            form.addRow(_label("KDE Wayland: selecting BroTypist as the input method lets the OS send it keyboard events and surrounding text from supported text-input controls. Password/sensitive hints are discarded; excluded or mismatched AT-SPI fields are not used. KDE places the popup near the caret. Other input methods cannot occupy the same KDE input-method slot. No selection or permission changes happen automatically."))
+            form.addRow(_label("KDE Wayland: BroTypist must be explicitly selected as the input method. Only one input method can occupy that slot. Password/sensitive hints, selections, excluded apps and mismatched AT-SPI fields are rejected. Ordinary inline completion is unavailable: there is no proven selection-safe, host-rendered inactive-text path. No ordinary preedit or suggestion popup is sent. KDE can place the separate manual control near an eligible caret. Quit exits BroTypist without changing KDE's selection or restarting the compositor."))
             install_method = QPushButton("Install KDE input-method entry…")
             install_method.clicked.connect(self._install_wayland_method)
             form.addRow(install_method)
@@ -725,7 +748,7 @@ class SettingsWindow(QDialog):
             return
         QMessageBox.information(
             self, "KDE input-method entry installed",
-            f"Installed {path}\n\nQuit BroTypist using its menu, then choose BroTypist in KDE System Settings → Keyboard → Virtual Keyboard. KDE will start the native input-method instance. The selected input method was not changed.")
+            f"Installed {path}\n\nUse Quit BroTypist, then choose BroTypist in KDE System Settings → Keyboard → Virtual Keyboard. KDE will start the native input-method instance. The selected input method was not changed. Ordinary inline completion remains unavailable on this path.")
 
     def _general(self, layout) -> None:
         form = self._group(layout, "Application")
@@ -735,7 +758,7 @@ class SettingsWindow(QDialog):
         form.addRow(self.login)
         self.login_status = _label("")
         form.addRow(self.login_status)
-        form.addRow(_label("The system tray icon remains available while BroTypist is running. Closing settings hides this window; Quit in the menu stops BroTypist."))
+        form.addRow(_label("Close window keeps BroTypist running when a system tray is available. Without a tray, closing offers Quit. Quit BroTypist below always stops typing assistance and exits; it does not change your desktop's selected input method."))
         self._check(form, "global_enabled", "Enable predictions", "Turn off to keep BroTypist running without suggesting anything.")
         self._check(form, "enabled", "Enable in eligible apps by default", "App and website rules in Privacy can override this default.")
         self._check(form, "show_accessory", "Show accessory beside the text field", "Current-app predictions, temporary pause and Settings without leaving your text field.")
@@ -803,17 +826,19 @@ class SettingsWindow(QDialog):
         self._bind("custom_instructions", self.instructions, self.instructions.toPlainText, self.instructions.setPlainText, self.instructions.textChanged)
 
     def _history_controls(self, layout) -> None:
-        form = self._group(layout, "Encrypted local personalization")
-        self.history = QCheckBox("Record personalization history by default")
-        self.history.setToolTip("Applied immediately after explicit consent and secure-storage validation.")
+        form = self._group(layout, "Encrypted local writing learning")
+        self.history = QCheckBox("Learn locally from recorded writing by default")
+        self.history.setToolTip("Requires explicit consent and OS-backed encrypted storage. No uploads or model-weight training.")
         self.history.toggled.connect(self._history_changed)
         form.addRow(self.history)
         form.addRow(_label("History is off by default and requires OS-backed encrypted storage; no plaintext fallback. App recording overrides take precedence: explicitly enabled apps continue recording when this default is off."))
-        self._check(form, "record_unaccepted", "Also retain unaccepted typing", "Only effective while encrypted history recording is enabled. This increases sensitive data stored locally.")
-        self._spin(form, "personalization_strength", "Personalization strength", 0, 100, "%")
+        self._check(form, "record_unaccepted", "Also learn when no suggestion is accepted", "Only while history is enabled for that app/site. Leave off to record only sessions with an accepted suggestion.")
+        self._spin(form, "personalization_strength", "Style and vocabulary strength", 0, 100, "%")
+        form.addRow(_label("New observed edits supply bounded style and vocabulary evidence; existing drafts, bulk pastes, older records and BroTypist-generated suggestions do not establish authorship. Current language and explicit instructions take precedence."))
+        form.addRow(_label("Learning matches the same app or exact website in confidently detected English, Portuguese, Spanish, French or German. Unknown or ambiguous language means no learned context. Deletion forgets the derived profile and cancels suggestions using it."))
         self.history_status = _label("")
         form.addRow(self.history_status)
-        delete = QPushButton("Delete all personalization history…")
+        delete = QPushButton("Forget all learned writing…")
         delete.clicked.connect(self._delete_history)
         form.addRow(delete)
 
@@ -966,9 +991,7 @@ class SettingsWindow(QDialog):
         settings = QPushButton("Open settings folder")
         settings.clicked.connect(self._reveal_settings)
         form.addRow(settings)
-        quit_button = QPushButton("Quit BroTypist")
-        quit_button.clicked.connect(self.shell.quit)
-        form.addRow(quit_button)
+        form.addRow(_label("Use Quit BroTypist at the bottom of this window to stop the app, or Close window to return to the tray."))
 
     def _reveal_settings(self) -> None:
         from PySide6.QtCore import QUrl
@@ -1076,7 +1099,7 @@ class SettingsWindow(QDialog):
         if self._loading:
             return
         old = self.controller.config.record_history
-        consent = not enabled or QMessageBox.question(self, "Enable encrypted personalization history?", "Store typing history locally in encrypted form for personalization?\nThis requires secure OS secret storage. No plaintext fallback is permitted. Existing records are not deleted when recording is disabled.") == QMessageBox.StandardButton.Yes
+        consent = not enabled or QMessageBox.question(self, "Enable encrypted local learning?", "Store eligible writing locally in encrypted form? New observed edits can teach style and vocabulary; existing drafts, bulk pastes and BroTypist-generated suggestions do not establish authorship.\nNothing is uploaded or used to retrain weights. OS secure storage is required; there is no plaintext fallback. Turning recording off does not delete existing history.") == QMessageBox.StandardButton.Yes
         if consent:
             try:
                 self.controller.set_history_enabled(enabled)
@@ -1217,25 +1240,25 @@ class SettingsWindow(QDialog):
         self._changed()
 
     def closeEvent(self, event) -> None:
-        if self._changes() and not self._closing:
+        if self._closing or self.shell._stopped:
+            event.accept()
+            return
+        if not self.shell.tray_available:
+            if QMessageBox.question(self, "Quit BroTypist?", "No system tray is available. Quit BroTypist and stop typing assistance?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
+                if self.shell.quit():
+                    event.accept()
+                    return
+            event.ignore()
+            return
+        if self._changes():
             choice = QMessageBox.question(self, "Save settings changes?", "Save your settings changes before closing?", QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Save)
             if choice == QMessageBox.StandardButton.Cancel or (choice == QMessageBox.StandardButton.Save and not self.apply()):
                 event.ignore()
                 return
             if choice == QMessageBox.StandardButton.Discard:
                 self.reload()
-        if self.shell.tray_available and not self._closing:
-            self.hide()
-            event.ignore()
-            return
-        if not self._closing:
-            # Without a tray, closing is explicitly a Quit rather than making
-            # the resident agent inaccessible. Cancel always leaves recovery UI.
-            if QMessageBox.question(self, "Quit BroTypist?", "No system tray is available. Quit BroTypist and stop typing assistance?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
-                event.ignore()
-                return
-            self.shell.quit()
-        event.accept()
+        self.hide()
+        event.ignore()
 
     def reject(self) -> None:
         self.close()
@@ -1252,6 +1275,7 @@ class WelcomeWindow(QDialog):
         self.controller = shell.controller
         self.preview = None
         self.model_manager = None
+        self._finishing = False
         self.setWindowTitle("Welcome to BroTypist")
         self.resize(760, 580)
         self.setMinimumSize(760, 580)
@@ -1293,6 +1317,13 @@ class WelcomeWindow(QDialog):
             self.pages.addWidget(area)
         bottom = QHBoxLayout()
         bottom.setContentsMargins(24, 16, 24, 16)
+        self.quit_button = QPushButton("Quit BroTypist")
+        self.quit_button.setObjectName("quit")
+        self.quit_button.setAutoDefault(False)
+        self.quit_button.clicked.connect(self.shell.quit)
+        bottom.addWidget(self.quit_button)
+        quit_shortcut = QShortcut(QKeySequence(QKeySequence.StandardKey.Quit), self)
+        quit_shortcut.activated.connect(self.shell.quit)
         self.back = QPushButton("Back")
         self.back.clicked.connect(lambda: self._select(self.pages.currentIndex() - 1))
         bottom.addWidget(self.back)
@@ -1341,7 +1372,7 @@ class WelcomeWindow(QDialog):
         permissions.clicked.connect(lambda: self.shell._call(system.open_permissions, "accessibility"))
         layout.addWidget(permissions)
         if sys.platform.startswith("linux"):
-            layout.addWidget(_label("KDE Wayland requires manually selecting BroTypist as the native input method in Virtual Keyboard settings. KDE supplies text-input events and caret placement; no raw keyboard-device access is used. Only one input method can occupy that slot."))
+            layout.addWidget(_label("KDE Wayland requires explicitly selecting BroTypist as the native input method in Virtual Keyboard settings. Only one method can occupy that slot. Manual controls are supported for eligible text inputs; ordinary inline completion is unavailable, with no preedit or suggestion popup substituted. Quit leaves KDE's selection unchanged and does not restart the compositor."))
             install = QPushButton("Install KDE input-method entry…")
             install.clicked.connect(self._install_wayland)
             layout.addWidget(install)
@@ -1403,14 +1434,14 @@ class WelcomeWindow(QDialog):
         layout.addWidget(self.key_hints)
 
     def _step_5(self, layout) -> None:
-        layout.addWidget(_label("BroTypist lives in your system tray. Click it to pause, resume, manage models or open Settings. Closing a settings window does not quit the app."))
+        layout.addWidget(_label("When a system tray is available, use its menu to pause, resume, manage models or open Settings. Close window hides Settings; Quit BroTypist stops typing assistance and exits."))
         self.summary = _label("")
         layout.addWidget(self.summary)
         self.login = QCheckBox("Launch BroTypist at login")
         self.login.setChecked(self.controller.config.launch_at_login)
         self.login.toggled.connect(self._login_changed)
         layout.addWidget(self.login)
-        layout.addWidget(_label("The tray icon stays available while BroTypist is running. If your desktop has no tray host, keep Settings open; closing it offers a real Quit action."))
+        layout.addWidget(_label("If your desktop has no tray host, Settings stays available after setup. Closing Settings or Welcome offers a real Quit action; Quit BroTypist is also always visible below."))
 
     def _login_changed(self, enabled: bool) -> None:
         old = self.controller.config.launch_at_login
@@ -1455,7 +1486,11 @@ class WelcomeWindow(QDialog):
                 _error(self, exc)
                 return
         if index == 5:
-            self.close()
+            self._finishing = True
+            try:
+                self.close()
+            finally:
+                self._finishing = False
         else:
             self._select(index + 1)
 
@@ -1573,9 +1608,13 @@ class WelcomeWindow(QDialog):
         super().hideEvent(event)
 
     def closeEvent(self, event) -> None:
-        self._close_preview()
         if not self.shell._stopped and not self.shell.tray_available:
-            self.shell.show_settings("General")
+            if self._finishing:
+                self.shell.show_settings("General")
+            elif QMessageBox.question(self, "Quit BroTypist?", "No system tray is available. Quit BroTypist and stop typing assistance?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes or not self.shell.quit():
+                event.ignore()
+                return
+        self._close_preview()
         event.accept()
 
     def reject(self) -> None:
@@ -1738,7 +1777,10 @@ class MenuAgent:
         self.accessory = Accessory(self)
         self.choices: list[str] = []
         self._stopped = False
+        self._stopping = False
+        self._quitting = False
         self._ticks = 0
+        self._tray_ticks = 0
         self._last_overlay: dict | None = None
         self._tracking_menus: set[QMenu] = set()
         self._menu_session = False
@@ -1831,7 +1873,9 @@ class MenuAgent:
         menu.addAction("Welcome…", lambda: self._menu_action(self.show_welcome))
         menu.addAction("Models…", lambda: self._menu_action(self.open_models))
         menu.addSeparator()
-        menu.addAction("Quit BroTypist", lambda: self._menu_action(self.quit)).setObjectName("quit")
+        # DBus tray exporters need not emit QMenu.aboutToHide when an exported
+        # action is invoked. Quit must not depend on that menu-tracking fence.
+        menu.addAction("Quit BroTypist", self.quit).setObjectName("quit")
         self.refresh_menu(menu)
         return menu
 
@@ -2187,10 +2231,33 @@ class MenuAgent:
             else:
                 self.accessory.hide()
 
+    def _refresh_tray_availability(self) -> None:
+        available = QSystemTrayIcon.isSystemTrayAvailable()
+        previous, self.tray_available = self.tray_available, available
+        if previous and not available:
+            self.tray_notice = "The system tray became unavailable. Settings remain open so BroTypist stays controllable."
+            # An exported menu can disappear with its host without aboutToHide.
+            # Release only that tray's fence, not an unrelated field menu.
+            for menu in (self.menu, *self.menu.findChildren(QMenu)):
+                menu.close()
+                self._tracking_menus.discard(menu)
+            QTimer.singleShot(0, self._finish_menu_session)
+            self.show_settings("General")
+        elif available and not previous:
+            self.tray_notice = ""
+        if not self.tray.isVisible():
+            self.tray.show()
+
     def tick(self) -> None:
-        if self._stopped or self._menu_session or self._native_menu_active:
+        if self._stopped or self._stopping:
             return
         try:
+            # Recovery UI cannot depend on capture/menu tracking making progress.
+            self._tray_ticks += 1
+            if self._tray_requested and self._tray_ticks % 40 == 0:
+                self._refresh_tray_availability()
+            if self._menu_session or self._native_menu_active:
+                return
             self.controller.tick()
             for event in self.controller.drain_events():
                 kind = event.get("type")
@@ -2221,36 +2288,19 @@ class MenuAgent:
                         self.settings.refresh_stats()
                 if not self.controller.config.show_accessory:
                     self.accessory.hide()
-                if self._tray_requested:
-                    available = QSystemTrayIcon.isSystemTrayAvailable()
-                    if self.tray_available and not available:
-                        self.tray_notice = "The system tray became unavailable. Settings remain open so BroTypist stays controllable."
-                        self.show_settings("General")
-                    elif available and not self.tray_available:
-                        self.tray_notice = ""
-                    self.tray_available = available
-                    if not self.tray.isVisible():
-                        self.tray.show()
         except Exception as exc:
             self.clear_overlay()
             self.tray_notice = f"Typing assistance error: {exc}. Review General; you can still change settings or Quit."
             self.show_settings("General")
 
     def stop(self) -> None:
-        if self._stopped:
+        if self._stopped or self._stopping:
             return
-        self._stopped = True
+        self._stopping = True
         self.timer.stop()
-        if self.welcome:
-            self.welcome._close_preview()
-            self.welcome.timer.stop()
-            self.welcome.hide()
         self._deferred_actions.clear()
         self._native_menu_active = False
         self._native_actions.clear()
-        if self._native_menu:
-            self._native_menu.deleteLater()
-            self._native_menu = None
         self._menu_session = False
         for menu in tuple(self._tracking_menus):
             menu.close()
@@ -2258,25 +2308,83 @@ class MenuAgent:
         self.menu.close()
         if self.accessory.menu:
             self.accessory.menu.close()
-        self.clear_overlay()
-        self.tray.hide()
-        self.controller.stop()
-        self._hide_accessory_after_menu = False
-
-    def quit(self) -> None:
-        if self.settings and self.settings._changes():
-            choice = QMessageBox.question(self.settings, "Save before quitting?", "Save your settings changes before quitting BroTypist?", QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Save)
-            if choice == QMessageBox.StandardButton.Cancel or (choice == QMessageBox.StandardButton.Save and not self.settings.apply()):
-                return
+        self.overlay.hide()
+        self.accessory.hide()
         try:
-            self.stop()
-        except Exception as exc:
-            self.show_settings("General")
-            _error(self.settings, f"Could not stop cleanly: {exc}")
-            return
-        if self.settings:
-            self.settings._closing = True
-        self.app.quit()
+            try:
+                if self.welcome:
+                    self.welcome._close_preview()
+            finally:
+                self.controller.stop()
+        except Exception:
+            # Keep a visible, working Quit button so incomplete cleanup can be
+            # retried; never strand an invisible process marked as stopped.
+            self.timer.start()
+            raise
+        else:
+            self._stopped = True
+            retry = getattr(self, "_quit_retry", None)
+            if retry is not None:
+                retry.stop()
+            self._last_overlay = None
+            self._native_anchor = ""
+            self.choices = []
+            if self._native_menu:
+                self._native_menu.deleteLater()
+                self._native_menu = None
+            for window in (self.welcome, self.settings):
+                if window:
+                    if window.model_manager:
+                        window.model_manager._refresh_timer.stop()
+                        window.model_manager.hide()
+                    if window is self.welcome:
+                        window.timer.stop()
+                    window.hide()
+            self.tray.hide()
+            self._hide_accessory_after_menu = False
+        finally:
+            self._stopping = False
+
+    def quit(self) -> bool:
+        if self._quitting:
+            return False
+        self._quitting = True
+        try:
+            if self.settings and self.settings._changes():
+                choice = QMessageBox.question(self.settings, "Save before quitting?", "Save your settings changes before quitting BroTypist?", QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Save)
+                if choice == QMessageBox.StandardButton.Cancel or (choice == QMessageBox.StandardButton.Save and not self.settings.apply()):
+                    return False
+                if choice == QMessageBox.StandardButton.Discard:
+                    self.settings.reload()
+            try:
+                self.stop()
+            except ShutdownPending:
+                retry = getattr(self, "_quit_retry", None)
+                if retry is None:
+                    retry = self._quit_retry = QTimer(self.app)
+                    retry.setSingleShot(True)
+                    retry.timeout.connect(self.quit)
+                self.tray_notice = "Closing BroTypist — cancelling local background work…"
+                self.show_settings("General")
+                for window in (self.settings, self.welcome):
+                    if window:
+                        window.setEnabled(False)
+                retry.start(100)
+                return False
+            except Exception:
+                for window in (self.settings, self.welcome):
+                    if window:
+                        window.setEnabled(True)
+                self.tray_notice = "Shutdown is incomplete. Choose Quit BroTypist again to finish releasing local resources."
+                self.show_settings("General")
+                _error(self.settings, self.tray_notice)
+                return False
+            if self.settings:
+                self.settings._closing = True
+            self.app.quit()
+            return True
+        finally:
+            self._quitting = False
 
 
 def launch(config: Config, *, background: bool = False, no_tray: bool = False, pane: str | None = None) -> int:
@@ -2291,4 +2399,7 @@ def launch(config: Config, *, background: bool = False, no_tray: bool = False, p
     shell.start(background=background)
     if pane is not None:
         shell.show_settings(pane)
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        shell.stop()

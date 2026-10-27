@@ -68,6 +68,7 @@ class NativePeer:
         self.frames = []
         self.present_result = 1
         self.hidden = 0
+        self.closes = 0
         self.field = Accessible(role="entry", flags=("focused", "editable", "enabled", "sensitive", "visible", "showing"))
         self.field.attributes = []
         self.field.queryEditableText = lambda: SimpleNamespace(
@@ -137,6 +138,7 @@ class NativePeer:
 
     def inklow_wl_close(self, client):
         self.closed = True
+        self.closes += 1
 
 
 @pytest.fixture
@@ -550,3 +552,142 @@ def test_linux_context_revalidates_window_before_tree_reads(native, monkeypatch,
     monkeypatch.setattr(bridge, "context_matches", lambda value: LinuxBridge.context_matches(bridge, value))
     peer.getText = lambda *args: pytest.fail("Changed focused window's context was read")
     assert LinuxBridge.focused_context(bridge, snapshot, authorized=lambda: True)["status"] == "blocked"
+
+
+def test_prepared_socket_is_private_and_unused_launch_releases_only_owned_fd(monkeypatch):
+    import os
+    import socket
+    from inklow.native import wayland
+    ours, external = socket.socketpair()
+    fd = ours.detach()
+    monkeypatch.setenv("WAYLAND_SOCKET", str(fd))
+    try:
+        wayland.prepare_input_method(fd)
+        assert "WAYLAND_SOCKET" not in os.environ
+        assert not os.get_inheritable(fd)
+        assert wayland.available_input_method()
+        wayland.close_prepared_input_method()
+        wayland.close_prepared_input_method()
+        assert not wayland.available_input_method()
+        with pytest.raises(OSError):
+            os.fstat(fd)
+        assert external.recv(1) == b""
+    finally:
+        wayland.close_prepared_input_method()
+        external.close()
+
+
+def test_duplicate_native_launch_exits_normally_and_closes_unclaimed_private_socket(monkeypatch, tmp_path):
+    import os
+    import socket
+    from inklow import __main__ as cli
+    from inklow.instance import instance_lock
+    from inklow.native import wayland
+    monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
+    monkeypatch.setattr(cli.sys, "platform", "linux")
+    ours, external = socket.socketpair()
+    fd = ours.detach()
+    monkeypatch.setenv("WAYLAND_SOCKET", str(fd))
+    try:
+        with instance_lock() as owned:
+            assert owned
+            assert cli.main(["--background", "--wayland-input-method"]) == 0
+        assert not wayland.available_input_method()
+        with pytest.raises(OSError):
+            os.fstat(fd)
+        assert external.recv(1) == b""
+    finally:
+        wayland.close_prepared_input_method()
+        external.close()
+
+
+def test_native_stop_releases_connection_once_and_never_dispatches_again(native):
+    bridge, peer = native
+    bridge.start_shortcuts(lambda _action: pytest.fail("Stopped bridge dispatched a shortcut"))
+    bridge.set_shortcuts_enabled(True)
+    bridge._panel_snapshot = bridge.capture()
+    bridge._menu = [("settings", "Settings", True)]
+    bridge._ui_callback = lambda _action: pytest.fail("Shutdown reentered the UI")
+    bridge.stop()
+    bridge.stop()
+    assert peer.closes == 1
+    assert bridge._client is None and bridge._ui_callback is None
+    assert bridge._panel_snapshot is None and bridge._menu is None
+    assert bridge.capture() is None
+    assert event(bridge, type=2, state=1, generation=peer.revision, name=b"Tab", key=23) == 0
+    assert peer.commits == []
+
+
+def test_connection_loss_defers_destruction_until_native_callback_returns(native, qt_app):
+    import socket
+    from PySide6.QtCore import QSocketNotifier
+    bridge, peer = native
+    read, write = socket.socketpair()
+    bridge._read_notifier = QSocketNotifier(read.fileno(), QSocketNotifier.Type.Read)
+    bridge._write_notifier = QSocketNotifier(read.fileno(), QSocketNotifier.Type.Write)
+    read_notifier, write_notifier = bridge._read_notifier, bridge._write_notifier
+    def dispatch(_client):
+        assert event(bridge, type=4) == 0
+        assert peer.closes == 0
+        assert bridge._close_pending
+        return -1
+    peer.inklow_wl_dispatch = dispatch
+    try:
+        bridge._read_ready()
+        assert peer.closes == 1
+        assert bridge._client is None
+        assert bridge._read_notifier is bridge._write_notifier is None
+        assert not read_notifier.isEnabled() and not write_notifier.isEnabled()
+        assert not bridge._close_pending
+    finally:
+        bridge.stop()
+        read.close()
+        write.close()
+
+
+def test_x11_stop_waits_for_hook_owned_socket_and_grab_release():
+    import socket
+    import threading
+    from inklow.native.linux import LinuxBridge
+    bridge = LinuxBridge.__new__(LinuxBridge)
+    BridgeBase.__init__(bridge)
+    bridge._available, bridge._thread = True, None
+    bridge._wake_read, bridge._wake_write = socket.socketpair()
+    bridge._wake_read.setblocking(False)
+    bridge._wake_write.setblocking(False)
+    read, write = socket.socketpair()
+    entered, released = threading.Event(), threading.Event()
+    class Connection:
+        def screen(self):
+            return SimpleNamespace(root=object())
+        def keysym_to_keycode(self, _value):
+            return 0
+        def get_modifier_mapping(self):
+            return []
+        def pending_events(self):
+            entered.set()
+            return 0
+        def fileno(self):
+            return read.fileno()
+        def ungrab_keyboard(self, _time):
+            released.set()
+        def close(self):
+            read.close()
+    bridge.x = SimpleNamespace(ControlMask=4, Mod1Mask=8, ShiftMask=1, Mod4Mask=64,
+                               LockMask=2, CurrentTime=0)
+    bridge.xk = SimpleNamespace(string_to_keysym=lambda value: value)
+    bridge._display_type = Connection
+    try:
+        bridge.start_shortcuts(lambda _action: False)
+        thread = bridge._thread
+        assert entered.wait(2)
+        bridge.stop()
+        assert not thread.is_alive()
+        assert released.is_set()
+        assert read.fileno() == -1
+        assert bridge._wake_read.fileno() == bridge._wake_write.fileno() == -1
+        bridge.stop()
+    finally:
+        bridge.stop()
+        read.close()
+        write.close()
