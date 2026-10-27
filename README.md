@@ -101,6 +101,8 @@ Ordinary completions are transparent, mouse-through grey text at the host caret:
 
 **Bounded compatibility:** Google Docs needs both screen-reader and braille support in **Tools → Accessibility**. The metadata-only setup offer is not proof that document typing works. Aside Browser's native preference actions failed persisted-state verification; BroTypist does not change Docs preferences through that provider and shows manual instructions instead. Terminal completion is an additional explicit opt-in with separate per-host Automation consent. Its current input adapter recognizes only the source-verified standalone Codex 0.162.1 single-line composer in Terminal.app; iTerm, other agents, multiplexers, shells, wrapped drafts and hidden paste/image elements remain unavailable. Terminal consent never authorizes scrollback as window context.
 
+When focused-window context is enabled, a prediction refreshes its authorized reference text rather than treating unchanged window geometry as unchanged content. The background request waits up to 250 ms for that read. If it is too slow, the previous reference is not reused; optional context may be absent for that prediction. Local model output still needs review for grammar and factual accuracy.
+
 ## Privacy and data preservation
 
 - No built-in cloud inference, account requirement, automatic telemetry or cloud sync. Alternative inference endpoints are restricted to literal loopback addresses; their operators control their logging/network behavior.

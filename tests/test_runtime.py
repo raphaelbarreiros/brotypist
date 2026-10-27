@@ -918,6 +918,40 @@ def test_context_cache_rejects_other_window_revision_and_expired_text(runtime, m
     assert controller._reference_options(snapshot, []) == ""
 
 
+def test_prediction_refreshes_changed_window_reference_before_model_submission(runtime):
+    controller, bridge, client = runtime
+    controller.config = replace(controller.config, screen_context=True, personalization_strength=0)
+    previous = field_snapshot("Thank you for helping with the launch review")
+    bridge.snapshot = field_snapshot("The launch review is scheduled for")
+    controller._screen_cache = (
+        controller._window_key(previous), time.monotonic(), "accessibility",
+        "The launch review is scheduled for Thursday at 14:30 in Room Cedar.", "ready")
+    started, release = threading.Event(), threading.Event()
+
+    def read_current(snapshot, **options):
+        started.set()
+        assert release.wait(2)
+        return {"text": "The launch review is scheduled for Friday at 09:45 in Room Maple.",
+                "provenance": "accessibility", "status": "ready",
+                "window_id": snapshot.window_id, "revision": snapshot.window_revision}
+
+    controller.set_screen_reader(read_current)
+    try:
+        assert controller.force()
+        controller.tick()
+        assert started.wait(1), "A new prediction reused the older window reference"
+        release.set()
+        deadline = time.monotonic() + 2
+        while not client.requests and time.monotonic() < deadline:
+            controller.tick()
+            time.sleep(0.005)
+        context = client.requests[-1][3]["context"]
+        assert "Friday at 09:45 in Room Maple" in context
+        assert "Thursday" not in context
+    finally:
+        release.set()
+
+
 def test_context_errors_expose_only_fixed_non_content_diagnostic(runtime):
     controller, bridge, _ = runtime
     controller.config = replace(controller.config, screen_context=True)

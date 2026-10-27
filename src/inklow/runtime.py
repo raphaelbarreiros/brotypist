@@ -89,6 +89,7 @@ class Controller:
         self._screen_pending = None
         self._screen_job = None
         self._screen_wake = threading.Event()
+        self._screen_ready = threading.Event()
         self._screen_thread = None
         self._screen_cache = None
         self._context_status = "off"
@@ -584,7 +585,7 @@ class Controller:
         with self._lock:
             return bool(safe and self._context_current(token, snapshot, kind))
 
-    def _queue_window_context(self, snapshot):
+    def _queue_window_context(self, snapshot, *, fresh=False):
         if not self._window_context_enabled():
             if not self.config.clipboard_context:
                 self._context_status = "off"
@@ -598,14 +599,20 @@ class Controller:
             self._context_status = "unavailable"
             return
         key = self._window_key(snapshot)
+        if fresh:
+            # AX window identity/geometry is not a content revision. An actual
+            # prediction must not inherit earlier reference text in that window.
+            self._screen_cache = None
+            if self.config.screenshot_context and "inklow.native.macos_vision" in sys.modules:
+                sys.modules["inklow.native.macos_vision"].clear_text_cache()
         if self._screen_cache is not None and self._screen_cache[0] == key:
             if time.monotonic() - self._screen_cache[1] <= _CONTEXT_TTL:
                 self._context_status = self._screen_cache[4]
                 return
-        if (self._screen_pending is not None and self._screen_pending[1].key == snapshot.key
+        if (not fresh and self._screen_pending is not None and self._screen_pending[1].key == snapshot.key
                 and self._window_key(self._screen_pending[1]) == key):
             return
-        if (self._screen_job is not None and self._screen_job[1] == snapshot.key
+        if (not fresh and self._screen_job is not None and self._screen_job[1] == snapshot.key
                 and self._screen_job[2] == key):
             return
         if self._screen_reader is None:
@@ -614,6 +621,7 @@ class Controller:
         token = (object(), snapshot.key, key)
         self._screen_job = token
         self._screen_pending = (token, snapshot)
+        self._screen_ready.clear()
         self._context_status = "pending"
         if self._screen_thread is None:
             self._screen_thread = threading.Thread(
@@ -640,6 +648,7 @@ class Controller:
                     self._screen_job = None
                     self._context_status = "blocked"
                     self._screen_cache = (self._window_key(snapshot), time.monotonic(), "", "", "blocked")
+                    self._screen_ready.set()
         guard = lambda: self._context_allowed(token, snapshot, "screen")
         if not guard():
             blocked()
@@ -681,6 +690,7 @@ class Controller:
                                   provenance, text[:2400], status)
             self._context_status = status
             self._screen_job = None
+            self._screen_ready.set()
 
     def _reference_options(self, snapshot, references, *, use_window=True):
         from .writing import reference_context
@@ -795,7 +805,7 @@ class Controller:
         token = (snapshot.key, self._suggestion.generation, mode)
         self._preparing = token
 
-        self._queue_window_context(snapshot)
+        self._queue_window_context(snapshot, fresh=True)
         self._context_pending = (token, snapshot, mode, anchor if anchored else "")
         if self._context_thread is None:
             self._context_thread = threading.Thread(target=self._context_loop, daemon=True, name="inklow-optional-context")
@@ -808,6 +818,12 @@ class Controller:
             with self._lock:
                 if self._preparing != token or not self._active():
                     return
+                awaiting_window = (self._window_context_enabled() and self._screen_job is not None
+                                   and self._screen_job[1] == snapshot.key)
+            if awaiting_window:
+                # Optional native context may not stall typing indefinitely.
+                # The previous cache was invalidated before this request.
+                self._screen_ready.wait(0.25)
             options = self._options(snapshot, mode, token, anchor)
         except Exception:
             options = None
@@ -1978,6 +1994,7 @@ class Controller:
             self._screen_cache = None
             self._context_wake.set()
             self._screen_wake.set()
+            self._screen_ready.set()
             self.cancel_download()
             self._clear(hide_accessory=True)
             self.bridge.stop()
