@@ -1,0 +1,181 @@
+{
+  "schema": 1,
+  "version": "0.4.6",
+  "date": "2026-10-27",
+  "runtime_source_commit": "e70eb8a82b5d634b2547fe78bf32ceb1e50fa922",
+  "platform": "macos-arm64",
+  "status": "verified local signed candidate; not installed in the normal app location or published",
+  "evidence_provenance": {
+    "verification_owner": "integration parent",
+    "final_verdict": "VERIFIED_READY",
+    "private_receipts": [
+      "native-design-smoke.json",
+      "native-design-extended-smoke.json",
+      "candidate-installer-smoke.json"
+    ],
+    "private_receipts_published": false,
+    "sanitization": "No private filesystem paths, credentials, personal writing or signer account identifiers included."
+  },
+  "artifacts": [
+    {
+      "name": "BroTypist-0.4.6-macos-arm64.dmg",
+      "bytes": 54356818,
+      "sha256": "f1b5517d44b967c0453774177941485e6d0a7dfbadd09d1d79482105e9a4c3bc"
+    },
+    {
+      "name": "BroTypist-0.4.6-macos-arm64.zip",
+      "bytes": 50759698,
+      "sha256": "a8f221b6bf3cab5b88a3f2c431194a93923b3b4aa80deb83ae3b5a02bf8caa15"
+    }
+  ],
+  "executable": {
+    "name": "BroTypist",
+    "bytes": 7617232,
+    "sha256": "eaf5b798cda9d23475e52efd9ebc73c5fd810c3e4658aa5a91e2a51d07c04e6d"
+  },
+  "signing": {
+    "signer_class": "Apple Development",
+    "designated_requirement_matches_installed": true,
+    "developer_id_distribution": "not claimed",
+    "notarization": "not claimed"
+  },
+  "source_native_ui": {
+    "source_commit": "e70eb8a82b5d634b2547fe78bf32ceb1e50fa922",
+    "main_smoke_owned_window_screenshots": 16,
+    "extended_pane_renders": 24,
+    "extended_render_matrix": "12 categories at Aqua minimum 900x640 points and DarkAqua wide 1200x800 points",
+    "extended_remaining_welcome_captures": 4,
+    "capture": "ScreenCaptureKit desktop-independent exact owned PID/window ID; no activation or other-app capture; production capture guards unchanged",
+    "qa_never_frontmost": true,
+    "foreground_preserved": true,
+    "real_model": "existing cached Gemma; no model download",
+    "preview": {
+      "host": "owned native NSTextView",
+      "rendering": "grey same-line inline suffix, not a popup",
+      "acceptance": "programmatic native preview accept-word action; not physical HID",
+      "document_unchanged_before_explicit_acceptance": true,
+      "samples": [
+        {
+          "language": "English",
+          "prefix": "I am looking forward to",
+          "suggestion": " it.",
+          "accepted_text": "I am looking forward to it"
+        },
+        {
+          "language": "Portuguese",
+          "prefix": "Amanhã vamos nos encontrar para",
+          "suggestion": " conversar",
+          "accepted_text": "Amanhã vamos nos encontrar para conversar "
+        }
+      ],
+      "timing": "not reported as desktop latency; harness observations include capture and acceptance overhead"
+    },
+    "resize": {
+      "instructions_editor_identity_responder_text_selection_and_scroll_retained": true,
+      "unsaved_advanced_endpoint_text_selection_and_responder_retained": true,
+      "endpoint_not_prematurely_saved": true
+    },
+    "onboarding": {
+      "missing_model_choice_blocks_continue": true,
+      "cached_model_choice_activated": true,
+      "settings_stayed_closed": true,
+      "model_selection_started_no_worker_or_download": true
+    }
+  },
+  "updater_native_fixtures": {
+    "controlled_fixtures_not_internet_update": true,
+    "states": [
+      "idle",
+      "checking",
+      "available",
+      "downloading",
+      "ready",
+      "installing",
+      "error",
+      "up_to_date"
+    ],
+    "one_visible_action_per_state": true,
+    "stale_cancel_action_remained_cancel": true,
+    "real_update_download_or_install": "not exercised by these fixtures",
+    "public_0_4_7_release": "not claimed"
+  },
+  "frozen_installer_and_runtime": {
+    "source_commit": "e70eb8a82b5d634b2547fe78bf32ceb1e50fa922",
+    "read_only_dmg_mount_copy_signature_source_version_removal_and_detach": "passed",
+    "mounted_and_copied_bundle_version": "0.4.6",
+    "mounted_and_copied_architecture": "arm64",
+    "actual_frozen_cli_suggestion": " time.",
+    "actual_frozen_worker": {
+      "suggestion": " time.",
+      "stream_updates": 2,
+      "exit_code": 0
+    },
+    "native_resident": {
+      "finished_launching": true,
+      "observed_live_seconds": 4,
+      "took_foreground": false,
+      "normal_quit": true,
+      "exit_code": 0
+    },
+    "private_settings_unchanged": true,
+    "external_data_survived_app_removal": true,
+    "physical_third_party_typing": "not exercised"
+  },
+  "native_icon_packaging": {
+    "build_source": "clean detached checkout of the runtime source commit",
+    "tracked_inputs": "primary icon.json and nine SVG Assets tracked before the final build",
+    "compilation": "actual actool compiled tracked .icon into staging before bundle signing",
+    "toolchain": "Xcode 27.1",
+    "design": "adaptive light, dark and tinted artwork with system scaling; not per-size modern geometry",
+    "frozen_catalog_bytes": 1618808,
+    "frozen_native_stack_records": 3,
+    "classic_fallback_bytes": 472520,
+    "finder_icon_evidence": "actual final DMG-copied app",
+    "macos_15_runtime_appearance": "not tested"
+  },
+  "source_regressions": {
+    "passed": 1191,
+    "skipped": 22,
+    "covered_corrections": [
+      "detail-frame resize",
+      "editor retention",
+      "stale Cancel-to-Install race",
+      "first badge refresh navigating to Setup",
+      "native action title clipping"
+    ],
+    "title_clipping_regression": "failed with 94 points available versus 101.61 points drawn, then passed after measured responsive toolbar correction"
+  },
+  "preservation": {
+    "normal_settings_sha256_unchanged_after_final_ui_run": true,
+    "normal_installed_executable_sha256_unchanged_after_final_ui_run": true,
+    "normal_installation_replaced": false,
+    "publication_tag_or_push_performed": false,
+    "gatekeeper_quarantine_or_signing_policy_changed": false
+  },
+  "screenshots": [
+    {
+      "path": "apple-native-models-0.4.6.png",
+      "provenance": "final source native Models pane"
+    },
+    {
+      "path": "apple-native-update-fixture-0.4.6.png",
+      "provenance": "final source controlled ready-state updater fixture"
+    },
+    {
+      "path": "apple-native-inline-preview-0.4.6.png",
+      "provenance": "final source real Portuguese model preview"
+    },
+    {
+      "path": "apple-native-finder-icon-0.4.6.png",
+      "provenance": "actual final frozen DMG-copied app Finder icon"
+    }
+  ],
+  "limits": [
+    "No new normal installation, publication, Linux or Windows build, or iCloud verification.",
+    "Source UI evidence and frozen installer/runtime evidence are separate observations; the source preview does not establish frozen third-party typing.",
+    "No fresh WhatsApp, Telegram, physical HID or arbitrary third-party input acceptance proof.",
+    "No grammar-quality, desktop latency, RAM or [redacted reference]-parity claim.",
+    "No macOS 15 runtime icon appearance, Developer ID or notarization claim."
+  ],
+  "repository_history_redaction": "Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations."
+}
