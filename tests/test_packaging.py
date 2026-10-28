@@ -33,6 +33,40 @@ def test_asset_lookup_uses_relocated_package_and_refuses_escape(tmp_path, monkey
             resources.asset_path(name)
 
 
+@pytest.fixture
+def macos_relocated_assets(tmp_path, monkeypatch):
+    contents = tmp_path / "BroTypist.app" / "Contents"
+    package = contents / "Frameworks" / "inklow"
+    assets = contents / "Resources" / "inklow" / "assets"
+    package.mkdir(parents=True)
+    assets.mkdir(parents=True)
+    (assets / "app.png").write_bytes(resources.asset_path("app.png").read_bytes())
+    outside = assets.parent / "private.txt"
+    outside.write_bytes(b"not an application asset")
+    try:
+        (package / "assets").symlink_to(assets, target_is_directory=True)
+        (assets / "escape.txt").symlink_to(outside)
+    except OSError:
+        pytest.skip("Creating symlinks is not permitted on this runner")
+    monkeypatch.setattr(resources, "__file__", str(package / "resources.py"))
+    monkeypatch.chdir(tmp_path)
+    return assets, outside
+
+
+def test_asset_lookup_accepts_macos_symlinked_resource_root(macos_relocated_assets):
+    assets, _ = macos_relocated_assets
+    assert resources.asset_path("app.png") == assets / "app.png"
+
+
+@pytest.mark.parametrize("escape", ["parent", "absolute", "symlink", "missing"])
+def test_symlinked_asset_root_still_refuses_escape(macos_relocated_assets, escape):
+    _, outside = macos_relocated_assets
+    name = {"parent": "../private.txt", "absolute": str(outside),
+            "symlink": "escape.txt", "missing": "missing.png"}[escape]
+    with pytest.raises(FileNotFoundError):
+        resources.asset_path(name)
+
+
 @pytest.mark.parametrize("platform", ["linux", "win32", "darwin"])
 def test_replacement_refuses_unmarked_application_without_mutating_it(tmp_path, platform):
     # R3/S3: --replace is not permission to delete an unrelated application.

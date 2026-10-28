@@ -14,6 +14,15 @@
 - **Testability gaps closed:** real offscreen ink/baseline/clip/invalid-layout drawing, partial-visible-word acceptance, non-caret surrogate conversion/read-back fencing, actual clause-wrapper boundaries, semantic learning limits, native help/dismissal and 19/20/21% presentation are constrained. Statistics use a fixed date; spelling races wait on explicit backend entry and always unblock/close.
 - **Limits:** no new physical messenger typing, Tab acceptance, sleep/Space transition, hardware discharge, real-model grammar/naturalness, desktop latency percentile, RAM or universal-input claim. Linux/Windows builds and remote publication stay held.
 
+### Packaged resource follow-up
+
+Actual signed-candidate verification exposed a startup defect absent from the source-only layout: the tray artwork existed, but PyInstaller relocated the asset directory from `Contents/Frameworks/inklow/assets` to `Contents/Resources/inklow/assets` through a directory symlink. The lookup resolved each image but not its containment root, rejecting legitimate bundled images before menu-bar status-item creation. This was not an authentication failure.
+
+Resolve the asset root before checking the requested path against it. A new real-filesystem macOS-layout positive failed against the previous implementation; the corrected integrated suite passed **1,396 / 22 skipped** in **23.09 seconds**, including rejection of parent traversal, an absolute outside path, a per-file outside symlink and a missing image. The initial remediation receipt above remains scoped to its earlier 1,391-test source snapshot; it is not silently rebound to these later runtime bytes.
+
+Source and headless checks do not prove native menu health. The corrected signed candidate still requires its own actual status-item/Quit verification before canonical installation; record that source/executable/signature and data-preservation proof separately. No normal installation or security-policy change follows from the source tests alone.
+
+
 
 ## Historical 0.4.9 follow-up: normal-profile inline and native visibility recovery — 2026-10-28
 

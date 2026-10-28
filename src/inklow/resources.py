@@ -23,7 +23,7 @@ REPOSITORY_URL = "https://github.com/renan-brasilio/brotypist"
 
 def asset_path(name: str) -> Path:
     """Return an existing package asset; never resolve outside the asset tree."""
-    root = Path(__file__).resolve().parent / "assets"
+    root = (Path(__file__).resolve().parent / "assets").resolve()
     path = (root / name).resolve()
     if not path.is_relative_to(root) or not path.is_file():
         raise FileNotFoundError(f"Unknown {APP_NAME} asset: {name}")

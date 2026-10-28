@@ -10,6 +10,8 @@
 - Make statistics fixtures date-independent and synchronize the stale-spelling scenario on actual backend entry rather than elapsed sleep, with guaranteed worker cleanup.
 - Verification: 1,391 passed / 22 skipped; new regressions fail against the old source at eleven intended chooser/Unicode assertions. All ten previously surviving meaningful faults and six new chooser/canonicalization/span faults are rejected. Actual owned native chooser hide/refusal/recovery and synthetic encrypted Unicode learning passed without changing foreground or user data. This selected fault set is not an overall mutation score.
 - Source proof: `evidence/brotypist/qa-remediation-0.4.10.json`. macOS-only local work; no new Linux/Windows build, GitHub publication, model-quality guarantee or physical typing-latency claim.
+- Fix frozen macOS startup rejecting PyInstaller's legitimate `Frameworks` → `Resources` asset-root symlink. Resolve the asset root before applying containment checks; keep parent-path, absolute-path and per-file symlink escape rejection. The old lookup rejected existing tray artwork before status-item creation.
+- Packaging follow-up verification: the relocated-root positive fails before the correction and passes afterward; all four escape/missing cases remain rejected. The integrated suite now passes 1,396 tests / 22 skipped. Signed app/menu and installation observations remain separately bound to their actual runtime.
 
 
 ## 0.4.9 — Unreleased, inline capture and bilingual/power polish
