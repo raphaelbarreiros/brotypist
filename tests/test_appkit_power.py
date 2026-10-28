@@ -3,7 +3,7 @@ import pytest
 from types import SimpleNamespace
 
 A = pytest.importorskip("AppKit")
-from inklow.appkit_power import NativePowerUI, PowerHelpPanel
+from inklow.appkit_power import NativePowerUI, PowerHelpPanel, charging_help_text
 
 
 def reading(*, available=True, has_battery=True, on_battery=False, charging=False, percent=65):
@@ -17,8 +17,61 @@ def power_ui():
     try:
         yield ui
     finally:
-        ui.close()
+        try:
+            ui.close()
+        finally:
+            if ui.help_panel is not None:
+                ui.help_panel.close()
 
+
+@pytest.fixture
+def owned_help_anchor(power_ui, monkeypatch):
+    """Keep real help panels off every display without faking session consent."""
+    import Quartz
+
+    def session_is_eligible():
+        session = Quartz.CGSessionCopyCurrentDictionary()
+        return bool(
+            session
+            and not session.get("CGSSessionScreenIsLocked")
+            and session.get(Quartz.kCGSessionOnConsoleKey, False)
+            and session.get(Quartz.kCGSessionLoginDoneKey, False)
+        )
+
+    if not session_is_eligible():
+        pytest.skip("Native help requires the real unlocked, logged-in console")
+    screens = list(A.NSScreen.screens())
+    if not screens:
+        pytest.skip("Native help requires an available display")
+    # Only screen/anchor geometry is synthetic. Native content, ordering and
+    # target/action dispatch remain real, entirely outside the display union.
+    x = max(A.NSMaxX(screen.frame()) for screen in screens) + 4096
+    frame = A.NSMakeRect(x, 4096, 640, 480)
+    screen = SimpleNamespace(visibleFrame=lambda: frame)
+    window = A.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+        A.NSMakeRect(x + 200, 4400, 100, 50),
+        A.NSWindowStyleMaskBorderless, A.NSBackingStoreBuffered, False)
+    window.setReleasedWhenClosed_(False)
+    try:
+        button = A.NSButton.buttonWithTitle_target_action_("", None, None)
+        button.setFrame_(A.NSMakeRect(10, 10, 24, 24))
+        window.contentView().addSubview_(button)
+        power_ui.status_item = SimpleNamespace(button=lambda: button, isVisible=lambda: True)
+
+        def anchor():
+            # Recheck the real session at each lookup, including the presenter's
+            # second lookup, rather than bypassing a lock that occurs mid-test.
+            if not session_is_eligible() or not power_ui.session_active:
+                return None
+            bounds = button.convertRect_toView_(button.bounds(), None)
+            return window.convertRectToScreen_(bounds), screen
+
+        monkeypatch.setattr(power_ui, "_help_anchor", anchor)
+        yield window
+    finally:
+        power_ui.dismiss_help()
+        power_ui.status_item = None
+        window.close()
 
 @pytest.mark.parametrize("sample,state,level", [
     (reading(on_battery=True, percent=19), "low", "19%"),
@@ -49,6 +102,28 @@ def test_power_card_renders_truthful_native_title_and_accessibility(power_ui, sa
     else:
         assert "%" not in title.stringValue()
         assert "%" not in result.compact
+
+
+@pytest.mark.parametrize("percent,state,symbol", [
+    (19, "low", "battery.25percent"),
+    (20, "low", "battery.25percent"),
+    (21, "battery", "battery.75percent"),
+])
+def test_battery_card_includes_twenty_percent_in_low_state(power_ui, percent, state, symbol):
+    power_ui.make_card()
+    result = power_ui.present(reading(on_battery=True, percent=percent), allow_help=False)
+    _, icon, title, _ = power_ui.cards["pane"]
+    assert result.state == state
+    assert result.symbol == symbol
+    assert f"{percent}%" in title.stringValue()
+    expected_icon = A.NSImage.imageWithSystemSymbolName_accessibilityDescription_(symbol, result.title)
+    actual_pixels = icon.image().TIFFRepresentation()
+    assert actual_pixels is not None
+    assert actual_pixels == expected_icon.TIFFRepresentation()
+    expected_tint = A.NSColor.systemOrangeColor() if state == "low" else A.NSColor.labelColor()
+    assert icon.contentTintColor().isEqual_(expected_tint)
+    assert power_ui.help_panel is None
+    assert not power_ui.help_showing
 
 
 def test_native_charging_cue_is_bounded_and_stops_on_hide(power_ui):
@@ -169,6 +244,48 @@ def test_ui_help_deduplicates_dismissal_and_rearms_only_after_real_power_transit
     power_ui.close()
     power_ui.present(low, allow_help=True)
     assert asks == ["low", "low"]
+
+
+def test_actual_help_presenter_is_nonactivating_and_native_dismissal_hides_it(
+        power_ui, owned_help_anchor):
+    app = A.NSApplication.sharedApplication()
+    active, key, main = app.isActive(), app.keyWindow(), app.mainWindow()
+    power_ui.present(reading(on_battery=True, percent=19), allow_help=True)
+
+    panel = power_ui.help_panel
+    assert panel is not None
+    assert panel.isVisible()
+    assert power_ui.help_showing
+    assert power_ui.help_deadline > 0
+    assert not panel.canBecomeKeyWindow()
+    assert not panel.canBecomeMainWindow()
+    assert not panel.isKeyWindow()
+    assert not panel.isMainWindow()
+    assert app.isActive() == active
+    assert app.keyWindow() == key
+    assert app.mainWindow() == main
+    assert all(not A.NSIntersectsRect(panel.frame(), screen.frame()) for screen in A.NSScreen.screens())
+
+    content = panel.contentView().contentView()
+    dismiss = next(view for view in content.subviews() if isinstance(view, A.NSButton))
+    assert dismiss.isEnabled() and not dismiss.isHidden()
+    dismiss.performClick_(None)
+
+    assert not panel.isVisible()
+    assert not power_ui.help_showing
+    assert power_ui.help_deadline == 0
+    assert app.isActive() == active
+    assert app.keyWindow() == key
+    assert app.mainWindow() == main
+
+
+def test_actual_help_presenter_without_anchor_creates_no_surface(power_ui):
+    # Call the real presenter even without a resident status item. A fatal fault
+    # before anchor lookup must fail here, not hide behind present()'s gating.
+    power_ui._show_help()
+    assert power_ui.help_panel is None
+    assert not power_ui.help_showing
+    assert power_ui.help_deadline == 0
 
 
 def test_power_help_panel_cannot_become_key_or_main():

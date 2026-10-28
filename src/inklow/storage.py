@@ -13,6 +13,7 @@ import secrets
 import sqlite3
 from threading import RLock
 from typing import Callable
+import unicodedata
 
 from .config import config_path, normalize_domain
 
@@ -39,11 +40,15 @@ _COMMON_WORDS = frozenset().union(*_LANGUAGE_WORDS.values())
 
 
 def _writing_language(text: str) -> str:
-    words = [word.casefold() for word in _TOKENS.findall(text[-4000:])]
+    words = [word.casefold() for word in _TOKENS.findall(unicodedata.normalize("NFC", text)[-4000:])]
     scores = sorted(((sum(word in markers for word in words), language)
                      for language, markers in _LANGUAGE_WORDS.items()), reverse=True)
     best, language = scores[0]
     return language if best >= 2 and best >= scores[1][0] + 2 else ""
+
+
+def _letter_or_mark(char: str) -> bool:
+    return char.isalpha() or unicodedata.category(char).startswith("M")
 
 
 def _authored_fragments(text: str, spans) -> list[str]:
@@ -61,11 +66,11 @@ def _authored_fragments(text: str, spans) -> list[str]:
         previous = end
         # A changed suffix inside a generated/unknown word is not a newly
         # authored word. Do not turn partial-token fragments into vocabulary.
-        if start and text[start - 1].isalpha():
-            while start < end and (text[start].isalpha() or text[start] in "'’"):
+        if start and _letter_or_mark(text[start - 1]):
+            while start < end and (_letter_or_mark(text[start]) or text[start] in "'’"):
                 start += 1
-        if end < len(text) and text[end].isalpha():
-            while end > start and (text[end - 1].isalpha() or text[end - 1] in "'’"):
+        if end < len(text) and _letter_or_mark(text[end]):
+            while end > start and (_letter_or_mark(text[end - 1]) or text[end - 1] in "'’"):
                 end -= 1
         if start < end:
             fragments.append(text[start:end])
@@ -299,7 +304,10 @@ class LocalStorage:
                 for _, value in self._entries(limit=_LEARNING_ENTRIES):
                     if value.get("authorship") != 1:
                         continue
-                    fragments = _authored_fragments(value["text"], value.get("authored_spans"))
+                    # Slice in original coordinates before canonicalizing only
+                    # the derived inputs; encrypted text and spans stay intact.
+                    fragments = [unicodedata.normalize("NFC", fragment) for fragment in
+                                 _authored_fragments(value["text"], value.get("authored_spans"))]
                     authored = "\n".join(fragments)
                     entry_language = _writing_language(authored)
                     if not history_safe(authored) or not entry_language:

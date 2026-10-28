@@ -27,6 +27,7 @@ class Dictionary:
         self.hypotheses = hypotheses
         self.gate = threading.Event()
         self.gate.set()
+        self.entered = threading.Event()
         self.checked = []
 
     def work_scope(self):
@@ -39,6 +40,7 @@ class Dictionary:
         return dict(self.hypotheses)
 
     def misspelled(self, word, language):
+        self.entered.set()
         self.gate.wait(5)
         self.checked.append((word, language))
         assert unicodedata.is_normalized("NFC", word)
@@ -159,14 +161,17 @@ def test_stale_result_never_attaches_to_another_field():
     backend.gate.clear()
     first = Snapshot("mail", "subject", "we will recieve", 15)
     other = replace(first, field_id="body")
-    assert service.assess(first) is None
-    time.sleep(0.05)  # first is now in flight
-    assert service.assess(other) is None
-    backend.gate.set()
-    result = settle(service, other, woke)
-    assert result.key == other.key
-    assert service.assess(first) is None  # superseded check was discarded, not reused
-    service.close()
+    try:
+        assert service.assess(first) is None
+        assert backend.entered.wait(2), "First spelling request never entered the blocked backend"
+        assert service.assess(other) is None
+        backend.gate.set()
+        result = settle(service, other, woke)
+        assert result.key == other.key
+        assert service.assess(first) is None  # superseded check was discarded, not reused
+    finally:
+        backend.gate.set()
+        service.close()
 
 
 @pytest.mark.parametrize("changes", [{"protected": True}, {"selection_length": 2, "caret": 3},

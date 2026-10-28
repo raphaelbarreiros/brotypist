@@ -1,0 +1,359 @@
+{
+  "kind": "source-qa-remediation-verification",
+  "application": "BroTypist",
+  "version": "0.4.10",
+  "date": "2026-10-28",
+  "audited_base": "a97161f2153dbf1078b3c71b530200421366143f",
+  "before_review": "qa-review-0.4.9.json",
+  "scope": "macOS and shared learning/typing logic; source verification, not an installer/publication or physical-input receipt",
+  "source_python_sha256": {
+    "src/inklow/__init__.py": "817a85d2c9aa23b5ed7104353d3cccb18d699cb8abefc6e76798b7e795fc89f7",
+    "src/inklow/__main__.py": "c79f48f80885625bc12bebeb723571f9ce818883aa62ca6b20694cf6ddfd998b",
+    "src/inklow/appkit_overlay.py": "e860557bd44cc12cd0470abdc6dd1cdc5a46b37beca870025fefbee35ee83ac3",
+    "src/inklow/appkit_power.py": "7fa56183e4a3dadf68e552664eb849f1a6671348f08aa6455f2d9087ca992a9b",
+    "src/inklow/appkit_ui.py": "56cb05e12aa42dfb22d1390f43f552d72a192d38d27828b9f346f28286b4ab13",
+    "src/inklow/appkit_welcome.py": "09188c09441d18c7413dbb6cb130d6ea0a9c1366ff71dc9afa9a84dacff690f5",
+    "src/inklow/config.py": "700ac71ce1ab9eba9ae8ad9efb9e134d5b51c6c2f0bd92e8a7e3a9682e67d012",
+    "src/inklow/core.py": "e2501ec944863a73835aef838ba4a85545c89663d9ab75335c737daff700e663",
+    "src/inklow/desktop.py": "170785dbc4bbebd01fe170b10b32d2a1606bb28d9e0226c92bd0b734254827b8",
+    "src/inklow/features.py": "6936e2eef604a42c1edecbb79b43ef8c26cca185b40764a12079a842009243c7",
+    "src/inklow/instance.py": "b01bc549589c1e09337c25d1216682fb941a61f77e7365416278f7d51411c77b",
+    "src/inklow/models.py": "add6d6236c71d3ec68e71bb22edc5ab811cbfc29da49a77a68b294c7546b508f",
+    "src/inklow/native/__init__.py": "947d2ca62ec19f244a69504a7585c57d1fee07e013f58b3f80cdc729053e52db",
+    "src/inklow/native/base.py": "808b88dd4018b86729c37c9b5c0f277fe549bf9c11b12d369f19c5c72aa103b2",
+    "src/inklow/native/linux.py": "596b25ec4c920a2a029e91dad7f795a3230e7c58300b2fe538131dbba7377599",
+    "src/inklow/native/macos.py": "30fd1371551f47b7e2a50175358166833c2a86ffa53eae82c2bbdb5a2dc2a153",
+    "src/inklow/native/macos_docs.py": "836a9be7f76359e83a14ff23a8030dd2bbd55c1b09563c2ee9e55cb9b02d2c88",
+    "src/inklow/native/macos_language.py": "57c10dad514f9f2d5ae2a5e349abc21a649006db7d4984f3be436bd2b8787275",
+    "src/inklow/native/macos_spelling.py": "0e15ea7c31cf445336a7078e69dbfddc7a938bc34954e4d918b329bff8c9e0ec",
+    "src/inklow/native/macos_terminal.py": "bc735d00550aff9ec92df88ea11ab3b117acfa91e6090ff5ef48065fd62ce5f4",
+    "src/inklow/native/macos_vision.py": "c48e9b5c786b61f84d6258ff66557c6ee1fa5b34d6df669b1041598e5f7a082b",
+    "src/inklow/native/wayland.py": "9a9524cb5ac2975ad3ea7a5bcaf0df0f357b3d92fc2269dd25f8d8d038ad6a36",
+    "src/inklow/native/windows.py": "5d4175da084e99da8dfec4c6f04f007c9f64922171dff058d10ac9a8e02241f4",
+    "src/inklow/power.py": "5b0d74d1fe5ac0fdb3a8eaf312d30f2285687f68de1ac5b41ba2e37ddb8038f0",
+    "src/inklow/preview.py": "218998d43206d25eee1dafb28e821a343b7b2614e6b7b8584b224c75bde1962b",
+    "src/inklow/process_client.py": "cce1c6442cc9430c248c69154db22b6e80587d504dab4b4141380fc142ba5626",
+    "src/inklow/process_worker.py": "8e4322209cdd730cf3853c62cf68dc38f8a9972ef278e04c4ccf5aeec438558b",
+    "src/inklow/providers.py": "56fa5cd0ea8a036dbdfbc96d3ceaf1b821e3ee53483f0e9a2e7227c177c319c6",
+    "src/inklow/qt_ui.py": "262bba37566d977c0bc24d06e5f21df8c256beb49167f2d51833007986306453",
+    "src/inklow/resources.py": "55a70d348b937c18f19d2e11e6894f86fff35847111e068090ecda2360ae403b",
+    "src/inklow/runtime.py": "b6616cb037011ff44172ff33c5f3313ca614ec06fe6d3416c4b1ee110b3700e4",
+    "src/inklow/shortcuts.py": "d82652670163989bd1c59553c0790835ffb5dddd4e08f623372e623cdf81091d",
+    "src/inklow/spelling.py": "88b06dbdcf4be21f22f0f270c895f1b2cf0f1e41bb8159460033d1e0d4965ceb",
+    "src/inklow/storage.py": "d0a7c2832d2f02ee76f94989e867c9eeefa9a0d6e5d56dd783c00b9d28e0f0b7",
+    "src/inklow/system.py": "fe0d97d91e6c2fb33724499d366ed00dffe3e4c8bfb459035160b0fe33ce6192",
+    "src/inklow/update_install.py": "2a4d7a76d5e71a2d3f80a14fda3d000577302e879678196d0dace8b73409aa72",
+    "src/inklow/update_keys.py": "63394afcd2fd676920142f26bbb556d563c3c0d2d6394285ab718ca4f7495c6e",
+    "src/inklow/updates.py": "5d8b247ffe4149be1322fe516d5554277f4f41771b97c2391f724ceb1837dc87",
+    "src/inklow/writing.py": "b17aa610b5ff5aab154684baa74791effb2c50d82972afece32995e437ddfc9f"
+  },
+  "full_suite": {
+    "returncode": 0,
+    "wall_seconds": 24.040576915998827,
+    "tests": 1413,
+    "skipped": 22,
+    "failed_tests": [],
+    "errors": 0,
+    "passed": 1391
+  },
+  "regression_backtest": {
+    "returncode": 1,
+    "wall_seconds": 0.7598949590028496,
+    "tests": 45,
+    "skipped": 0,
+    "failed_tests": [
+      "test_identical_chooser_recovers_native_visibility_and_preserves_revision[hidden]",
+      "test_identical_chooser_recovers_native_visibility_and_preserves_revision[other-space]",
+      "test_refused_chooser_ordering_revokes_ack_and_unchanged_retry_recovers[hidden-initial]",
+      "test_refused_chooser_ordering_revokes_ack_and_unchanged_retry_recovers[hidden-cached-replay]",
+      "test_refused_chooser_ordering_revokes_ack_and_unchanged_retry_recovers[other-space-initial]",
+      "test_refused_chooser_ordering_revokes_ack_and_unchanged_retry_recovers[other-space-cached-replay]",
+      "test_canonical_learning_preserves_encrypted_original_text_and_authored_offsets",
+      "test_authored_span_cuts_inside_combining_tokens_never_learn_partial_words[before-combining-mark-start]",
+      "test_authored_span_cuts_inside_combining_tokens_never_learn_partial_words[before-combining-mark-end]",
+      "test_authored_span_cuts_inside_combining_tokens_never_learn_partial_words[after-combining-mark-start]",
+      "test_authored_span_cuts_inside_combining_tokens_never_learn_partial_words[after-combining-mark-end]"
+    ],
+    "errors": 0,
+    "passed": 34
+  },
+  "fault_campaign": {
+    "method": "Risk-selected semantic single-node AST faults in disposable copies; not an overall mutation score.",
+    "killed": 16,
+    "survived": 0,
+    "invalid": 0,
+    "all_ten_previous_meaningful_survivors_rejected": true,
+    "faults": [
+      {
+        "id": "R05",
+        "module": "src/inklow/appkit_overlay.py",
+        "function": "GhostSurface.drawRect_",
+        "description": "Remove the actual CoreText glyph draw call",
+        "before": "CoreText.CTLineDraw(line, context)",
+        "after": "pass",
+        "status": "killed",
+        "failed_tests": [
+          "test_native_ghost_paints_real_glyphs_at_the_measured_host_baseline[english]",
+          "test_native_ghost_paints_real_glyphs_at_the_measured_host_baseline[portuguese]",
+          "test_native_clipped_ghost_paints_only_whole_fitting_words_inside_host_clip"
+        ]
+      },
+      {
+        "id": "R06",
+        "module": "src/inklow/appkit_overlay.py",
+        "function": "GhostSurface.drawRect_",
+        "description": "Draw glyphs twelve points away from the verified host baseline",
+        "before": "Quartz.CGContextSetTextPosition(context, x, self.baseline)",
+        "after": "Quartz.CGContextSetTextPosition(context, x, self.baseline + 12)",
+        "status": "killed",
+        "failed_tests": [
+          "test_native_ghost_paints_real_glyphs_at_the_measured_host_baseline[english]",
+          "test_native_ghost_paints_real_glyphs_at_the_measured_host_baseline[portuguese]",
+          "test_native_clipped_ghost_paints_only_whole_fitting_words_inside_host_clip"
+        ]
+      },
+      {
+        "id": "R08",
+        "module": "src/inklow/appkit_overlay.py",
+        "function": "CaretOverlay._present_ghost",
+        "description": "Bypass the InlineRender validity guard",
+        "before": "not render.valid(caret)",
+        "after": "False",
+        "status": "killed",
+        "failed_tests": [
+          "test_ghost_rejects_a_baseline_outside_the_caret_row_even_inside_the_clip[above-caret-row]",
+          "test_ghost_rejects_a_baseline_outside_the_caret_row_even_inside_the_clip[below-caret-row]"
+        ]
+      },
+      {
+        "id": "W01",
+        "module": "src/inklow/writing.py",
+        "function": "_draft_language",
+        "description": "Classify the whole prefix instead of the active clause",
+        "before": "clause = re.split('[,;.!?\\\\r\\\\n。！？]+', prefix)[-1].strip()",
+        "after": "clause = prefix.strip()",
+        "status": "killed",
+        "failed_tests": [
+          "test_real_language_wrapper_follows_active_clause_without_rewriting_draft[N\\xf3s discutimos a manutenc\\u0327a\\u0303o e a pr\\xf3xima reuni\\xe3o-now we should review the schedule-pt-en-English-, ]",
+          "test_real_language_wrapper_follows_active_clause_without_rewriting_draft[N\\xf3s discutimos a manutenc\\u0327a\\u0303o e a pr\\xf3xima reuni\\xe3o-now we should review the schedule-pt-en-English-; ]",
+          "test_real_language_wrapper_follows_active_clause_without_rewriting_draft[N\\xf3s discutimos a manutenc\\u0327a\\u0303o e a pr\\xf3xima reuni\\xe3o-now we should review the schedule-pt-en-English-\\n]",
+          "test_real_language_wrapper_follows_active_clause_without_rewriting_draft[We discussed the maintenance plan and the next meeting-agora vamos conversar sobre a manutenc\\u0327a\\u0303o-en-pt-Portuguese-, ]",
+          "test_real_language_wrapper_follows_active_clause_without_rewriting_draft[We discussed the maintenance plan and the next meeting-agora vamos conversar sobre a manutenc\\u0327a\\u0303o-en-pt-Portuguese-; ]",
+          "test_real_language_wrapper_follows_active_clause_without_rewriting_draft[We discussed the maintenance plan and the next meeting-agora vamos conversar sobre a manutenc\\u0327a\\u0303o-en-pt-Portuguese-\\n]",
+          "test_real_language_wrapper_abstains_for_ambiguous_short_clause[None]",
+          "test_real_language_wrapper_abstains_for_ambiguous_short_clause[und]"
+        ]
+      },
+      {
+        "id": "S01",
+        "module": "src/inklow/storage.py",
+        "function": "LocalStorage.personalization",
+        "description": "Ignore strength when limiting learned vocabulary",
+        "before": "max(1, min(24, round(strength * 0.24)))",
+        "after": "24",
+        "status": "killed",
+        "failed_tests": [
+          "test_history_ciphertext_has_no_plaintext_and_strength_scales_evidence"
+        ]
+      },
+      {
+        "id": "S02",
+        "module": "src/inklow/storage.py",
+        "function": "_style_features",
+        "description": "Drop all accented vocabulary from learned style",
+        "before": "(word.casefold() for word in _WORD.findall(fragment) if word.casefold() not in _COMMON_WORDS)",
+        "after": "(word.casefold() for word in _WORD.findall(fragment) if word.casefold() not in _COMMON_WORDS if word.isascii())",
+        "status": "killed",
+        "failed_tests": [
+          "test_learning_uses_authored_same_language_and_context_only",
+          "test_canonical_learning_preserves_encrypted_original_text_and_authored_offsets"
+        ]
+      },
+      {
+        "id": "N01",
+        "module": "src/inklow/native/macos.py",
+        "function": "MacBridge.replace_range",
+        "description": "Use code-point length in the native UTF-16 replacement range",
+        "before": "index_to_utf16(snapshot.text, start + length) - location",
+        "after": "length",
+        "status": "killed",
+        "failed_tests": [
+          "test_mac_noncaret_emoji_replacement_converts_utf16_and_requires_selection_readback[True-say \\U0001f600 now-4-native_range0]",
+          "test_mac_noncaret_emoji_replacement_converts_utf16_and_requires_selection_readback[True-\\U0001f600 say \\U0001f600 now-6-native_range1]",
+          "test_mac_noncaret_emoji_replacement_converts_utf16_and_requires_selection_readback[False-say \\U0001f600 now-4-native_range0]",
+          "test_mac_noncaret_emoji_replacement_converts_utf16_and_requires_selection_readback[False-\\U0001f600 say \\U0001f600 now-6-native_range1]"
+        ]
+      },
+      {
+        "id": "N02",
+        "module": "src/inklow/core.py",
+        "function": "SuggestionState.accept",
+        "description": "Allow word acceptance to extend beyond displayed text",
+        "before": "accepted[limit:].strip()",
+        "after": "False",
+        "status": "killed",
+        "failed_tests": [
+          "test_acceptance_respects_displayed_word_boundary_and_allowed_whitespace[ arrive tomorrow- arr-False-True-- arrive tomorrow]",
+          "test_fast_word_with_only_an_interior_prefix_never_inserts_unseen_tail"
+        ]
+      },
+      {
+        "id": "P01",
+        "module": "src/inklow/appkit_power.py",
+        "function": "power_presentation",
+        "description": "Do not label exactly twenty percent as low battery",
+        "before": "percent <= 20",
+        "after": "percent < 20",
+        "status": "killed",
+        "failed_tests": [
+          "test_battery_card_includes_twenty_percent_in_low_state[20-low-battery.25percent]"
+        ]
+      },
+      {
+        "id": "P02",
+        "module": "src/inklow/appkit_power.py",
+        "function": "NativePowerUI._show_help",
+        "description": "Fail the actual native low-battery help presenter",
+        "before": "target = self._help_anchor()",
+        "after": "raise RuntimeError('Injected native help presenter failure')",
+        "status": "killed",
+        "failed_tests": [
+          "test_actual_help_presenter_is_nonactivating_and_native_dismissal_hides_it",
+          "test_actual_help_presenter_without_anchor_creates_no_surface"
+        ]
+      },
+      {
+        "id": "C1V",
+        "module": "src/inklow/appkit_overlay.py",
+        "function": "CaretOverlay._present_chooser",
+        "description": "Ignore cached chooser native visibility/Space",
+        "before": "self._chooser_state is not None and self._chooser_state[0] == identity and self._chooser_state[1] and self.chooser.isVisible() and self.chooser.isOnActiveSpace()",
+        "after": "self._chooser_state is not None and self._chooser_state[0] == identity and self._chooser_state[1] and self.chooser.isOnActiveSpace()",
+        "status": "killed",
+        "failed_tests": [
+          "test_identical_chooser_recovers_native_visibility_and_preserves_revision[hidden]",
+          "test_refused_chooser_ordering_revokes_ack_and_unchanged_retry_recovers[hidden-cached-replay]"
+        ]
+      },
+      {
+        "id": "C1S",
+        "module": "src/inklow/appkit_overlay.py",
+        "function": "CaretOverlay._present_chooser",
+        "description": "Ignore cached chooser native visibility/Space",
+        "before": "self._chooser_state is not None and self._chooser_state[0] == identity and self._chooser_state[1] and self.chooser.isVisible() and self.chooser.isOnActiveSpace()",
+        "after": "self._chooser_state is not None and self._chooser_state[0] == identity and self._chooser_state[1] and self.chooser.isVisible()",
+        "status": "killed",
+        "failed_tests": [
+          "test_identical_chooser_recovers_native_visibility_and_preserves_revision[other-space]",
+          "test_refused_chooser_ordering_revokes_ack_and_unchanged_retry_recovers[other-space-cached-replay]"
+        ]
+      },
+      {
+        "id": "C1O",
+        "module": "src/inklow/appkit_overlay.py",
+        "function": "CaretOverlay._present_chooser",
+        "description": "Acknowledge refused initial chooser ordering",
+        "before": "'\\n'.join(rows[:count]) if self.chooser.isVisible() and self.chooser.isOnActiveSpace() else ''",
+        "after": "'\\n'.join(rows[:count])",
+        "status": "killed",
+        "failed_tests": [
+          "test_refused_chooser_ordering_revokes_ack_and_unchanged_retry_recovers[hidden-initial]",
+          "test_refused_chooser_ordering_revokes_ack_and_unchanged_retry_recovers[hidden-cached-replay]",
+          "test_refused_chooser_ordering_revokes_ack_and_unchanged_retry_recovers[other-space-initial]",
+          "test_refused_chooser_ordering_revokes_ack_and_unchanged_retry_recovers[other-space-cached-replay]"
+        ]
+      },
+      {
+        "id": "C3Q",
+        "module": "src/inklow/storage.py",
+        "function": "_writing_language",
+        "description": "Remove derived canonical normalization",
+        "before": "unicodedata.normalize('NFC', text)",
+        "after": "text",
+        "status": "killed",
+        "failed_tests": [
+          "test_canonical_learning_preserves_encrypted_original_text_and_authored_offsets"
+        ]
+      },
+      {
+        "id": "C3F",
+        "module": "src/inklow/storage.py",
+        "function": "LocalStorage.personalization",
+        "description": "Remove derived canonical normalization",
+        "before": "unicodedata.normalize('NFC', fragment)",
+        "after": "fragment",
+        "status": "killed",
+        "failed_tests": [
+          "test_canonical_learning_preserves_encrypted_original_text_and_authored_offsets"
+        ]
+      },
+      {
+        "id": "C3M",
+        "module": "src/inklow/storage.py",
+        "function": "_letter_or_mark",
+        "description": "Ignore combining marks at authored-word boundaries",
+        "before": "char.isalpha() or unicodedata.category(char).startswith('M')",
+        "after": "char.isalpha()",
+        "status": "killed",
+        "failed_tests": [
+          "test_authored_span_cuts_inside_combining_tokens_never_learn_partial_words[before-combining-mark-start]",
+          "test_authored_span_cuts_inside_combining_tokens_never_learn_partial_words[before-combining-mark-end]",
+          "test_authored_span_cuts_inside_combining_tokens_never_learn_partial_words[after-combining-mark-start]",
+          "test_authored_span_cuts_inside_combining_tokens_never_learn_partial_words[after-combining-mark-end]"
+        ]
+      }
+    ]
+  },
+  "native_smoke": {
+    "scope": "Actual owned offscreen NSPanel/widget lifecycle and synthetic encrypted learning; ordering refusal is an explicit SDK-boundary simulation. No user input, user windows, normal profile, model or screen capture.",
+    "chooser": {
+      "initial": {
+        "visible": true,
+        "active_space": true,
+        "ack": "amanhã\ntomorrow"
+      },
+      "hidden_refused": {
+        "visible": false,
+        "ack": ""
+      },
+      "unchanged_recovery": {
+        "visible": true,
+        "active_space": true,
+        "ack": "amanhã\ntomorrow"
+      },
+      "nonactivating": true,
+      "outside_all_real_screens": true
+    },
+    "learning": {
+      "canonical_equivalent": true,
+      "language": "pt",
+      "accented_vocabulary_preserved": true,
+      "original_text_and_spans_preserved": true
+    },
+    "foreground_unchanged": true
+  },
+  "resolved_findings": {
+    "C1": "Native chooser visibility/Space/order-result acknowledgement and recovery; controller unseen-choice behavior guarded.",
+    "C2": "Independent native ink/baseline/clip/invalid-layout and partial-visible-word acceptance oracles.",
+    "C3": "Canonical derived learning with untouched raw text/authored offsets and combining-mark token boundaries.",
+    "C4": "Real noncaret UTF16 conversion/read-back rejection boundary cases.",
+    "D1": "Rich vocabulary strength and accented Portuguese evidence constraints.",
+    "A1": "Real active-clause wrapper at bilingual/ambiguous/preference boundaries.",
+    "D2": "Actual native help presentation/dismissal, missing-anchor behavior and19/20/21percent card states.",
+    "R1": "Fixed statistics date passed consistently to period queries.",
+    "R2": "Explicit backend-entry synchronization with guaranteed unblock/close cleanup."
+  },
+  "test_generation_review": {
+    "process": "Four disjoint implementation workers, three independent read-only adversarial review lenses and parent execution/integration.",
+    "review_lenses": "No substantive surviving findings from source reviewers; parent execution corrected NSBox content-view lookup in the new help fixture and removed a caption-echo assertion rather than pinning wording.",
+    "human_test_code_review": "Not claimed; user approved remediation scope and later local commit/build/install."
+  },
+  "preservation": "Source smoke used only owned offscreen surfaces, injected synthetic history key/data and private INKLOW_HOME; no normal user input, profile, history or model changes.",
+  "limits": [
+    "No fresh real WhatsApp/Telegram or physical Tab typing.",
+    "Native ordering refusal is an explicit boundary simulation; no physical Space/sleep transition.",
+    "No physical battery discharge; synthetic card inputs and actual owned native helper only.",
+    "No fresh real-Gemma grammar/naturalness, desktop latency percentile, RAM or universal-input claim.",
+    "Linux/Windows builds, GitHub push/publication and security-policy changes not performed."
+  ]
+}

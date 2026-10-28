@@ -1497,6 +1497,41 @@ def test_fast_keys_insert_only_text_the_overlay_confirmed_it_drew(fast_runtime):
     assert "morning" not in bridge.snapshot.text
 
 
+def test_fast_word_with_only_an_interior_prefix_never_inserts_unseen_tail(fast_runtime):
+    controller, bridge, _ = fast_runtime
+    offer(controller, bridge, " arrive tomorrow")
+    draw(controller, " arr")
+    original = bridge.snapshot
+
+    claimed = controller.fast_invoke("word")
+    controller.tick()
+    controller.tick()  # A claimed but rejected key must not be replayed twice.
+
+    assert bridge.insertions == []
+    assert bridge.snapshot == original
+    assert bridge.replayed == (["word"] if claimed else [])
+
+
+@pytest.mark.parametrize("action,visible,expected", [
+    ("word", " arrive", " arrive "),
+    ("all", " arrive", " arrive "),
+    ("all", " arrive tom", " arrive tom"),
+])
+def test_fast_acceptance_inserts_only_visible_text_plus_allowed_separator(
+        fast_runtime, action, visible, expected):
+    controller, bridge, _ = fast_runtime
+    offer(controller, bridge, " arrive tomorrow")
+    draw(controller, visible)
+    original = bridge.snapshot
+
+    assert controller.fast_invoke(action)
+    controller.tick()
+
+    assert bridge.insertions == [expected]
+    assert bridge.snapshot.text == original.text + expected
+    assert bridge.replayed == []
+
+
 def test_fast_key_after_user_input_passes_and_stale_acceptance_replays_once(fast_runtime):
     controller, bridge, _ = fast_runtime
     offer(controller, bridge, " arrives tomorrow")
@@ -1763,16 +1798,36 @@ def test_chooser_acknowledgment_never_arms_a_hidden_long_tail(fast_runtime):
     assert bridge.insertions == ["short"]
 
 
-def test_chooser_with_no_fully_displayed_row_does_not_steal_tab_or_escape(fast_runtime):
+@pytest.mark.parametrize("acknowledgment", ["unseen", "empty", "revoked", "truncated"])
+def test_chooser_with_no_fully_displayed_row_does_not_steal_tab_or_escape(
+        fast_runtime, acknowledgment):
     controller, bridge, _ = fast_runtime
     bridge.snapshot = field_snapshot("kind", caret=0, selection_length=4)
     controller.tick()
-    controller._publish_choices(bridge.snapshot, ["a very long invisible tail"], "synonyms", (0, 4))
-    controller.presentation_result(bridge.snapshot.key, "a very long…", "synonyms")
+    choice = "a very long invisible tail"
+    controller._publish_choices(bridge.snapshot, [choice], "synonyms", (0, 4))
+    original = bridge.snapshot
+    if acknowledgment == "revoked":
+        controller.presentation_result(original.key, choice, "synonyms")
+    if acknowledgment in {"empty", "revoked"}:
+        controller.presentation_result(original.key, "", "synonyms")
+    elif acknowledgment == "truncated":
+        controller.presentation_result(original.key, "a very long…", "synonyms")
+
     assert not controller.fast_invoke("word")
+    assert not controller.fast_invoke("all")
     assert not controller.fast_invoke("choice:1")
     assert not controller.fast_invoke("escape")
-    assert bridge.insertions == []
+    controller.tick()
+    assert bridge.insertions == [] and bridge.replayed == []
+    assert bridge.snapshot == original
+
+    controller.presentation_result(original.key, choice, "synonyms")
+    assert controller.fast_invoke("word")
+    controller.tick()
+    assert bridge.insertions == [choice]
+    assert bridge.snapshot.text == choice
+    assert bridge.replayed == []
 
 
 @pytest.fixture

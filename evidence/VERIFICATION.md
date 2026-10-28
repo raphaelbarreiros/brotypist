@@ -2,7 +2,20 @@
 
 # Observed verification
 
-## 0.4.9 follow-up: normal-profile inline and native visibility recovery — 2026-10-28
+## 0.4.10 native visibility and Unicode-learning remediation — 2026-10-28
+
+[Source-tree-bound remediation receipt](brotypist/qa-remediation-0.4.10.json) closes the actionable findings from the [0.4.9 QA review](QA-REVIEW-0.4.9.md). This section records source verification; installer/canonical-app observations must be bound separately to their actual signed runtime. Older installation sections below remain historical observations, not fresh 0.4.10 compositor evidence.
+
+- **Integrated regressions:** 1,391 passed / 22 skipped, with per-case JUnit timing. The unavailable Qt/collection paths are not counted as passes or Linux/Windows proof.
+- **Red-before/green-after:** the new tests against audited source `a97161f2153dbf1078b3c71b530200421366143f` fail eleven intended chooser/Unicode assertions, with no collection/runtime errors. The current integrated source passes. Raw encrypted drafts/authored offsets remain unchanged.
+- **Meaningful fault rejection:** all ten behavior-changing survivors from the review now fail their relevant semantic assertions. Six additional chooser visibility/order-result and canonicalization/combining-mark faults also fail: 16 rejected, none surviving/invalid. This deliberately selected set is not an exhaustive or overall mutation score.
+- **Actual native smoke:** owned offscreen `NSPanel` widgets acknowledged complete visible choices, revoked acknowledgement after real hiding plus deliberately refused native ordering, then recovered the identical choice content. Panels stayed nonactivating/outside user displays and foreground was unchanged. Ordering refusal is an explicit SDK-boundary simulation, not a physical Space-transition claim.
+- **Learning smoke:** real AEAD storage with an injected synthetic key learned equivalent NFC/NFD Portuguese queries, retained accented vocabulary and preserved exact original text/authored spans. No normal profile, model or user input was involved.
+- **Testability gaps closed:** real offscreen ink/baseline/clip/invalid-layout drawing, partial-visible-word acceptance, non-caret surrogate conversion/read-back fencing, actual clause-wrapper boundaries, semantic learning limits, native help/dismissal and 19/20/21% presentation are constrained. Statistics use a fixed date; spelling races wait on explicit backend entry and always unblock/close.
+- **Limits:** no new physical messenger typing, Tab acceptance, sleep/Space transition, hardware discharge, real-model grammar/naturalness, desktop latency percentile, RAM or universal-input claim. Linux/Windows builds and remote publication stay held.
+
+
+## Historical 0.4.9 follow-up: normal-profile inline and native visibility recovery — 2026-10-28
 
 Runtime **`d26b75e31efbceb016febf4da5cafbc1ce8f39c4`** is signed and installed at **`/Applications/BroTypist.app`**. The installed normal user profile now has real composer-only WhatsApp pixel proof after the existing one-word draft, with context/privacy/model preferences unchanged. [Corrected source/artifact-bound receipt](brotypist/overlay-visibility-0.4.9.json) · [Actual normal-profile inline pixels](brotypist/whatsapp-normal-inline-0.4.9.png).
 

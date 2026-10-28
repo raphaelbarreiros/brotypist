@@ -1,0 +1,883 @@
+{
+  "kind": "read-only-qa-review",
+  "date": "2026-10-28",
+  "application": "BroTypist",
+  "version": "0.4.9",
+  "revision": "a97161f2153dbf1078b3c71b530200421366143f",
+  "platform": "macOS 27.2 arm64 / Python 3.12.14 / pytest 9.1.1",
+  "scope": {
+    "primary_test_modules": 7,
+    "inventory_test_modules": 34,
+    "test_definitions": 663,
+    "classification": "Unmarked mixed deterministic unit/local-integration suite; no invented unit/integration/E2E split. Additional narrow cross-checks listed in file ledger.",
+    "reviewed_files": [
+      {
+        "file": "tests/test_appkit_overlay.py",
+        "severity": "high",
+        "scope": "C1/C2: fake-panel acknowledgement and frame checks miss actual painting and invalid-layout use."
+      },
+      {
+        "file": "tests/test_native_contract.py",
+        "severity": "medium",
+        "scope": "C2: non-caret, non-BMP range conversion fault N01 survives."
+      },
+      {
+        "file": "tests/test_runtime.py",
+        "severity": "medium",
+        "scope": "C2: partial-visible acceptance fault survives; native begin-gate inversion is correctly killed."
+      },
+      {
+        "file": "tests/test_writing.py",
+        "severity": "medium",
+        "scope": "A1: active-clause wrapper bypassed; structural eval metadata is not language-quality proof."
+      },
+      {
+        "file": "tests/test_storage.py",
+        "severity": "medium",
+        "scope": "C3/D1/R1: Unicode equivalence, strength/accented vocabulary assertions and clock boundary."
+      },
+      {
+        "file": "tests/test_appkit_power.py",
+        "severity": "medium",
+        "scope": "D2: native help presenter replaced; exactly-20% card boundary missing."
+      },
+      {
+        "file": "tests/test_update_install.py",
+        "severity": "low",
+        "scope": "Narrow review found no demonstrated defect; ZIP path-check removal is killed."
+      },
+      {
+        "file": "tests/test_spelling.py",
+        "severity": "low",
+        "scope": "R2: fixed sleep does not establish that the first check entered its backend."
+      },
+      {
+        "file": "tests/test_token_healing.py",
+        "severity": "low",
+        "scope": "Related token/data-boundary cross-check; no actionable finding in reviewed portions."
+      },
+      {
+        "file": "tests/test_macos_language.py",
+        "severity": "low",
+        "scope": "Related recognizer-boundary cross-check; does not replace wrapper/clause coverage."
+      },
+      {
+        "file": "tests/test_power.py",
+        "severity": "low",
+        "scope": "Related low-battery policy cross-check; help policy and native card are separate contracts."
+      },
+      {
+        "file": "tests/test_updates.py",
+        "severity": "low",
+        "scope": "Related manifest/update-service cross-check; no demonstrated defect in reviewed portions."
+      },
+      {
+        "file": "tests/test_appkit_menu.py",
+        "severity": "low",
+        "scope": "Narrow lifecycle/menu cross-check only; not treated as live native Quit proof."
+      },
+      {
+        "file": "src/inklow/appkit_overlay.py",
+        "severity": "high",
+        "scope": "C1 actual chooser visibility-acknowledgement defect; C2 rendering contract coverage gaps."
+      },
+      {
+        "file": "src/inklow/native/macos.py",
+        "severity": "medium",
+        "scope": "C2 correct UTF-16 implementation lacks the demonstrated non-caret surrogate-range oracle."
+      },
+      {
+        "file": "src/inklow/core.py",
+        "severity": "medium",
+        "scope": "C2 correct unseen-word and geometry guards are removable without test failures."
+      },
+      {
+        "file": "src/inklow/runtime.py",
+        "severity": "low",
+        "scope": "Reviewed acknowledgement/claim/deferred paths; rejected claim that all begin-gate behavior is untested."
+      },
+      {
+        "file": "src/inklow/storage.py",
+        "severity": "medium",
+        "scope": "C3 actual Unicode-derived learning defect; D1 semantic assertion gaps."
+      },
+      {
+        "file": "src/inklow/writing.py",
+        "severity": "medium",
+        "scope": "A1 real clause extraction unexercised by its wrapper tests; no local GGUF delimiter exploit established."
+      },
+      {
+        "file": "src/inklow/providers.py",
+        "severity": "low",
+        "scope": "Narrow exact-data/token-healing boundary review; no actionable finding in reviewed portions."
+      },
+      {
+        "file": "src/inklow/native/macos_language.py",
+        "severity": "low",
+        "scope": "Narrow recognizer/reset/confidence review; no actionable finding in reviewed portions."
+      },
+      {
+        "file": "src/inklow/native/base.py",
+        "severity": "low",
+        "scope": "Narrow range/bridge-contract review; no actionable finding in reviewed portions."
+      },
+      {
+        "file": "src/inklow/appkit_power.py",
+        "severity": "medium",
+        "scope": "D2 native presenter and 20% presentation boundary are not constrained by current tests."
+      },
+      {
+        "file": "src/inklow/power.py",
+        "severity": "low",
+        "scope": "Policy separated from presentation; no actionable finding in reviewed portions."
+      },
+      {
+        "file": "src/inklow/update_install.py",
+        "severity": "low",
+        "scope": "Archive/transaction boundary review; broad ZIP-validation bypass is rejected by tests."
+      },
+      {
+        "file": "src/inklow/updates.py",
+        "severity": "low",
+        "scope": "Narrow signature/manifest/service review; no demonstrated current defect."
+      },
+      {
+        "file": "src/inklow/appkit_ui.py",
+        "severity": "low",
+        "scope": "Relevant lifecycle/integration sections only; no live settings/menu review claimed."
+      },
+      {
+        "file": "tools/evaluate_predictions.py",
+        "severity": "low",
+        "scope": "Narrow quality-status/reporting contract review; unreviewed status is correctly not a quality pass."
+      },
+      {
+        "file": ".github/workflows/ci.yml",
+        "severity": "low",
+        "scope": "Existing pytest/native packaging checks reviewed as configuration, not remotely executed."
+      },
+      {
+        "file": "pyproject.toml",
+        "severity": "low",
+        "scope": "Pytest/platform dependency conventions checked; no project QA context document present."
+      },
+      {
+        "file": "README.md",
+        "severity": "low",
+        "scope": "Install/development/platform-limit sections checked for review scope only."
+      }
+    ]
+  },
+  "baseline_runs": [
+    {
+      "run": 1,
+      "passed": 1334,
+      "skipped": 22,
+      "failed": 0,
+      "errors": 0,
+      "wall_seconds": 24.665711833004025,
+      "junit_seconds": 24.115
+    },
+    {
+      "run": 2,
+      "passed": 1334,
+      "skipped": 22,
+      "failed": 0,
+      "errors": 0,
+      "wall_seconds": 24.084849749997375,
+      "junit_seconds": 23.625
+    },
+    {
+      "run": 3,
+      "passed": 1334,
+      "skipped": 22,
+      "failed": 0,
+      "errors": 0,
+      "wall_seconds": 24.130948834004812,
+      "junit_seconds": 23.618
+    }
+  ],
+  "installed_cli_smoke": {
+    "returncode": 0,
+    "output": "BroTypist 0.4.9",
+    "scope": "Version-only actual installed executable; no native app activation, input or profile access."
+  },
+  "mutation_campaign": {
+    "method": "Risk-selected, single-node AST faults in disposable copies. Every targeted survivor was run against the whole suite. No third-party mutation tool installed. Not an exhaustive or overall application mutation score.",
+    "attempted": 19,
+    "killed": 8,
+    "raw_survivors": 11,
+    "excluded": 1,
+    "behavior_changing_survivors": 10,
+    "invalid_or_timeout": 0,
+    "scored_mutants": 18,
+    "adjusted_sample_score_percent": 44.44444444444444,
+    "records": [
+      {
+        "id": "R01",
+        "module": "src/inklow/appkit_overlay.py",
+        "function": "CaretOverlay.present",
+        "line": 389,
+        "description": "Do not re-present a natively hidden cached ghost",
+        "before": "self._ghost_state is None or self._ghost_state[0] != identity or (not self._ghost_state[1]) or (not self.ghost.isVisible()) or (not self.ghost.isOnActiveSpace())",
+        "after": "self._ghost_state is None or self._ghost_state[0] != identity or (not self._ghost_state[1]) or (not self.ghost.isOnActiveSpace())",
+        "source_sha256": "4d4d848b46c7a2d76856beda52323f426e1681c80a544efd66878ed5bb9f5fdb",
+        "status": "killed",
+        "disposition": "killed",
+        "targeted_failed_tests": [
+          "test_identical_completion_reappears_after_native_window_is_hidden",
+          "test_hidden_completion_is_not_acknowledged_when_native_ordering_cannot_show_it"
+        ],
+        "full_suite_passed_with_fault": false
+      },
+      {
+        "id": "R02",
+        "module": "src/inklow/appkit_overlay.py",
+        "function": "CaretOverlay.present",
+        "line": 389,
+        "description": "Do not recover a ghost that left the active Space",
+        "before": "self._ghost_state is None or self._ghost_state[0] != identity or (not self._ghost_state[1]) or (not self.ghost.isVisible()) or (not self.ghost.isOnActiveSpace())",
+        "after": "self._ghost_state is None or self._ghost_state[0] != identity or (not self._ghost_state[1]) or (not self.ghost.isVisible())",
+        "source_sha256": "4d4d848b46c7a2d76856beda52323f426e1681c80a544efd66878ed5bb9f5fdb",
+        "status": "killed",
+        "disposition": "killed",
+        "targeted_failed_tests": [
+          "test_identical_completion_returns_to_the_active_space"
+        ],
+        "full_suite_passed_with_fault": false
+      },
+      {
+        "id": "R03",
+        "module": "src/inklow/appkit_overlay.py",
+        "function": "CaretOverlay.present",
+        "line": 389,
+        "description": "Do not retry previously rejected unchanged ghost text",
+        "before": "self._ghost_state is None or self._ghost_state[0] != identity or (not self._ghost_state[1]) or (not self.ghost.isVisible()) or (not self.ghost.isOnActiveSpace())",
+        "after": "self._ghost_state is None or self._ghost_state[0] != identity or (not self.ghost.isVisible()) or (not self.ghost.isOnActiveSpace())",
+        "source_sha256": "4d4d848b46c7a2d76856beda52323f426e1681c80a544efd66878ed5bb9f5fdb",
+        "status": "survived",
+        "disposition": "excluded_redundant_or_indeterminate",
+        "note": "Removing only the empty-cache predicate leaves visibility/active-Space recovery checks. Do not count this survivor as a proved behavioral gap.",
+        "targeted_failed_tests": [],
+        "full_suite_passed_with_fault": true
+      },
+      {
+        "id": "R04",
+        "module": "src/inklow/appkit_overlay.py",
+        "function": "CaretOverlay._present_ghost",
+        "line": 547,
+        "description": "Acknowledge ghost text even when native ordering failed",
+        "before": "visible if self.ghost.isVisible() and self.ghost.isOnActiveSpace() else ''",
+        "after": "visible",
+        "source_sha256": "4d4d848b46c7a2d76856beda52323f426e1681c80a544efd66878ed5bb9f5fdb",
+        "status": "killed",
+        "disposition": "killed",
+        "targeted_failed_tests": [
+          "test_hidden_completion_is_not_acknowledged_when_native_ordering_cannot_show_it"
+        ],
+        "full_suite_passed_with_fault": false
+      },
+      {
+        "id": "R05",
+        "module": "src/inklow/appkit_overlay.py",
+        "function": "GhostSurface.drawRect_",
+        "line": 238,
+        "description": "Remove the actual CoreText glyph draw call",
+        "before": "CoreText.CTLineDraw(line, context)",
+        "after": "pass",
+        "source_sha256": "4d4d848b46c7a2d76856beda52323f426e1681c80a544efd66878ed5bb9f5fdb",
+        "status": "survived",
+        "disposition": "survived",
+        "targeted_failed_tests": [],
+        "full_suite_passed_with_fault": true
+      },
+      {
+        "id": "R06",
+        "module": "src/inklow/appkit_overlay.py",
+        "function": "GhostSurface.drawRect_",
+        "line": 237,
+        "description": "Draw glyphs twelve points away from the verified host baseline",
+        "before": "Quartz.CGContextSetTextPosition(context, x, self.baseline)",
+        "after": "Quartz.CGContextSetTextPosition(context, x, self.baseline + 12)",
+        "source_sha256": "4d4d848b46c7a2d76856beda52323f426e1681c80a544efd66878ed5bb9f5fdb",
+        "status": "survived",
+        "disposition": "survived",
+        "targeted_failed_tests": [],
+        "full_suite_passed_with_fault": true
+      },
+      {
+        "id": "R07",
+        "module": "src/inklow/appkit_overlay.py",
+        "function": "fit_text",
+        "line": 194,
+        "description": "Return unclipped text instead of a whole-word fitting prefix",
+        "before": "return best",
+        "after": "return text",
+        "source_sha256": "4d4d848b46c7a2d76856beda52323f426e1681c80a544efd66878ed5bb9f5fdb",
+        "status": "killed",
+        "disposition": "killed",
+        "targeted_failed_tests": [
+          "test_clipped_ghost_reports_only_whole_visible_words"
+        ],
+        "full_suite_passed_with_fault": false
+      },
+      {
+        "id": "R08",
+        "module": "src/inklow/appkit_overlay.py",
+        "function": "CaretOverlay._present_ghost",
+        "line": 468,
+        "description": "Bypass the InlineRender validity guard",
+        "before": "not render.valid(caret)",
+        "after": "False",
+        "source_sha256": "4d4d848b46c7a2d76856beda52323f426e1681c80a544efd66878ed5bb9f5fdb",
+        "status": "survived",
+        "disposition": "survived",
+        "targeted_failed_tests": [],
+        "full_suite_passed_with_fault": true
+      },
+      {
+        "id": "W01",
+        "module": "src/inklow/writing.py",
+        "function": "_draft_language",
+        "line": 14,
+        "description": "Classify the whole prefix instead of the active clause",
+        "before": "clause = re.split('[,;.!?\\\\r\\\\n。！？]+', prefix)[-1].strip()",
+        "after": "clause = prefix.strip()",
+        "source_sha256": "b17aa610b5ff5aab154684baa74791effb2c50d82972afece32995e437ddfc9f",
+        "status": "survived",
+        "disposition": "survived",
+        "targeted_failed_tests": [],
+        "full_suite_passed_with_fault": true
+      },
+      {
+        "id": "W02",
+        "module": "src/inklow/writing.py",
+        "function": "reference_context",
+        "line": 104,
+        "description": "Accept window/clipboard lines without lexical relevance",
+        "before": "not overlap",
+        "after": "False",
+        "source_sha256": "b17aa610b5ff5aab154684baa74791effb2c50d82972afece32995e437ddfc9f",
+        "status": "killed",
+        "disposition": "killed",
+        "targeted_failed_tests": [
+          "test_reference_context_ranks_deduplicates_and_excludes_draft_and_unrelated_text",
+          "test_reference_context_links_unspaced_writing_without_including_unrelated_lines"
+        ],
+        "full_suite_passed_with_fault": false
+      },
+      {
+        "id": "S01",
+        "module": "src/inklow/storage.py",
+        "function": "LocalStorage.personalization",
+        "line": 330,
+        "description": "Ignore strength when limiting learned vocabulary",
+        "before": "max(1, min(24, round(strength * 0.24)))",
+        "after": "24",
+        "source_sha256": "1d8bbd5ea67e46046e522159d1a6e58630ae51d129e3ac8ccdcd5fb908d24814",
+        "status": "survived",
+        "disposition": "survived",
+        "targeted_failed_tests": [],
+        "full_suite_passed_with_fault": true
+      },
+      {
+        "id": "S02",
+        "module": "src/inklow/storage.py",
+        "function": "_style_features",
+        "line": 90,
+        "description": "Drop all accented vocabulary from learned style",
+        "before": "(word.casefold() for word in _WORD.findall(fragment) if word.casefold() not in _COMMON_WORDS)",
+        "after": "(word.casefold() for word in _WORD.findall(fragment) if word.casefold() not in _COMMON_WORDS if word.isascii())",
+        "source_sha256": "1d8bbd5ea67e46046e522159d1a6e58630ae51d129e3ac8ccdcd5fb908d24814",
+        "status": "survived",
+        "disposition": "survived",
+        "targeted_failed_tests": [],
+        "full_suite_passed_with_fault": true
+      },
+      {
+        "id": "S03",
+        "module": "src/inklow/storage.py",
+        "function": "LocalStorage.personalization",
+        "line": 314,
+        "description": "Mix learning evidence across writing languages",
+        "before": "not same_context or entry_language != language or (not source_allowed(entry_app, entry_domain))",
+        "after": "not same_context or not source_allowed(entry_app, entry_domain)",
+        "source_sha256": "1d8bbd5ea67e46046e522159d1a6e58630ae51d129e3ac8ccdcd5fb908d24814",
+        "status": "killed",
+        "disposition": "killed",
+        "targeted_failed_tests": [
+          "test_learning_uses_authored_same_language_and_context_only"
+        ],
+        "full_suite_passed_with_fault": false
+      },
+      {
+        "id": "N01",
+        "module": "src/inklow/native/macos.py",
+        "function": "MacBridge.replace_range",
+        "line": 1244,
+        "description": "Use code-point length in the native UTF-16 replacement range",
+        "before": "index_to_utf16(snapshot.text, start + length) - location",
+        "after": "length",
+        "source_sha256": "30fd1371551f47b7e2a50175358166833c2a86ffa53eae82c2bbdb5a2dc2a153",
+        "status": "survived",
+        "disposition": "survived",
+        "targeted_failed_tests": [],
+        "full_suite_passed_with_fault": true
+      },
+      {
+        "id": "N02",
+        "module": "src/inklow/core.py",
+        "function": "SuggestionState.accept",
+        "line": 259,
+        "description": "Allow word acceptance to extend beyond displayed text",
+        "before": "accepted[limit:].strip()",
+        "after": "False",
+        "source_sha256": "e2501ec944863a73835aef838ba4a85545c89663d9ab75335c737daff700e663",
+        "status": "survived",
+        "disposition": "survived",
+        "targeted_failed_tests": [],
+        "full_suite_passed_with_fault": true
+      },
+      {
+        "id": "N03",
+        "module": "src/inklow/runtime.py",
+        "function": "Controller._run_deferred",
+        "line": 1706,
+        "description": "Run aborted native transactions and drop valid ones",
+        "before": "not begin(gate)",
+        "after": "begin(gate)",
+        "source_sha256": "b6616cb037011ff44172ff33c5f3313ca614ec06fe6d3416c4b1ee110b3700e4",
+        "status": "killed",
+        "disposition": "killed",
+        "targeted_failed_tests": [
+          "test_fast_passthrough_escape_dismisses_even_after_tap_discards_gate[escape]",
+          "test_fast_passthrough_escape_dismisses_even_after_tap_discards_gate[dismiss]"
+        ],
+        "full_suite_passed_with_fault": false
+      },
+      {
+        "id": "P01",
+        "module": "src/inklow/appkit_power.py",
+        "function": "power_presentation",
+        "line": 39,
+        "description": "Do not label exactly twenty percent as low battery",
+        "before": "percent <= 20",
+        "after": "percent < 20",
+        "source_sha256": "7fa56183e4a3dadf68e552664eb849f1a6671348f08aa6455f2d9087ca992a9b",
+        "status": "survived",
+        "disposition": "survived",
+        "targeted_failed_tests": [],
+        "full_suite_passed_with_fault": true
+      },
+      {
+        "id": "P02",
+        "module": "src/inklow/appkit_power.py",
+        "function": "NativePowerUI._show_help",
+        "line": 257,
+        "description": "Fail the actual native low-battery help presenter",
+        "before": "target = self._help_anchor()",
+        "after": "raise RuntimeError('Injected native help presenter failure')",
+        "source_sha256": "7fa56183e4a3dadf68e552664eb849f1a6671348f08aa6455f2d9087ca992a9b",
+        "status": "survived",
+        "disposition": "survived",
+        "targeted_failed_tests": [],
+        "full_suite_passed_with_fault": true
+      },
+      {
+        "id": "U01",
+        "module": "src/inklow/update_install.py",
+        "function": "_extract_package",
+        "line": 539,
+        "description": "Bypass ZIP root/path/private-data name validation",
+        "before": "_archive_path(name, root_name)",
+        "after": "PurePosixPath(name)",
+        "source_sha256": "2a4d7a76d5e71a2d3f80a14fda3d000577302e879678196d0dace8b73409aa72",
+        "status": "killed",
+        "disposition": "killed",
+        "targeted_failed_tests": [
+          "test_zip_traversal_rejected_before_native_ditto"
+        ],
+        "full_suite_passed_with_fault": false
+      }
+    ]
+  },
+  "native_oracles": {
+    "scope": "Offscreen native bitmap drawing and fake-panel chooser boundary only. No windows shown, application activation, user input, user data, screen capture or model execution.",
+    "offscreen_paint": [
+      {
+        "text": " amanhã",
+        "omit_native_draw": false,
+        "nontransparent_pixels": 301
+      },
+      {
+        "text": " tomorrow",
+        "omit_native_draw": false,
+        "nontransparent_pixels": 296
+      },
+      {
+        "text": " amanhã",
+        "omit_native_draw": true,
+        "nontransparent_pixels": 0
+      },
+      {
+        "text": " tomorrow",
+        "omit_native_draw": true,
+        "nontransparent_pixels": 0
+      }
+    ],
+    "chooser": {
+      "first": {
+        "visible": true,
+        "order_calls": 1,
+        "ack": {
+          "key": [
+            "synthetic",
+            "field"
+          ],
+          "text": "tomorrow",
+          "mode": "alternatives"
+        }
+      },
+      "after_hidden_identical_replay": {
+        "visible": false,
+        "order_calls": 1,
+        "ack": {
+          "key": [
+            "synthetic",
+            "field"
+          ],
+          "text": "tomorrow",
+          "mode": "alternatives"
+        }
+      },
+      "after_refused_ordering": {
+        "visible": false,
+        "order_calls": 1,
+        "ack": {
+          "key": [
+            "synthetic",
+            "field"
+          ],
+          "text": "tomorrow",
+          "mode": "alternatives"
+        }
+      }
+    }
+  },
+  "storage_oracles": {
+    "scope": "Synthetic owned SQLite/AES data, pure derived text and virtual clock only. No OS keyring, normal profile or model use.",
+    "unicode": {
+      "query_nfc": "Nós na próxima reunião",
+      "query_nfd_codepoints": [
+        "0x4e",
+        "0x6f",
+        "0x301",
+        "0x73",
+        "0x20",
+        "0x6e",
+        "0x61",
+        "0x20",
+        "0x70",
+        "0x72",
+        "0x6f",
+        "0x301",
+        "0x78",
+        "0x69",
+        "0x6d",
+        "0x61",
+        "0x20",
+        "0x72",
+        "0x65",
+        "0x75",
+        "0x6e",
+        "0x69",
+        "0x61",
+        "0x303",
+        "0x6f"
+      ],
+      "nfc_language": "pt",
+      "nfd_language": "",
+      "nfc_personalization": {
+        "language": "pt",
+        "records": 1,
+        "strength": 90,
+        "style": {
+          "commas_per_100_words": 0.0,
+          "contractions_per_100_words": 0.0,
+          "exclamations_per_100_words": 0.0,
+          "lowercase_sentence_start_ratio": 0.0,
+          "mean_sentence_words": 10.0,
+          "questions_per_100_words": 0.0
+        },
+        "vocabulary": [
+          "instrumentação"
+        ]
+      },
+      "nfd_personalization": "",
+      "nfc_vocabulary": {
+        "instrumentação": 2,
+        "equipe": 1,
+        "manutenção": 1,
+        "precisa": 1,
+        "revisar": 1,
+        "vamos": 1
+      },
+      "nfd_vocabulary": {
+        "instrumentac": 2,
+        "reunia": 2,
+        "xima": 2,
+        "equipe": 1,
+        "manutenc": 1,
+        "precisa": 1,
+        "revisar": 1,
+        "vamos": 1
+      }
+    },
+    "existing_statistics_test": [
+      {
+        "cross_midnight": false,
+        "status": "passed",
+        "clock_calls": 4
+      },
+      {
+        "cross_midnight": true,
+        "status": "assertion_failed",
+        "clock_calls": 2
+      }
+    ]
+  },
+  "semantic_counterexamples": {
+    "control": {
+      "paint": {
+        "pixels": 296,
+        "centroid_y": 25.80049458773509
+      },
+      "invalid_baseline_ack": "",
+      "partial_word_acceptance": "",
+      "classified_clause": [
+        "agora vamos conversar"
+      ],
+      "strength20_vocabulary_count": 5,
+      "portuguese_vocabulary": [
+        "instrumentação",
+        "observabilidade"
+      ],
+      "battery20_state": "low",
+      "help_without_anchor": "safe_return"
+    },
+    "R05": {
+      "paint": {
+        "pixels": 0,
+        "centroid_y": null
+      },
+      "invalid_baseline_ack": "",
+      "partial_word_acceptance": "",
+      "classified_clause": [
+        "agora vamos conversar"
+      ],
+      "strength20_vocabulary_count": 5,
+      "portuguese_vocabulary": [
+        "instrumentação",
+        "observabilidade"
+      ],
+      "battery20_state": "low",
+      "help_without_anchor": "safe_return"
+    },
+    "R06": {
+      "paint": {
+        "pixels": 296,
+        "centroid_y": 13.800494587735091
+      },
+      "invalid_baseline_ack": "",
+      "partial_word_acceptance": "",
+      "classified_clause": [
+        "agora vamos conversar"
+      ],
+      "strength20_vocabulary_count": 5,
+      "portuguese_vocabulary": [
+        "instrumentação",
+        "observabilidade"
+      ],
+      "battery20_state": "low",
+      "help_without_anchor": "safe_return"
+    },
+    "R08": {
+      "paint": {
+        "pixels": 296,
+        "centroid_y": 25.80049458773509
+      },
+      "invalid_baseline_ack": " tomorrow",
+      "partial_word_acceptance": "",
+      "classified_clause": [
+        "agora vamos conversar"
+      ],
+      "strength20_vocabulary_count": 5,
+      "portuguese_vocabulary": [
+        "instrumentação",
+        "observabilidade"
+      ],
+      "battery20_state": "low",
+      "help_without_anchor": "safe_return"
+    },
+    "W01": {
+      "paint": {
+        "pixels": 296,
+        "centroid_y": 25.80049458773509
+      },
+      "invalid_baseline_ack": "",
+      "partial_word_acceptance": "",
+      "classified_clause": [
+        "We should review the long English introduction, agora vamos conversar"
+      ],
+      "strength20_vocabulary_count": 5,
+      "portuguese_vocabulary": [
+        "instrumentação",
+        "observabilidade"
+      ],
+      "battery20_state": "low",
+      "help_without_anchor": "safe_return"
+    },
+    "S01": {
+      "paint": {
+        "pixels": 296,
+        "centroid_y": 25.80049458773509
+      },
+      "invalid_baseline_ack": "",
+      "partial_word_acceptance": "",
+      "classified_clause": [
+        "agora vamos conversar"
+      ],
+      "strength20_vocabulary_count": 24,
+      "portuguese_vocabulary": [
+        "instrumentação",
+        "observabilidade"
+      ],
+      "battery20_state": "low",
+      "help_without_anchor": "safe_return"
+    },
+    "S02": {
+      "paint": {
+        "pixels": 296,
+        "centroid_y": 25.80049458773509
+      },
+      "invalid_baseline_ack": "",
+      "partial_word_acceptance": "",
+      "classified_clause": [
+        "agora vamos conversar"
+      ],
+      "strength20_vocabulary_count": 5,
+      "portuguese_vocabulary": [
+        "observabilidade"
+      ],
+      "battery20_state": "low",
+      "help_without_anchor": "safe_return"
+    },
+    "N02": {
+      "paint": {
+        "pixels": 296,
+        "centroid_y": 25.80049458773509
+      },
+      "invalid_baseline_ack": "",
+      "partial_word_acceptance": " arrive ",
+      "classified_clause": [
+        "agora vamos conversar"
+      ],
+      "strength20_vocabulary_count": 5,
+      "portuguese_vocabulary": [
+        "instrumentação",
+        "observabilidade"
+      ],
+      "battery20_state": "low",
+      "help_without_anchor": "safe_return"
+    },
+    "P01": {
+      "paint": {
+        "pixels": 296,
+        "centroid_y": 25.80049458773509
+      },
+      "invalid_baseline_ack": "",
+      "partial_word_acceptance": "",
+      "classified_clause": [
+        "agora vamos conversar"
+      ],
+      "strength20_vocabulary_count": 5,
+      "portuguese_vocabulary": [
+        "instrumentação",
+        "observabilidade"
+      ],
+      "battery20_state": "battery",
+      "help_without_anchor": "safe_return"
+    },
+    "P02": {
+      "paint": {
+        "pixels": 296,
+        "centroid_y": 25.80049458773509
+      },
+      "invalid_baseline_ack": "",
+      "partial_word_acceptance": "",
+      "classified_clause": [
+        "agora vamos conversar"
+      ],
+      "strength20_vocabulary_count": 5,
+      "portuguese_vocabulary": [
+        "instrumentação",
+        "observabilidade"
+      ],
+      "battery20_state": "low",
+      "help_without_anchor": "RuntimeError"
+    }
+  },
+  "utf16_counterexample": {
+    "control": {
+      "returned": true,
+      "writes": [
+        [
+          "AXSelectedTextRange",
+          [
+            4,
+            2
+          ]
+        ],
+        [
+          "AXSelectedText",
+          "hello"
+        ]
+      ],
+      "expected_range": [
+        4,
+        2
+      ],
+      "range_correct": true
+    },
+    "N01": {
+      "returned": true,
+      "writes": [
+        [
+          "AXSelectedTextRange",
+          [
+            4,
+            1
+          ]
+        ],
+        [
+          "AXSelectedText",
+          "hello"
+        ]
+      ],
+      "expected_range": [
+        4,
+        2
+      ],
+      "range_correct": false
+    }
+  },
+  "automation_decision": "No new blanket lint/numeric mutation gate warranted from a deliberately selected sample. Existing pytest gate retained; targeted behavior regressions recommended before a separately approved full mutation baseline. No CI edits or commits in review mode.",
+  "limits": [
+    "No real WhatsApp/Telegram typing, acceptance, message sending or chat reading.",
+    "No physical sleep/wake/Space or battery-20% scenario.",
+    "No fresh real-Gemma language-quality or physical keystroke-to-compositor latency benchmark.",
+    "Qt skips and this macOS run do not validate Linux/Windows.",
+    "No natural flakiness observed in three same-order runs; virtual-midnight failure was deliberately induced."
+  ],
+  "changes": "Only requested review artifacts added to repository; no production/test code, preferences, installed app, release or remote changes."
+}

@@ -84,7 +84,7 @@ Versions through 0.4.3 have no updater: **one manual installation of an OTA-capa
 
 Welcome covers privacy, system access, explicit model selection, a real local prediction preview and the resident menu. Reopen it from **About → Show Welcome**. macOS settings contain:
 
-The layout below describes the **unreleased macOS 0.4.9 development version**, including the 0.4.6 native redesign. Published 0.4.5 keeps model controls in General; no 0.4.6–0.4.9 Linux or Windows package has been published.
+The layout below describes the **unreleased macOS 0.4.10 development version**, including the 0.4.6 native redesign. Published 0.4.5 keeps model controls in General; no 0.4.6–0.4.10 Linux or Windows package has been published.
 
 - **Setup:** live required/optional permission and model-readiness states.
 - **General:** startup, accessory icon, master/default prediction switches, completion length, inside-text behavior and typo controls.

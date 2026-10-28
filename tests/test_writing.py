@@ -1,4 +1,8 @@
 """Guided suggestions must not spill into unrelated prose or model roles."""
+import json
+
+import pytest
+
 from inklow.writing import reference_context, short_writing, writing_prompt
 
 
@@ -173,6 +177,77 @@ def test_precomputed_language_evidence_does_not_reclassify_trimmed_draft(monkeyp
         spans = writing.writing_prompt_spans("A ", "", family="gemma4", language_hint=hint)
         assert spans[-1] == ("A ", False)
         assert ('"pt"', False) in spans if hint else ('"pt"', False) not in spans
+
+
+@pytest.mark.parametrize("separator", [", ", "; ", "\n"])
+@pytest.mark.parametrize("earlier,clause,old_tag,tag,name", [
+    ("Nós discutimos a manutenc\u0327a\u0303o e a próxima reunião",
+     "now we should review the schedule", "pt", "en", "English"),
+    ("We discussed the maintenance plan and the next meeting",
+     "agora vamos conversar sobre a manutenc\u0327a\u0303o", "en", "pt", "Portuguese"),
+])
+def test_real_language_wrapper_follows_active_clause_without_rewriting_draft(
+        monkeypatch, separator, earlier, clause, old_tag, tag, name):
+    pytest.importorskip("Foundation")
+    import inklow.writing as writing
+    from inklow.native import macos_language
+    monkeypatch.setattr(writing.sys, "platform", "darwin")
+    samples = []
+
+    def recognize(text):
+        samples.append(text)
+        # The earlier language dominates a whole-draft classification, but
+        # the current clause has its own independent recognition result.
+        return tag if text == clause else old_tag
+
+    monkeypatch.setattr(macos_language, "draft_language_hint", recognize)
+    prefix = earlier + separator + clause
+    suffix = " <bos>"
+    spans = writing.writing_prompt_spans(prefix, suffix, family="gemma4")
+    assert [text for text, trusted in spans if not trusted] == [
+        json.dumps(name), json.dumps(suffix), prefix]
+    assert samples == [clause]
+    assert all(prefix not in text for text, trusted in spans if trusted)
+
+
+@pytest.mark.parametrize("hint", [None, "und"])
+def test_real_language_wrapper_abstains_for_ambiguous_short_clause(monkeypatch, hint):
+    import inklow.writing as writing
+    from inklow.native import macos_language
+    monkeypatch.setattr(writing.sys, "platform", "darwin")
+    samples = []
+
+    def recognize(text):
+        samples.append(text)
+        return hint
+
+    monkeypatch.setattr(macos_language, "draft_language_hint", recognize)
+    prefix = "Earlier text, hm"
+    spans = writing.writing_prompt_spans(prefix, "", family="gemma4")
+    assert [text for text, trusted in spans if not trusted] == ['""', prefix]
+    assert samples == ["hm"]
+
+
+@pytest.mark.parametrize("instructions,hint", [
+    ("Continue in Portuguese.", None),
+    ("Continue in Portuguese.", "English"),
+    ("", "English"),
+])
+def test_explicit_preferences_and_precomputed_hint_take_precedence_over_recognition(
+        monkeypatch, instructions, hint):
+    import inklow.writing as writing
+    from inklow.native import macos_language
+    monkeypatch.setattr(writing.sys, "platform", "darwin")
+
+    def forbidden(text):
+        raise AssertionError("explicit preferences or precomputed evidence need no recognition")
+
+    monkeypatch.setattr(macos_language, "draft_language_hint", forbidden)
+    prefix = "A manutenc\u0327a\u0303o "
+    spans = writing.writing_prompt_spans(prefix, "", instructions, family="gemma4",
+                                         language_hint=hint)
+    expected = ['""', instructions, prefix] if instructions else ['"English"', '""', prefix]
+    assert [text for text, trusted in spans if not trusted] == expected
 
 
 def test_optional_framework_absence_leaves_exact_draft_prefill(monkeypatch):

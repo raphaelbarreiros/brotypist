@@ -611,6 +611,50 @@ def mac_capture_boundary(text="", **overrides):
     return bridge, attributes, reads, writes
 
 
+@pytest.mark.parametrize("text,start,native_range", [
+    ("say 😀 now", 4, (4, 2)),
+    ("😀 say 😀 now", 6, (7, 2)),
+])
+@pytest.mark.parametrize("selection_matches", [True, False])
+def test_mac_noncaret_emoji_replacement_converts_utf16_and_requires_selection_readback(
+        text, start, native_range, selection_matches):
+    bridge, attributes, _, writes = mac_capture_boundary(
+        text, AXSelectedTextRange=(index_to_utf16(text, len(text)), 0))
+    bridge.ax.AXUIElementIsAttributeSettable = lambda element, name, output: (
+        0, element == "field" and name in {"AXValue", "AXSelectedText", "AXSelectedTextRange"})
+
+    def set_attribute(element, name, value):
+        writes.append((element, name, value))
+        if name == "AXSelectedTextRange":
+            attributes[(element, name)] = value if selection_matches else (0, 0)
+        elif name == "AXSelectedText":
+            # Model the host applying the selected native range, not the requested
+            # Python slice: a malformed surrogate range must never edit the draft.
+            location, units = attributes[(element, "AXSelectedTextRange")]
+            before = attributes[(element, "AXValue")]
+            left = utf16_to_index(before, location)
+            right = utf16_to_index(before, location + units)
+            attributes[(element, "AXValue")] = before[:left] + value + before[right:]
+        return 0
+
+    bridge.ax.AXUIElementSetAttributeValue = set_attribute
+    snapshot = bridge.capture()
+    assert snapshot is not None and snapshot.caret == len(text)
+
+    assert bridge.replace_range(snapshot, start, 1, "hello") is selection_matches
+
+    assert writes[0] == ("field", "AXSelectedTextRange", native_range)
+    if selection_matches:
+        assert writes == [
+            ("field", "AXSelectedTextRange", native_range),
+            ("field", "AXSelectedText", "hello"),
+        ]
+        assert attributes[("field", "AXValue")] == text[:start] + "hello" + text[start + 1:]
+    else:
+        assert writes == [("field", "AXSelectedTextRange", native_range)]
+        assert attributes[("field", "AXValue")] == text
+
+
 @pytest.mark.parametrize("description", [
     "", "Chat", "Ask AI", "Chat Input.py, editor content", "Search Chat Input",
     "Chat Input (Agent), edit files in your workspace.py",

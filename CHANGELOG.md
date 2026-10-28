@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.4.10 — Unreleased, native visibility and learning QA remediation
+
+- Apply the native ghost visibility/active-Space contract to explicit chooser presentation and cache reuse. Hidden, refused or other-Space choices acknowledge no insertion; unchanged presentations can recover without arming unseen words. Ordinary completion remains grey same-line text, not a popup fallback.
+- Canonicalize only derived language/style evidence after slicing original authored ranges. NFC/NFD Brazilian Portuguese now yields equivalent learning while encrypted raw text and offsets stay unchanged; combining-mark boundaries cannot turn partial generated tokens into authored vocabulary.
+- Add independent native glyph/baseline/clip/invalid-layout oracles, partial-visible-word acceptance and non-caret UTF-16/read-back boundaries, real bilingual clause-wrapper coverage, semantic learning-strength/accented-vocabulary assertions, actual native charging-help/dismissal and exact 19/20/21% presentation cases.
+- Make statistics fixtures date-independent and synchronize the stale-spelling scenario on actual backend entry rather than elapsed sleep, with guaranteed worker cleanup.
+- Verification: 1,391 passed / 22 skipped; new regressions fail against the old source at eleven intended chooser/Unicode assertions. All ten previously surviving meaningful faults and six new chooser/canonicalization/span faults are rejected. Actual owned native chooser hide/refusal/recovery and synthetic encrypted Unicode learning passed without changing foreground or user data. This selected fault set is not an overall mutation score.
+- Source proof: `evidence/brotypist/qa-remediation-0.4.10.json`. macOS-only local work; no new Linux/Windows build, GitHub publication, model-quality guarantee or physical typing-latency claim.
+
+
 ## 0.4.9 — Unreleased, inline capture and bilingual/power polish
 
 - Fix short WhatsApp drafts rejected before inference when spell-check metadata split a word and its trailing space into separate attributed runs. Coalesce typography-equivalent ranges only; retain independent AX geometry, UTF-16 boundaries, real font/baseline/IME changes, suffix and focus/privacy guards. Ordinary suggestions remain grey same-line text, never a popup fallback.

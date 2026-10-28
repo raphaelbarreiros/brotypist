@@ -65,3 +65,31 @@ def test_unsafe_snapshot_is_ineligible(snapshot):
 
 def test_word_acceptance_preserves_spacing_and_punctuation():
     assert take_word("  café,\t tomorrow") == ("  café,\t ", "tomorrow")
+
+
+@pytest.mark.parametrize("suggestion,visible,full,trailing_space,accepted,remainder", [
+    (" arrive tomorrow", " arr", False, True, "", " arrive tomorrow"),
+    (" arrive tomorrow", " arrive", False, True, " arrive ", "tomorrow"),
+    (" arrive tomorrow", " arrive", False, False, " arrive", " tomorrow"),
+    (" arrive \t tomorrow", " arrive", False, True, " arrive \t ", "tomorrow"),
+    (" arrive \t tomorrow", " arrive", True, True, " arrive \t ", "tomorrow"),
+    (" arrive tomorrow", " arr", True, True, " arr", "ive tomorrow"),
+    (" arrive tomorrow", " arrive tom", True, True, " arrive tom", "orrow"),
+    (" arrive tomorrow", " arrive", True, False, " arrive", " tomorrow"),
+])
+def test_acceptance_respects_displayed_word_boundary_and_allowed_whitespace(
+        suggestion, visible, full, trailing_space, accepted, remainder):
+    snapshot = Snapshot("writer", "body", "We will", 7)
+    state = SuggestionState()
+    assert state.offer(state.generation, snapshot, suggestion)
+    generation = state.generation
+
+    assert state.accept(snapshot, full=full, trailing_space=trailing_space, visible=visible) == accepted
+
+    assert state.text == remainder
+    if accepted:
+        assert state.snapshot.text == snapshot.text + accepted
+        assert state.snapshot.caret == snapshot.caret + len(accepted)
+    else:
+        assert state.snapshot == snapshot
+        assert state.generation == generation

@@ -400,7 +400,9 @@ class CaretOverlay:
         rows = [row for row in rows if row][:9]
         rect = event.get("rect")
         identity = (tuple(rows), mode, tuple(rect), bool(event.get("field_anchor")))
-        if self._chooser_state is not None and self._chooser_state[0] == identity:
+        if (self._chooser_state is not None and self._chooser_state[0] == identity
+                and self._chooser_state[1] and self.chooser.isVisible()
+                and self.chooser.isOnActiveSpace()):
             self._report(key, self._chooser_state[1], mode)
             return
         if not rows:
@@ -449,7 +451,8 @@ class CaretOverlay:
         # The acknowledgment protocol arms a contiguous prefix only. Never
         # claim a truncated label (or a later row beyond it) was fully drawn.
         count = next((i for i, complete in enumerate(fully_visible) if not complete), len(rows))
-        visible = "\n".join(rows[:count])
+        visible = ("\n".join(rows[:count])
+                   if self.chooser.isVisible() and self.chooser.isOnActiveSpace() else "")
         self._chooser_state = (identity, visible)
         self._report(key, visible, mode)
 
