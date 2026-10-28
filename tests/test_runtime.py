@@ -1,4 +1,8 @@
-"""Consumer-visible headless typing, privacy and confirmed insertion behavior."""
+"""Headless controller contracts for privacy, focus, presentation and insertion.
+
+Native fields and inference are controlled doubles; these tests exercise the
+controller and temporary storage, not OS input delivery or real model output.
+"""
 from dataclasses import replace
 import json
 import threading
@@ -16,12 +20,15 @@ RENDER = InlineRender("Fixture Sans", 14, 34, (0, 0, 2000, 500), 14, 4, source="
 
 
 def field_snapshot(text, caret=None, **changes):
+    """Build an editable field with synthetic host metrics and stable identity."""
     return Snapshot("writer", "body", text, len(text) if caret is None else caret,
                     caret_rect=(10, 20, 1, 18), inline_render=RENDER,
                     window_id="writer:window", window_revision="revision-1", **changes)
 
 
 class Bridge:
+    """Mutable native-field double that records only accepted text mutations."""
+
     supports_atomic_replacement = True
 
     def __init__(self, text="Dear team, the update"):
@@ -82,6 +89,8 @@ class Bridge:
 
 
 class Inference:
+    """Queue caller-supplied results, including deliberately uncancelled stale ones."""
+
     def __init__(self):
         self.identifier = 0
         self.requests = []
@@ -119,6 +128,7 @@ class Inference:
 
 @pytest.fixture
 def runtime(tmp_path, monkeypatch):
+    """Own a started controller and temporary encrypted store until teardown."""
     monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
     bridge = Bridge()
     controller = Controller(Config(prompt_style="writing"), bridge)
@@ -131,6 +141,7 @@ def runtime(tmp_path, monkeypatch):
 
 
 def submit_command(controller, action):
+    """Pump ticks until asynchronous preparation submits, or fail after two seconds."""
     previous = controller._client.identifier
     assert controller.invoke(action)
     deadline = time.monotonic() + 2
@@ -142,6 +153,7 @@ def submit_command(controller, action):
 
 
 def offer(controller, bridge, text):
+    """Deliver a final result without acknowledging that an overlay has drawn it."""
     controller.tick()
     identifier = submit_command(controller, "force")
     controller._client.events.append({"type": "result", "id": identifier, "text": text, "final": True})
@@ -447,6 +459,7 @@ def test_authored_style_reaches_prompt_only_under_current_recording_consent(runt
 
 
 def type_text(controller, bridge, text):
+    """Expose incremental authored edits to history tracking, not generated inserts."""
     for start in range(0, len(text), 8):
         current = bridge.snapshot
         addition = text[start:start + 8]
@@ -456,11 +469,13 @@ def type_text(controller, bridge, text):
 
 
 def leave_writer(controller, bridge):
+    """Trigger the focus transition that flushes the observed writing session."""
     bridge.info = {"app_id": "other", "name": "Other", "domain": ""}
     controller.tick()
 
 
 def learned_style(controller, text=LONG_SESSION):
+    """Read learned evidence without source filtering to isolate authorship rules."""
     return controller._storage.personalization(90, "writer", text=text,
                                               source_allowed=lambda app, domain: True)
 
@@ -1367,6 +1382,7 @@ def test_explicit_longer_input_threshold_still_defers_short_first_word(runtime, 
 
 
 def wait_request(controller, previous):
+    """Pump ticks for up to two seconds; callers assert whether submission advanced."""
     deadline = time.monotonic() + 2
     while controller._client.identifier == previous and time.monotonic() < deadline:
         controller.tick()
@@ -1464,6 +1480,7 @@ class FastBridge(Bridge):
 
 @pytest.fixture
 def fast_runtime(tmp_path, monkeypatch):
+    """Own the deferred-key variant with isolated storage and teardown."""
     monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
     bridge = FastBridge()
     controller = Controller(Config(prompt_style="writing"), bridge)
@@ -1476,6 +1493,7 @@ def fast_runtime(tmp_path, monkeypatch):
 
 
 def draw(controller, visible=None):
+    """Acknowledge the latest suggestion, optionally limiting its visible prefix."""
     event = [event for event in controller.drain_events() if event["type"] == "suggestion"][-1]
     controller.presentation_result(event["key"], event["text"] if visible is None else visible, event["mode"])
     return event
@@ -1580,6 +1598,8 @@ TYPO_TEXT = "Dear team, we will recieve"
 
 
 class Spelling:
+    """Deterministic typo assessment independent of native spelling services."""
+
     def __init__(self):
         self.suspected = True
         self.closed = False
@@ -1832,6 +1852,7 @@ def test_chooser_with_no_fully_displayed_row_does_not_steal_tab_or_escape(
 
 @pytest.fixture
 def docs_field(fast_runtime):
+    """Expose Docs metadata without editable text; fast_runtime owns teardown."""
     controller, bridge, client = fast_runtime
     bridge.snapshot = None
     bridge.info = {"app_id": "browser", "name": "Browser", "domain": "docs.google.com",

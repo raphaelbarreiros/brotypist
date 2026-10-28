@@ -1,4 +1,8 @@
-"""Exercise real local inference inside the frozen CLI and its isolated worker."""
+"""Exercise real inference in the CLI and worker, not desktop text insertion.
+
+The worker is a separate process; its configuration and model cache still come
+from the caller's environment. Set INKLOW_HOME before running to isolate state.
+"""
 from __future__ import annotations
 
 import argparse
@@ -17,6 +21,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def worker_completion(command: list[str], environment: dict) -> dict:
+    """Return generation evidence after a matching request and clean worker stop.
+
+    ``command`` must start the line-delimited JSON worker protocol. The supplied
+    environment is passed to that child; protocol failures raise RuntimeError.
+    A still-running child is killed on exit, including failed observations.
+    """
     from inklow.config import load_config
     from dataclasses import replace
     config = replace(load_config(), acceleration="cpu", global_enabled=False)
@@ -28,6 +38,7 @@ def worker_completion(command: list[str], environment: dict) -> dict:
     print(f"Started actual worker pid={process.pid}", flush=True)
     responses = queue.Queue()
     def read_responses():
+        """Queue bounded JSON frames, reader errors and an explicit EOF sentinel."""
         try:
             while line := process.stdout.readline(256 * 1024 + 1):
                 if len(line.encode("utf-8")) > 256 * 1024:
@@ -63,6 +74,8 @@ def worker_completion(command: list[str], environment: dict) -> dict:
                 print(f"Worker phase: {phase}", flush=True)
                 last_phase = phase
             if phase == "ready":
+                # Generation is gated by the worker's readiness handshake, not
+                # merely by successful process creation.
                 process.stdin.write(json.dumps({"type": "proceed", "id": 1}) + "\n")
                 process.stdin.flush()
             if event["type"] == "error":
@@ -94,6 +107,7 @@ def worker_completion(command: list[str], environment: dict) -> dict:
 
 
 def main() -> int:
+    """Run source-worker-only or frozen CLI/worker smoke and emit its receipt."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-worker", action="store_true", help="Exercise the actual source worker before freezing")
     args = parser.parse_args()

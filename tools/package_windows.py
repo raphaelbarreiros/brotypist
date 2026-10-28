@@ -31,19 +31,23 @@ PRIVATE_NAMES = {"settings.json", "config.json", "secrets.yaml", ".env", "histor
 
 
 def sha256(path: Path) -> str:
+    """Hash file contents for payload inventory and post-build integrity checks."""
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def stable_guid(identity: str) -> str:
+    """Derive a stable, case-insensitive installer GUID within this product family."""
     return str(uuid.uuid5(NAMESPACE, identity.casefold())).upper()
 
 
 def identifier(prefix: str, relative: str) -> str:
+    """Return a WiX identifier stable across builds and Windows path casing."""
     return prefix + hashlib.sha256(relative.casefold().encode("utf-8")).hexdigest()[:32]
 
 
 def verify_pe_x64(path: Path) -> None:
+    """Reject files whose DOS/PE headers do not identify an x86_64 executable."""
     with path.open("rb") as stream:
         if stream.read(2) != b"MZ":
             raise ValueError(f"Not a Windows executable: {path}")
@@ -57,6 +61,11 @@ def verify_pe_x64(path: Path) -> None:
 
 
 def inspect_bundle(bundle: Path, version: str) -> tuple[dict, list[dict]]:
+    """Validate provenance and return the marker plus a hashed regular-file inventory.
+
+    Execute the frozen CLI's version command before collecting files. Reject
+    links, case-folded path collisions and known private/model payload names.
+    """
     marker = json.loads((bundle / ".inklow-build.json").read_text(encoding="utf-8"))
     expected = {"application": APP_ID, "platform": "win32", "version": version, "architecture": "x86_64"}
     if not isinstance(marker, dict) or any(marker.get(key) != value for key, value in expected.items()):
@@ -109,6 +118,7 @@ def write_payload_source(bundle: Path, files: list[dict], target: Path) -> None:
     ET.register_namespace("", WXS_NAMESPACE)
 
     def element(parent: ET.Element, tag: str, **attributes: str) -> ET.Element:
+        """Append a WiX-namespaced child using XML-safe attribute serialization."""
         return ET.SubElement(parent, f"{{{WXS_NAMESPACE}}}{tag}", attributes)
 
     root = ET.Element(f"{{{WXS_NAMESPACE}}}Wix")
@@ -156,6 +166,12 @@ def write_payload_source(bundle: Path, files: list[dict], target: Path) -> None:
 
 
 def package(bundle: Path, output: Path, version: str, report: Path) -> dict:
+    """Build unsigned per-user MSI/ZIP artifacts and write their inventory receipt.
+
+    Require native Windows and the pinned WiX tool. Validate and hash inputs
+    before staging, then rehash before copying artifacts to their final paths.
+    Publication and receipt writing are separate operations, not a transaction.
+    """
     if sys.platform != "win32":
         raise RuntimeError("Build the Windows MSI on native Windows; this tool does not cross-build")
     if not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", version):
@@ -221,6 +237,7 @@ def package(bundle: Path, output: Path, version: str, report: Path) -> dict:
 
 
 def main() -> int:
+    """Parse packaging inputs and report expected failures as CLI exit status 1."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", type=Path, required=True, help="Already built dist/BroTypist directory")
     parser.add_argument("--output", type=Path, default=ROOT / "release")

@@ -12,6 +12,7 @@ def reading(*, available=True, has_battery=True, on_battery=False, charging=Fals
 
 @pytest.fixture
 def power_ui():
+    """Own native power observers and close any help panel even if cleanup fails."""
     A.NSApplication.sharedApplication()
     ui = NativePowerUI.alloc().init().configure()
     try:

@@ -1,4 +1,8 @@
-"""The model dialog must observe verified completion independently of Settings."""
+"""Constrain model-dialog refresh and Quit ownership using synthetic transfers.
+
+Downloads use temporary weights and controlled responses; the shutdown case
+uses a real worker child and a loopback HTTP peer that the shell must not stop.
+"""
 from hashlib import sha256
 import sys
 import threading
@@ -36,6 +40,8 @@ def test_download_becomes_usable_without_visible_parent_or_agent_tick(monkeypatc
     partial, finish = threading.Event(), threading.Event()
 
     class Response:
+        """Pause after a partial transfer so progress is observed before completion."""
+
         offset = 0
 
         def __enter__(self):
@@ -133,6 +139,7 @@ def test_model_capacity_constraint_is_visible_and_not_downloadable(monkeypatch, 
 
 
 def quit_from_settings(app, shell):
+    """Invoke visible Quit inside the event loop; timeout is a failing exit code."""
     from PySide6.QtCore import QTimer
     shell.show_settings("General")
     timeout = QTimer()
@@ -149,6 +156,7 @@ def quit_from_settings(app, shell):
 
 
 def dispose_shell(app, shell):
+    """Stop shell owners and release their Qt objects without quitting the shared app."""
     shell.stop()
     app.aboutToQuit.disconnect(shell.stop)
     for window in (shell.settings, shell.welcome, shell.overlay, shell.accessory, shell.tray, shell.menu):
@@ -161,6 +169,8 @@ def test_visible_quit_reaps_real_pending_model_child_but_not_external_server(mon
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from inklow.config import Config
     class Handler(BaseHTTPRequestHandler):
+        """Hold a loopback request open while the shell cancels its owned client."""
+
         def log_message(self, *_arguments):
             pass
         def do_POST(self):
@@ -222,6 +232,8 @@ def test_visible_quit_cancels_download_removes_partial_and_preserves_old_weights
     target.write_bytes(original)
     partial = threading.Event()
     class Response:
+        """Keep partial bytes pending until Quit signals the download cancellation."""
+
         offset = 0
         def __enter__(self):
             return self

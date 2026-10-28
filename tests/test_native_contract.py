@@ -1,6 +1,6 @@
 """Focused native contract scenarios; no real app, permissions or user text.
 
-Requirements/risk map before generation:
+Contract coverage:
 R1 privacy before values -> denied app/domain never reaches AXValue (P0).
 R2 exact replacement -> stale/protected/range-invalid refuses native edits (P0).
 R3 Unicode -> UTF-16 surrogate interior refused; emoji suffix uses scalar range (P0).
@@ -209,7 +209,12 @@ def test_linux_nonatomic_replacement_refuses_before_deleting_original_text():
 
 
 def quartz_bridge(monkeypatch, callback):
-    """MacBridge with a recording Quartz double; the tap thread body runs inline."""
+    """Return a bridge plus ordered event-post and tap-enable recordings.
+
+    Native initialization is bypassed; patched run loops return immediately
+    and timers never fire. Tests drive callbacks and transaction release
+    explicitly, so replay ordering does not depend on wall-clock scheduling.
+    """
     import sys
     from contextlib import nullcontext
     monkeypatch.setitem(sys.modules, "objc", SimpleNamespace(autorelease_pool=nullcontext))
@@ -571,6 +576,13 @@ def test_mac_caret_uses_real_glyph_row_without_moving_its_horizontal_position(te
 # denial, changed focus, and unsupported geometry fail closed (P0). AX doubles
 # provide only synthetic text and assert returned snapshots / forbidden reads.
 def mac_capture_boundary(text="", **overrides):
+    """Return a mutable AX field model and ordered read/write recordings.
+
+    Overrides replace field attributes; ``None`` models an unavailable AX
+    attribute. Setters only record calls unless a test supplies host mutation.
+    For non-BMP text, callers must override the default selected range with
+    UTF-16 units rather than the fixture's Python-length default.
+    """
     bridge = MacBridge.__new__(MacBridge)
     BridgeBase.__init__(bridge)
     bridge._secure_description = "Localized secure role"
@@ -875,6 +887,7 @@ class NativeAttributedRuns:
     """NSAttributedString's per-attribute longest ranges, in UTF-16 units."""
 
     def __init__(self, text, runs):
+        """Keep the supplied ordered ``(start, length, attributes)`` runs."""
         self.text = text
         self.runs = runs
 
@@ -885,6 +898,12 @@ class NativeAttributedRuns:
         return index_to_utf16(self.text, len(self.text))
 
     def attribute_atIndex_longestEffectiveRange_inRange_(self, key, index, output, bounds):
+        """Return one attribute's contiguous range, clipped to UTF-16 bounds.
+
+        Adjacent runs merge by this key's value, not their full dictionaries:
+        spelling metadata must not split otherwise identical font evidence.
+        Raise IndexError when no supplied run contains the requested index.
+        """
         for position, (start, length, attributes) in enumerate(self.runs):
             if start <= index < start + length:
                 value = attributes.get(key)
@@ -903,6 +922,12 @@ class NativeAttributedRuns:
 
 
 def mac_metrics(monkeypatch, text="Hello world", *, ax_name="Host-Regular", widths=None):
+    """Build a font/AX oracle with independently controlled span widths.
+
+    ``widths`` overrides synthetic text advances; tests can separately replace
+    AX rectangles to expose disagreement. AppKit is monkeypatched, so this
+    exercises metric validation rather than installed fonts or real rendering.
+    """
     import sys
     bridge = MacBridge.__new__(MacBridge)
     BridgeBase.__init__(bridge)
@@ -1295,6 +1320,7 @@ def test_quartz_gate_is_published_before_consumed_dispatch_and_orders_following_
                         (2, {"code": 0, "flags": 0})):
         assert callback(None, kind, event, None) is None
     assert posted == [] and seen == [("word", 48)]
+    # A marker in the same recording establishes that insertion precedes replay.
     posted.append({"insertion": "word one"})
     bridge.finish_input_transaction(gate, True)
     bridge.drain_input_transaction()
@@ -1436,6 +1462,7 @@ def test_mac_value_notifications_ignore_unfocused_elements_and_coalesce_bursts(m
         AXObserverAddNotification=lambda *args: 0,
         AXObserverGetRunLoopSource=lambda observer: "source")
 
+    # One frozen-clock burst exercises coalescing; stopping ends the fake loop.
     def run_notifications(*args):
         for element, name in (("animated-slider", "AXValueChanged"),
                               ("focused", "AXValueChanged"),
@@ -1517,6 +1544,11 @@ def test_quartz_native_edit_refuses_an_unconfigurable_os_timeout(monkeypatch):
 
 
 def browser_capture_boundary(text="Hello world"):
+    """Add synthetic browser document ownership to the mutable AX fixture.
+
+    The fixed test salt makes document identity reproducible without recording
+    a real URL; changing window metadata simulates navigation or reparenting.
+    """
     bridge, attributes, reads, writes = mac_capture_boundary(text)
     bridge._foreground = lambda: (1234, "/Browser", {
         "app_id": "com.google.Chrome", "domain": "example.com"})

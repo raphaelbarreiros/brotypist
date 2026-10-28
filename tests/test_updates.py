@@ -20,6 +20,7 @@ from inklow import updates
 
 @pytest.fixture
 def publisher(monkeypatch):
+    """Return a base64 signer trusted only for this test's patched verifier."""
     key = Ed25519PrivateKey.generate()
     public = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     monkeypatch.setattr(updates, "PUBLISHER_PUBLIC_KEY", base64.b64encode(public).decode("ascii"))
@@ -30,6 +31,7 @@ def publisher(monkeypatch):
 
 
 def manifest(payload=b"verified archive", version="99.2.0", **changes):
+    """Encode an unsigned Linux asset manifest, with overrides for invalid cases."""
     value = {"schema": 1, "application": updates.APP_ID, "version": version,
              "source_commit": "a" * 40,
              "assets": [{"name": f"BroTypist-{version}-linux-amd64.tar.gz",
@@ -40,6 +42,8 @@ def manifest(payload=b"verified archive", version="99.2.0", **changes):
 
 
 class Response(io.BytesIO):
+    """In-memory HTTP body exposing the status, headers and read1 download API."""
+
     status = 200
 
     def __init__(self, data, headers=None):
@@ -51,6 +55,7 @@ class Response(io.BytesIO):
 
 
 def serve(monkeypatch, data, headers=None):
+    """Replace the opener with fresh in-memory responses and return captured requests."""
     seen = []
 
     def open_request(request, timeout):
@@ -178,6 +183,7 @@ def test_socket_cancellation_interrupts_owned_stalled_read():
 
     def read_body():
         with cancel.response(response):
+            # Signal only after cancellation owns the socket; no scheduling sleep.
             reading.set()
             local.recv(1)
         finished.set()
@@ -247,6 +253,7 @@ def test_symlink_download_destination_is_never_replaced(publisher, monkeypatch, 
 
 @pytest.fixture
 def service_env(monkeypatch, tmp_path):
+    """Model a portable Linux install while keeping cache/staging under tmp_path."""
     monkeypatch.setenv("INKLOW_HOME", str(tmp_path / "isolated"))
     from inklow import update_install
     installation = update_install.Installation(tmp_path / "app", "linux_portable", True, "")
@@ -257,6 +264,7 @@ def service_env(monkeypatch, tmp_path):
 
 
 def settle(service):
+    """Join the current service worker and fail if it outlives the two-second bound."""
     worker = service._worker
     if worker is not None:
         worker.join(2)
@@ -361,6 +369,8 @@ def test_ready_handoff_can_abort_retry_and_close_does_not_abort_commit(monkeypat
     handoffs = []
 
     class Handoff:
+        """Model irreversible commit without spawning an installer or owning a pipe."""
+
         committed = False
         aborted = False
 
@@ -493,6 +503,7 @@ def test_close_keeps_shutdown_pending_until_worker_really_exits(monkeypatch, ser
     service = updates.UpdateService()
     service.start_check()
     try:
+        # Hold the fetch open so close must distinguish cancellation from exit.
         assert entered.wait(2)
         with pytest.raises(ShutdownPending):
             service.close()
@@ -508,6 +519,7 @@ def test_close_keeps_shutdown_pending_until_worker_really_exits(monkeypatch, ser
 def test_mac_quarantine_uses_exported_constants_and_preserves_existing_metadata(
         monkeypatch, tmp_path, read_success, write_success):
     monkeypatch.setattr(updates.sys, "platform", "darwin")
+    # Opaque identities catch hard-coded strings in place of exported ObjC constants.
     constants = {name: object() for name in
                  ("kLSQuarantineTypeKey", "kLSQuarantineTypeWebDownload",
                   "kLSQuarantineDataURLKey", "kLSQuarantineOriginURLKey")}

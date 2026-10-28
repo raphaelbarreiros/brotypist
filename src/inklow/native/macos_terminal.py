@@ -76,11 +76,15 @@ def _code(value: str) -> int:
 
 
 class _AEDesc(ctypes.Structure):
+    """Packed AppleEvent descriptor; successful creation requires AEDisposeDesc."""
+
     _pack_ = 2  # AEDataModel.h uses #pragma pack(push, 2), including arm64.
     _fields_ = [("descriptorType", ctypes.c_uint32), ("dataHandle", ctypes.c_void_p)]
 
 
 class _BSDInfo(ctypes.Structure):
+    """Native proc_bsdinfo layout used to compare process generations."""
+
     _fields_ = [(name, ctypes.c_uint32) for name in (
         "flags", "status", "xstatus", "pid", "ppid", "uid", "gid", "ruid",
         "rgid", "svuid", "svgid", "reserved")]
@@ -93,6 +97,8 @@ class _BSDInfo(ctypes.Structure):
 
 @dataclass(frozen=True)
 class ProcessIdentity:
+    """Process metadata including start seconds/microseconds to detect PID reuse."""
+
     pid: int
     ppid: int
     pgid: int
@@ -117,6 +123,7 @@ class _CodeIdentity:
         self._native = None
 
     def _load(self):
+        """Cache the compiled signing requirement with finalizer-owned CF lifetime."""
         security = ctypes.CDLL("/System/Library/Frameworks/Security.framework/Security")
         cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
         ref, flags, status = ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int32
@@ -152,6 +159,7 @@ class _CodeIdentity:
         return self._native
 
     def accepts(self, process: ProcessIdentity) -> bool:
+        """Check the running group leader against the pinned signing requirement."""
         if (sys.platform != "darwin" or not 0 < process.pid < 2 ** 31
                 or process.pid != process.pgid):
             return False
@@ -187,6 +195,8 @@ class _CodeIdentity:
 
 @dataclass(frozen=True)
 class TerminalMetadata:
+    """Observed session/grid/font metadata, not proof of a writable input surface."""
+
     app_id: str
     host_pid: int
     window_id: int
@@ -228,6 +238,7 @@ class _Automation:
                      if not app.isTerminated())
 
     def permission(self, app_id: str, *, request: bool = False) -> str:
+        """Return Automation status; only request=True may trigger system consent."""
         if app_id not in SUPPORTED_APPS:
             return "unsupported"
         if sys.platform != "darwin":
@@ -262,6 +273,11 @@ class _Automation:
             return "unavailable"
 
     def read_session(self, pid: int, app_id: str) -> dict:
+        """Read session metadata through PID-addressed, non-prompting AppleEvents.
+
+        One monotonic deadline covers the sequence. Session changes or missing
+        replies raise ValueError; no terminal contents are requested.
+        """
         if app_id not in SUPPORTED_APPS or not isinstance(pid, int) or pid <= 0:
             raise ValueError("unsupported-target")
         from Foundation import NSAppleEventDescriptor as D
@@ -366,6 +382,7 @@ class _Processes:
     """libproc metadata only; no process arguments, environment or terminal I/O."""
 
     def foreground(self, tty: str, job_pid: int = 0) -> ProcessIdentity | None:
+        """Return one stable foreground TTY process, or None on ambiguity/failure."""
         if sys.platform != "darwin" or not isinstance(tty, str) or not _TTY.fullmatch(tty):
             return None
         try:
@@ -431,6 +448,7 @@ class TerminalAdapter:
         self._lease = None
 
     def permission_state(self, app_id: str) -> str:
+        """Query Automation permission without opening an app or prompting."""
         return self._automation.permission(app_id)
 
     def request_access(self, app_id: str) -> str:
@@ -496,6 +514,7 @@ class TerminalAdapter:
 
     @staticmethod
     def _parameter(bridge, field, name, value):
+        """Read one AX parameterized attribute or reject an unavailable result."""
         error, result = bridge.ax.AXUIElementCopyParameterizedAttributeValue(
             field, name, value, None)
         if error or result is None:
@@ -504,6 +523,7 @@ class TerminalAdapter:
 
     @staticmethod
     def _range(bridge, value):
+        """Decode a nonnegative CFRange in UTF-16 units or raise ValueError."""
         if value is None:
             raise ValueError("native-input-range-unavailable")
         valid, pair = bridge.ax.AXValueGetValue(value, bridge.ax.kAXValueCFRangeType, None)
@@ -515,6 +535,7 @@ class TerminalAdapter:
         return start, length
 
     def _field(self, bridge, metadata):
+        """Resolve the focused terminal field and verify composition/window identity."""
         app = bridge.ax.AXUIElementCreateApplication(metadata.host_pid)
         field = bridge._attribute(app, "AXFocusedUIElement")
         if (field is None or bridge._attribute(field, "AXRole") != "AXTextArea"
@@ -540,6 +561,7 @@ class TerminalAdapter:
         return field
 
     def _row(self, bridge, field, line, columns):
+        """Return UTF-16 start/length and text without the required row newline."""
         value = self._parameter(bridge, field, "AXRangeForLine", line)
         start, length = self._range(bridge, value)
         # A physical row is bounded before requesting any characters. Never
@@ -574,7 +596,12 @@ class TerminalAdapter:
                    and unicodedata.category(char) not in {"Zl", "Zp"} for char in text)
 
     def _read(self, bridge, foreground):
-        """Read one true current input row and bounded adjacent UI guards."""
+        """Return validated input, field, metadata, UTF-16 caret and clip, or None.
+
+        Caller serialization belongs to the bridge. Signing and ownership checks
+        precede row reads, and a second observation rejects changed input. This
+        path deliberately does not request appearance recovery or create a lease.
+        """
         try:
             if (not bridge._terminal_completion or bridge._stopped.is_set()
                     or not bridge.ax.AXIsProcessTrusted()):
@@ -714,6 +741,11 @@ class TerminalAdapter:
                 url, CoreText.kCTFontManagerScopeProcess, None)
 
     def capture(self, bridge, foreground):
+        """Capture input and publish a lease, optionally adding verified appearance.
+
+        Return (snapshot, native field) or None. Geometry without verified pixel
+        styling can still describe genuine input, but does not imply inline safety.
+        """
         current = self._read(bridge, foreground)
         if current is None:
             self._lease = None
@@ -762,6 +794,7 @@ class TerminalAdapter:
         return snapshot, field
 
     def context_matches(self, bridge, snapshot):
+        """Require the current lease plus a fresh matching input/layout observation."""
         if (self._lease is None or snapshot.key != self._lease.key
                 or snapshot.window_revision != self._lease.window_revision):
             return False
@@ -770,6 +803,12 @@ class TerminalAdapter:
                 and current[0].window_revision == snapshot.window_revision)
 
     def append(self, bridge, snapshot, text):
+        """Consume a matching lease and post printable text at the draft end.
+
+        Return False for stale/unsupported input or native failure. True means
+        events were posted, not terminal readback; no Return key or replacement
+        is sent, and posting failure does not restore a consumed lease.
+        """
         if (not isinstance(text, str) or not text or not self._printable(text)
                 or snapshot.protected or snapshot.selection_length
                 or snapshot.can_replace or snapshot.caret != len(snapshot.text)):

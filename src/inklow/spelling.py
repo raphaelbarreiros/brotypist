@@ -2,9 +2,10 @@
 
 The service answers one question for the word at the caret: is it a suspected
 typo in a language this Mac can spell-check, and is there a confident fix?
-All native work runs on one daemon thread; ``assess`` only tokenizes and reads
-the latest finished result. Text is held in memory for the in-flight request
-only; verdicts cache words, never field contents.
+Spelling checks run on one daemon thread; ``assess`` tokenizes and schedules
+work without waiting for native results. Jobs retain bounded paragraph context
+in memory; verdict-cache keys contain words and language plans, not paragraphs.
+The default backend is macOS-only; unsupported platforms report unavailable.
 """
 from __future__ import annotations
 
@@ -45,7 +46,8 @@ class SpellingResult:
 
     ``start``/``length`` are Python character indexes into the snapshot text and
     never split a combining-mark cluster; replace ``text[start:start + length]``
-    with ``replacement`` to apply the fix. ``reason`` is one of ``typo``, ``ok``,
+    with a nonempty ``replacement`` to apply a confident fix. An empty replacement
+    is not a deletion suggestion. ``reason`` is one of ``typo``, ``ok``,
     ``partial`` (valid unfinished prefix), ``unsupported-language``, ``skipped``,
     ``no-word`` or ``unavailable``; only ``typo`` sets ``suspected``.
     """
@@ -61,7 +63,12 @@ class SpellingResult:
 
 
 class SpellBackend(Protocol):
-    """Native checker; every method runs on the service worker thread only."""
+    """Backend contract for worker-owned native checks and resource scopes.
+
+    Check methods run on the service worker. ``work_scope`` owns per-check native
+    temporaries. ``close`` normally runs on that worker, but may run on the
+    caller thread if the service closes before starting any work.
+    """
 
     def work_scope(self) -> contextlib.AbstractContextManager: ...
 
@@ -86,6 +93,7 @@ class SpellBackend(Protocol):
 
 @dataclass(frozen=True)
 class _Word:
+    """Caret-adjacent token with Python offsets and bounded language context."""
     start: int
     end: int
     text: str
@@ -96,6 +104,7 @@ class _Word:
 
 @dataclass(frozen=True)
 class _Job:
+    """Bind a token/context to the snapshot identity used to reject stale output."""
     key: tuple
     word: _Word
 
@@ -106,6 +115,7 @@ def _word_char(character: str) -> bool:
 
 
 def _skippable(word: str) -> bool:
+    """Exclude oversized tokens, identifiers and acronyms from prose checks."""
     letters = [c for c in word if unicodedata.category(c)[0] == "L"]
     if len(word) > MAX_WORD or len(letters) < 2:
         return True
@@ -119,7 +129,12 @@ def _skippable(word: str) -> bool:
 
 
 def current_word(snapshot: Snapshot) -> _Word | str:
-    """The word being typed or just completed at the caret, else a skip reason."""
+    """Extract a caret-adjacent word, or return ``skipped``/``no-word``.
+
+    Selected/protected text and mid-word edits are excluded. At most
+    TRAILING_LIMIT punctuation/space characters may separate word and caret;
+    line breaks end the search. Offsets refer to the unnormalized snapshot.
+    """
     text, caret = snapshot.text, snapshot.caret
     if snapshot.protected or snapshot.selection_length or not 0 <= caret <= len(text):
         return "skipped"  # secure, selected; macOS capture already rejects marked (IME) text
@@ -176,6 +191,7 @@ def _clusters(word: str) -> tuple[str, list[tuple[int, int, int, int]]]:
 
 
 def _u16_slice(text: str, start: int, end: int) -> str:
+    """Slice native UTF-16 code units; boundaries must not split surrogate pairs."""
     return text.encode("utf-16-le")[2 * start:2 * end].decode("utf-16-le")
 
 
@@ -240,6 +256,7 @@ def plan_languages(hypotheses: dict[str, float], available: tuple[str, ...],
 
 
 def _default_backend() -> SpellBackend:
+    """Construct the macOS backend or raise SpellingUnavailable off macOS."""
     if sys.platform != "darwin":
         raise SpellingUnavailable("Typo detection uses the macOS spelling service.")
     from .native.macos_spelling import MacSpellBackend
@@ -249,13 +266,15 @@ def _default_backend() -> SpellBackend:
 class SpellingService:
     """Latest-only asynchronous current-word typo checks.
 
-    ``assess`` never blocks or raises. ``None`` means the latest snapshot is
-    still being checked; ``wake`` is then called from the worker thread, with
-    no service lock held, once its result is ready.
+    ``assess`` does not wait for native checks. ``None`` means work was queued
+    or is in flight; a publishable result triggers ``wake`` on the worker,
+    outside the service lock. Consumers must match the result's snapshot key
+    before applying a correction; the field may have changed since scheduling.
     """
 
     def __init__(self, wake: Callable[[], None] | None = None, *,
                  backend: SpellBackend | None = None) -> None:
+        """Own a backend and optional worker-thread callback; start work lazily."""
         self._wake = wake
         self._lock = threading.Condition()
         self._pending: _Job | None = None
@@ -278,6 +297,11 @@ class SpellingService:
         return self._unavailable
 
     def assess(self, snapshot: Snapshot) -> SpellingResult | None:
+        """Return a matching result/skip verdict, or schedule the latest word.
+
+        A new eligible job replaces the queued job, not an active native call.
+        Backend failures are represented as unavailable rather than typo verdicts.
+        """
         key = snapshot.key
         if self._backend is None or self._closed:
             return SpellingResult(key, snapshot.caret, 0, "", "", False, "", "unavailable")
@@ -304,6 +328,11 @@ class SpellingService:
         return None
 
     def close(self) -> None:
+        """Stop accepting work and discard queued/latest results, idempotently.
+
+        Wait at most half a second for a running worker unless called from that
+        worker. An active native call is not interrupted; cleanup may finish later.
+        """
         with self._lock:
             if self._closed:
                 return
@@ -319,6 +348,7 @@ class SpellingService:
             thread.join(timeout=0.5)
 
     def _run(self) -> None:
+        """Evaluate jobs serially and suppress publication when newer work is queued."""
         try:
             while True:
                 with self._lock:
@@ -329,6 +359,8 @@ class SpellingService:
                     job, self._pending = self._pending, None
                     self._inflight = job.key
                 result = self._evaluate(job)
+                # Native calls cannot be cancelled here. Publish only if no newer
+                # job remains queued; callbacks run outside the lock.
                 with self._lock:
                     self._inflight = None
                     current = (not self._closed and self._pending is None)
@@ -344,6 +376,7 @@ class SpellingService:
 
     def _result(self, job: _Job, reason: str, *, start: int | None = None,
                 end: int | None = None, replacement: str = "", language: str = "") -> SpellingResult:
+        """Build a snapshot-keyed result from absolute Python character offsets."""
         word = job.word
         start = word.start if start is None else start
         end = word.end if end is None else end
@@ -352,6 +385,7 @@ class SpellingService:
                               replacement, reason == "typo", language, reason, word.finished)
 
     def _evaluate(self, job: _Job) -> SpellingResult:
+        """Scope native temporaries and translate check exceptions to unavailable."""
         try:
             with self._backend.work_scope():
                 result = self._check(job)
@@ -362,6 +396,7 @@ class SpellingService:
             return self._result(job, "unavailable")
 
     def _installed(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """Refresh installed/preferred dictionaries and invalidate word verdicts."""
         now = time.monotonic()
         if self._languages is None or now - self._languages_at > LANGUAGE_REFRESH:
             self._languages = self._backend.languages()
@@ -370,6 +405,7 @@ class SpellingService:
         return self._languages
 
     def _check(self, job: _Job) -> SpellingResult:
+        """Resolve languages before reusing a bounded, context-independent verdict."""
         word = job.word
         available, preferred = self._installed()
         hypotheses = self._backend.identify(word.context)
@@ -395,6 +431,12 @@ class SpellingService:
 
     def _verdict(self, checked: str, spans: list[tuple[int, int, int, int]], original: str,
                  finished: bool, tail: str, languages: tuple[str, ...]) -> tuple:
+        """Return reason, original-word start/end, replacement, and language.
+
+        Any planned dictionary accepting the word vetoes a typo. For unfinished
+        words, dictionary completions veto it too. Only then is the primary
+        language's last flagged range considered for a conservative correction.
+        """
         whole = (0, len(original))
         flagged: dict[str, list[tuple[int, int]]] = {}
         for language in languages:
@@ -412,6 +454,8 @@ class SpellingService:
         location, stop = max(0, min(location, units)), max(0, min(location + length, units))
         if stop <= location:
             return ("typo", *whole, "", primary)
+        # Expand replacement bounds to original combining-mark clusters while
+        # preserving normalized text outside the native flagged subrange.
         first = next(s for s in spans if s[3] > location)
         last = next(s for s in reversed(spans) if s[2] < stop)
         correction, guesses = self._backend.suggestions(checked, location, stop - location, primary)

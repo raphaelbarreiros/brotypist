@@ -8,8 +8,8 @@ R2 content-free capability -> no title/value reads from user-editable controls;
 R3 revalidate before actions -> changed document/window/field/PID, policy denial,
    Secure Input, expired/foreign/reused token -> no setting mutation.
 R4 native observed checkbox transitions -> unchecked becomes checked once;
-   already checked remains unchanged; unknown/mixed/ambiguous/localized metadata
-   and action/readback failure never become a successful enable result.
+   already checked remains unchanged; unknown/mixed/ambiguous or unrecognized
+   localized metadata and action/readback failure never claim enablement.
 R5 commit and verify -> unique scoped native OK action, reopen settings and read
    checked state; a reverted checkbox or missing commit control is unknown.
 Scenarios above exercise identity, authorization and state transitions (P0).
@@ -30,6 +30,8 @@ URL = "https://docs.google.com/document/d/private-disposable-id/edit"
 
 
 class Peer:
+    """Mutable AX node with explicit parent/child links and a synthetic owner PID."""
+
     def __init__(self, role, parent=None, **attributes):
         self.attributes = {"AXRole": role, "AXEnabled": True, **attributes}
         if parent is not None:
@@ -39,6 +41,12 @@ class Peer:
 
 
 class NativeDocs(BridgeBase):
+    """In-memory Docs controls with privacy assertions and an action journal.
+
+    Tests may alter focus, ownership or policy at native-call boundaries through
+    ``after_action``; no browser, account or operating-system setting is touched.
+    """
+
     def __init__(self):
         super().__init__()
         self._stopped = Event()
@@ -88,6 +96,7 @@ class NativeDocs(BridgeBase):
         return self.secure
 
     def _attribute(self, element, name):
+        """Record metadata reads and fail immediately on document-content access."""
         self.reads.append((element, name))
         if name in {"AXValue", "AXSelectedText", "AXTitle", "AXDescription"}:
             if element is self.field or element is self.window or element is self.web:
@@ -102,6 +111,7 @@ class NativeDocs(BridgeBase):
         return element.attributes.get("bounds", (10.0, 20.0, 500.0, 300.0))
 
     def press(self, element, action):
+        """Apply a synthetic menu/dialog transition and then inject any test race."""
         self.actions.append(element)
         if self.fail_action:
             return 1
@@ -116,6 +126,8 @@ class NativeDocs(BridgeBase):
             if not self.fail_checkbox_press:
                 element.attributes["AXValue"] = 1
         elif element is self.ok:
+            # Commit closes the dialog; reopening must observe the saved value,
+            # including the optional rollback, rather than trusting a click.
             self.web.attributes["AXChildren"].remove(self.dialog)
             self.dialog.attributes.pop("AXParent", None)
             if self.commit_reverts:
@@ -329,6 +341,11 @@ def test_checkbox_changed_during_action_lookup_is_not_toggled(native):
 
 
 def observed_portuguese(native):
+    """Reshape the fixture into the observed Portuguese iframe/portal layout.
+
+    Return the input frame's group and web area so callers can invalidate their
+    class/origin evidence independently. Labels and geometry remain synthetic.
+    """
     native.web.attributes["AXURL"] = URL + "?tab=t.0"
     group = Peer("AXGroup", native.web, AXSubrole="AXWebApplication")
     frame_group = Peer("AXGroup", group, AXDOMClassList=[
@@ -345,6 +362,8 @@ def observed_portuguese(native):
     native.page.attributes["bounds"] = (420, 291, 794, 826)
     native.tools.attributes.update(AXRole="AXMenuItem", AXTitle="Ferramentas",
                                    AXDOMIdentifier="docs-tools-menu")
+    # The menu is a portal sibling, not a Tools child; ownership must follow
+    # its actual AX ancestry while visibility changes after the Tools action.
     native.tools.attributes["AXChildren"].remove(native.menu)
     native.menu.attributes["AXParent"] = native.web
     native.web.attributes["AXChildren"].append(native.menu)
@@ -483,6 +502,8 @@ def test_visibility_catches_up_after_native_press(native, monkeypatch, which):
     helper = DocsHelper(native)
     token = helper.hint()["token"]
     clock = [0.0]
+    # Advance a fake monotonic clock on each wait, then expose the control.
+    # This models delayed AX visibility without depending on wall-clock sleeps.
     waits = []
     monkeypatch.setattr("inklow.native.macos_docs.time.monotonic", lambda: clock[0])
     def sleep(delay):
@@ -585,6 +606,8 @@ def test_hidden_menu_never_retries_ownership_or_ambiguity(native, monkeypatch, f
 
 
 class NativeURL:
+    """Expose the NSURL-style selector without loading Foundation."""
+
     def __init__(self, value):
         self.value = value
 

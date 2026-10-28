@@ -20,6 +20,12 @@ from package_macos import inspect_bundle, run
 
 
 def gui_smoke(executable: Path, environment: dict[str, str], root: Path, timeout: float) -> dict:
+    """Return own-PID visibility and normal-quit evidence, or raise RuntimeError.
+
+    ``root`` owns the GUI log; the caller must preserve it and the copied app
+    on failure because a timed-out quit deliberately leaves the process alive.
+    ``timeout`` is in seconds for both observation and the subsequent quit.
+    """
     # NSRunningApplication.terminate is a normal application quit request. It
     # neither targets another BroTypist instance nor requires automation permission.
     import AppKit
@@ -73,6 +79,7 @@ def gui_smoke(executable: Path, environment: dict[str, str], root: Path, timeout
 
 
 def main() -> int:
+    """Exercise a read-only DMG copy and exclusively create a success/failure receipt."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dmg", required=True, type=Path)
     parser.add_argument("--version", required=True)
@@ -115,6 +122,8 @@ def main() -> int:
         run("/usr/bin/ditto", str(app), str(installed))
         checks["copied_bundle"] = inspect_bundle(installed, args.version)
         profile = root / "profile"
+        # Keep the profile outside the installed bundle so bundle removal can
+        # be checked independently from settings and external-data preservation.
         profile.mkdir()
         settings = {"setup_completed": True, "global_enabled": False, "launch_at_login": False,
                     "clipboard_context": False, "screen_context": False, "record_history": False,

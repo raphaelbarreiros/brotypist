@@ -12,6 +12,11 @@ from inklow.config import Config
 
 @pytest.fixture
 def onboarding(monkeypatch, tmp_path):
+    """Yield a real welcome window backed by mutable, non-loadable model fixtures.
+
+    Four-byte files stand in for presence checks, not verified model weights;
+    import availability and download status are controlled independently.
+    """
     A.NSApplication.sharedApplication()
     monkeypatch.setattr(appkit_welcome, "importlib", SimpleNamespace(import_module=lambda name: object()))
     current = tmp_path / "current.gguf"

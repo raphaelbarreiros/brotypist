@@ -16,6 +16,7 @@ from inklow import qt_ui, system
 
 @pytest.fixture
 def clipboard(monkeypatch):
+    """Yield a GUI-owned reader with synthetic clipboard text and mutable consent."""
     app = QApplication.instance() or QApplication([])
     app.setQuitOnLastWindowClosed(False)
     reads = []
@@ -38,6 +39,7 @@ def clipboard(monkeypatch):
 
 
 def read_in_worker(reader, authorized):
+    """Return a worker, completion event, and result list without pumping GUI events."""
     done = threading.Event()
     result = []
 
@@ -55,6 +57,7 @@ def read_in_worker(reader, authorized):
 
 
 def finish(app, worker, done):
+    """Service queued GUI reads until completion, failing before an unbounded join."""
     deadline = time.monotonic() + 2
     while not done.is_set() and time.monotonic() < deadline:
         app.processEvents()
@@ -90,6 +93,8 @@ def test_revocation_while_queued_prevents_clipboard_access(clipboard):
 
     worker, done, result = read_in_worker(reader, authorized)
     assert checked.wait(1)
+    # Revoke before servicing GUI events; the queued authorization check must
+    # reject access even if the worker already observed consent.
     consent[0] = False
     finish(app, worker, done)
     assert result == [""]

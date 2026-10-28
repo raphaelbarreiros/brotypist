@@ -1,4 +1,8 @@
-"""Lazy process supervisor. Parent never imports a model or a GUI toolkit."""
+"""Supervise private inference pipes without importing models or GUI toolkits.
+
+Request serials reject superseded writing; process epochs reject output from
+retired children. All process creation and teardown belong to the supervisor.
+"""
 from __future__ import annotations
 
 from collections import deque
@@ -22,6 +26,7 @@ _PROMPT_EVALUATION_GRACE = 3.0
 
 
 def worker_command() -> list[str]:
+    """Choose the source or frozen worker entry point, including Windows CLI."""
     executable = Path(sys.executable)
     if getattr(sys, "frozen", False):
         if sys.platform == "win32":
@@ -33,6 +38,13 @@ def worker_command() -> list[str]:
 
 
 class ProcessClient:
+    """Own a lazy worker with one active request and one replaceable pending one.
+
+    Public calls coordinate through a condition or nonblocking cancellation/
+    release signals. ``on_event`` runs on the supervisor thread outside the
+    condition; GUI callers must marshal their own UI work to the UI thread.
+    """
+
     def __init__(self):
         self._condition = threading.Condition()
         self._events = deque(maxlen=256)
@@ -63,12 +75,18 @@ class ProcessClient:
         self.on_event = None
 
     def _start_thread(self):
+        """Start the supervisor once while the caller holds the condition."""
         if self._thread is None:
             self._thread = threading.Thread(target=self._run, daemon=True, name="inklow-worker-supervisor")
             self._thread.start()
 
     def prepare(self, config) -> int | None:
-        """Prepare fixed model framing without sending or evaluating writing."""
+        """Queue fixed GGUF framing without sending or evaluating writing.
+
+        Return the request ID, or None for an ineligible model, existing work,
+        or an already prepared identity. A stopped eligible client raises
+        RuntimeError; preparation does not supersede a writing request.
+        """
         if config.backend != "gguf" or not Path(config.model_path).expanduser().is_file():
             return None
         with self._condition:
@@ -89,6 +107,12 @@ class ProcessClient:
             return identifier
 
     def submit(self, config, prefix: str, suffix: str, **options) -> int:
+        """Replace pending writing and return its correlation ID.
+
+        Prefix/suffix are bounded before JSON encoding; oversized encoded
+        frames raise ValueError and stopped clients raise RuntimeError.
+        Results arrive through poll(), never synchronously from this call.
+        """
         with self._condition:
             if self._stopped:
                 raise RuntimeError("Inference has stopped.")
@@ -109,19 +133,23 @@ class ProcessClient:
             return identifier
 
     def set_idle_timeout(self, seconds: int):
+        """Set inactivity release in seconds; nonpositive values disable it."""
         with self._condition:
             self._idle_timeout = seconds
             self._condition.notify()
 
     def cancel(self):
+        """Request cancellation without waiting for process or pipe operations."""
         # Keyboard decisions must never wait for the supervisor's process/pipe
         # lock (which can be held while terminating an unresponsive child).
         self._cancel_requested.set()
 
     def release(self):
+        """Queue worker teardown through the current request watermark."""
         self._releases.put(self._serial)
 
     def status(self) -> dict:
+        """Return a state snapshot, including any child still being terminated."""
         with self._condition:
             process = self._process or self._terminating
             return {"state": self._state, "message": self._message,
@@ -129,12 +157,14 @@ class ProcessClient:
                     "model_loaded": self._loaded}
 
     def poll(self) -> list[dict]:
+        """Drain events, discarding them while cancellation or release is pending."""
         with self._condition:
             result = [] if self._cancel_requested.is_set() or not self._releases.empty() else list(self._events)
             self._events.clear()
             return result
 
     def close(self):
+        """Stop accepting work and wait up to one second for supervisor shutdown."""
         with self._condition:
             self._stopped = True
             self._pending = None
@@ -144,6 +174,12 @@ class ProcessClient:
             thread.join(timeout=1.0)
 
     def _kill(self):
+        """Retire the current epoch and attempt bounded child termination.
+
+        The caller holds the condition; blocking waits and pipe closes release
+        it so public calls can proceed. A still-live child remains tracked as
+        ``_terminating`` rather than being reported as already gone.
+        """
         process = self._process or self._terminating
         self._terminating = process
         self._process = None
@@ -182,6 +218,7 @@ class ProcessClient:
                     self._terminating = None
 
     def _read(self, process, epoch):
+        """Read bounded JSON frames on a pipe thread and tag them with its epoch."""
         try:
             while True:
                 line = process.stdout.readline(MAX_MESSAGE_BYTES + 1)
@@ -211,6 +248,7 @@ class ProcessClient:
                 pass
 
     def _spawn(self):
+        """Spawn a private child outside the condition, then attach its reader."""
         flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         self._condition.release()
         try:
@@ -226,6 +264,7 @@ class ProcessClient:
         self._initializing = True
 
     def _send(self, data):
+        """Write one frame outside the condition; caller serializes pipe access."""
         pipe = self._process.stdin
         self._condition.release()
         try:
@@ -235,6 +274,7 @@ class ProcessClient:
             self._condition.acquire()
 
     def _run(self):
+        """Advance lifecycle barriers, worker events and latest pending work."""
         try:
             while True:
                 notify = False
@@ -242,6 +282,8 @@ class ProcessClient:
                     if self._stopped:
                         return
                     now = time.monotonic()
+                    # Release is stronger than superseding typing: tear down
+                    # the old worker, but preserve requests after its watermark.
                     release_through = None
                     while True:
                         try:
@@ -271,6 +313,8 @@ class ProcessClient:
                             epoch, event = self._incoming.get_nowait()
                         except queue.Empty:
                             break
+                        # Request IDs alone cannot distinguish an old reader
+                        # from the current child after a lifecycle transition.
                         if epoch != self._epoch:
                             continue
                         identifier, kind = event.get("id"), event.get("type")
@@ -301,6 +345,8 @@ class ProcessClient:
                             self._loaded = bool(event.get("model_loaded", True))
                             self._state, self._message = "ready", "Local model prepared; waiting for writing."
                         if kind == "ready":
+                            # Loading is not permission to evaluate writing.
+                            # Only the still-current request receives proceed.
                             self._initializing = False
                             self._loaded = bool(event.get("model_loaded", True))
                             if self._cancel_since is not None:
@@ -331,6 +377,9 @@ class ProcessClient:
                         self._cancel_sent = True
                         if self._cancel_since is None:
                             self._cancel_since = now
+                    # Ordinary cancellation preserves cold initialization.
+                    # Once ready, prompt evaluation gets a longer grace than
+                    # token streaming because it has no per-token callbacks.
                     if (not self._initializing and self._cancel_since is not None
                             and now - self._cancel_since >= (
                                 _PROMPT_EVALUATION_GRACE if self._evaluating else _CANCEL_GRACE)):
@@ -346,6 +395,8 @@ class ProcessClient:
                         if self._process is None:
                             self._spawn()
                         self._configured = identity
+                        # Spawn releases the condition; recheck lifecycle and
+                        # freshness signals before handing over any draft.
                         if (self._stopped or not self._releases.empty()
                                 or (identifier != self._prepare_id and (
                                     self._cancel_requested.is_set() or identifier != self._serial))):

@@ -1,3 +1,5 @@
+# Hidden KDE input-method registration, not an autostart entry; selection is manual.
+# Build/package tools supply the executable and icon for the target location.
 [Desktop Entry]
 Type=Application
 Name=BroTypist

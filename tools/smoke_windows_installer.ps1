@@ -1,5 +1,7 @@
 # Real Windows Installer + extracted portable CLI + native settings-window smoke.
 # Run on a disposable Windows x86_64 CI runner, never on a user's installation.
+# Receipts prove package identity, lifecycle and synthetic-data preservation,
+# not signing trust, model inference or interactive typing in other apps.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Msi,
@@ -12,6 +14,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 function Format-SmokeError([System.Management.Automation.ErrorRecord]$Record) {
+    <# .SYNOPSIS
+    Return bounded diagnostics retaining the original PowerShell location/stack.
+    #>
     $diagnostic = @(
         "ErrorRecord: $($Record.Exception.ToString())"
         "FullyQualifiedErrorId: $($Record.FullyQualifiedErrorId)"
@@ -38,15 +43,20 @@ if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [Sys
 }
 
 function Assert-Equal($Actual, $Expected, [string]$Description) {
+    # Case-sensitive equality avoids accepting changed package metadata casing.
     if ($Actual -cne $Expected) { throw "${Description}: expected '$Expected', got '$Actual'." }
 }
 
 function Assert-Hash([string]$Path, [string]$Expected) {
+    # Missing files and content drift are failures, not skipped manifest entries.
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Missing file: $Path" }
     Assert-Equal ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()) ($Expected.ToLowerInvariant()) "SHA256 of $Path"
 }
 
 function Assert-Payload([string]$Directory, $Manifest) {
+    <# .SYNOPSIS
+    Require manifest hashes/sizes and an exact total file count in the payload.
+    #>
     foreach ($item in $Manifest) {
         $path = Join-Path $Directory $item.path
         Assert-Hash $path $item.sha256
@@ -57,6 +67,12 @@ function Assert-Payload([string]$Directory, $Manifest) {
 }
 
 function Invoke-Msi([string[]]$Arguments, [string]$Log) {
+    <# .SYNOPSIS
+    Run one quiet MSI transaction and return success/deferred-reboot status.
+    .DESCRIPTION
+    The 180-second wait does not cancel Windows Installer. A timeout throws
+    without retrying a transaction whose final state may still be unknown.
+    #>
     $process = Start-Process -FilePath "$env:SystemRoot\System32\msiexec.exe" -ArgumentList (
         $Arguments + @("/qn", "/norestart", "/L*v", "`"$Log`"")
     ) -PassThru
@@ -73,6 +89,9 @@ function Invoke-Msi([string[]]$Arguments, [string]$Log) {
 }
 
 function Invoke-Version([string]$Executable, [string]$Prefix) {
+    <# .SYNOPSIS
+    Check the CLI version, retaining output logs and killing only a timed-out child.
+    #>
     $stdout = Join-Path $reportDirectory "$Prefix-version.stdout.txt"
     $stderr = Join-Path $reportDirectory "$Prefix-version.stderr.txt"
     $process = Start-Process -FilePath $Executable -ArgumentList "--version" -PassThru -NoNewWindow `
@@ -90,6 +109,12 @@ function Invoke-Version([string]$Executable, [string]$Prefix) {
 }
 
 function Read-MsiProperty($Database, [string]$Name, [switch]$AllowMissing) {
+    <# .SYNOPSIS
+    Read one trusted MSI property; release the owned COM view and record.
+    .DESCRIPTION
+    AllowMissing returns an empty string only for an absent row. The caller
+    retains ownership of Database and supplies internal, literal property names.
+    #>
     $query = "SELECT ``Value`` FROM ``Property`` WHERE ``Property`` = '$Name'"
     $view = $Database.GetType().InvokeMember("OpenView", [System.Reflection.BindingFlags]::InvokeMethod, $null, $Database, @($query))
     if ($null -eq $view) { throw "MSI OpenView returned no view for property '$Name'." }
@@ -117,6 +142,7 @@ function Read-MsiProperty($Database, [string]$Name, [switch]$AllowMissing) {
 }
 
 function Read-Autostart {
+    # Observe the existing per-user entry without creating a registry key.
     $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
     if (-not (Test-Path -LiteralPath $key)) { return $null }
     return (Get-Item -LiteralPath $key).GetValue("Inklow", $null)
@@ -137,6 +163,12 @@ public static class InklowMsi {
 '@
 
 function Read-ProductInfo([uint32]$Context, [string]$Property, [switch]$AllowAbsentProduct) {
+    <# .SYNOPSIS
+    Read the selected product's property in one explicit MSI installation context.
+    .DESCRIPTION
+    The first native call sizes the UTF-16 buffer. AllowAbsentProduct maps only
+    ERROR_UNKNOWN_PRODUCT to null; all other native errors remain failures.
+    #>
     [uint32]$length = 0
     $code = [InklowMsi]::MsiGetProductInfoExW($productCode, $null, $Context, $Property, $null, [ref]$length)
     if ($code -eq 1605 -and $AllowAbsentProduct) { return $null }
@@ -149,6 +181,9 @@ function Read-ProductInfo([uint32]$Context, [string]$Property, [switch]$AllowAbs
 }
 
 function Read-ProductContexts {
+    <# .SYNOPSIS
+    Enumerate this product's current-user managed/unmanaged and machine contexts.
+    #>
     # Current user only (NULL SID); context 4 is the machine instance.
     foreach ($context in @(1, 2, 4)) {
         $state = Read-ProductInfo $context "State" -AllowAbsentProduct
@@ -157,6 +192,9 @@ function Read-ProductContexts {
 }
 
 function Get-PackedProductCode([string]$Code) {
+    <# .SYNOPSIS
+    Encode an MSI GUID into its packed registry-key representation.
+    #>
     $parts = $Code.Trim('{}').Split('-')
     $packed = ""
     foreach ($part in $parts[0..2]) {
@@ -172,6 +210,7 @@ function Get-PackedProductCode([string]$Code) {
 }
 
 $msiPath = (Resolve-Path -LiteralPath $Msi).Path
+# Bind the receipt to the artifact bytes before running any installer transaction.
 $package = Get-Content -LiteralPath $PackageReceipt -Raw | ConvertFrom-Json
 $reportPath = [System.IO.Path]::GetFullPath($Report)
 $reportDirectory = Split-Path -Parent $reportPath
@@ -262,6 +301,8 @@ $installAttempted = $false
 $oldHome = [Environment]::GetEnvironmentVariable("INKLOW_HOME", "Process")
 $oldQt = [Environment]::GetEnvironmentVariable("QT_QPA_PLATFORM", "Process")
 $oldRun = Read-Autostart
+# Restore process environment in finally; leave disposable evidence available
+# for diagnosis instead of confusing receipt preservation with uninstall failure.
 try {
     $env:INKLOW_HOME = $isolated
     $env:QT_QPA_PLATFORM = "windows"

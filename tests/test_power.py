@@ -1,3 +1,9 @@
+"""Constrain power parsing, shared sampling, and low-battery delivery policy.
+
+OS reads use controlled subprocess, ctypes, or temporary sysfs boundaries;
+no fixture changes the machine's actual power source or desktop preferences.
+"""
+
 from types import SimpleNamespace
 import subprocess
 import threading
@@ -14,12 +20,14 @@ def reading(*, available=True, has_battery=True, on_battery=True, charging=False
 
 
 def pmset(source="Battery Power", percent="19", state="discharging"):
+    """Build a textual macOS power report without invoking the native command."""
     return (f"Now drawing from '{source}'\n"
             f" -InternalBattery-0 (id=1234567)\t{percent}%; {state}; 2:15 remaining present: true\n")
 
 
 @pytest.fixture
 def native_sample(monkeypatch):
+    """Expose a manual cache clock, mutable response slot, and subprocess call log."""
     clock = [0.0]
     responses = [pmset()]
     calls = []

@@ -8,6 +8,7 @@ from inklow.config import Config
 
 @pytest.fixture
 def settings_shell(monkeypatch, tmp_path):
+    """Yield isolated native settings and release its window and service owners."""
     monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
     app = A.NSApplication.sharedApplication()
     shell = appkit_ui.BroTypistApplication.alloc().init().configure(

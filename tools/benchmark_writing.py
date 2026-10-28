@@ -45,6 +45,8 @@ MARKERS = ("<|", "<turn|>", "<bos>", "<eos>", "<start_of_turn>",
 
 @dataclass(frozen=True)
 class Case:
+    """Synthetic request inputs and review criteria, with no captured user data."""
+
     id: str
     language: str
     prefix: str
@@ -63,6 +65,7 @@ class Case:
 
 
 def synthetic_cases() -> list[Case]:
+    """Combine authored boundary/security cases with the checked-in quality corpus."""
     # These are authored fixtures, never captured windows, clipboard or history.
     cases = [
         Case("email-en", "English", "Thank you for your help with the report. I really",
@@ -124,12 +127,14 @@ def synthetic_cases() -> list[Case]:
 
 
 def peak_rss_bytes() -> int:
+    """Return this Darwin process's lifetime peak RSS, not incremental/GPU use."""
     # Darwin getrusage ru_maxrss is bytes, unlike Linux's KiB. This is the
     # process lifetime high-water resident set, NOT Metal/GPU/whole-machine RAM.
     return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
 
 
 def safe_value(value):
+    """Make metadata JSON-compatible, replacing unknown objects with type names."""
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, (list, tuple)):
@@ -143,6 +148,7 @@ class CompletionObservation:
     """Observe the native call without changing prompt, sampler or stream."""
 
     def __init__(self, model):
+        """Wrap this model instance for its remaining benchmark-worker lifetime."""
         self.model = model
         self.original = model.create_completion
         self.calls: list[dict] = []
@@ -155,6 +161,11 @@ class CompletionObservation:
         model.create_completion = self.call
 
     def call(self, *args, **kwargs):
+        """Forward unchanged arguments and record streaming text and cleanup.
+
+        The returned stream owns the native iterator and closes it in its
+        finally block. Nonstreaming results are returned without text capture.
+        """
         prompt = kwargs.get("prompt", args[0] if args else None)
         row = {"settings": {key: safe_value(value) for key, value in kwargs.items()
                              if key != "prompt"},
@@ -174,6 +185,7 @@ class CompletionObservation:
             return result
 
         def observed():
+            """Yield native chunks while retaining observations on early closure."""
             first_chunk = True
             try:
                 for chunk in result:
@@ -195,6 +207,7 @@ class CompletionObservation:
 
 
 def model_details(model) -> dict:
+    """Snapshot exposed native loader settings; unavailable attributes stay null."""
     details = {"metadata": safe_value(model.metadata), "process_peak_rss_bytes": peak_rss_bytes()}
     for name in ("n_ctx", "n_batch", "n_threads", "n_threads_batch"):
         value = getattr(model, name, None)
@@ -209,6 +222,7 @@ def model_details(model) -> dict:
 
 def mechanical_checks(case: Case, text: str, observations: list[dict], n_ctx: int | None,
                       max_tokens: int, parse_choices) -> dict:
+    """Check insertion safety and native resource/budget evidence, not quality."""
     raw = "".join(call["raw_generated_text"] for call in observations)
     checks = {
         "no_displayed_structural_thought_or_tool_markers": not any(marker in text for marker in MARKERS),
@@ -286,6 +300,11 @@ def mechanical_checks(case: Case, text: str, observations: list[dict], n_ctx: in
 
 
 def stream_case(provider, case, observer, n_ctx, max_tokens, synonym_prompt, parse_choices, *, max_words=4):
+    """Measure one real request and return output, timings, and review evidence.
+
+    Stream exceptions become failed mechanical observations; the caller's
+    process watchdog, rather than this function, enforces the time limit.
+    """
     from inklow.writing import reference_context
     options = {"max_words": max_words}
     if case.context:
@@ -345,6 +364,7 @@ def cancellation_probe(provider, observer, *, pre_cancelled: bool) -> dict:
         requested_at.append(started)
 
     def request_cancel():
+        """Request cancellation synchronously before the first native chunk yields."""
         requested_at.append(time.perf_counter())
         cancel.set()
 
@@ -381,6 +401,12 @@ def cancellation_probe(provider, observer, *, pre_cancelled: bool) -> dict:
 
 
 def model_worker(messages, model_path: str, round_index: int, max_tokens: int, max_words=4, acceleration="auto"):
+    """Run one model/round in an isolated child and report incremental evidence.
+
+    Mutates the child's environment before provider imports. Phase messages
+    arm the parent's watchdog; the final result includes attempted provider
+    cleanup, even after a captured runtime failure.
+    """
     provider = None
     result = {"round": round_index + 1, "model_path": model_path, "cases": [],
               "cancellation": [], "close": {"status": "not_started"}}
@@ -460,6 +486,11 @@ def model_worker(messages, model_path: str, round_index: int, max_tokens: int, m
 
 
 def run_process(context, model_path, round_index, max_tokens, max_words=4, acceleration="auto") -> dict:
+    """Own a child and queue until completion or watchdog termination.
+
+    Preserve received case evidence if the child fails, and join or kill the
+    child before returning so the next model cannot overlap its resources.
+    """
     messages = context.Queue()
     process = context.Process(target=model_worker, args=(messages, model_path, round_index, max_tokens, max_words, acceleration))
     process.start()
@@ -476,6 +507,8 @@ def run_process(context, model_path, round_index, max_tokens, max_words=4, accel
                     break
                 continue
             if "phase" in message:
+                # Reset only on a phase transition, not on arbitrary output:
+                # progress rows must not extend a hung phase indefinitely.
                 phase = message["phase"] + (":" + message["case"] if "case" in message else "")
                 deadline = time.monotonic() + message["timeout"]
             elif "prepared" in message:
@@ -511,6 +544,7 @@ def run_process(context, model_path, round_index, max_tokens, max_words=4, accel
 
 
 def summarize(sessions: list[dict]) -> dict:
+    """Aggregate descriptive timings and pair matching round/case observations."""
     by_model: dict[str, dict] = {}
     for session in sessions:
         label = session["label"]
@@ -548,6 +582,8 @@ def summarize(sessions: list[dict]) -> dict:
             target[key] = {"n": len(values), "median": statistics.median(values) if values else None,
                            "min": min(values) if values else None, "max": max(values) if values else None}
     paired = []
+    # Compare only shared cases; an interrupted worker must not manufacture
+    # latency deltas for missing candidate observations.
     candidates = {session["round"]: session for session in sessions if session["label"] == "candidate"}
     for baseline in (session for session in sessions if session["label"] == "baseline"):
         candidate = candidates.get(baseline["round"], {})
@@ -567,6 +603,7 @@ def summarize(sessions: list[dict]) -> dict:
 
 
 def session_passes(session: dict) -> bool:
+    """Require complete mechanical, cancellation, cleanup, and process evidence."""
     return (not session.get("error") and session.get("close", {}).get("status") == "pass"
             and session.get("process", {}).get("exitcode") == 0
             and not session.get("process", {}).get("terminated_by_watchdog")
@@ -577,6 +614,11 @@ def session_passes(session: dict) -> bool:
 
 
 def main(argv=None) -> int:
+    """Run the macOS CLI and write a new private report; return mechanical status.
+
+    Invalid arguments exit through argparse with status 2. A completed harness
+    returns 0 for mechanical success or 1 for failure, never a quality grade.
+    """
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--model", type=Path, required=True, help="Existing candidate GGUF; no download or model selection.")
     parser.add_argument("--baseline-model", type=Path, help="Optional existing GGUF, evaluated with identical settings/cases.")

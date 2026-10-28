@@ -11,7 +11,10 @@ from .base import BridgeBase, Shortcut
 
 
 class LinuxBridge(BridgeBase):
+    """Own AT-SPI access and, outside metadata-only mode, an X11 hook thread."""
+
     def __init__(self, *, accessibility_only: bool = False) -> None:
+        """Connect metadata access; defer all persistent X11 grabs until startup."""
         super().__init__()
         self._thread: threading.Thread | None = None
         self._wake_read = None
@@ -87,6 +90,7 @@ class LinuxBridge(BridgeBase):
             raise RuntimeError("AT-SPI registry returned no desktop")
 
     def _application_identity(self, app, include_disabled: bool = False):
+        """Resolve a non-self process and apply policy before traversing its text."""
         pid = int(app.get_process_id())
         if pid <= 0 or pid == os.getpid():
             return None
@@ -100,6 +104,7 @@ class LinuxBridge(BridgeBase):
         return pid, executable or name
 
     def _focused(self, include_disabled: bool = False):
+        """Find focus under an active ancestor with a shared 2,000-node budget."""
         a = self.atspi
         desktop = self._desktop
         desktop.clearCache()
@@ -138,6 +143,7 @@ class LinuxBridge(BridgeBase):
         return None
 
     def foreground(self) -> dict:
+        """Expose native app identity without scraping browser address fields."""
         with self._lock:
             try:
                 if not self._available:
@@ -154,6 +160,7 @@ class LinuxBridge(BridgeBase):
                 return super().foreground()
 
     def _capture(self, *, geometry: bool = True, reject_selection: bool = False):
+        """Return a snapshot plus live edit/text interfaces, or refuse the field."""
         if not self._available or self._stopped.is_set():
             return None
         focused = self._focused()
@@ -216,6 +223,7 @@ class LinuxBridge(BridgeBase):
                         window_id=window_id, window_revision=window_id), editable, text_iface
 
     def _window_ancestor(self, element):
+        """Find the nearest active ancestor within a bounded parent walk."""
         for _ in range(16):
             if element is None:
                 return None
@@ -226,6 +234,7 @@ class LinuxBridge(BridgeBase):
         return None
 
     def _inline_metrics(self, element, interface, text, caret, rect, attrs):
+        """Prove desktop-space font, clipping and caret metrics or return None."""
         # AT-SPI has no universal IME-state property. Only providers explicitly
         # advertising an inactive composition can provide a safe overlay.
         if (not rect or not caret or text[caret - 1] in "\r\n"
@@ -290,6 +299,7 @@ class LinuxBridge(BridgeBase):
             return None
 
     def context_matches(self, snapshot):
+        """Recheck field/window identity and visibility without retrieving text."""
         try:
             if not self._available or self._stopped.is_set():
                 return False
@@ -315,6 +325,7 @@ class LinuxBridge(BridgeBase):
             return False
 
     def focused_context(self, snapshot, *, authorized, max_chars=2400):
+        """Read bounded noneditable context, discarding it if authorization changes."""
         result = {"text": "", "provenance": "accessibility",
                   "window_id": snapshot.window_id, "revision": snapshot.window_revision,
                   "status": "unavailable"}
@@ -333,6 +344,8 @@ class LinuxBridge(BridgeBase):
                     or window_id != snapshot.window_id or not window_id):
                 return {**result, "status": "blocked"}
             stack, chunks, remaining = [(window, 0)], [], min(12000, max(0, max_chars))
+            # Bound traversal independently of provider size; the final focus
+            # check prevents returning context gathered across a window switch.
             deadline, a = time.monotonic() + 0.15, self.atspi
             for _ in range(128):
                 if not stack or remaining <= 0 or time.monotonic() >= deadline:
@@ -371,6 +384,7 @@ class LinuxBridge(BridgeBase):
             return {**result, "status": "error"}
 
     def capture(self) -> Snapshot | None:
+        """Serialize native capture and return None on unsupported providers."""
         with self._lock:
             try:
                 result = self._capture()
@@ -379,6 +393,7 @@ class LinuxBridge(BridgeBase):
                 return None
 
     def insert(self, snapshot: Snapshot, text: str) -> bool:
+        """Insert at an unchanged caret; successful edits survive caret-set failure."""
         if not text or "\x00" in text or snapshot.protected or snapshot.selection_length:
             return False
         with self._lock:
@@ -400,6 +415,7 @@ class LinuxBridge(BridgeBase):
                 return False
 
     def replace_range(self, snapshot: Snapshot, start: int, length: int, text: str) -> bool:
+        """Allow caret insertion only; never emulate replacement by deleting first."""
         if not self._valid_replacement(snapshot, start, length, text):
             return False
         with self._lock:
@@ -424,6 +440,7 @@ class LinuxBridge(BridgeBase):
         self._wake()
 
     def start_shortcuts(self, callback: Shortcut) -> None:
+        """Start the sole owner of persistent X11 connections and passive grabs."""
         super().start_shortcuts(callback)
         with self._lock:
             if not self._available or self._thread is not None or self._stopped.is_set():
@@ -443,6 +460,7 @@ class LinuxBridge(BridgeBase):
         self._wake()
 
     def _event_loop(self) -> None:
+        """Maintain grabs, replay declined keys, and release resources on exit."""
         X, XK = self.x, self.xk
         connection = None
         grabbed: list[tuple[int, int]] = []
@@ -547,6 +565,7 @@ class LinuxBridge(BridgeBase):
                         pass
 
     def stop(self) -> None:
+        """Wake and join the hook; raise if its one-second cleanup window expires."""
         super().stop()
         self._wake()
         thread = self._thread

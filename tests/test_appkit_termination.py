@@ -13,11 +13,14 @@ from inklow.runtime import ShutdownPending
 
 
 class CleanupBoundary:
+    """Model an owned resource that needs a fixed number of cancellation retries."""
+
     def __init__(self, pending=0):
         self.pending = pending
         self.closed = False
 
     def close(self):
+        """Raise pending until retries are exhausted, then mark ownership released."""
         if self.pending:
             self.pending -= 1
             raise ShutdownPending("Owned operation is still cancelling")
@@ -35,6 +38,7 @@ class ModalTerminationHost:
         self.decision = None
 
     def terminate_(self, sender):
+        """Pump only the nested modal mode; do not let the outer timer rescue Quit."""
         self.decision = self.shell.applicationShouldTerminate_(self)
         deadline = time.monotonic() + 0.6
         while not self.replies and time.monotonic() < deadline:
@@ -48,6 +52,7 @@ class ModalTerminationHost:
 
 @pytest.fixture
 def native_quit(monkeypatch):
+    """Create timer-driven Quit scenarios and cancel deferred selectors on teardown."""
     shells = []
 
     def run(*, pending_cleanup=0, discard=True):

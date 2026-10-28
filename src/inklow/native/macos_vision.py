@@ -5,6 +5,10 @@ targets one exact on-screen window of the focused process through
 ScreenCaptureKit, is re-validated against the snapshot after capture, and the
 CGImage is released before results are returned. Only derived style numbers
 and one short-lived in-memory OCR string are retained, both bounded.
+
+AX and window rectangles use top-left screen coordinates in points. Pixel
+buffers carry their own scale; callers supply live authorization/focus checks
+rather than treating a saved snapshot as continuing permission.
 """
 from __future__ import annotations
 
@@ -107,7 +111,7 @@ def request_capture_permission() -> bool:
 
 
 def _secure_input() -> bool:
-    """A password field anywhere enables Secure Event Input; fail closed."""
+    """Read Secure Event Input conservatively; unavailable Carbon means blocked."""
     global _secure_check
     try:
         if _secure_check is None:
@@ -130,6 +134,7 @@ def _frontmost_pid() -> int:
 # --- Geometry helpers -------------------------------------------------------
 
 def _rect(value):
+    """Accept a finite (x, y, width, height), including a zero-width caret."""
     if not isinstance(value, (tuple, list)) or len(value) != 4:
         return None
     try:
@@ -159,7 +164,7 @@ def _gap(a, b) -> float:
 # --- Single-window capture --------------------------------------------------
 
 def _window_number(pid: int, bounds) -> int | None:
-    """The unique on-screen CGWindowID with exactly the AX window's frame."""
+    """Return a unique shareable window ID whose frame matches within one point."""
     import Quartz as Q
     options = Q.kCGWindowListOptionOnScreenOnly | Q.kCGWindowListExcludeDesktopElements
     matches = []
@@ -179,7 +184,11 @@ def _window_number(pid: int, bounds) -> int | None:
 
 
 def _await(start):
-    """Wait a bounded time for one completion handler; late results are dropped."""
+    """Wait up to _CAPTURE_TIMEOUT seconds; discard late callback results.
+
+    The native operation is not cancelled on timeout. Closing acceptance under
+    the same lock as the callback prevents a late image from being retained.
+    """
     done, lock, box = threading.Event(), threading.Lock(), []
     accepting = True
 
@@ -206,6 +215,7 @@ class _Pixels:
 
 
 def _context(width: int, height: int, gray: bool):
+    """Allocate an 8-bit grayscale or sRGB RGBA bitmap context in pixel units."""
     import Quartz as Q
     if gray:
         return Q.CGBitmapContextCreate(None, width, height, 8, 0, Q.CGColorSpaceCreateDeviceGray(),
@@ -216,6 +226,7 @@ def _context(width: int, height: int, gray: bool):
 
 
 def _image_bytes(image, channels: int) -> bytes:
+    """Copy image bytes into packed rows, omitting native row-stride padding."""
     import Quartz as Q
     width, height = int(Q.CGImageGetWidth(image)), int(Q.CGImageGetHeight(image))
     stride, row = int(Q.CGImageGetBytesPerRow(image)), width * channels
@@ -233,6 +244,11 @@ class _Shot:
         self.image, self.frame, self.scale, self.number = image, frame, scale, number
 
     def crop(self, rect) -> _Pixels | None:
+        """Copy a screen-point rectangle into RGBA pixels clipped to this image.
+
+        Return None for a tiny crop or failed native allocation. The copied
+        buffer remains usable after close() drops this shot's image reference.
+        """
         import Quartz as Q
         fx, fy, _, _ = self.frame
         scale = self.scale
@@ -251,11 +267,17 @@ class _Shot:
         return _Pixels(x1 - x0, y1 - y0, data, (fx + x0 / scale, fy + y0 / scale), scale)
 
     def close(self) -> None:
+        """Drop the owned PyObjC image reference; safe to call repeatedly."""
         self.image = None
 
 
 def _capture(pid: int, bounds, current) -> _Shot | None:
-    """Capture only the exact focused window, excluding occluding windows and cursor."""
+    """Capture one matched window, excluding occluding windows and the cursor.
+
+    Recheck current() around asynchronous native calls. Return None for stale
+    focus, ambiguous geometry, timeout or unusable capture; native exceptions
+    propagate. The caller must close a returned shot after extracting evidence.
+    """
     if not current():
         return None
     number = _window_number(pid, bounds)
@@ -322,6 +344,7 @@ def clear_text_cache() -> None:
 
 
 def _expire_text_cache(epoch: int) -> None:
+    """Expire only the generation scheduled by this timer, not a newer result."""
     global _text_cache, _text_timer, _text_epoch
     with _text_lock:
         if epoch == _text_epoch:
@@ -331,6 +354,7 @@ def _expire_text_cache(epoch: int) -> None:
 
 
 def _retain_text(key, text: str, epoch: int) -> bool:
+    """Retain one OCR result if its generation survives; arm plaintext expiry."""
     global _text_cache, _text_timer, _text_epoch
     with _text_lock:
         if epoch != _text_epoch:
@@ -347,6 +371,7 @@ def _retain_text(key, text: str, epoch: int) -> bool:
 
 
 def _recognize(image, frame):
+    """Return (text, confidence, screen-point rect) observations, or None on failure."""
     classes = _objc_classes()
     handler = classes["VNImageRequestHandler"].alloc().initWithCGImage_options_(image, {})
     request = classes["VNRecognizeTextRequest"].alloc().init()
@@ -408,7 +433,16 @@ def _compose(observations, field, limit: int) -> str:
 
 
 def recognize_window_text(snapshot, *, authorized, current, max_chars: int = 2400) -> dict:
-    """On-device OCR of the snapshot's own focused window; returns {"status", "text"}."""
+    """Synchronously recognize context in the snapshot's focused window.
+
+    authorized() must recheck consent/policy; current() must recheck snapshot
+    identity. Both can be called repeatedly during capture and before delivery.
+    Return a status/text mapping; only ready contains nonempty text, bounded to
+    max_chars clamped to 0..4000. OCR plaintext may be reused for four seconds
+    for the same context key. Native exceptions are left to the caller.
+    Observations overlapping the focused field are omitted when its rectangle
+    is available; this exclusion cannot be applied without field geometry.
+    """
     with _text_lock:
         epoch = _text_epoch
     limit = max(0, min(int(max_chars), 4000))
@@ -441,6 +475,8 @@ def recognize_window_text(snapshot, *, authorized, current, max_chars: int = 240
         return {"status": "stale", "text": ""}
     import objc
     with objc.autorelease_pool():
+        # Cache clearing invalidates capture as well as publication. Check the
+        # epoch again after callbacks, which may race a consent/focus reset.
         def capture_current():
             with _text_lock:
                 if epoch != _text_epoch:
@@ -479,12 +515,14 @@ def recognize_window_text(snapshot, *, authorized, current, max_chars: int = 240
 
 @dataclass(frozen=True)
 class _Span:
+    """Short left-to-right AX text sample with a screen-point rectangle."""
     text: str
     rect: tuple
 
 
 @dataclass(frozen=True)
 class _Line:
+    """Validated same-line geometry and transient text for one style request."""
     samples: tuple
     suffix: _Span | None
     caret: tuple
@@ -508,6 +546,7 @@ class _Line:
 
 @dataclass(frozen=True)
 class _Style:
+    """Reusable font metrics and expiring colours; stores no sampled line text."""
     spec: tuple
     font_name: str
     font_size: float
@@ -524,6 +563,7 @@ class _Style:
 
 
 def _span(value) -> _Span | None:
+    """Reject unbounded, multiline or RTL samples unsuitable for this matcher."""
     if not isinstance(value, dict):
         return None
     text, rect = value.get("text"), _rect(value.get("rect"))
@@ -535,6 +575,7 @@ def _span(value) -> _Span | None:
 
 
 def _ax_render(value) -> InlineRender | None:
+    """Normalize AX render evidence without taking over suffix displacement."""
     if isinstance(value, dict):
         names = {item.name for item in fields(InlineRender)}
         data = {key: item for key, item in value.items() if key in names}
@@ -583,6 +624,8 @@ def _parse(snapshot, evidence) -> _Line | None:
     spans = samples + ((suffix,) if suffix is not None else ())
     if not spans:
         return None
+    # Every sample must describe the same visible line before its widths can
+    # constrain a font; caret adjacency ties that line to the current insertion.
     top, height = spans[0].rect[1], spans[0].rect[3]
     for item in spans:
         x, y, w, h = item.rect
@@ -622,7 +665,8 @@ def _parse(snapshot, evidence) -> _Line | None:
 
 
 # --- Fonts ------------------------------------------------------------------
-# A font spec is ("named", PostScript name), ("system", NSFontWeight) or ("ax",).
+# Font specs are ("named", PostScript name), ("system", NSFontWeight),
+# ("fixed", PostScript name, cell advance in points), or ("ax",).
 
 def _font(spec: tuple, size: float, line: _Line | None = None):
     """Only a font the overlay can recreate exactly (see native.macos.resolve_font)."""
@@ -699,6 +743,7 @@ def _family_specs(family: str) -> list[tuple]:
 
 
 def _candidate_specs(line: _Line) -> list[tuple]:
+    """Prefer explicit AX font evidence, then CSS families, then bounded defaults."""
     if line.font_name:
         if line.fixed_advance:
             return [("fixed", line.font_name, line.fixed_advance)]
@@ -720,6 +765,7 @@ def _candidate_specs(line: _Line) -> list[tuple]:
 
 
 def _candidates(line: _Line) -> list[tuple[tuple, float]]:
+    """Rank width-fitting fonts and retain viable rounded point-size variants."""
     if line.ax is not None:
         return [(("ax",), line.ax.font_size)]
     fits = []
@@ -762,6 +808,7 @@ def _median(values: bytes) -> int:
 
 
 def _gather(buffer, width: int, rows, cols, dx: int = 0) -> bytearray:
+    """Gather half-open row/column intervals with an optional pixel x offset."""
     out = bytearray()
     for y in range(*rows):
         base = y * width - dx
@@ -775,6 +822,7 @@ def _row_profile(buffer, width: int, height: int, cols) -> list[int]:
 
 
 def _ncc(a, b) -> float:
+    """Return normalized cross-correlation, or zero for empty/constant inputs."""
     count = len(a)
     if not count or count != len(b):
         return 0.0
@@ -787,6 +835,7 @@ def _ncc(a, b) -> float:
 
 
 def _best_shift(captured: list[int], rendered: list[int], limit: int) -> int:
+    """Find the best bounded vertical pixel shift using zero-padded row profiles."""
     count, best, best_score = len(captured), 0, -2.0
     for shift in range(-limit, limit + 1):
         score = _ncc(captured, [rendered[y - shift] if 0 <= y - shift < count else 0 for y in range(count)])
@@ -842,6 +891,7 @@ def _align(pixels, captured, captured_rows, spans, rows, cols, font, guess, vert
 
 
 def _uniform(rgba: bytes, indexes, minimum: int, max_deviation: float):
+    """Return mean RGB in 0..1 only for enough opaque, low-variance samples."""
     if len(indexes) < minimum or any(rgba[index * 4 + 3] < 250 for index in indexes):
         return None
     means = []
@@ -932,6 +982,8 @@ def _match(pixels: _Pixels, line: _Line, candidates):
     if not results:
         return None, _BACKOFF_NO_FONT
     results.sort(key=lambda item: item[0], reverse=True)
+    # A high score alone is insufficient when another font explains the same
+    # pixels nearly as well; abstain rather than choosing an arbitrary family.
     best = results[0]
     rival = next((item for item in results[1:] if item[1] != best[1]), None)
     if best[0] < _NCC_MIN or (rival is not None and rival[0] > best[0] - _AMBIGUITY_MARGIN):
@@ -983,6 +1035,7 @@ def _render_for(style: _Style, line: _Line) -> InlineRender | None:
 
 
 def _crop_rect(line: _Line):
+    """Pad the sample bounds in points to leave room for baseline alignment."""
     spans = line.spans
     left = min(item.rect[0] for item in spans) - 4
     right = max(item.rect[0] + item.rect[2] for item in spans) + 4
@@ -1034,6 +1087,11 @@ class _StyleEngine:
         self._last_capture = 0.0
 
     def request(self, snapshot, evidence, enabled: bool, authorized=None) -> InlineRender | None:
+        """Return a reusable render now, or replace the pending verification.
+
+        Never wait for capture. Missing/false authorization clears cached state;
+        rejected or already-active lines are not queued again until eligible.
+        """
         if not enabled or authorized is None or not self._authorized(authorized):
             self.reset()
             return None
@@ -1064,12 +1122,14 @@ class _StyleEngine:
 
     @staticmethod
     def _authorized(authorized) -> bool:
+        """Treat callback failures as revoked authorization, without logging text."""
         try:
             return bool(authorized())
         except Exception:
             return False
 
     def _current(self, epoch: int, authorized) -> bool:
+        """Check authorization outside the lock, then detect concurrent resets."""
         with self._cond:
             if epoch != self._epoch:
                 return False
@@ -1079,6 +1139,7 @@ class _StyleEngine:
             return epoch == self._epoch
 
     def reset(self) -> None:
+        """Invalidate pending/cached work without stopping the daemon or native call."""
         with self._cond:
             if self._pending is None and not self._styles and not self._rejected and self._active is None:
                 return
@@ -1088,6 +1149,7 @@ class _StyleEngine:
             self._rejected.clear()
 
     def _run(self) -> None:
+        """Process the newest request serially and publish only a current epoch."""
         while True:
             with self._cond:
                 while self._pending is None:
@@ -1106,6 +1168,8 @@ class _StyleEngine:
                 # Content-free: native errors can quote window or font data.
                 style, backoff = None, _BACKOFF_MISMATCH
             valid = self._current(epoch, authorized)
+            # A reset can occur during native verification or authorization;
+            # publication checks the epoch again while holding the cache lock.
             with self._cond:
                 self._active = None
                 if valid and epoch == self._epoch:

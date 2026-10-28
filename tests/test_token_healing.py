@@ -12,6 +12,8 @@ from inklow.providers import _following_choice, _healing_tail, _spaced_word, _wi
 ])
 def test_replay_is_removed_at_every_native_stream_boundary(replay, continuation):
     wire = replay + continuation
+    # Include empty first/last chunks as well as cuts inside the replay so the
+    # oracle does not depend on how the native decoder groups its output.
     for split in range(len(wire) + 1):
         pieces = [(wire[:split], None), (wire[split:], "stop")]
         assert "".join(text for text, _ in _without_healing_prefix(pieces, replay)) == continuation

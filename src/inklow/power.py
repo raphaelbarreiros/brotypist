@@ -9,6 +9,12 @@ class LowBatteryHelpPolicy:
         self._asked = False
 
     def should_ask(self, reading: dict) -> bool:
+        """Consume one low-battery request, rearming only on known external power.
+
+        A true result immediately latches the request. Callers must establish
+        that a help surface is eligible before asking; this policy does not
+        observe whether the UI was actually displayed.
+        """
         if reading.get("available") is not True or reading.get("has_battery") is not True:
             return False
         on_battery = reading.get("on_battery")

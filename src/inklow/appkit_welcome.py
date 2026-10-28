@@ -1,4 +1,9 @@
-"""Native six-step welcome and an isolated, real local-inference try-it field."""
+"""Native six-step welcome and an isolated, real local-inference try-it field.
+
+The shell drives refreshes on the AppKit thread and owns shared settings and
+consent dialogs. This window owns its preview session, stopping it on navigation,
+loss of focus or close; preview insertion targets only its own text view.
+"""
 from __future__ import annotations
 
 import importlib
@@ -16,11 +21,14 @@ from .shortcuts import mac_key_name, shortcut_from_event
 
 
 class WelcomeView(A.NSView):
+    """Lay out welcome content using top-left AppKit coordinates."""
+
     def isFlipped(self):
         return True
 
 
 def label(text, x, y, width, height, *, size=13, bold=False, secondary=False):
+    """Create a wrapping native label with geometry and font size in points."""
     view = A.NSTextField.wrappingLabelWithString_(text)
     view.setFrame_(A.NSMakeRect(x, y, width, height))
     view.setFont_(A.NSFont.systemFontOfSize_weight_(size, A.NSFontWeightSemibold if bold else A.NSFontWeightRegular))
@@ -29,6 +37,8 @@ def label(text, x, y, width, height, *, size=13, bold=False, secondary=False):
 
 
 class GhostWordmark(A.NSTextField):
+    """Keep the branded text colors aligned with the view's effective appearance."""
+
     def viewDidChangeEffectiveAppearance(self):
         objc.super(GhostWordmark, self).viewDidChangeEffectiveAppearance()
         if hasattr(self, "mark_size"):
@@ -62,14 +72,18 @@ def wordmark(width, height, size):
 
 
 class PreviewTextView(A.NSTextView):
+    """Draw a non-document suffix and route acceptance to the local preview owner."""
+
     @objc.python_method
     def set_ghost(self, text):
+        """Update the drawn suggestion and accessibility help without editing text."""
         if getattr(self, "ghost_text", "") != text:
             self.ghost_text = text
             self.setNeedsDisplay_(True)
         self.setAccessibilityHelp_(f"Suggestion: {text}" if text else "Type to request a local suggestion.")
 
     def drawRect_(self, dirty):
+        """Draw near the local caret, skipping selections and active IME composition."""
         objc.super(PreviewTextView, self).drawRect_(dirty)
         text = getattr(self, "ghost_text", "")
         selection = self.selectedRange()
@@ -79,6 +93,8 @@ class PreviewTextView(A.NSTextView):
         local = self.convertRect_fromView_(self.window().convertRectFromScreen_(caret), None)
         x = A.NSMinX(local) + 1
         y = A.NSMinY(local)
+        # Text after the caret remains visible: draw the preview below it.
+        # Compare Cocoa's selection offset against UTF-16 length, not Python len.
         if int(selection.location) < len(str(self.string()).encode("utf-16-le")) // 2:
             y += A.NSHeight(local) + 4
         bounds = A.NSInsetRect(self.visibleRect(), 12, 0)
@@ -92,6 +108,7 @@ class PreviewTextView(A.NSTextView):
         A.NSGraphicsContext.restoreGraphicsState()
 
     def keyDown_(self, event):
+        """Consume preview actions only when handled; forward other keys to AppKit."""
         owner = self.welcome_owner
         flags = event.modifierFlags()
         modifiers = [name for name, mask in (("Ctrl", A.NSEventModifierFlagControl), ("Alt", A.NSEventModifierFlagOption), ("Shift", A.NSEventModifierFlagShift), ("Super", A.NSEventModifierFlagCommand)) if flags & mask]
@@ -110,8 +127,11 @@ class PreviewTextView(A.NSTextView):
 
 
 class WelcomeWindow(NSObject):
+    """Retain onboarding controls and a preview session limited to the focused editor."""
+
     @objc.python_method
     def configure(self, shell):
+        """Create the reusable window without starting a preview or downloading a model."""
         self.shell = shell
         self.step = 0
         self.session = None
@@ -136,6 +156,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def button(self, title, x, y, width, callback, identifier):
+        """Retain a step-local action and expose its stable accessibility identifier."""
         button = A.NSButton.buttonWithTitle_target_action_(title, self, "perform:")
         button.setFrame_(A.NSMakeRect(x, y, width, 30))
         self.next_tag += 1
@@ -157,6 +178,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def show(self):
+        """Restart the tour at its first step, retaining the previously typed preview."""
         self.stop_preview()
         self.step = 0
         self.render()
@@ -165,6 +187,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def render(self):
+        """Stop the old preview before replacing step controls and action bindings."""
         self.stop_preview()
         self.actions = {}
         self.permission_buttons = {}
@@ -212,6 +235,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def step_0(self):
+        """Present the local-first introduction and user-initiated source link."""
         icon = A.NSImageView.alloc().initWithFrame_(A.NSMakeRect(324, 65, 112, 112))
         icon.setImage_(A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("app.icns"))))
         self.root.addSubview_(icon)
@@ -230,6 +254,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def step_1(self):
+        """Present optional context choices through the shell's shared consent path."""
         config = self.shell.controller.config
         self.heading("Your writing stays local", "Predictions run on this Mac. BroTypist does not send your writing to a remote inference service, and writing history stays off unless you enable it in Personalization.")
         self.card("Text before cursor  →  Local model  →  Suggestion", f"Up to {config.context_chars:,} preceding characters from a supported, focused field. Password fields and excluded apps are skipped before capture.", 192, height=72)
@@ -248,6 +273,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def set_context(self, field, button):
+        """Request a context change, then reflect the saved choice even on failure."""
         try:
             self.shell._context_consent(field, bool(button.state()))
         finally:
@@ -256,6 +282,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def step_2(self):
+        """Build live permission cards; only button actions request OS access."""
         self.heading("Two macOS permissions", "Approve BroTypist in System Settings. These cards show the actual permission state, not a saved preference.")
         for key, title, detail, y in (("accessibility", "Accessibility", "Reads supported text near the caret and inserts only after you accept.", 196), ("input_monitoring", "Input Monitoring", "Listens for typing and configured acceptance shortcuts. Secure fields remain protected.", 292)):
             self.card(title, detail, y, height=86)
@@ -270,6 +297,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def step_3(self):
+        """Build model selection and download controls without starting inference."""
         from .models import recommended_preset
         self.heading("Choose your local model", "Choose a catalogue model or import a local file. Nothing downloads until you ask. Choosing a model does not run a prediction.")
         self.recommended_model = recommended_preset().id
@@ -309,6 +337,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def _current_model_choice(self, inventory):
+        """Prefer a pending catalogue choice, then the active file or recommendation."""
         config = self.shell.controller.config
         pending = self.shell.model_selection
         if pending is not None and any(str(item["id"]) == pending for item in inventory):
@@ -321,6 +350,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def _populate_models(self, inventory):
+        """Rebuild menu items only when labels change, keeping selection by model ID."""
         ordered = sorted(inventory, key=lambda item: (str(item["id"]) != self.recommended_model, not item.get("installed")))
         options = []
         config = self.shell.controller.config
@@ -377,6 +407,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def _model_can_continue(self, model):
+        """Check setup prerequisites, not whether a model or local server can infer."""
         config = self.shell.controller.config
         if not self.shell._model_ready():
             return False
@@ -391,6 +422,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def refresh_model(self):
+        """Refresh model readiness and download state without loading model weights."""
         inventory = self.shell.controller.models()
         key = self._model_config()
         if self.model_config_key != key:
@@ -457,6 +489,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def step_4(self):
+        """Create the local try-it editor; the focused-window tick starts its session."""
         config = self.shell.controller.config
         word = config.shortcuts.get("word") or "Unassigned"
         all_keys = config.shortcuts.get("all") or "Unassigned"
@@ -490,6 +523,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def step_5(self):
+        """Summarize setup and expose explicit login and keyboard-settings actions."""
         self.heading("You’re all set", "BroTypist lives in your menu bar. Click its caret glyph to pause predictions, control the current app, or open Settings.")
         image = A.NSImageView.alloc().initWithFrame_(A.NSMakeRect(342, 186, 76, 64))
         glyph = A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("tray/active-template-36.png")))
@@ -519,6 +553,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def advance(self):
+        """Advance only when permitted; save completion when the final step is accepted."""
         if self.step == 3:
             self.refresh_model()
         if not self.primary.isEnabled():
@@ -533,6 +568,11 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def stop_preview(self):
+        """Close the session before clearing its reference and retaining editor state.
+
+        Close failures propagate so shutdown cannot treat an owned preview as
+        released before its session reports successful cleanup.
+        """
         if self.session:
             self.session.close()
             self.session = None
@@ -543,6 +583,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def preview_values(self):
+        """Return text, caret index and selection length in Python character units."""
         text = str(self.editor.string())
         selection = self.editor.selectedRange()
         # Cocoa ranges count UTF-16 code units; PreviewSession uses Python indices.
@@ -553,6 +594,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def tick(self):
+        """Refresh the visible step; preview inference requires the editor to own focus."""
         if not self.window.isVisible():
             self.stop_preview()
             return
@@ -580,6 +622,8 @@ class WelcomeWindow(NSObject):
                     else ("Disabled — no conflict." if enabled is False else "Couldn’t be detected. BroTypist only reads this setting and never changes it."))
                 self.inline_status.setTextColor_(A.NSColor.systemOrangeColor() if enabled else A.NSColor.secondaryLabelColor())
         elif self.step == 4:
+            # A visible welcome window alone is insufficient: another key
+            # window or another responder must release the preview session.
             if not self.window.isKeyWindow() or self.window.firstResponder() != self.editor:
                 self.stop_preview()
                 self.preview_status.setStringValue_("Click the typing field to resume the local preview.")
@@ -599,6 +643,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def update_preview(self):
+        """Clear stale presentation and submit current text unless IME text is marked."""
         if self.session:
             text, caret, selection = self.preview_values()
             self.editor.set_ghost("")
@@ -609,6 +654,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def refresh_preview(self):
+        """Poll the session into ghost text and status, without inserting its result."""
         if self.session:
             status = self.session.poll()
             self.editor.set_ghost(str(status.get("suggestion") or ""))
@@ -620,6 +666,7 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def accept(self, action):
+        """Insert an accepted word or suffix locally; return false when nothing is accepted."""
         if not self.session or int(self.editor.selectedRange().length) or self.editor.hasMarkedText():
             return False
         insertion = self.session.accept_word() if action == "word" else self.session.accept_all()
@@ -641,5 +688,6 @@ class WelcomeWindow(NSObject):
 
     @objc.python_method
     def close(self):
+        """Stop preview ownership before hiding the retained, reusable window."""
         self.stop_preview()
         self.window.orderOut_(None)

@@ -1,3 +1,8 @@
+"""Constrain loopback inference, safe insertions and consent-bound context reads.
+
+Native context and clipboard readers are synthetic; no user clipboard is read.
+"""
+
 from dataclasses import replace
 
 import pytest
@@ -66,6 +71,7 @@ def test_window_context_revoked_during_accessibility_read_drops_content():
                         window_id="writer:window", window_revision="revision-1")
     consent = [True]
     def read(expected, **kwargs):
+        # Revoke after admission but before return to exercise the second consent check.
         consent[0] = False
         return {"text": "update private content", "window_id": expected.window_id,
                 "revision": expected.window_revision}
@@ -95,6 +101,7 @@ def test_native_mac_clipboard_rechecks_consent_without_qt_or_user_clipboard(monk
     reads = []
 
     class PasteboardBoundary:
+        """Record native read attempts and optionally revoke consent during the read."""
         def stringForType_(self, kind):
             reads.append(kind)
             if revoke_during_read:

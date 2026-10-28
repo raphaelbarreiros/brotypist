@@ -19,12 +19,14 @@ _battery_cache = None
 
 
 def _launch_arguments() -> list[str]:
+    """Build argv for this interpreter or frozen executable, not a shell command."""
     if getattr(sys, "frozen", False):
         return [sys.executable, "--background"]
     return [sys.executable, "-m", "inklow", "--background"]
 
 
 def _desktop_command(arguments: list[str]) -> str:
+    """Encode desktop Exec arguments, including literal percent field codes."""
     def quote(argument: str) -> str:
         if "\n" in argument or "\r" in argument:
             raise ValueError("Desktop launcher arguments cannot contain line breaks.")
@@ -39,6 +41,7 @@ def _autostart_path() -> Path:
 
 
 def _atomic_write(path: Path, content: bytes) -> None:
+    """Replace one integration file via a private sibling on the same filesystem."""
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     descriptor, name = tempfile.mkstemp(prefix=".inklow-", dir=path.parent)
     try:
@@ -51,6 +54,7 @@ def _atomic_write(path: Path, content: bytes) -> None:
 
 
 def launch_at_login_state() -> bool:
+    """Read login-entry state; isolated profiles always report disabled."""
     if os.environ.get("INKLOW_HOME"):
         return False
     if sys.platform == "win32":
@@ -168,6 +172,7 @@ def open_wayland_settings() -> None:
 
 
 def _open(target: str) -> None:
+    """Ask the OS to open a target; Linux dispatch does not wait for completion."""
     if sys.platform == "darwin":
         subprocess.run(["/usr/bin/open", target], check=True, timeout=15)
     elif sys.platform == "win32":
@@ -177,6 +182,7 @@ def _open(target: str) -> None:
 
 
 def open_permissions(kind: str = "accessibility") -> None:
+    """Open a native permissions page without granting access on the user's behalf."""
     if sys.platform == "darwin":
         targets = {
             "accessibility": "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
@@ -194,6 +200,7 @@ def open_permissions(kind: str = "accessibility") -> None:
 
 
 def reveal_models() -> None:
+    """Create and reveal the configured model storage directory."""
     from .models import model_path, get_preset
     folder = model_path(get_preset("balanced")).parent
     folder.mkdir(parents=True, exist_ok=True)
@@ -201,7 +208,11 @@ def reveal_models() -> None:
 
 
 def clipboard_text(*, authorized) -> str:
-    """Authorized native read; Qt callers must marshal onto the GUI thread."""
+    """Return at most 4,000 characters while live consent remains granted.
+
+    ``authorized`` is rechecked around the native read so revocation discards
+    the result. Qt callers must marshal onto the GUI thread or get RuntimeError.
+    """
     if not authorized():
         return ""
     if sys.platform == "darwin":
@@ -229,6 +240,7 @@ def _unknown_power_status() -> dict:
 
 
 def _mac_power_status(output: str) -> dict:
+    """Parse pmset output, retaining unknown fields for incomplete battery reports."""
     reading = _unknown_power_status()
     source = re.search(r"^Now drawing from '(Battery Power|AC Power)'\s*$", output, re.MULTILINE)
     if source is None:
@@ -274,6 +286,7 @@ def _mac_power_status(output: str) -> dict:
 
 
 def _sample_power_status() -> dict:
+    """Take an uncached native sample; the shared cache handles probe failures."""
     if sys.platform == "darwin":
         result = subprocess.run(["/usr/bin/pmset", "-g", "batt"], capture_output=True,
                                 text=True, timeout=3, check=True)
@@ -412,6 +425,7 @@ def screen_text(snapshot, *, bridge, authorized, max_chars=2400, accessibility=T
         return {**empty, "status": "blocked"}
     status = "unavailable"
     reader = getattr(bridge, "focused_context", None)
+    # A blocked accessibility result is a privacy boundary, not an OCR fallback.
     if accessibility and reader is not None:
         result = reader(snapshot, authorized=authorized, max_chars=min(max_chars, 4000))
         if not authorized():
@@ -433,6 +447,7 @@ def screen_text(snapshot, *, bridge, authorized, max_chars=2400, accessibility=T
     if snapshot.protected:
         return {**empty, "status": "blocked"}
     from .native.macos_vision import recognize_window_text
+    # OCR owns the capture-time focus checks; recheck before publishing its text.
     result = recognize_window_text(snapshot, authorized=authorized,
                                    current=lambda: bool(current(snapshot)), max_chars=min(max_chars, 4000))
     if not authorized():

@@ -1,4 +1,9 @@
-"""KWin-launched input-method integration; never an ordinary display fallback."""
+"""KWin-launched input-method integration; never an ordinary display fallback.
+
+The private connection and manual controls live on the Qt application thread.
+AT-SPI text must match compositor context; this tree supplies no safe ordinary
+inline suffix renderer and does not emulate one with preedit.
+"""
 from __future__ import annotations
 
 import atexit
@@ -75,6 +80,7 @@ _Callback = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(_Even
 
 
 def _load_library():
+    """Load the adjacent native library and bind this tree's exact ctypes ABI."""
     library = ctypes.CDLL(str(Path(__file__).with_name("libinklow_wayland.so")))
     pointer, u32 = ctypes.c_void_p, ctypes.c_uint32
     signatures = {
@@ -97,11 +103,16 @@ def _load_library():
 
 
 class WaylandBridge(LinuxBridge):
-    """Guarded AT-SPI snapshots bound to the compositor's exact input context."""
+    """Bind AT-SPI snapshots to input context for guarded manual operations.
+
+    Call native operations on QApplication's thread. The inherited lock
+    serializes work but does not make Wayland connections cross-thread safe.
+    """
 
     supports_native_overlay = True
 
     def __init__(self) -> None:
+        """Consume the prepared socket and attach its native connection to Qt."""
         global _prepared_fd
         super().__init__(accessibility_only=True)
         self._client = None
@@ -188,6 +199,7 @@ class WaylandBridge(LinuxBridge):
                 self._release_native()
 
     def _state(self) -> tuple[int, int] | None:
+        """Return the safe native generation/serial pair, or None when unavailable."""
         if not self._available or not self._client or self._stopped.is_set():
             return None
         generation, serial = ctypes.c_uint32(), ctypes.c_uint32()
@@ -200,6 +212,7 @@ class WaylandBridge(LinuxBridge):
         return f"{state[0]}:{state[1]}"
 
     def _capture_native(self) -> Snapshot | None:
+        """Match AT-SPI text/caret to native UTF-8 state without guessing geometry."""
         before = self._state()
         if before is None:
             return None  # Do not obtain an AT-SPI Text interface while native purpose is unknown.
@@ -249,11 +262,13 @@ class WaylandBridge(LinuxBridge):
                        native_inline=False)
 
     def context_matches(self, snapshot):
+        """Decline background context verification across the Qt-thread boundary."""
         # The private input-method connection belongs exclusively to the Qt
         # thread. A background context worker cannot safely verify its serial.
         return False
 
     def capture(self) -> Snapshot | None:
+        """Return a guarded snapshot on the Qt thread, or None on provider errors."""
         with self._lock:
             try:
                 return self._capture_native()
@@ -261,6 +276,11 @@ class WaylandBridge(LinuxBridge):
                 return None
 
     def insert(self, snapshot: Snapshot, text: str) -> bool:
+        """Commit to the unchanged context and confirm the resulting AT-SPI text.
+
+        False includes unconfirmed delivery; it is not proof that no text was
+        inserted and must not be used as an automatic retry signal.
+        """
         if not isinstance(text, str) or not text or "\x00" in text or snapshot.protected or snapshot.selection_length:
             return False
         with self._lock:
@@ -288,6 +308,7 @@ class WaylandBridge(LinuxBridge):
                 return False
 
     def _confirm_insertion(self, expected: Snapshot, context_id: int) -> bool:
+        """Poll the same field with a 250 ms deadline, aborting on identity changes."""
         # commit_string has no success reply. Confirm the same target actually
         # applied the text; do not count a validator-rejected send as acceptance.
         deadline = time.monotonic() + 0.25
@@ -309,24 +330,29 @@ class WaylandBridge(LinuxBridge):
         return False
 
     def replace_range(self, snapshot: Snapshot, start: int, length: int, text: str) -> bool:
+        """Support only zero-length insertion at the existing unselected caret."""
         if (self._valid_replacement(snapshot, start, length, text) and length == 0
                 and start == snapshot.caret and not snapshot.selection_length):
             return self.insert(snapshot, text)
         return False  # Never delete selected text or an emoji suffix before committing.
 
     def configure(self, config) -> None:
+        """Publish policy and invalidate visible controls tied to the old policy."""
         BridgeBase.configure(self, config)
         self.hide_native()
 
     def start_shortcuts(self, callback: Shortcut) -> None:
+        """Register dispatch without starting the inherited X11 hook thread."""
         BridgeBase.start_shortcuts(self, callback)
 
     def set_shortcuts_enabled(self, enabled: bool) -> None:
+        """Change dispatch permission and cancel an in-progress pointer gesture."""
         BridgeBase.set_shortcuts_enabled(self, enabled)
         self._pressed = None
 
     @staticmethod
     def _key(event: _Event) -> tuple[str, tuple[str, ...]]:
+        """Map native key names while retaining unsupported modifiers as rejection."""
         mask = int(event.modifiers)
         # Unsupported modifiers are preserved as a rejection, never dropped.
         if mask & ~(1 | 4 | 8 | 64):
@@ -344,6 +370,7 @@ class WaylandBridge(LinuxBridge):
         return key, modifiers
 
     def _menu_key(self, key: str, modifiers: tuple[str, ...]) -> bool:
+        """Consume unmodified menu navigation, skipping disabled action rows."""
         if self._menu is None or modifiers:
             return False
         if key == "Escape":
@@ -377,6 +404,7 @@ class WaylandBridge(LinuxBridge):
         return False
 
     def _event(self, userdata, pointer) -> int:
+        """Handle native callbacks; return 1 only for a consumed keyboard action."""
         try:
             event = pointer.contents
             if event.type == 1:
@@ -417,6 +445,7 @@ class WaylandBridge(LinuxBridge):
         return 0
 
     def _queue_context_sync(self) -> None:
+        """Coalesce bootstrap work onto the next Qt event-loop turn."""
         if (not self._needs_context_state or self._context_sync_pending
                 or not self._client or self._stopped.is_set()):
             return
@@ -481,6 +510,7 @@ class WaylandBridge(LinuxBridge):
         request("Get", ["active"], active)
 
     def _read_ready(self, *unused) -> None:
+        """Dispatch private events without reentry, then honor deferred destruction."""
         if not self._client or self._dispatching:
             return
         self._read_notifier.setEnabled(False)
@@ -505,6 +535,7 @@ class WaylandBridge(LinuxBridge):
         self._flush()
 
     def _flush(self) -> None:
+        """Flush private output and arm write readiness only while backpressured."""
         if not self._client or self._stopped.is_set():
             return
         result = self._native_call("flush", self._client)
@@ -515,6 +546,7 @@ class WaylandBridge(LinuxBridge):
             self._write_notifier.setEnabled(result == 0)
 
     def bind_ui(self, callback: Callable[[str], None]) -> None:
+        """Install the Qt-thread callback for manual-control actions."""
         self._ui_callback = callback
 
     def present_native(self, native_anchor: str, text: str, paused: bool = False) -> bool:
@@ -534,6 +566,7 @@ class WaylandBridge(LinuxBridge):
             return True
 
     def hide_native(self) -> None:
+        """Clear panel hit regions and menu state before hiding the native surface."""
         had_menu = self._menu is not None
         self._panel_snapshot = None
         self._menu = None
@@ -549,6 +582,7 @@ class WaylandBridge(LinuxBridge):
             self._ui_callback("menu_closed")
 
     def show_native_menu(self, actions: list[tuple[str, str, bool]]) -> bool:
+        """Copy action/label/enabled rows only while the manual panel anchor matches."""
         with self._lock:
             if not self._panel_snapshot:
                 return False
@@ -567,6 +601,7 @@ class WaylandBridge(LinuxBridge):
             return True
 
     def _render(self) -> bool:
+        """Rasterize manual controls; expose hit regions only after native acceptance."""
         from PySide6.QtCore import QRect, QRectF, Qt
         from PySide6.QtGui import QFont, QFontMetrics, QImage, QPainter, QPalette
         from PySide6.QtWidgets import QApplication
@@ -652,6 +687,7 @@ class WaylandBridge(LinuxBridge):
         return None
 
     def _pointer(self, event: _Event) -> None:
+        """Dispatch clicks only when press/release share an action and native anchor."""
         if event.key != 272 or not self._panel_snapshot:
             return
         state = self._state()
@@ -689,6 +725,7 @@ class WaylandBridge(LinuxBridge):
             self._dispatch(action)
 
     def _release_native(self) -> None:
+        """Retire Qt observers before closing the native owner outside its callbacks."""
         for call in self._context_calls:
             call.deleteLater()
         self._context_calls.clear()
@@ -704,6 +741,7 @@ class WaylandBridge(LinuxBridge):
         self._close_pending = False
 
     def stop(self) -> None:
+        """Disable callbacks now and defer destruction until native stack frames exit."""
         BridgeBase.stop(self)
         self._ui_callback = None
         self.hide_native()

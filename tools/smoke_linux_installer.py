@@ -23,6 +23,7 @@ APP_ID = "com.inklow.Inklow"
 
 
 def command(arguments: list[str], *, environment: dict | None = None, timeout: int = 180) -> str:
+    """Return stripped stdout; raise on a nonzero exit or timeout in seconds."""
     result = subprocess.run(arguments, env=environment, text=True, capture_output=True, timeout=timeout)
     if result.returncode:
         raise RuntimeError(f"Command failed ({result.returncode}): {arguments}\n{result.stdout}\n{result.stderr}")
@@ -30,6 +31,7 @@ def command(arguments: list[str], *, environment: dict | None = None, timeout: i
 
 
 def isolated_environment(home: Path) -> dict:
+    """Create disposable user paths while retaining the caller's X11/session bus."""
     home.mkdir(parents=True, exist_ok=True)
     environment = dict(os.environ)
     for name in ("PYTHONHOME", "PYTHONPATH", "GI_TYPELIB_PATH", "LD_LIBRARY_PATH", "WAYLAND_DISPLAY", "QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH"):
@@ -60,6 +62,7 @@ def owned_process(pid: int, launched_pid: int) -> bool:
 
 
 def mapped_settings(tree: str, launched_pid: int, environment: dict) -> dict | None:
+    """Return visible window geometry only for the launched process or its child."""
     for match in re.finditer(r'^\s*(0x[0-9a-fA-F]+)\s', tree, re.MULTILINE):
         window = match[1]
         properties = command(["xprop", "-id", window, "_NET_WM_PID", "_NET_WM_WINDOW_TYPE", "_NET_WM_NAME"],
@@ -83,12 +86,14 @@ def mapped_settings(tree: str, launched_pid: int, environment: dict) -> dict | N
 def startup_diagnostics(process: subprocess.Popen, environment: dict, log: Path, error: Exception) -> Path:
     """Capture the failing native state before terminating the exact app tree."""
     def read_proc(path: Path, maximum: int = 16384) -> str:
+        """Read bounded diagnostics, retaining inaccessible proc entries as text."""
         try:
             return path.read_text(encoding="utf-8", errors="replace")[:maximum]
         except OSError as failure:
             return f"unavailable: {failure}"
 
     def observe(arguments: list[str]) -> str:
+        """Capture bounded command output without hiding the original startup error."""
         try:
             return command(arguments, environment=environment, timeout=3)[:262144]
         except (OSError, RuntimeError, subprocess.SubprocessError) as failure:
@@ -129,6 +134,7 @@ def startup_diagnostics(process: subprocess.Popen, environment: dict, log: Path,
 
 
 def append_distro_bindings() -> None:
+    """Expose distro AT-SPI bindings only to this observer's import search path."""
     # Do not export PYTHONPATH: distro packages must not shadow this CI Python's
     # installed Qt or source dependencies, or leak into the frozen-app exercise.
     bindings = "/usr/lib/python3/dist-packages"
@@ -203,6 +209,12 @@ def inspect_atspi_window(pid: int, *, quit_app: bool = False) -> dict:
 
 
 def launch_settings(executable: Path, environment: dict, log: Path, *, offscreen: bool) -> dict:
+    """Observe an owned settings process and return mode-specific lifecycle evidence.
+
+    X11 requires a mapped window, accessible controls and normal native Quit.
+    Offscreen mode checks survival only. Failure diagnostics precede process-group
+    cleanup; the supplied log and its diagnostic sidecar remain for inspection.
+    """
     environment = dict(environment, QT_QPA_PLATFORM="offscreen" if offscreen else "xcb")
     with log.open("w", encoding="utf-8") as stream:
         process = subprocess.Popen([str(executable), "--settings", "--no-tray", "--paused", "--pane", "general"],
@@ -261,6 +273,7 @@ def launch_settings(executable: Path, environment: dict, log: Path, *, offscreen
 
 
 def exercise(executable: Path, home: Path, report: Path, version: str) -> dict:
+    """Check version/doctor and exercise separate offscreen and X11 profiles."""
     environment = isolated_environment(home)
     observed_version = command([str(executable), "--version"], environment=environment)
     if observed_version != f"BroTypist {version}":
@@ -279,10 +292,17 @@ def exercise(executable: Path, home: Path, report: Path, version: str) -> dict:
 
 
 def digest(path: Path) -> str:
+    """Hash a synthetic external-state sentinel for preservation comparisons."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def smoke(deb: Path, archive: Path, version: str, report: Path) -> dict:
+    """Install and purge a package on a disposable host, then write a success receipt.
+
+    Refuse an existing installation before invoking apt. Package changes are
+    system-wide even though application state is temporary; purge is attempted
+    after any install attempt, including one that raises.
+    """
     if sys.platform != "linux" or os.geteuid() == 0:
         raise RuntimeError("Run on native Linux as an unprivileged CI/desktop user with passwordless sudo")
     if not os.environ.get("DISPLAY") or not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
@@ -316,6 +336,8 @@ def smoke(deb: Path, archive: Path, version: str, report: Path) -> dict:
             path.write_text(content, encoding="utf-8")
             sentinels[path] = digest(path)
         attempted_install = False
+        # Track the attempt, not just success: apt can leave package state behind
+        # even when its command reports a failure.
         try:
             attempted_install = True
             command(["sudo", "-n", "env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y", str(deb)], timeout=600)
@@ -356,6 +378,7 @@ def smoke(deb: Path, archive: Path, version: str, report: Path) -> dict:
 
 
 def main() -> int:
+    """Dispatch installer smoke or the bounded, own-PID AT-SPI helper subprocess."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--deb", type=Path)
     parser.add_argument("--archive", type=Path)

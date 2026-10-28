@@ -6,6 +6,9 @@
 
 - Remove battery percentages and power-state text from the macOS menu-bar item. Keep the BroTypist icon, compact menu, charging cue, Battery settings and accessible power details.
 - Preserve user settings, selected models, native prediction behavior and clean Quit. The 0.4.11 tag remains unchanged; that release was not published.
+- Rewrite the README around the app's purpose, implemented features, installation, privacy, development and contribution, without transient internal release/worktree details.
+- Review all first-party code and build contracts. Add purpose headers, Python API docstrings, C ownership/ABI comments and explanations for non-obvious lifecycle, cancellation, privacy and rendering boundaries; preserve executable behavior and existing indentation conventions.
+- Replace RAM-dependent default assertions and prompt-heading byte-count fixtures with saved-user-setting and required-writing preservation checks. Documentation verification passed 1,408 macOS tests (23 platform/session skips) and 1,556 Linux tests (21 platform skips).
 
 ## 0.4.11 — Unreleased, compact native menu
 

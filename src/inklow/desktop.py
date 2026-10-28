@@ -1,4 +1,8 @@
-"""Platform-native menu utilities; the typing engine is UI-toolkit independent."""
+"""Select the native desktop shell while holding the process-wide instance lock.
+
+Toolkit imports are deferred until launch; the typing engine remains independent
+of the selected AppKit or Qt event loop.
+"""
 from __future__ import annotations
 
 import sys
@@ -9,6 +13,12 @@ from .instance import instance_lock
 
 def launch(config: Config, *, background: bool = False, no_tray: bool = False,
            pane: str | None = None) -> int:
+    """Run the platform shell and return its exit status.
+
+    The instance lock spans the entire native event loop. A duplicate launch
+    reports the resident instance and returns zero without opening another UI.
+    Shell options are forwarded unchanged; the lock is released on exit.
+    """
     with instance_lock() as acquired:
         if not acquired:
             if sys.stderr is not None:

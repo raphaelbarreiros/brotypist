@@ -10,7 +10,12 @@ from .base import UnavailableBridge
 
 
 def create_bridge():
-    """Create the platform adapter, preserving actionable dependency errors."""
+    """Create a native adapter or retain initialization errors as unavailable.
+
+    Linux prefers the compositor input-method bridge when its probe succeeds;
+    otherwise the X11 adapter reports its own session/dependency limitations.
+    Construction does not grant permission to intercept shortcuts.
+    """
     try:
         if sys.platform == "darwin":
             from .macos import MacBridge

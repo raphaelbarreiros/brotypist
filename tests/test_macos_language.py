@@ -1,10 +1,20 @@
-"""Recognition state and confidence boundaries, not native accuracy claims."""
+"""Constrain language-confidence filtering and private draft lifetime.
+
+Scripted recognizer responses exercise framework failure and reset behavior,
+including spelling-backend reuse; they make no native language-accuracy claim.
+"""
 import pytest
 
 from inklow.native import macos_language as language
 
 
 class Recognizer:
+    """Replay hypotheses/errors while exposing active text and reset counts.
+
+    ``samples`` is a test-only history of synthetic inputs. Unlike that journal,
+    ``text`` models native retained state and must be cleared between requests.
+    """
+
     def __init__(self, results):
         self.results = iter(results)
         self.text = None
@@ -21,6 +31,7 @@ class Recognizer:
         self.samples.append(text)
 
     def languageHypothesesWithMaximum_(self, maximum):
+        """Consume one scripted response, propagating any injected native error."""
         result = next(self.results)
         if isinstance(result, Exception):
             raise result
@@ -102,6 +113,8 @@ def test_framework_absence_is_not_a_language(monkeypatch):
 def test_spelling_preserves_unavailable_failure_and_owned_recognizer_lifecycle(monkeypatch):
     from inklow.native import macos_spelling
     from inklow.spelling import SpellingUnavailable
+    # Bypass the native spelling constructor: this scenario owns only the
+    # lazy recognizer and its close/reset lifecycle, not a real spell document.
     backend = macos_spelling.MacSpellBackend.__new__(macos_spelling.MacSpellBackend)
     backend._recognizer = None
     backend._tag = None

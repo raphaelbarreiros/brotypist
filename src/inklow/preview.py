@@ -15,6 +15,14 @@ from .process_client import ProcessClient
 
 
 class PreviewSession:
+    """Coordinate a caller-owned widget with an isolated inference client.
+
+    Configuration is copied and the normal typing worker is released on entry.
+    The widget caller serializes update/poll/accept/close calls and performs
+    actual edits; this object only proposes insertion text and tracks its
+    confirmation. Close the session when the owned field is no longer active.
+    """
+
     def __init__(self, config, owner_controller):
         self.config = deepcopy(config)
         self.config.validate()
@@ -37,6 +45,12 @@ class PreviewSession:
             owner_controller._client.release()
 
     def update(self, text: str, caret: int, *, selection_length: int = 0):
+        """Observe actual widget text and selection using Python string offsets.
+
+        Reject out-of-bounds caret/selection values with ValueError. A changed
+        snapshot cancels stale inference; only a match to the expected widget
+        edit increments the accepted count. Calls after close are ignored.
+        """
         if self._closed:
             return
         if not (0 <= caret <= len(text) and 0 <= selection_length <= len(text) - caret):
@@ -59,11 +73,19 @@ class PreviewSession:
         self._error = ""
 
     def poll(self) -> dict:
+        """Drain matching results, schedule eligible work and return UI state.
+
+        This advances the session rather than merely reading status. Debounce,
+        pending widget edits and the normal worker's release gate new requests.
+        The returned mapping contains state, suggestion, message and accepted.
+        """
         if self._closed:
             return {"state": "idle", "suggestion": "", "message": "Preview closed.",
                     "accepted": self._accepted}
         for event in self._client.poll():
             request = self._request
+            # Correlate both the document and suggestion generation: a worker
+            # response alone cannot establish that the caret is still current.
             if (request is None or event.get("id") != request[0]
                     or request[1] != self._snapshot.key
                     or request[2] != self._suggestion.generation):
@@ -84,6 +106,8 @@ class PreviewSession:
             self.config.completion_length != "word" or mid_word(self._snapshot.prefix))
         pending_insert = self._expected is not None
         releasing = self._owner._client.status().get("worker_pid") is not None
+        # Wait for actual process exit, not just a released-model status, before
+        # allowing the preview's own model worker to become resident.
         if (eligible and not pending_insert and not releasing and not self._error
                 and not self._suggestion.text and self._request is None
                 and self._attempted != self._snapshot.key
@@ -125,6 +149,7 @@ class PreviewSession:
                 "accepted": self._accepted}
 
     def _accept(self, full: bool) -> str:
+        """Propose insertion text once, then await update() confirming the edit."""
         if self._closed or self._expected is not None:
             return ""
         accepted = self._suggestion.accept(
@@ -138,12 +163,15 @@ class PreviewSession:
         return accepted
 
     def accept_word(self) -> str:
+        """Return the next word for the widget to insert, or empty if unavailable."""
         return self._accept(False)
 
     def accept_all(self) -> str:
+        """Return the full suggestion for widget insertion, without editing it."""
         return self._accept(True)
 
     def dismiss(self):
+        """Discard the suggestion and suppress another attempt for this snapshot."""
         if self._closed:
             return
         self._client.cancel()
@@ -154,6 +182,7 @@ class PreviewSession:
         self._error = ""
 
     def close(self):
+        """Clear local draft state and request worker shutdown; safe to repeat."""
         if self._closed:
             return
         self._closed = True

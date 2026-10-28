@@ -1,6 +1,6 @@
 """Private anonymous-pipe inference worker, dispatched by ``inklow _worker``.
 
-Only this process may import llama_cpp. Protocol stdout is a duplicated fd;
+Desktop inference imports llama_cpp here. Protocol stdout is a duplicated fd;
 Python/native model diagnostics are discarded, never written to a draft log.
 After ``generate``, ``ready`` requires a matching ``proceed`` before evaluation.
 Native preparation finishes before the next blocking stdin read; ``cancel`` and
@@ -21,6 +21,12 @@ MAX_RESULT_CHARS = 4096
 
 
 def _validate_request(value: dict) -> tuple[int, Config, dict]:
+    """Validate frame fields and return its ID, Config and bounded text options.
+
+    Character limits supplement the outer encoded-byte limit. Exact scalar
+    types reject booleans where integers are required. Invalid data raises
+    ValueError or a configuration-construction TypeError before inference.
+    """
     identifier = value.get("id")
     if type(identifier) is not int or identifier < 1:
         raise ValueError("Invalid request identifier")
@@ -49,6 +55,13 @@ def _validate_request(value: dict) -> tuple[int, Config, dict]:
 
 
 def main() -> int:
+    """Run the child-only protocol loop; return 2 for invalid input, else 0.
+
+    Redirect process diagnostics before importing providers. The input thread
+    coordinates cancellation and readiness; one daemon thread owns the
+    provider. Shutdown requests cancellation and waits briefly rather than
+    promising that an in-flight native call has returned.
+    """
     protocol = os.fdopen(os.dup(sys.stdout.fileno()), "wb", buffering=0)
     null = os.open(os.devnull, os.O_WRONLY)
     os.dup2(null, 1)
@@ -64,6 +77,7 @@ def main() -> int:
     generation_allowed = False
 
     def send(value: dict):
+        """Serialize bounded newline JSON, handling partial writes under one lock."""
         data = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode() + b"\n"
         if len(data) > MAX_MESSAGE_BYTES:
             return
@@ -76,6 +90,7 @@ def main() -> int:
                 view = view[written:]
 
     def generate():
+        """Own provider reuse and emit results only after a fresh proceed signal."""
         nonlocal pending, active_cancel, input_ready, active_identifier, generation_allowed
         from .providers import create_provider
         provider = None
@@ -93,6 +108,8 @@ def main() -> int:
                     generation_allowed = False
                     cancel = active_cancel = threading.Event()
                 try:
+                    # Identity changes release the previous backend before a
+                    # new one is created; request-only options need no reload.
                     identity = provider_identity(config)
                     if configured != identity:
                         provider_ready = False
@@ -136,6 +153,8 @@ def main() -> int:
                         # fixed actionable diagnostic, never its arbitrary body.
                         send({"type": "error", "id": identifier, "message": "Local inference failed. Check the chosen model file, local inference installation, and local server availability."})
                 finally:
+                    # Release the native-initialization input barrier even on
+                    # failure or cancellation, then acknowledge request end.
                     with condition:
                         input_ready = identifier
                         condition.notify_all()
@@ -148,6 +167,8 @@ def main() -> int:
     thread.start()
     try:
         while True:
+            # Reject incomplete or oversized frames rather than attempting to
+            # resynchronize a private stream that no longer obeys its protocol.
             line = sys.stdin.buffer.readline(MAX_MESSAGE_BYTES + 1)
             if not line:
                 break

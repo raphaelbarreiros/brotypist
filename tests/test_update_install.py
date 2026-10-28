@@ -1,4 +1,8 @@
-"""Security boundaries and observable OTA transactions (no live app/profile)."""
+"""Constrain signed OTA swaps and rollback in temporary POSIX app trees.
+
+Native archive, pipe and filesystem operations are exercised; synthetic bundles
+are never launched, and no installed application or real profile is replaced.
+"""
 import base64
 import io
 import json
@@ -26,6 +30,11 @@ pytestmark = pytest.mark.skipif(NATIVE not in {"darwin", "linux"}, reason="Nativ
 
 
 def make_bundle(path, version="0.4.4", source=OLD_COMMIT, native=NATIVE):
+    """Create a marked bundle with a native header, not a runnable application.
+
+    Return the marker identity; payload-version provides an independent oracle
+    for which tree survives promotion or rollback.
+    """
     path.mkdir(parents=True)
     marker = path / "Contents/Resources" / installer.MARKER if native == "darwin" else path / installer.MARKER
     marker.parent.mkdir(parents=True, exist_ok=True)
@@ -49,6 +58,7 @@ def make_bundle(path, version="0.4.4", source=OLD_COMMIT, native=NATIVE):
 
 @pytest.fixture
 def frozen(monkeypatch):
+    """Model an unmanaged frozen process, ignoring the runner's profile override."""
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.delenv("INKLOW_HOME", raising=False)
     monkeypatch.setattr(installer, "_managed_debian", lambda _path: False)
@@ -56,6 +66,7 @@ def frozen(monkeypatch):
 
 @pytest.fixture
 def signer(monkeypatch):
+    """Trust a fresh test key without requiring or exposing release credentials."""
     key = Ed25519PrivateKey.generate()
     public = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     monkeypatch.setattr(updates, "PUBLISHER_PUBLIC_KEY", base64.b64encode(public).decode())
@@ -63,6 +74,7 @@ def signer(monkeypatch):
 
 
 def signed_package(root, bundle, signer, version="0.4.5", source=NEW_COMMIT):
+    """Write a private host-format archive and its signed manifest into root."""
     archive = root / "package"
     if NATIVE == "darwin":
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as stream:
@@ -85,6 +97,11 @@ def signed_package(root, bundle, signer, version="0.4.5", source=NEW_COMMIT):
 
 @pytest.fixture
 def transaction(tmp_path, monkeypatch, signer, frozen):
+    """Return staging root, installed tree and request bound to its original inode.
+
+    Only launch, parent-exit, version probing and signing identity are stubbed;
+    each test controls startup acknowledgement separately.
+    """
     if NATIVE == "linux" and installer._architecture() != "x86_64":
         pytest.skip("The signed Linux release target is x86_64")
     destination = tmp_path / ("BroTypist.app" if NATIVE == "darwin" else "BroTypist")
@@ -110,12 +127,14 @@ def transaction(tmp_path, monkeypatch, signer, frozen):
 
 
 def run_transaction(root):
+    """Run the prepared transaction with EOF; the fixture bypasses approval waiting."""
     reader, writer = os.pipe()
     os.close(writer)
     return installer.run_installer(root / "request.json", reader)
 
 
 def receipt(root):
+    """Read the persisted transaction outcome rather than infer it from exit status."""
     return json.loads((root / "transaction.json").read_text())
 
 
@@ -501,10 +520,12 @@ def test_changed_development_identity_cannot_promote(transaction, monkeypatch):
 
 
 def _native_write_attribute(path, name, value):
+    """Write raw metadata through the system tool, independently of installer FFI."""
     subprocess.run(["/usr/bin/xattr", "-w", "-x", name, value.hex(), str(path)], check=True)
 
 
 def _native_read_attribute(path, name):
+    """Read raw metadata through the system tool as the native ABI test oracle."""
     result = subprocess.run(["/usr/bin/xattr", "-p", "-x", name, str(path)],
                             check=True, capture_output=True, text=True)
     return bytes.fromhex(result.stdout)
@@ -539,6 +560,7 @@ def test_invalid_health_signature_does_not_raise_or_acknowledge(transaction, mon
 
 def test_approved_pipe_releases_only_after_real_parent_exit():
     reader, writer = os.pipe()
+    # The child stands in for the exiting app; retaining our writer would hide EOF.
     child = subprocess.Popen([sys.executable, "-c",
                               "import os,sys; os.write(int(sys.argv[1]), b'1')", str(writer)],
                              pass_fds=(writer,))
@@ -605,6 +627,7 @@ def test_mac_version_validation_never_executes_unapproved_candidate(tmp_path, sh
     executable = bundle / "Contents/MacOS/BroTypist"
     executable.parent.mkdir(parents=True)
     executed = tmp_path / "candidate-executed-before-native-launch"
+    # A runnable tripwire detects version probes that execute before native launch.
     executable.write_text("#!/bin/sh\n: > " + shlex.quote(str(executed)) +
                           "\nprintf 'BroTypist 0.4.5\\n'\n")
     executable.chmod(0o700)

@@ -14,12 +14,14 @@ TEXT = ("We discussed observability and instrumentation during the planning meet
 
 
 def unlocked(path):
+    """Enable real encrypted storage with a fixed test key, bypassing OS key storage."""
     store = LocalStorage(path, lambda: b"a" * 32)
     store.enable_history()
     return store
 
 
 def learn(store, strength=90, app="writer", domain="", text=TEXT, allowed=lambda app, domain: True):
+    """Request evidence with explicit source policy and stable draft defaults."""
     return store.personalization(strength, app, domain, text=text, source_allowed=allowed)
 
 
@@ -251,6 +253,8 @@ def test_canonical_learning_preserves_encrypted_original_text_and_authored_offse
     generated_after = " Outra geração segredofantasma segredofantasma."
     query = "Nós na próxima reunião"
     evidence = []
+    # Keep authored offsets in each original normalization form; only derived
+    # vocabulary should converge. Reopening prevents an in-memory cache oracle.
     for form in ("NFC", "NFD"):
         before, body, after = (unicodedata.normalize(form, part)
                                for part in (generated_before, authored, generated_after))

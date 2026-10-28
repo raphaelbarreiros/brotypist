@@ -1,4 +1,7 @@
-"""Ephemeral context and utility choices retain safe role/stream boundaries."""
+"""Constrain prompt trust, context budgets and native-model/stream lifetimes.
+
+SDK doubles expose allocation, tokenization and closure without loading weights.
+"""
 from dataclasses import replace
 import json
 import threading
@@ -49,6 +52,7 @@ def test_failed_native_warmup_releases_model_and_recovers_on_retry(tmp_path, mon
     created = []
 
     class Model:
+        """Fail warmup on the first allocation only, making retry ownership observable."""
         def __init__(self, **options):
             self.bad = not created
             self.closed = False
@@ -113,35 +117,29 @@ def test_reference_tokens_are_capped_without_discarding_recent_draft_or_provenan
     assert options["context"] == context
 
 
-def test_overfull_prompt_removes_optional_context_before_trimming_the_draft():
+@pytest.mark.parametrize("optional,omitted_marker", [
+    ({"context": "zeta_optional_reference " + "mission " * 100}, "zeta_optional_reference"),
+    ({"personalization": '{"recurring_words":["lexical_evidence_marker","observability","instrumentation","reproducibility","interoperability","idempotency","consistency"]}'},
+     "lexical_evidence_marker"),
+])
+def test_context_capacity_preserves_mandatory_writing_before_optional_evidence(optional, omitted_marker):
     config = Config(prompt_style="writing", context_chars=2000, max_tokens=32)
-    draft = "newest mission update"
-    baseline = writing_prompt(draft, "", "")
-    instructions = "x" * (4096 - config.max_tokens - 8 - len(baseline.encode("utf-8")) - len("\nWriting preferences: ".encode("utf-8")) - 10)
-    tokens = _prompt_tokens(ByteTokenizer(), config, draft, "", {
-        "instructions": instructions,
-        "context": "Focused-window Accessibility (untrusted reference data): " + "mission " * 100,
-    })
-    prompt = bytes(tokens).decode("utf-8")
-    assert len(tokens) <= 4096 - config.max_tokens - 8
-    assert prompt.endswith(draft)
+    draft, suffix = "The deployment update is ready", " after your review."
+    instructions = "Use natural Brazilian Portuguese and English; keep proper names unchanged."
+    required = _prompt_tokens(ByteTokenizer(context_size=16384), config, draft, suffix,
+                              {"instructions": instructions})
+    # Model capacity leaves a small spare window, not enough for either
+    # optional reference. No prompt heading or platform language hint is pinned.
+    model = ByteTokenizer(context_size=len(required) + config.max_tokens + 64)
+    options = {"instructions": instructions, **optional}
 
-
-def test_optional_learned_evidence_never_displaces_current_draft_suffix_or_preferences():
-    config = Config(prompt_style="writing", context_chars=2000, max_tokens=32)
-    draft, suffix = "newest mission update", " tomorrow."
-    budget = 4096 - config.max_tokens - 8
-    baseline = _prompt_tokens(ByteTokenizer(), config, draft, suffix, {})
-    instructions = "x" * (budget - len(baseline) - len("\nWriting preferences: ") - 10)
-    learned = '{"recurring_words":["observability","instrumentation"]}'
-    options = {"instructions": instructions, "personalization": learned}
-    tokens = _prompt_tokens(ByteTokenizer(), config, draft, suffix, options)
+    tokens = _prompt_tokens(model, config, draft, suffix, options)
     rendered = bytes(tokens).decode("utf-8")
-    assert len(tokens) <= budget
-    assert rendered.endswith(draft)
-    assert json.dumps(suffix) in rendered and instructions in rendered
-    assert json.dumps(learned) not in rendered
-    assert options["personalization"] == learned
+
+    assert len(tokens) + config.max_tokens <= model.n_ctx()
+    assert draft in rendered and suffix in rendered and instructions in rendered
+    assert omitted_marker not in rendered
+    assert options == {"instructions": instructions, **optional}
 
 
 def test_instructions_that_alone_exceed_context_fail_instead_of_losing_role_boundary():
@@ -161,6 +159,7 @@ class ControlTokenizer(ByteTokenizer):
         self.metadata = {"general.architecture": family}
 
     def tokenize(self, data, *, add_bos=True, special=False):
+        """Encode literal bytes or negative structural IDs according to ``special``."""
         tokens = [self.controls["<bos>"]] if add_bos else []
         index = 0
         while index < len(data):
@@ -175,6 +174,7 @@ class ControlTokenizer(ByteTokenizer):
         return tokens
 
     def text(self, tokens):
+        """Render both ID kinds for assertions without hiding structural-token counts."""
         controls = {token: text.encode() for text, token in self.controls.items()}
         return b"".join(controls[token] if token < 0 else bytes([token])
                         for token in tokens).decode("utf-8")
@@ -346,6 +346,7 @@ def native_provider(tmp_path, monkeypatch):
             pieces = settings["responses"].pop(0) if settings["responses"] else settings["pieces"]
 
             def chunks():
+                # Closure is observable even when the consumer stops before EOF.
                 try:
                     for text, reason in pieces:
                         yield {"choices": [{"text": text, "finish_reason": reason}]}
@@ -404,6 +405,7 @@ def test_unsupported_guided_architecture_closes_weights_with_useful_error(native
 
 
 def alternatives(provider, prefix, anchor="", cancel=None):
+    """Collect the alternatives stream, preserving a caller-supplied cancellation event."""
     options = {"alternatives": True, "anchor": anchor}
     return list(provider.stream(prefix, "", cancel or threading.Event(), options=options))
 

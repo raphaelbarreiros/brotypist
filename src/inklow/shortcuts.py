@@ -1,4 +1,8 @@
-"""Canonical, toolkit-independent shortcut names and physical keyboard mappings."""
+"""Canonical shortcut chords shared by recorders and native input adapters.
+
+Names describe supported keys, not arbitrary text. AboveTab uses keyboard
+geometry where available rather than the character printed on that key.
+"""
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -21,7 +25,12 @@ _KEYS.update(f"F{number}" for number in range(1, 13))
 
 
 def normalize_shortcut(value: str) -> str:
-    """Validate a single chord; empty means disabled. Never ignore modifiers."""
+    """Return one chord in canonical modifier order, or empty when disabled.
+
+    Raises:
+        ValueError: The value is not a string, contains empty chord parts,
+            repeats a modifier, or does not specify exactly one supported key.
+    """
     if not isinstance(value, str):
         raise ValueError("Shortcut must be a string")
     if not value.strip():
@@ -38,7 +47,12 @@ def normalize_shortcut(value: str) -> str:
 
 def shortcut_from_event(key: str, modifiers: Iterable[str] = (), *, platform: str = "",
                         keycode: int | None = None) -> str:
-    """Recorder helper; keycode is native Mac keycode/Windows scan/X11 keycode."""
+    """Normalize a recorded chord, recognizing the physical AboveTab key.
+
+    ``keycode`` is a Mac native keycode, Windows scan code or X11 keycode
+    according to ``platform``. Unknown geometry leaves the supplied key name
+    unchanged. Invalid chords propagate ``normalize_shortcut``'s ValueError.
+    """
     physical = (mac_above_tab_keycode() if platform in {"macos", "darwin"} else
                 {"windows": 41, "win32": 41, "linux": 49, "x11": 49}.get(platform))
     if keycode is not None and keycode == physical:
@@ -61,6 +75,7 @@ MAC_KEYS.update({18: "1", 19: "2", 20: "3", 21: "4", 23: "5", 22: "6", 26: "7",
 
 @lru_cache(maxsize=1)
 def _mac_keyboard_library():
+    """Load and retain HIToolbox with explicit ctypes signatures for geometry."""
     import ctypes
     library = ctypes.CDLL("/System/Library/Frameworks/Carbon.framework/Frameworks/HIToolbox.framework/HIToolbox")
     library.LMGetKbdType.restype = ctypes.c_uint8
@@ -70,7 +85,12 @@ def _mac_keyboard_library():
 
 
 def mac_above_tab_keycode(layout_type: int | None = None) -> int | None:
-    """ISO's § key is 10, not ANSI's backtick 50; never hijack both."""
+    """Return ISO's 10 or ANSI's 50, never assigning both to AboveTab.
+
+    An explicit ``layout_type`` is a Carbon four-character layout identifier.
+    Without one, query the current Mac keyboard; return None off macOS, on
+    query failure or for unsupported geometry rather than guessing a key.
+    """
     if layout_type is None:
         if sys.platform != "darwin":
             return None
@@ -87,10 +107,12 @@ def mac_above_tab_keycode(layout_type: int | None = None) -> int | None:
 
 
 def mac_key_name(code: int) -> str:
+    """Map a physical Mac keycode to a supported name, or empty if unassigned."""
     return "AboveTab" if code == mac_above_tab_keycode() else MAC_KEYS.get(code, "")
 
 
 def windows_key(vk: int, scan: int) -> str:
+    """Map Windows scan/VK input, preferring physical AboveTab; unknown is empty."""
     if scan == 41:
         return "AboveTab"
     if 0x30 <= vk <= 0x39 or 0x41 <= vk <= 0x5A:

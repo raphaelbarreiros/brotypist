@@ -5,6 +5,8 @@ macOS uses CoreGraphics and iconutil without importing Qt. Other platforms use
 Qt SVG rendering and retain the committed ICNS. Logical sizes at or below 32pt
 use the canonical simplified artwork, including explicit @2x PNG representations.
 The native build also compiles the layered Icon Composer document with actool.
+Default generation overwrites repository icon assets and Composer sources;
+--native-output instead confines compilation outputs to the supplied directory.
 """
 from __future__ import annotations
 
@@ -46,7 +48,12 @@ TRAY_STATES = ("active", "paused", "loading", "off")
 def render(size: int, *, tray: bool = False, state: str = "active",
            contrast: bool = False, variant: str = "normal",
            points: int | None = None) -> QImage:
-    """Render a square app tile or an 18:16 tray glyph, without text/fonts."""
+    """Return a Qt raster on non-macOS platforms with a live QGuiApplication.
+
+    Size is physical pixel width; points selects compact app artwork separately
+    from resolution. Tray height follows its 18:16 canvas. Invalid arguments
+    or an unreadable SVG raise ValueError.
+    """
     if size <= 0:
         raise ValueError("Icon size must be positive")
     if state not in TRAY_STATES:
@@ -82,7 +89,7 @@ def render(size: int, *, tray: bool = False, state: str = "active",
 
 
 def native_bitmap(width: int, height: int):
-    """Allocate an sRGB bitmap without AppKit windows or a Qt application."""
+    """Allocate a clear macOS sRGB bitmap in pixels; raise MemoryError on failure."""
     context = CG.CGBitmapContextCreate(
         None, width, height, 8, width * 4,
         CG.CGColorSpaceCreateWithName(CG.kCGColorSpaceSRGB),
@@ -96,6 +103,7 @@ def native_bitmap(width: int, height: int):
 
 
 def native_png(image) -> bytes:
+    """Encode a native CGImage as PNG bytes, raising OSError if encoding fails."""
     data = NSMutableData.data()
     destination = CG.CGImageDestinationCreateWithData(data, "public.png", 1, None)
     if destination is None:
@@ -109,7 +117,11 @@ def native_png(image) -> bytes:
 
 
 def render_native_tray(size: int, state: str, contrast: bool) -> bytes:
-    """Render our rect/circle-only tray SVG sources using CoreGraphics."""
+    """Return PNG bytes for the authored macOS rect/circle tray SVG subset.
+
+    Size is physical pixel width. Unsupported geometry or color raises
+    ValueError rather than silently producing a partial tray glyph.
+    """
     if size <= 0 or state not in TRAY_STATES:
         raise ValueError("Invalid tray icon size or state")
     appearance = "contrast" if contrast else "template"
@@ -118,10 +130,13 @@ def render_native_tray(size: int, state: str, contrast: bool) -> bytes:
     sample = 4
     context = native_bitmap(size * sample, height * sample)
     CG.CGContextSetShouldAntialias(context, True)
+    # SVG coordinates start at the top-left; flip the native bitmap's Y axis
+    # before drawing the supersampled 18:16 source canvas.
     CG.CGContextTranslateCTM(context, 0, height * sample)
     CG.CGContextScaleCTM(context, size * sample / 18, -height * sample / 16)
 
     def color(value: str, style: dict) -> tuple[float, float, float]:
+        """Resolve inherited currentColor or a six-digit RGB literal."""
         if value == "currentColor":
             value = style.get("color", "#000000")
         if len(value) != 7 or not value.startswith("#"):
@@ -129,6 +144,7 @@ def render_native_tray(size: int, state: str, contrast: bool) -> bytes:
         return tuple(int(value[index:index + 2], 16) / 255 for index in (1, 3, 5))
 
     def draw(element, inherited: dict, opacity: float) -> None:
+        """Paint supported geometry with inherited style and cumulative opacity."""
         tag = element.tag.rsplit("}", 1)[-1]
         if tag in {"title", "desc"}:
             return
@@ -180,7 +196,12 @@ def render_native_tray(size: int, state: str, contrast: bool) -> bytes:
 
 def render_app(size: int, *, variant: str = "normal",
                points: int | None = None) -> bytes | QImage:
-    """Rasterize canonical artwork without adding enclosure lighting or bevels."""
+    """Return native PNG bytes on macOS, otherwise a Qt image, from app artwork.
+
+    Size is pixel width; points chooses the compact drawing at up to 32pt.
+    The native renderer handles the authored rectangles and vertical gradients,
+    not arbitrary SVG features; non-rectangle leaf elements are skipped.
+    """
     if sys.platform != "darwin":
         return render(size, variant=variant, points=points)
     if size <= 0 or variant not in APP_VARIANTS:
@@ -197,12 +218,14 @@ def render_app(size: int, *, variant: str = "normal",
                  if node.tag.rsplit("}", 1)[-1] == "linearGradient"}
 
     def rgba(value, alpha=1):
+        """Decode the artwork's short/full RGB hex literals plus explicit alpha."""
         value = value.lstrip("#")
         if len(value) == 3:
             value = "".join(c * 2 for c in value)
         return tuple(int(value[n:n + 2], 16) / 255 for n in (0, 2, 4)) + (alpha,)
 
     def draw(node, inherited=None, opacity=1):
+        """Paint rectangle leaves with per-shape graphics state and inherited style."""
         style = dict(inherited or {})
         style.update(node.attrib)
         opacity *= float(node.get("opacity", 1))
@@ -256,6 +279,7 @@ def render_app(size: int, *, variant: str = "normal",
 
 
 def save_png(image: bytes | QImage, target: Path) -> None:
+    """Create parent directories and overwrite target with PNG bytes or a Qt image."""
     target.parent.mkdir(parents=True, exist_ok=True)
     if isinstance(image, bytes):
         target.write_bytes(image)
@@ -264,6 +288,7 @@ def save_png(image: bytes | QImage, target: Path) -> None:
 
 
 def write_ico(target: Path) -> None:
+    """Overwrite target with an ICO assembled from already-generated app PNGs."""
     # ICO permits PNG payloads, preserving alpha without a Pillow dependency.
     # The 256px directory width/height fields are encoded as zero.
     sizes = (16, 24, 32, 48, 64, 128, 256)
@@ -278,6 +303,11 @@ def write_ico(target: Path) -> None:
 
 
 def write_icns(target: Path) -> None:
+    """Build a temporary logical-size iconset and invoke macOS iconutil.
+
+    Temporary PNGs are removed on exit; filesystem and subprocess errors
+    propagate to the caller rather than preserving a successful build claim.
+    """
     with tempfile.TemporaryDirectory(prefix="brotypist-icons-") as directory:
         iconset = Path(directory) / "BroTypist.iconset"
         iconset.mkdir()
@@ -292,7 +322,11 @@ def write_icns(target: Path) -> None:
 
 
 def write_composer_sources() -> None:
-    """Split the supplied full artwork into the one native app-icon document."""
+    """Overwrite Composer layers and manifest from the authored full-size SVGs.
+
+    Rectangle order defines enclosure/caret/suggestion membership. This is an
+    artwork-specific split, not a general SVG-to-Composer conversion.
+    """
     namespace = "http://www.w3.org/2000/svg"
     ET.register_namespace("", namespace)
     document = SOURCES / "BroTypist.icon"
@@ -349,6 +383,8 @@ def compile_native_icons(output: Path) -> dict:
     These resources target macOS 26; the app's deployment target is unchanged.
     Older consumers retain the original classic handoff ICNS, not actool's
     synthesized legacy drawing.
+    Return the generated bundle metadata. Native tool failures propagate;
+    missing Assets.car or an unexpected icon name raises RuntimeError.
     """
     if sys.platform != "darwin":
         raise RuntimeError("Icon Composer compilation requires a native macOS build")
@@ -372,6 +408,7 @@ def compile_native_icons(output: Path) -> dict:
 
 
 def main() -> int:
+    """Generate repository assets or run a source-only/native-output build mode."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skip-icns", action="store_true",
                         help="Retain the existing ICNS; still regenerate PNG and ICO")

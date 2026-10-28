@@ -1,3 +1,5 @@
+# Python distribution metadata; native installers are assembled by tools/build_app.py
+# and the platform packaging tools rather than by the wheel backend.
 [build-system]
 requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
@@ -19,6 +21,7 @@ dependencies = [
   "python-xlib>=0.33; sys_platform == 'linux'",
 ]
 
+# Inference and freezing are opt-in extras, separate from desktop runtime dependencies.
 [project.optional-dependencies]
 local = ["llama-cpp-python==0.3.36"]
 dev = ["pytest>=8,<10"]

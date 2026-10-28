@@ -3,8 +3,8 @@
 Threads: AX capture runs on the runtime thread under ``_lock``; the Quartz
 taps run on ``inklow-quartz`` and never touch AX or ``_lock``; AX observer
 notifications run on ``inklow-ax-observer``; workspace/input-source
-notifications arrive on the main queue. Cross-thread state is published by
-single reference assignments.
+notifications arrive on the main queue. Foreground/key-map snapshots are
+published by reference assignment; deferred input uses ``_input_mutex``.
 """
 from __future__ import annotations
 
@@ -177,6 +177,13 @@ def _tolerance(width: float) -> float:
 
 
 class MacBridge(BridgeBase):
+    """Own AX capture, native edits and deferred shortcut replay for one runtime.
+
+    Capture and edit entry points serialize through ``_lock``. Event callbacks
+    use the separate input mutex so a slow AX provider cannot block the tap by
+    holding the capture lock. Stop requests run-loop exit without joining.
+    """
+
     # Class defaults keep partially constructed test doubles coherent.
     _tap = None
     _pointer_tap = None
@@ -233,22 +240,26 @@ class MacBridge(BridgeBase):
         return _window_number(pid, bounds)
 
     def terminal_permissions(self):
+        """Report terminal Automation permission without prompting or launching."""
         from .macos_terminal import TERMINAL, ITERM
         adapter = self._terminal()
         return {app_id: {"name": name, "status": adapter.permission_state(app_id)}
                 for app_id, name in ((TERMINAL, "Terminal"), (ITERM, "iTerm"))}
 
     def request_terminal_access(self, app_id):
+        """Request Automation consent for an explicit, supported terminal action."""
         from .macos_terminal import SUPPORTED_APPS
         return self._terminal().request_access(app_id) if app_id in SUPPORTED_APPS else "unavailable"
 
     def docs_hint(self):
+        """Return a short-lived Docs metadata hint; callers must apply pause policy."""
         if self._docs_helper is None:
             from .macos_docs import DocsHelper
             self._docs_helper = DocsHelper(self)
         return self._docs_helper.hint()
 
     def enable_docs_accessibility(self, token):
+        """Consume a Docs hint token after the caller applies runtime pause policy."""
         if self._docs_helper is None:
             from .macos_docs import HELP_URL
             return {"status": "unknown", "diagnostic": "docs_token_invalid", "help_url": HELP_URL}
@@ -347,6 +358,7 @@ class MacBridge(BridgeBase):
         return secure_event_input_enabled()
 
     def configure(self, config) -> None:
+        """Apply app policy and invalidate compatibility and disabled pixel caches."""
         from .macos_terminal import terminal_policy_exclusions
         effective = dataclasses.replace(config, excluded_apps=terminal_policy_exclusions(config))
         with self._lock:
@@ -366,6 +378,7 @@ class MacBridge(BridgeBase):
                 pass
 
     def _attribute(self, element, name):
+        """Read an AX attribute, returning None for a native AX error."""
         error, value = self.ax.AXUIElementCopyAttributeValue(element, name, None)
         if error:
             return None
@@ -376,6 +389,7 @@ class MacBridge(BridgeBase):
         return not error and bool(result)
 
     def _foreground(self):
+        """Publish foreground metadata, hashing browser document URLs per instance."""
         app_info = self._workspace.frontmostApplication()
         if app_info is None:
             return None
@@ -410,6 +424,7 @@ class MacBridge(BridgeBase):
                                  "pid": pid, "window_id": window_id, "document_id": document_id}
 
     def foreground(self) -> dict:
+        """Return locked foreground metadata or the base unavailable result."""
         with self._lock:
             try:
                 result = self._foreground()
@@ -422,6 +437,7 @@ class MacBridge(BridgeBase):
         return self._front
 
     def _prepare_accessibility(self, app, pid, app_id):
+        """Enable permitted AX compatibility flags once per process/app/rule tuple."""
         # Electron documents AXManualAccessibility for third-party assistive
         # clients. Chromium browsers advertise AXEnhancedUserInterface instead.
         # The app rule "improve_compatibility" forces (True) or forbids (False)
@@ -452,6 +468,7 @@ class MacBridge(BridgeBase):
             self.ax.AXUIElementSetAttributeValue(app, attribute, True)
 
     def _focused(self):
+        """Resolve an allowed writable field without reading its text value."""
         # Resolve the foreground process through NSWorkspace. System-wide AX
         # AXFocusedApplication can return kAXErrorCannotComplete even while the
         # foreground app's own AXFocusedUIElement is accessible.
@@ -517,6 +534,7 @@ class MacBridge(BridgeBase):
         return field, pid, app_id, metadata["domain"]
 
     def _field_identity(self, field, pid, app_id):
+        """Bind a field to its process and, for browsers, its current document."""
         identity = f"{pid}:{hash(field)}"
         if not self._is_browser(app_id):
             return identity
@@ -534,6 +552,12 @@ class MacBridge(BridgeBase):
         return f"{identity}:{hash(window)}:{digest}"
 
     def _capture(self):
+        """Return (snapshot, native field) only after focus and policy revalidation.
+
+        The caller owns ``_lock``. Native ranges use UTF-16 units; Snapshot
+        offsets use Python string indices. Unsupported or stale controls return
+        None, while native exceptions are handled by the public entry points.
+        """
         if self._stopped.is_set() or not self.ax.AXIsProcessTrusted():
             return None
         if self._dead_key:
@@ -639,6 +663,7 @@ class MacBridge(BridgeBase):
                 and candidate.suffix == snapshot.line_suffix else None)
 
     def _field_bounds(self, field):
+        """Return finite top-left screen bounds in points, or None."""
         position = self._attribute(field, "AXPosition")
         size = self._attribute(field, "AXSize")
         if position is None or size is None:
@@ -655,6 +680,7 @@ class MacBridge(BridgeBase):
         return bounds
 
     def _range_bounds(self, field, location, length):
+        """Read top-left screen bounds for a range expressed in UTF-16 units."""
         value = self.ax.AXValueCreate(self.ax.kAXValueCFRangeType, (location, length))
         error, bounds = self.ax.AXUIElementCopyParameterizedAttributeValue(field, "AXBoundsForRange", value, None)
         if error or bounds is None:
@@ -668,6 +694,7 @@ class MacBridge(BridgeBase):
         return bounds
 
     def _caret_bounds(self, field, text, caret, location):
+        """Resolve a caret row from native glyph evidence, or reject ambiguity."""
         bounds = self._range_bounds(field, location, 0)
         if bounds is None:
             # Qt omits zero-length bounds at the document end, while exposing
@@ -1015,7 +1042,11 @@ class MacBridge(BridgeBase):
             return None, None
 
     def range_rect(self, snapshot: Snapshot, start: int, length: int):
-        """Host bounds of a same-row range before/around the caret, or None."""
+        """Return same-row host bounds for Python-indexed start/length, or None.
+
+        A fresh capture must match the snapshot before converting the requested
+        range to native UTF-16 units; coordinates remain top-left screen points.
+        """
         if (snapshot.protected or snapshot.caret_rect is None or not isinstance(start, int)
                 or not isinstance(length, int) or length <= 0
                 or not 0 <= start <= start + length <= len(snapshot.text)
@@ -1049,6 +1080,7 @@ class MacBridge(BridgeBase):
                 return None
 
     def context_matches(self, snapshot):
+        """Revalidate focus/document/composition, not ordinary-field text equality."""
         if self._stopped.is_set() or self._dead_key:
             return False
         try:
@@ -1078,6 +1110,11 @@ class MacBridge(BridgeBase):
             return False
 
     def focused_context(self, snapshot, *, authorized, max_chars=2400):
+        """Collect bounded nearby static AX text while authorization remains true.
+
+        Return text, provenance and status metadata. Cancellation or stale focus
+        discards collected chunks; other editable fields are not traversed.
+        """
         result = {"text": "", "provenance": "accessibility",
                   "window_id": snapshot.window_id, "revision": snapshot.window_revision,
                   "status": "unavailable"}
@@ -1150,6 +1187,7 @@ class MacBridge(BridgeBase):
             return {**result, "status": "error"}
 
     def capture(self) -> Snapshot | None:
+        """Capture under the AX lock; native failures return None with a safe status."""
         with self._lock:
             try:
                 result = self._capture()
@@ -1172,6 +1210,11 @@ class MacBridge(BridgeBase):
             q.CGEventPost(q.kCGSessionEventTap, event)
 
     def insert(self, snapshot: Snapshot, text: str) -> bool:
+        """Insert at a freshly matched collapsed caret, returning dispatch success.
+
+        Prefer AXSelectedText; otherwise post tagged Unicode events without
+        replacing AXValue or using the clipboard. True is not host readback.
+        """
         if not text or "\x00" in text or snapshot.protected or snapshot.selection_length:
             return False
         with self._lock:
@@ -1220,6 +1263,11 @@ class MacBridge(BridgeBase):
                 return False
 
     def replace_range(self, snapshot: Snapshot, start: int, length: int, text: str) -> bool:
+        """Replace a Python-indexed range using AX selection and text setters.
+
+        Revalidate a changed selection before writing. False may follow a
+        successful selection change; this operation does not roll it back.
+        """
         if not snapshot.can_replace or not self._valid_replacement(snapshot, start, length, text):
             return False
         with self._lock:
@@ -1279,6 +1327,7 @@ class MacBridge(BridgeBase):
             return True
 
     def begin_input_transaction(self, gate):
+        """Bind insertion to the currently published, unexpired input gate."""
         if gate is not None and (gate is not self._input_gate or gate["aborted"]
                                  or time.monotonic() >= gate["deadline"]):
             return False
@@ -1286,6 +1335,7 @@ class MacBridge(BridgeBase):
         return True
 
     def finish_input_transaction(self, gate, success, *, presentation_key=None):
+        """Publish mutation outcome and an optional overlay-acknowledgment barrier."""
         with self._input_mutex:
             self._insertion_gate = None
             if gate is None:
@@ -1298,6 +1348,7 @@ class MacBridge(BridgeBase):
                 self._abort_input(gate)
 
     def acknowledge_input_presentation(self, key):
+        """Release the matching overlay barrier and attempt ordered input replay."""
         with self._input_mutex:
             gate = self._input_gate
             if gate is not None and gate.get("presentation_key") == key:
@@ -1313,6 +1364,7 @@ class MacBridge(BridgeBase):
             self._abort_input_locked(expected)
 
     def _abort_input_locked(self, expected=None):
+        """Abort the matching gate under the input mutex, deferring issued edits."""
         gate = self._input_gate
         if gate is None or (expected is not None and expected is not gate):
             return
@@ -1349,6 +1401,7 @@ class MacBridge(BridgeBase):
                 "Pause and resume global typing to retry.")
 
     def drain_input_transaction(self):
+        """Attempt UI-thread replay after mutation and presentation complete."""
         with self._input_mutex:
             self._drain_input_locked()
 
@@ -1386,6 +1439,7 @@ class MacBridge(BridgeBase):
                 break
 
     def _open_input(self, action, code, event):
+        """Publish an owned event copy and unstarted timeout for deferred dispatch."""
         gate = {"action": action, "code": code, "original": self.q.CGEventCreateCopy(event),
                 "events": deque(), "deadline": time.monotonic() + _REPLAY_SECONDS,
                 "aborted": False, "ready": False, "success": False, "committing": False}
@@ -1416,6 +1470,7 @@ class MacBridge(BridgeBase):
             return False
 
     def start_shortcuts(self, callback: Shortcut) -> None:
+        """Register dispatch and lazily start the Quartz and AX observer threads."""
         super().start_shortcuts(callback)
         with self._lock:
             if self._stopped.is_set():
@@ -1441,6 +1496,7 @@ class MacBridge(BridgeBase):
         self._dead_key = not length
 
     def _event_loop(self) -> None:
+        """Own event taps and their run-loop sources until stop or native failure."""
         import objc
         q, cf = self.q, self.cf
 
@@ -1649,6 +1705,7 @@ class MacBridge(BridgeBase):
             self._observer_runloop = None
 
     def set_shortcuts_enabled(self, enabled: bool) -> None:
+        """Toggle interception, replaying pending input when disabling."""
         if not enabled:
             self._abort_input()
         with self._state_lock:
@@ -1662,6 +1719,7 @@ class MacBridge(BridgeBase):
             self._refresh_status()
 
     def stop(self) -> None:
+        """Cancel input, detach notifications and request nonblocking thread exit."""
         self._abort_input()
         from . import macos_vision
         macos_vision.reset()

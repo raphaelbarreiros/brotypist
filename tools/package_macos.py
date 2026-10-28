@@ -15,11 +15,18 @@ APP_ID = "com.inklow.Inklow"
 
 
 def run(*args: str) -> str:
+    """Return stripped stdout, propagating command failures and 300-second timeouts."""
     return subprocess.run(args, check=True, text=True, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, timeout=300).stdout.strip()
 
 
 def inspect_bundle(bundle: Path, version: str) -> dict:
+    """Validate bundle provenance and signature, returning release metadata.
+
+    Inspect the existing payload without modifying or re-signing it. Ad-hoc
+    signatures are reported as such; this check does not establish notarization.
+    Invalid metadata raises ValueError; filesystem and tool errors propagate.
+    """
     if bundle.name != "BroTypist.app" or bundle.is_symlink() or not bundle.is_dir():
         raise ValueError("Expected a real BroTypist.app directory")
     with (bundle / "Contents/Info.plist").open("rb") as stream:
@@ -65,6 +72,11 @@ def inspect_bundle(bundle: Path, version: str) -> dict:
 
 
 def main() -> int:
+    """Stage DMG/ZIP artifacts and publish each exclusively, then print metadata.
+
+    Publication is per artifact rather than an atomic two-file transaction;
+    errors propagate and may leave an already-published artifact in place.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)

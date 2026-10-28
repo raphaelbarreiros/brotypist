@@ -2,6 +2,14 @@
 
 # Observed verification
 
+## Icon-only source and documentation verification — 2026-10-28
+
+- The macOS status button now retains its icon with an empty title and `NSImageOnly`; percentages remain available in Battery settings and accessible details. Four actual NSButton regressions cover full, charging, discharging and unavailable power readings.
+- Reviewed all first-party source and build contracts, documenting public APIs, ownership, privacy, cancellation, rendering and shutdown boundaries without changing production behavior beyond the separately requested icon correction. Existing indentation was preserved; upstream protocols were not rewritten.
+- The documented Mac tree passed **1,408 tests / 23 skipped in 24.15s**. A native-session-only case was skipped with the console locked. The actual CLI ran against a disposable profile and reported Secure Input; this is not live typing or icon visibility proof.
+- Environment-dependent test assumptions were removed: saved custom model/instructions are preserved without pinning a RAM-dependent recommendation, and prompt-capacity cases constrain required writing rather than heading byte counts.
+- **Pending:** native icon observation, canonical app replacement and GitHub release publication require completion of the unlocked-desktop check. The 0.4.11 tag is historical and does not imply a release. Linux test installation is separately recorded in its development tree, not represented as support from this scoped Mac source.
+
 ## 0.4.11 compact macOS menu — source verification
 
 - Isolated the macOS menu change from the unfinished Linux port, using `7cb3c77c87fa1a701029354299456466ae6d61b8` as the release-source base. Prediction/native-insertion behavior is unchanged.

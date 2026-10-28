@@ -22,7 +22,12 @@ REPOSITORY_URL = "https://github.com/renan-brasilio/brotypist"
 
 
 def asset_path(name: str) -> Path:
-    """Return an existing package asset; never resolve outside the asset tree."""
+    """Return a resolved package asset, rejecting paths outside the asset tree.
+
+    Raises:
+        FileNotFoundError: The resolved path escapes the tree or is not a file.
+            Symlink targets are checked after resolution as well.
+    """
     root = (Path(__file__).resolve().parent / "assets").resolve()
     path = (root / name).resolve()
     if not path.is_relative_to(root) or not path.is_file():
@@ -31,7 +36,12 @@ def asset_path(name: str) -> Path:
 
 
 def app_icon(*, compact: bool = False) -> QIcon:
-    """Select artwork by logical size, not ambiguous physical raster size."""
+    """Create a Qt icon selecting artwork by logical rather than raster size.
+
+    ``compact`` returns only the small-artwork variants. Otherwise a custom
+    engine retains separate small and large icons for high-DPI size selection.
+    Qt is imported lazily so AppKit-only resource consumers need not load it.
+    """
     from PySide6.QtCore import QSize, Qt
     from PySide6.QtGui import QIcon, QIconEngine
 
@@ -46,6 +56,8 @@ def app_icon(*, compact: bool = False) -> QIcon:
         large.addFile(str(asset_path(f"icons/app-{size}.png")))
 
     class LogicalIconEngine(QIconEngine):
+        """Delegate rasterization to the artwork family for the logical size."""
+
         # 32pt@2x and 64pt@1x both request 64 physical pixels but need
         # different drawings. Keep them in separate raster engines.
         def clone(self):
@@ -75,7 +87,12 @@ def app_icon(*, compact: bool = False) -> QIcon:
 
 
 def tray_icon(state: str = "active") -> QIcon:
-    """Return a Ghost Caret state glyph, template-colored by macOS."""
+    """Return a tray-state glyph, using a macOS mask or portable contrast art.
+
+    Raises:
+        ValueError: ``state`` is not active, paused, loading or off.
+        FileNotFoundError: A required bundled raster is missing.
+    """
     from PySide6.QtGui import QIcon
 
     if state not in {"active", "paused", "loading", "off"}:

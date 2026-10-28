@@ -20,6 +20,8 @@ from .native.macos import resolve_font, text_width
 
 
 class BroTypistSuggestionPanel(A.NSPanel):
+    """Keep keyboard focus and main-window ownership with the host editor."""
+
     def canBecomeKeyWindow(self):
         return False
 
@@ -28,6 +30,8 @@ class BroTypistSuggestionPanel(A.NSPanel):
 
 
 class BroTypistOverlayButton(A.NSButton):
+    """Accept an inactive-app click without becoming the first responder."""
+
     def acceptsFirstMouse_(self, event):
         return True
 
@@ -36,14 +40,18 @@ class BroTypistOverlayButton(A.NSButton):
 
 
 class OverlayActions(NSObject):
+    """Retain controller callbacks and dispatch the currently enabled tags."""
+
     @objc.python_method
     def setup(self, invoke, show_menu):
+        """Initialize callback ownership and an empty tag-to-action table."""
         self.invoke = invoke
         self.show_menu = show_menu
         self.actions = {}
         return self
 
     def pressed_(self, sender):
+        """Dispatch a registered tag; Option-menu clicks request a plain Tab."""
         action = self.actions.get(int(sender.tag()))
         if action == "menu":
             # Option-click sends the host a plain Tab instead of the menu.
@@ -56,6 +64,7 @@ class OverlayActions(NSObject):
 
 
 def _panel(identifier: str, label: str) -> BroTypistSuggestionPanel:
+    """Create a retained, borderless panel for main-run-loop use."""
     panel = BroTypistSuggestionPanel.alloc().initWithContentRect_styleMask_backing_defer_(
         A.NSMakeRect(0, 0, 100, 30),
         A.NSWindowStyleMaskBorderless | A.NSWindowStyleMaskNonactivatingPanel,
@@ -98,6 +107,7 @@ def _srgb(components):
 
 
 def ghost_color(view):
+    """Choose fallback ghost ink from effective appearance and contrast."""
     contrast = A.NSWorkspace.sharedWorkspace().accessibilityDisplayShouldIncreaseContrast()
     return _rgb(("9A9CA3" if _dark(view) else "6E7078") if contrast else ("6C6F77" if _dark(view) else "A2A4AA"))
 
@@ -113,12 +123,15 @@ def _measured_ghost_color(render: InlineRender, view):
 
 
 class ChipSurface(A.NSVisualEffectView):
+    """Refresh chooser materials when the effective AppKit appearance changes."""
+
     def viewDidChangeEffectiveAppearance(self):
         objc.super(ChipSurface, self).viewDidChangeEffectiveAppearance()
         self.apply_accessibility()
 
     @objc.python_method
     def apply_accessibility(self):
+        """Apply contrast and transparency preferences once a layer exists."""
         if self.layer() is None:
             return
         workspace = A.NSWorkspace.sharedWorkspace()
@@ -132,6 +145,7 @@ class ChipSurface(A.NSVisualEffectView):
 
 
 def _surface(width: float, height: float):
+    """Create a rounded chooser surface with dimensions in Cocoa points."""
     view = ChipSurface.alloc().initWithFrame_(A.NSMakeRect(0, 0, width, height))
     view.setMaterial_(A.NSVisualEffectMaterialPopover)
     view.setBlendingMode_(A.NSVisualEffectBlendingModeBehindWindow)
@@ -153,7 +167,12 @@ def _chip_text(text: str) -> str:
 
 
 def _position(rect, width, height, *, accessory=False, field_rect=None):
-    """Convert global AX top-left points to Cocoa bottom-left points."""
+    """Convert AX top-left points to a Cocoa frame sized in logical points.
+
+    Choosers are clamped to the visible screen. Accessories return ``None``
+    rather than being shifted over host text when their outside margin fails.
+    ``field_rect`` is accepted but does not alter this placement calculation.
+    """
     x, y, caret_width, caret_height = (float(n) for n in rect)
     screens = list(A.NSScreen.screens())
     if not screens:
@@ -195,6 +214,7 @@ def fit_text(font, text: str, available: float) -> str:
 
 
 def _finite_rect(value) -> tuple[float, float, float, float] | None:
+    """Return finite geometry with nonnegative width and positive height, or None."""
     if not isinstance(value, (tuple, list)) or len(value) != 4:
         return None
     try:
@@ -208,6 +228,7 @@ class GhostSurface(A.NSView):
     """Host-font glyphs at the verified baseline; no card, keycap or shadow."""
     @objc.python_method
     def setup(self, font, baseline, runs, fills=()):
+        """Retain local-point glyph runs and background fills for later drawing."""
         # runs: (text, x, NSColor); fills: (NSRect, NSColor), painted first.
         self.font, self.baseline, self.runs, self.fills = font, baseline, runs, fills
         self.setAccessibilityElement_(False)
@@ -220,6 +241,7 @@ class GhostSurface(A.NSView):
         return None
 
     def drawRect_(self, dirty):
+        """Paint fills before baseline-positioned CoreText runs in the current context."""
         import CoreText
         import Quartz
         from Foundation import NSAttributedString
@@ -256,6 +278,12 @@ class CaretOverlay:
 
     def __init__(self, invoke: Callable[[str], bool], menu_factory, show_accessory=True,
                  on_present: Callable[[object, str, str], None] | None = None):
+        """Own three panels and their action target until ``close``.
+
+        ``on_present(key, visible, mode)`` receives presentation acknowledgments;
+        displayed prefixes can be shorter than the controller's insertion text.
+        Construction and subsequent UI calls belong on the AppKit run loop.
+        """
         self.menu_factory = menu_factory
         self.on_present = on_present
         self.accept_key = ""
@@ -292,6 +320,7 @@ class CaretOverlay:
         self.accessory.setContentView_(surface)
 
     def _menu(self, sender):
+        """Keep the popup menu alive through synchronous native menu tracking."""
         self._active_menu = self.menu_factory()
         try:
             self._active_menu.popUpMenuPositioningItem_atLocation_inView_(
@@ -300,6 +329,7 @@ class CaretOverlay:
             self._active_menu = None
 
     def _report(self, key, visible: str, mode: str) -> None:
+        """Report visible text without allowing callback failures to escape into AppKit."""
         callback = self.on_present
         if callback is None or key is None:
             return
@@ -309,6 +339,7 @@ class CaretOverlay:
             pass
 
     def configure(self, show_accessory: bool, accept_key: str = ""):
+        """Update accessory visibility and the stored accept-key display label."""
         self.accept_key = {"Tab": "⇥", "AboveTab": "Above Tab"}.get(accept_key, accept_key)
         if bool(show_accessory) == self.show_accessory:
             return
@@ -321,6 +352,7 @@ class CaretOverlay:
             self.caret(self.rect, self.field_rect)
 
     def caret(self, rect, field_rect=None):
+        """Store AX anchors and place the accessory outside the field's left edge."""
         if getattr(self, "_docs_anchor", None) is not None:
             self.clear(hide_accessory=True)
         self._docs_anchor = None
@@ -343,6 +375,7 @@ class CaretOverlay:
             self.accessory.orderFrontRegardless()
 
     def _place_docs_help(self):
+        """Place or hide metadata-only help without synthesizing a text caret."""
         if not self.show_accessory or self._docs_anchor is None:
             self.accessory.orderOut_(None)
             return
@@ -371,6 +404,7 @@ class CaretOverlay:
         self._place_docs_help()
 
     def present(self, event: dict):
+        """Present controller payloads and acknowledge visible text for each mode."""
         key = event.get("key")
         mode = str(event.get("mode") or "completion")
         rect = event.get("rect")
@@ -384,6 +418,8 @@ class CaretOverlay:
             return
         self.caret(rect, event.get("field_rect"))
         if mode in ("completion", "correction"):
+            # Reuse a rendering only while its content, geometry and Space agree.
+            # The event key still receives a fresh acknowledgment on a cache hit.
             identity = (str(event.get("text", "")), mode, tuple(rect), repr(event.get("render")),
                         event.get("inline"), str(event.get("advance") or ""), repr(event.get("correction")))
             if (self._ghost_state is None or self._ghost_state[0] != identity
@@ -397,6 +433,7 @@ class CaretOverlay:
         self._present_chooser(event, choices or [str(event.get("text", ""))], mode, key)
 
     def _present_chooser(self, event, rows, mode, key):
+        """Draw up to nine choices, enabling only the fully visible leading rows."""
         rows = [row for row in rows if row][:9]
         rect = event.get("rect")
         identity = (tuple(rows), mode, tuple(rect), bool(event.get("field_anchor")))
@@ -457,6 +494,7 @@ class CaretOverlay:
         self._report(key, visible, mode)
 
     def _hide_ghost(self) -> str:
+        """Hide the ghost and return the empty presentation acknowledgment."""
         self.ghost.orderOut_(None)
         return ""
 
@@ -552,6 +590,11 @@ class CaretOverlay:
             return self._hide_ghost()
 
     def clear(self, *, hide_accessory=False, panel=None):
+        """Hide selected panels and invalidate their cached presentation identity.
+
+        ``panel`` selects ``ghost`` or ``chooser``; None clears both. Accessory
+        removal additionally forgets caret/document anchors and help labels.
+        """
         if panel in (None, "ghost"):
             self.ghost.orderOut_(None)
             self._ghost_state = None
@@ -570,6 +613,7 @@ class CaretOverlay:
             self.accessory.orderOut_(None)
 
     def close(self):
+        """Clear presentation state and close all three retained native panels."""
         self.clear(hide_accessory=True)
         self.ghost.close()
         self.chooser.close()

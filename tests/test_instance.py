@@ -1,3 +1,9 @@
+"""Constrain profile lock ownership and login-startup isolation.
+
+Lock contention uses real child processes; startup writes target temporary paths
+and GUI launches are intercepted rather than installing or starting a desktop.
+"""
+
 import os
 from pathlib import Path
 import subprocess
@@ -12,6 +18,8 @@ from inklow import system
 def test_another_process_cannot_own_the_profile_until_current_instance_releases(monkeypatch, tmp_path):
     monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
     command = [sys.executable, "-c", "from inklow.instance import instance_lock\nwith instance_lock() as owned: print(owned)"]
+    # A separate interpreter inherits the isolated profile and cannot share the
+    # parent's lock ownership merely because it runs the same Python code.
     with instance_lock() as acquired:
         assert acquired
         assert subprocess.check_output(command, text=True, timeout=10).strip() == "False"
@@ -39,6 +47,7 @@ def test_isolated_profiles_cannot_install_real_login_items(monkeypatch, tmp_path
 
 def test_login_entry_distinguishes_compositor_owned_startup_from_user_launch(monkeypatch, tmp_path):
     monkeypatch.delenv("INKLOW_HOME", raising=False)
+    # Exercise the real-profile branch while redirecting its autostart directory.
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.setattr(system.sys, "platform", "linux")
     system.set_launch_at_login(True)

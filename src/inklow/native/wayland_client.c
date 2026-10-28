@@ -1,3 +1,10 @@
+/*
+ * Single-event-loop Wayland input-method bridge for the native ABI.
+ * Only the compositor-passed private socket carries context text, key forwarding
+ * and the manual panel. Privacy metadata and revision fences gate operations.
+ * This implementation has no public ghost renderer or XKB compose tracker.
+ * Public ownership/return-value contracts are declared in wayland_client.h.
+ */
 #define _GNU_SOURCE
 #include "wayland_client.h"
 #include "input-method-client-protocol.h"
@@ -61,6 +68,7 @@ struct inklow_wl {
     int32_t pointer_x, pointer_y;
 };
 
+/* Use volatile stores when retiring retained text or pixel contents. */
 static void wipe(void *data, size_t length)
 {
     volatile unsigned char *p = data;
@@ -77,6 +85,7 @@ static void clear_text(struct inklow_wl *w)
     w->surrounding = false;
 }
 
+/* Zero remains the sentinel; even repeated host serials get a new local fence. */
 static void next_generation(struct inklow_wl *w)
 {
     if (++w->generation == 0) ++w->generation;
@@ -117,6 +126,7 @@ void inklow_wl_hide(struct inklow_wl *w)
     if (w->display && !w->failed) inklow_wl_flush(w);
 }
 
+/* Revoke snapshot authorization before unmapping the manual panel. */
 static void invalidate(struct inklow_wl *w, bool erase_text)
 {
     w->ready = false;
@@ -143,6 +153,7 @@ static void drop_keyboard(struct inklow_wl *w)
     memset(w->consumed, 0, sizeof(w->consumed));
 }
 
+/* Fail once: erase private state and release the grab before notifying the owner. */
 static void connection_error(struct inklow_wl *w)
 {
     if (w->failed) return;
@@ -169,6 +180,7 @@ int inklow_wl_flush(struct inklow_wl *w)
     return -1;
 }
 
+/* Validate a bounded UTF-8 span, rejecting embedded NULs and invalid scalars. */
 static bool utf8(const char *text, size_t length)
 {
     const unsigned char *s = (const unsigned char *)text;
@@ -192,6 +204,7 @@ static bool utf8(const char *text, size_t length)
     return true;
 }
 
+/* Accept the end offset or a byte that does not continue a UTF-8 code point. */
 static bool boundary(const char *text, size_t length, size_t offset)
 {
     return offset <= length && (offset == length || ((unsigned char)text[offset] & 0xc0) != 0x80);
@@ -240,6 +253,7 @@ static uint32_t canonical_modifiers(struct inklow_wl *w)
     return result;
 }
 
+/* Consume the compositor-owned keymap fd on every path, including invalid maps. */
 static void keyboard_keymap(void *data, struct wl_keyboard *keyboard, uint32_t format, int32_t fd, uint32_t size)
 {
     (void)keyboard;
@@ -289,6 +303,7 @@ static bool modifier_keysym(xkb_keysym_t sym)
            sym == XKB_KEY_Mode_switch || sym == XKB_KEY_Num_Lock;
 }
 
+/* Pair consumed presses/releases while forwarding every unhandled host event. */
 static void keyboard_key(void *data, struct wl_keyboard *keyboard, uint32_t serial,
                          uint32_t time, uint32_t key, uint32_t state)
 {
@@ -304,6 +319,8 @@ static void keyboard_key(void *data, struct wl_keyboard *keyboard, uint32_t seri
     if (w->ready && w->keys && key < MAX_KEY &&
         (state == WL_KEYBOARD_KEY_STATE_RELEASED || (!consume && state == WL_KEYBOARD_KEY_STATE_PRESSED))) {
         char name[128];
+        /* Stable shortcut identity uses the unshifted alphanumeric key rather
+         * than the printable symbol produced by the currently active modifiers. */
         const xkb_keysym_t *base = NULL;
         xkb_layout_index_t layout = xkb_state_key_get_layout(w->keys, key + 8);
         if (layout != XKB_LAYOUT_INVALID &&
@@ -364,11 +381,14 @@ static void ensure_keyboard(struct inklow_wl *w)
     }
 }
 
+/* Keep only safe, unselected UTF-8 excerpts; never send text through callbacks. */
 static void context_surrounding(void *data, struct zwp_input_method_context_v1 *context,
                                 const char *text, uint32_t cursor, uint32_t anchor)
 {
     struct inklow_wl *w = data;
     if (context != w->context) return;
+    /* Every update retires the previous snapshot, even if the replacement is
+     * rejected or allocation fails. commit_state separately establishes readiness. */
     invalidate(w, true);
     if (w->known && w->safe && text) {
         size_t length = strnlen(text, MAX_TEXT + 1);
@@ -455,6 +475,7 @@ static const struct zwp_input_method_context_v1_listener context_listener = {
     .commit_state = context_commit, .preferred_language = context_language,
 };
 
+/* Retire the old context before accepting any replacement activation. */
 static void release_context(struct inklow_wl *w)
 {
     invalidate(w, true);
@@ -635,6 +656,7 @@ int inklow_wl_fd(struct inklow_wl *w)
     return w && w->display && !w->failed ? wl_display_get_fd(w->display) : -1;
 }
 
+/* Pair prepare_read with read/cancel; a readiness callback must never block. */
 int inklow_wl_dispatch(struct inklow_wl *w)
 {
     if (!w || !w->display || w->failed) return -1;
@@ -672,6 +694,7 @@ uint64_t inklow_wl_context(struct inklow_wl *w)
     return w && w->context && !w->failed ? w->context_id : 0;
 }
 
+/* Native surrounding text may be an excerpt rather than the entire field. */
 int inklow_wl_matches(struct inklow_wl *w, uint32_t generation, uint32_t serial,
                       const char *text, size_t length, size_t cursor)
 {
@@ -698,6 +721,7 @@ int inklow_wl_commit(struct inklow_wl *w, uint32_t generation, uint32_t serial, 
 }
 
 
+/* Only compositor release makes a busy buffer safe to erase or overwrite. */
 static void buffer_release(void *data, struct wl_buffer *buffer)
 {
     (void)buffer;
@@ -724,6 +748,7 @@ static void destroy_buffer(struct image_buffer *b)
     memset(b, 0, sizeof(*b));
 }
 
+/* Called only after present validates dimensions and selects a non-busy slot. */
 static bool allocate_buffer(struct inklow_wl *w, struct image_buffer *b, int width, int height, int stride)
 {
     size_t size = (size_t)stride * (size_t)height;
@@ -760,6 +785,8 @@ int inklow_wl_present(struct inklow_wl *w, const void *pixels, int width, int he
         inklow_wl_hide(w);
         return 0;
     }
+    /* Prefer a reusable matching allocation, but never overwrite compositor-owned
+     * pixels. A busy result leaves the caller responsible for retrying its frame. */
     struct image_buffer *b = NULL;
     for (size_t i = 0; i < 2; ++i) {
         if (!w->buffers[i].busy) {

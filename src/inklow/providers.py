@@ -54,6 +54,15 @@ def _safe_pieces(pieces: Iterable[tuple[str, str | None]],
 
 
 class Provider(Protocol):
+    """Local inference lifecycle shared by direct and subprocess callers.
+
+    ``prepare`` performs backend setup without a draft. ``stream`` yields
+    cumulative replacements, not deltas, and observes cooperative cancellation.
+    Normal output is insertable text; utility/alternative modes return choice
+    data for downstream parsing. Callers must exhaust or close each iterator
+    before releasing the provider with ``close``. Backend failures propagate.
+    """
+
     def prepare(self) -> None: ...
     def stream(self, prefix: str, suffix: str, cancel: threading.Event, *, options: dict | None = None) -> Iterator[str]: ...
     def complete(self, prefix: str, suffix: str) -> str: ...
@@ -115,6 +124,7 @@ def _stream_text(pieces: Iterable[tuple[str, str | None]], suffix: str,
 
 
 def _prompt(config: Config, prefix: str, suffix: str, options: dict) -> str:
+    """Build the text-only server prompt; GGUF uses separately tokenized spans."""
     instructions = options.get("instructions", "")
     context = options.get("context", "")
     task = options.get("utility", "")
@@ -133,6 +143,7 @@ def _prompt(config: Config, prefix: str, suffix: str, options: dict) -> str:
 
 
 def _guided_family(model) -> str:
+    """Select supported guided framing from GGUF metadata or raise RuntimeError."""
     metadata = getattr(model, "metadata", {})
     architecture = metadata.get("general.architecture", "")
     if architecture in {"qwen3", "qwen3moe"}:
@@ -164,7 +175,14 @@ def _data_tokens(model, text: str, *, add_bos: bool = False) -> list[int]:
 
 def _prompt_tokens(model, config: Config, prefix: str, suffix: str, options: dict, *,
                    framing_tokens=None, language_prefix: str | None = None):
-    """Fit framing and exact data; language_prefix is the original pre-healing draft."""
+    """Fit tokenized framing and data within the model's generation budget.
+
+    ``language_prefix`` preserves the draft before word-boundary healing.
+    ``framing_tokens`` may cache trusted template spans only. Optional style
+    and reference context are dropped before trimming the oldest draft text;
+    utility payloads and the suffix are not sliced to force a fit.
+    Raise RuntimeError when required content still exceeds the context window.
+    """
     utility = options.get("utility", "")
     guided = config.prompt_style == "writing" or bool(utility)
     family = _guided_family(model) if guided else None
@@ -303,6 +321,7 @@ def _without_healing_prefix(pieces: Iterable[tuple[str, str | None]], prefix: st
 
 
 def _stream_utility(pieces: Iterable[tuple[str, str | None]], cancel: threading.Event) -> Iterator[str]:
+    """Yield cumulative choice data, preserving layout but bounding raw length."""
     raw = ""
     for delta, _reason in _safe_pieces(pieces, cancel):
         if cancel.is_set():
@@ -340,12 +359,14 @@ class _StreamingProvider:
     """Synchronous CLI completion consumes the same stream as the GUI."""
 
     def complete(self, prefix: str, suffix: str) -> str:
+        """Consume the default stream and return its final value, or empty text."""
         text = ""
         for text in self.stream(prefix, suffix, threading.Event()):
             pass
         return text
 
     def _sample(self, prefix, suffix, cancel, options) -> str | None:
+        """Collect one sample; distinguish cancellation (None) from empty text."""
         text = ""
         for text in self.stream(prefix, suffix, cancel, options=options):
             if cancel.is_set():
@@ -396,6 +417,8 @@ class _StreamingProvider:
 
 
 class GGUFProvider(_StreamingProvider):
+    """Own one lazy llama.cpp model, serializing setup, generation and release."""
+
     def __init__(self, config: Config) -> None:
         self.config = config
         self._model = None
@@ -407,6 +430,7 @@ class GGUFProvider(_StreamingProvider):
         self._framing_tokens = {}
 
     def _load(self):
+        """Load and validate weights with the provider lock held by the caller."""
         if self._model is None:
             if not self.config.model_path:
                 raise RuntimeError("Choose a base-model GGUF file in Settings, or configure a local Ollama server.")
@@ -431,6 +455,7 @@ class GGUFProvider(_StreamingProvider):
         return self._model
 
     def prepare(self) -> None:
+        """Warm fixed framing under the model lock; close failed initialization."""
         with self._lock:
             if self._model is None:
                 try:
@@ -454,6 +479,13 @@ class GGUFProvider(_StreamingProvider):
                     raise
 
     def stream(self, prefix: str, suffix: str, cancel: threading.Event, *, options: dict | None = None) -> Iterator[str]:
+        """Yield cumulative completions while owning the model lock.
+
+        Cancellation is checked around setup and by native stopping criteria;
+        it cannot forcibly interrupt a native call already in progress.
+        Closing this iterator closes the native chunk stream and releases the
+        lock. Alternative samples acquire it separately for each generation.
+        """
         if cancel.is_set():
             return
         if options and options.get("alternatives"):
@@ -533,6 +565,7 @@ class GGUFProvider(_StreamingProvider):
                 chunks.close()
 
     def close(self) -> None:
+        """Wait for the active stream, then release weights and framing caches."""
         with self._lock:
             if self._model is not None:
                 self._model.close()
@@ -547,11 +580,15 @@ def _server_message(value) -> str:
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Prevent a loopback server from redirecting a draft to another endpoint."""
+
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise RuntimeError("Local inference redirects are refused; use the server's direct loopback URL.")
 
 
 class ServerProvider(_StreamingProvider):
+    """Stream from a validated loopback endpoint without environment proxies."""
+
     def __init__(self, config: Config) -> None:
         self.config = config
         self.endpoint = local_endpoint(config.endpoint)
@@ -560,6 +597,7 @@ class ServerProvider(_StreamingProvider):
         self._v1 = "" if self.endpoint.endswith("/v1") else "/v1"
 
     def _open(self, path: str, payload: dict | None = None, timeout: float = 15):
+        """Open a request with a seconds-based timeout; caller owns the response."""
         data = None if payload is None else json.dumps(payload).encode()
         request = urllib.request.Request(self.endpoint + path, data=data,
                                          headers={"Content-Type": "application/json"},
@@ -581,6 +619,7 @@ class ServerProvider(_StreamingProvider):
 
     @staticmethod
     def _lines(response) -> Iterator[bytes]:
+        """Yield response lines within one aggregate byte budget, not per-line."""
         remaining = MAX_RESPONSE_BYTES
         while True:
             line = response.readline(remaining + 1)
@@ -592,8 +631,9 @@ class ServerProvider(_StreamingProvider):
             yield line
 
     def prepare(self) -> None:
+        """Probe the configured backend without a draft; do not promise residency."""
         if self.config.backend == "ollama":
-            # Ollama loads a model into memory for a generate call without a prompt.
+            # Probe generation without a draft; keep_alive=0 requests release.
             path, payload = "/api/generate", {"model": self.config.model, "keep_alive": 0, "stream": False}
         else:
             path, payload = self._v1 + "/models", None
@@ -607,6 +647,7 @@ class ServerProvider(_StreamingProvider):
                 raise RuntimeError("The local server did not answer like an inference server.") from error
 
     def _pieces(self, response) -> Iterator[tuple[str, str | None]]:
+        """Normalize Ollama NDJSON or completion SSE into text/reason pairs."""
         ollama = self.config.backend == "ollama"
         for line in self._lines(response):
             line = line.strip()
@@ -634,6 +675,12 @@ class ServerProvider(_StreamingProvider):
                 return
 
     def stream(self, prefix: str, suffix: str, cancel: threading.Event, *, options: dict | None = None) -> Iterator[str]:
+        """Yield cumulative output and close the response on iterator exit.
+
+        Cancellation is cooperative between response pieces, not an interrupt
+        of a blocked HTTP read. The subprocess supervisor handles forced
+        termination when its cancellation grace expires.
+        """
         options = options or {}
         if options.get("alternatives"):
             yield from self._alternatives(prefix, suffix, cancel, options)
@@ -672,9 +719,11 @@ class ServerProvider(_StreamingProvider):
                 raise RuntimeError("The local server did not return a valid text completion.") from error
 
     def close(self) -> None:
+        """Release no shared transport state; responses belong to stream calls."""
         pass  # Each request owns and closes its HTTP response.
 
 
 def create_provider(config: Config) -> Provider:
+    """Validate configuration and select a lazy backend without loading weights."""
     config.validate()
     return GGUFProvider(config) if config.backend == "gguf" else ServerProvider(config)

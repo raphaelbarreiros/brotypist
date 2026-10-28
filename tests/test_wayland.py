@@ -18,6 +18,8 @@ from inklow.runtime import Controller
 
 
 class Accessible:
+    """Mutable AT-SPI node; children share parent links for ancestry checks."""
+
     def __init__(self, *, children=(), flags=(), role="window", path="/field"):
         self.children = children
         self.parent = None
@@ -36,6 +38,7 @@ class Accessible:
         return self.children[index]
 
     def clearCache(self):
+        """Leave the directly mutable model unchanged; it has no remote cache."""
         pass
 
     def getState(self):
@@ -93,6 +96,7 @@ class NativePeer:
         return self.selection
 
     def getText(self, start, end):
+        """Record a full-field read, then inject any configured capture race."""
         self.reads += 1
         text = self.text
         if self.after_read:
@@ -100,6 +104,7 @@ class NativePeer:
         return text
 
     def inklow_wl_state(self, client, revision, serial):
+        """Populate ctypes output arguments with the peer's current anchor."""
         revision._obj.value = self.revision
         serial._obj.value = self.serial
         return int(self.ready)
@@ -108,6 +113,7 @@ class NativePeer:
         return self.context
 
     def inklow_wl_matches(self, client, revision, serial, text, length, cursor):
+        """Compare UTF-8 text and cursor bytes, leaving freshness to the bridge."""
         encoded = self.surrounding.encode("utf-8")
         return int(text == encoded and length == len(encoded)
                    and cursor == len(self.text[:self.caret].encode("utf-8")))
@@ -133,6 +139,7 @@ class NativePeer:
         return 1
 
     def inklow_wl_present(self, client, pixels, width, height, stride, scale):
+        """Copy submitted bytes before the caller's pixel buffer can expire."""
         self.frames.append(ctypes.string_at(pixels, stride * height))
         return self.present_result
 
@@ -143,6 +150,11 @@ class NativePeer:
 
 @pytest.fixture
 def native(monkeypatch):
+    """Pair a production bridge with synthetic accessibility and transport.
+
+    Bypass native startup and provide no socket notifiers or live connection.
+    Tests that start controllers or socketpairs own their teardown.
+    """
     peer = NativePeer()
     bridge = WaylandBridge.__new__(WaylandBridge)
     BridgeBase.__init__(bridge)
@@ -173,6 +185,7 @@ def native(monkeypatch):
 
 
 def event(bridge, **values):
+    """Deliver one ABI-shaped event synchronously and return consumption."""
     return bridge._event(None, ctypes.pointer(_Event(**values)))
 
 
@@ -341,6 +354,7 @@ def test_filtered_numbered_choice_leaves_digit_unconsumed_and_statistics_empty(n
 
 @pytest.fixture
 def qt_app(monkeypatch):
+    """Reuse or create Qt offscreen with a bounded synthetic primary screen."""
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     widgets = pytest.importorskip("PySide6.QtWidgets")
     app = widgets.QApplication.instance() or widgets.QApplication([])
@@ -352,6 +366,7 @@ def qt_app(monkeypatch):
 
 
 def click_region(bridge, peer, action):
+    """Send a press/release pair inside an enabled production hit region."""
     region = next(rect for rect, name, enabled in bridge._regions if name == action and enabled)
     x, y, _, _ = region
     for pressed in (1, 0):
@@ -449,6 +464,7 @@ def test_initial_context_resync_preserves_capture_isolation(native, qt_app, monk
     monkeypatch.setattr(QtDBus, "QDBusPendingCallWatcher", Watcher)
     bridge._sync_context_state()
     replies = 0
+    # Replies are released explicitly so focus loss can precede completion.
     while pending:
         watcher = pending.pop(0)
         if replies == 0:
@@ -657,6 +673,7 @@ def test_x11_stop_waits_for_hook_owned_socket_and_grab_release():
     bridge._wake_write.setblocking(False)
     read, write = socket.socketpair()
     entered, released = threading.Event(), threading.Event()
+    # Wait for hook entry, not a sleep; release is observed independently.
     class Connection:
         def screen(self):
             return SimpleNamespace(root=object())

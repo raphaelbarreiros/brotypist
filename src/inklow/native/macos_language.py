@@ -1,4 +1,8 @@
-"""Optional Apple language recognition; no AppKit, settings or retained text."""
+"""Recognize draft languages locally with Apple's optional NaturalLanguage.
+
+Recognizers are caller-owned mutable objects; do not share one across concurrent
+calls. Recognition clears their accumulated text and does not change settings.
+"""
 from __future__ import annotations
 
 import math
@@ -15,6 +19,11 @@ class LanguageUnavailable(RuntimeError):
 
 
 def language_recognizer():
+    """Create a recognizer, or raise LanguageUnavailable if loading fails.
+
+    Fall back to the system bundle when the dedicated PyObjC wrapper is absent.
+    The caller owns the returned instance and serializes its use.
+    """
     try:
         import objc
         try:
@@ -39,6 +48,11 @@ def language_recognizer():
 
 
 def identify(recognizer, text: str) -> dict[str, float]:
+    """Return up to MAX_HYPOTHESES language scores for this text alone.
+
+    Reset the supplied recognizer before processing and in the cleanup path;
+    native recognition errors propagate to the caller.
+    """
     recognizer.reset()
     try:
         if not text.strip():
@@ -51,6 +65,7 @@ def identify(recognizer, text: str) -> dict[str, float]:
 
 
 def _confident(hypotheses: dict[str, float]) -> str | None:
+    """Return a valid language tag only for a finite, strongly separated winner."""
     ranked = sorted(((tag, value) for tag, value in hypotheses.items()
                      if math.isfinite(value)), key=lambda item: item[1], reverse=True)
     if not ranked:
@@ -68,6 +83,10 @@ def draft_language_hint(prefix: str) -> str | None:
     A fresh recognizer belongs exclusively to this call/thread. Absence is
     explicitly represented by LanguageUnavailable, not a detected language.
     References, suffixes and user locale never participate.
+
+    Returns None for short or ambiguous drafts. Framework and recognition
+    failures raise LanguageUnavailable so callers can distinguish missing
+    evidence from an unavailable backend.
     """
     if sys.platform != "darwin":
         raise LanguageUnavailable("Apple NaturalLanguage is unavailable on this platform.")

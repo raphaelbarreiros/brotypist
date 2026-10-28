@@ -1,6 +1,8 @@
-"""Menu-agent controller. Native operations belong to tick/the shortcut decision.
+"""Coordinate native field snapshots, local inference and presentation consent.
 
-No widgets, sockets, model imports, or persistent drafts live in this process.
+The UI drives ``tick`` and native insertion decisions; optional-context workers
+recheck focus and consent around reads. Model execution belongs to ProcessClient,
+while history/statistics persistence follows preferences through LocalStorage.
 """
 from __future__ import annotations
 
@@ -50,7 +52,15 @@ class ShutdownPending(RuntimeError):
 
 
 class Controller:
+    """Own one bridge, inference client and cancellable background-work lifetime.
+
+    The controller lock protects state transitions. The keyboard-tap fast path
+    uses only the separate arming lock and queues authoritative work for tick;
+    presentation acknowledgment alone is never permission to insert later.
+    """
+
     def __init__(self, config: Config, bridge=None):
+        """Validate preferences and create owned services without starting shortcuts."""
         config.validate()
         self.config = config
         if bridge is None:
@@ -156,6 +166,7 @@ class Controller:
             callback()
 
     def start(self):
+        """Start native hooks once; expose history-unlock failures through status."""
         with self._lock:
             if self._started or self._stopped:
                 return
@@ -183,6 +194,7 @@ class Controller:
             self._notifications.append(event)
 
     def drain_events(self):
+        """Remove and return queued UI events; notification callbacks drain in tick."""
         with self._lock:
             events = list(self._events)
             self._events.clear()
@@ -224,6 +236,7 @@ class Controller:
         return self.config.excluded_apps
 
     def _allowed(self, app, domain, name=""):
+        """Apply exclusions, Escape suppression and app/domain overrides in order."""
         if not app:
             return False
         identifiers = (app.casefold(), name.casefold())
@@ -245,6 +258,7 @@ class Controller:
         return enabled
 
     def _record_allowed(self, app, domain):
+        """Require recording consent and abstain on unobservable excluded websites."""
         if (not domain and app in self._browser_apps and any(
                 key.startswith("domain:") and rule.get("record_history") is False
                 for key, rule in self.config.app_rules.items())):
@@ -259,6 +273,7 @@ class Controller:
                 and time.monotonic() >= self._paused_until)
 
     def _foreground(self):
+        """Read allowed foreground metadata, revoking stale document-help tokens."""
         try:
             info = self.bridge.foreground() or {}
         except Exception:
@@ -306,6 +321,7 @@ class Controller:
         return value if type(value) is int else None
 
     def _capture(self):
+        """Capture a nonprotected field and recheck app/domain authority afterward."""
         if self._foreground() is None or not self._active():
             return None
         revision = self._user_revision()
@@ -416,11 +432,13 @@ class Controller:
             return result
 
     def _disarm(self, *kinds):
+        """Revoke named presentation kinds, or every kind when none are supplied."""
         with self._arm_lock:
             self._armed = {kind: entry for kind, entry in self._armed.items() if kinds and kind not in kinds}
         self._presented = {kind: entry for kind, entry in self._presented.items() if kinds and kind not in kinds}
 
     def _clear(self, *, hide_accessory=False, cancel=True, cancel_context=True):
+        """Invalidate requests and presentation; optionally retain window-context work."""
         self._clear_docs_help()
         if cancel:
             self._client.cancel()
@@ -456,6 +474,7 @@ class Controller:
         self._emit({"type": "clear", "panel": "chooser"})
 
     def _authored_spans(self):
+        """Return half-open authored ranges, abstaining if provenance is too fragmented."""
         spans = []
         start = None
         for index, authored in enumerate(self._session_authored):
@@ -497,6 +516,7 @@ class Controller:
                               self._session_text, self._authored_spans()))
 
     def _finish_session(self):
+        """Queue a consented session if eligible, then forget its in-memory draft."""
         if self._session_key and (self._session_accepted or self.config.record_unaccepted):
             app = self._session_key[0]
             if self._record_allowed(app, self._session_domain):
@@ -507,6 +527,7 @@ class Controller:
         self._session_accepted = False
 
     def _observe_session(self, snapshot):
+        """Track one bounded field draft without re-recording just-deleted history."""
         key = (snapshot.app_id, snapshot.field_id, getattr(snapshot, "domain", ""))
         if self._history_suppressed == (key, snapshot.text):
             return
@@ -528,6 +549,7 @@ class Controller:
             self._update_session_text(snapshot.text, authored=True)
 
     def _observe(self, snapshot):
+        """Reconcile focus, edits and geometry before scheduling new inference."""
         now = time.monotonic()
         if snapshot is None:
             self._screen_cache = None
@@ -645,6 +667,7 @@ class Controller:
             return bool(safe and self._context_current(token, snapshot, kind))
 
     def _queue_window_context(self, snapshot, *, fresh=False):
+        """Queue latest-only window context, reusing only a matching unexpired cache."""
         if not self._window_context_enabled():
             if not self.config.clipboard_context:
                 self._context_status = "off"
@@ -688,6 +711,7 @@ class Controller:
         self._screen_wake.set()
 
     def _screen_loop(self):
+        """Drain the latest window read on its owned worker until stop wakes it."""
         while True:
             self._screen_wake.wait()
             with self._lock:
@@ -700,6 +724,7 @@ class Controller:
                 self._read_window_context(*request)
 
     def _read_window_context(self, token, snapshot):
+        """Read guarded window context and publish only a still-authorized result."""
         def blocked():
             with self._lock:
                 if self._screen_job == token:
@@ -765,6 +790,7 @@ class Controller:
         return _SHORTER[length] if self._on_battery and self.config.battery_shorter else length
 
     def _options(self, snapshot, mode, token, anchor=""):
+        """Assemble scoped instructions and consented references for one request token."""
         domain = getattr(snapshot, "domain", "")
         app_rule, domain_rule = self._rules(snapshot.app_id, domain)
         instructions = "\n".join(value for value in (
@@ -814,6 +840,7 @@ class Controller:
         return options
 
     def _effective_config(self, mode):
+        """Derive request limits and an installed battery model without saving settings."""
         config = replace(self.config, max_tokens=min(self.config.max_tokens, completion_limits(self._length())[0]))
         if mode != "completion":
             config.max_tokens = 128
@@ -839,6 +866,7 @@ class Controller:
         return self._rewrites_supported and snapshot.can_replace
 
     def _submit(self, snapshot, mode="completion", anchor=""):
+        """Queue context preparation, returning False for unsupported request geometry."""
         if mode == "completion" and not snapshot.inline_safe:
             return False
         if mode in {"emoji", "synonyms"} and not self._can_replace(snapshot):
@@ -877,6 +905,7 @@ class Controller:
         return True
 
     def _prepare_options(self, token, snapshot, mode, anchor=""):
+        """Wait briefly for window context, then hand current options back to tick."""
         try:
             with self._context_condition:
                 if self._preparing != token or not self._active():
@@ -902,6 +931,7 @@ class Controller:
         self._notify_ui()
 
     def _context_loop(self):
+        """Prepare only the latest pending request on the owned context worker."""
         while True:
             self._context_wake.wait()
             with self._lock:
@@ -914,6 +944,7 @@ class Controller:
                 self._prepare_options(*request)
 
     def _consume_prepared(self):
+        """Revalidate prepared writing and context immediately before IPC submission."""
         while self._prepared:
             token, snapshot, options = self._prepared.popleft()
             if token != self._preparing:
@@ -1102,6 +1133,7 @@ class Controller:
         return self._publish_correction(snapshot, result, rect)
 
     def _consume_results(self):
+        """Apply only matching request results; chooser JSON waits for the final event."""
         for event in self._client.poll():
             request = self._request
             if request is None or event.get("id") != request[0]:
@@ -1137,6 +1169,11 @@ class Controller:
                     self._request = None
 
     def _flush_records(self, *, raise_errors=False):
+        """Drain queued records under current consent, reporting storage failures.
+
+        Records are removed before storage is attempted; failed writes are not
+        requeued. Shutdown can request an exception after all records are tried.
+        """
         failed = False
         while True:
             with self._lock:
@@ -1241,6 +1278,11 @@ class Controller:
             self.bridge.configure(self._native_config())
 
     def tick(self):
+        """Run one UI-owned cycle of deferred input, capture and result delivery.
+
+        Native state is refreshed before prepared/model output is consumed.
+        Storage writes and external UI callbacks run outside the decision lock.
+        """
         settings_callbacks = []
         if not self._started:
             self.start()
@@ -1316,6 +1358,8 @@ class Controller:
                 self._capture_after = now + (min(self._capture_interval, 0.05) if recent_input else self._capture_interval)
             else:
                 snapshot = self._candidate
+            # Observe current authority before accepting either background stage;
+            # request IDs alone cannot establish that the same field is focused.
             self._prepare_focused_model(snapshot)
             self._consume_prepared()
             self._consume_results()
@@ -1323,6 +1367,8 @@ class Controller:
                 self._schedule(snapshot, now)
             notifications = list(self._notifications)
             self._notifications.clear()
+        # Callbacks may re-enter the controller; do not hold its decision lock
+        # while publishing presentation updates or opening Settings.
         self._flush_records()
         for event in notifications:
             callback = self.on_suggestion if event["type"] == "suggestion" else self.on_clear
@@ -1386,6 +1432,7 @@ class Controller:
             self._submit(snapshot, mode)
 
     def _accepted(self, current, text, resulting_text, *, start, length=0):
+        """Record a confirmed native edit, marking generated characters non-authored."""
         if self.config.statistics_enabled:
             self._records.append(("stats", current.app_id, text, not self._completion_counted))
         self._completion_counted = True
@@ -1415,6 +1462,7 @@ class Controller:
         return entry if entry is not None and entry[0] == key else ()
 
     def _accept(self, full=False, choice=None, claimed=None):
+        """Recapture authority and dispatch one edit; False leaves acceptance uncommitted."""
         current = self._capture()
         if current is None or not current.has_anchor:
             self._clear(hide_accessory=True)
@@ -1742,6 +1790,11 @@ class Controller:
                 finish(gate, success, presentation_key=remainder)
 
     def invoke(self, action: str) -> bool:
+        """Handle a normal shortcut synchronously or queue its command for tick.
+
+        Return whether the action was handled/queued, not proof of a later
+        insertion. Unlike fast_invoke, this path may capture native field state.
+        """
         with self._lock:
             if self._stopped:
                 return False
@@ -1832,6 +1885,12 @@ class Controller:
         return False
 
     def update_config(self, config: Config, persist=True):
+        """Validate/save preferences, invalidate old work and apply native policy.
+
+        History unlock and persistence happen before replacing active settings;
+        their failures propagate. Model identity changes or privacy revocation
+        release the worker rather than retaining its previous writing context.
+        """
         config.validate()
         if self._recording_configured(config):
             self._storage.enable_history()
@@ -1872,6 +1931,7 @@ class Controller:
             self._storage.lock_history()
 
     def toggle_enabled(self):
+        """Resume a timed pause or persist the inverted master switch; return its state."""
         with self._lock:
             if self.config.global_enabled and time.monotonic() < self._paused_until:
                 self._paused_until = 0.0
@@ -1883,6 +1943,7 @@ class Controller:
         return self.config.global_enabled
 
     def pause(self, minutes: int):
+        """Pause for nonnegative integer minutes, clearing context and releasing weights."""
         if type(minutes) is not int or minutes < 0:
             raise ValueError("Pause duration must be a non-negative number of minutes.")
         with self._lock:
@@ -1894,6 +1955,7 @@ class Controller:
             self._release_model()
 
     def toggle_current_app(self, *, app=None, domain=""):
+        """Temporarily toggle an explicit or foreground scope; False means no change."""
         if app is not None:
             return self._toggle_app(app, domain)
         with self._lock:
@@ -1935,6 +1997,7 @@ class Controller:
         return "", None
 
     def status(self):
+        """Return UI diagnostics and current policy without returning captured writing."""
         with self._lock:
             status = self._client.status()
             active = self._active()
@@ -1972,6 +2035,7 @@ class Controller:
                     "on_battery": self._on_battery, "download": dict(self._download) if self._download else None}
 
     def set_model(self, path, prompt_style="continuation", model_id=None):
+        """Persist a GGUF selection; infer its catalogue ID only when none is supplied."""
         if model_id is None:
             from .models import PRESETS, model_path
             selected = Path(path).expanduser()
@@ -1980,6 +2044,7 @@ class Controller:
                                    prompt_style=prompt_style, model_id=model_id))
 
     def models(self):
+        """Return preset metadata and current installation/availability for Settings."""
         from .models import PRESETS, is_installed, model_availability, model_path
         return [{"id": preset.id, "label": preset.label, "description": preset.description,
                  "path": str(model_path(preset)), "size_bytes": preset.size_bytes,
@@ -1989,6 +2054,12 @@ class Controller:
                  "availability": model_availability(preset)} for preset in PRESETS]
 
     def download_model(self, preset_id, *, accept_license=False):
+        """Start one cancellable download; report completion through queued events.
+
+        Reject an unknown preset or an already-running download synchronously.
+        Worker failures become content-free status messages; downloading does
+        not select the model or replace the active configuration.
+        """
         from .models import DownloadCancellation, download_model, get_preset
         preset = get_preset(preset_id)
         with self._lock:
@@ -2022,15 +2093,18 @@ class Controller:
             self._download_thread.start()
 
     def cancel_download(self):
+        """Signal download cancellation without waiting for its worker to exit."""
         with self._lock:
             if self._download_cancel is not None:
                 self._download_cancel.set()
 
     def stats(self, period="week", group_by="day"):
+        """Flush pending acceptances before querying aggregate statistics."""
         self._flush_records()
         return self._storage.stats(period, group_by)
 
     def history_info(self):
+        """Return history metadata or a content-free storage-unavailable diagnostic."""
         try:
             return self._storage.history_info()
         except (OSError, sqlite3.Error):
@@ -2045,6 +2119,12 @@ class Controller:
             return {"available": False, "apps": {}, "domains": {}}
 
     def delete_history(self, app_id=None, domain=None):
+        """Delete all history or one app/domain and invalidate derived model context.
+
+        Matching queued drafts are removed and the current unchanged draft is
+        suppressed so the next observation cannot immediately recreate it.
+        Storage deletion is attempted even if model cleanup raises.
+        """
         if app_id is not None and domain is not None:
             raise ValueError("Delete history for one app or one website at a time.")
         domain = self._domain_key(domain) if domain is not None else None
@@ -2083,6 +2163,7 @@ class Controller:
                 self._history_mutating = False
 
     def set_history_enabled(self, enabled):
+        """Persist global recording consent through the normal policy transition."""
         if type(enabled) is not bool:
             raise ValueError("History preference must be a boolean.")
         self.update_config(replace(self.config, record_history=enabled))
@@ -2096,10 +2177,16 @@ class Controller:
         self._screen_reader = reader
 
     def set_battery_reader(self, reader):
+        """Install a no-argument battery-state reader sampled by tick."""
         self._battery_reader = reader
 
     def stop(self):
-        """Stop activity immediately; attempt every cleanup and retry failures."""
+        """Stop activity immediately and attempt every owned cleanup operation.
+
+        Successful steps are remembered across calls. Raise ShutdownPending
+        while cancelled threads unwind, or RuntimeError for failed cleanup;
+        callers may retry without restarting already-completed steps.
+        """
         failures = []
 
         def finish(name, action):

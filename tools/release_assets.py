@@ -21,6 +21,7 @@ TARGET_FILES = {
 
 
 def version() -> str:
+    """Read the source version and reject versions unsuitable for installers."""
     value = runpy.run_path(str(ROOT / 'src/inklow/__init__.py'))['__version__']
     if not re.fullmatch(r'\d+\.\d+\.\d+', value):
         raise ValueError('Installer releases require a three-part application version.')
@@ -28,17 +29,24 @@ def version() -> str:
 
 
 def sha256(path: Path) -> str:
+    """Return the file digest used to bind manifests to exact artifact bytes."""
     with path.open('rb') as source:
         return hashlib.file_digest(source, 'sha256').hexdigest()
 
 
 def commit(value: str) -> str:
+    """Require a full lowercase SHA-1 commit spelling without resolving it in Git."""
     if not re.fullmatch(r'[0-9a-f]{40}', value):
         raise ValueError('A full source commit SHA is required.')
     return value
 
 
 def manifest(args) -> None:
+    """Hash the target's assets and embed a caller-supplied passed smoke receipt.
+
+    This records receipt data rather than executing or independently attesting
+    the native smoke test. Refuse an existing build-manifest destination.
+    """
     app_version = version()
     receipt = json.loads(args.receipt.read_text(encoding='utf-8'))
     if not isinstance(receipt, dict):
@@ -61,6 +69,7 @@ def manifest(args) -> None:
 
 
 def gh(*arguments: str, allow_missing=False) -> subprocess.CompletedProcess:
+    """Run GitHub CLI, optionally returning HTTP 404 failures for missing objects."""
     result = subprocess.run(['gh', *arguments], text=True, capture_output=True)
     if result.returncode:
         if allow_missing and 'HTTP 404' in result.stderr:
@@ -70,7 +79,13 @@ def gh(*arguments: str, allow_missing=False) -> subprocess.CompletedProcess:
 
 
 def signed_update_files(native: list[dict], output: Path, source: str) -> list[Path]:
-    """Sign only verified package identities; the publisher key never leaves Keychain."""
+    """Sign prevalidated package identities with the existing macOS Keychain key.
+
+    The secret is read into process memory for signing, never written to output.
+    Require the pinned public identity and verify the signature with the client
+    verifier before writing the manifest/signature pair. The caller owns asset
+    integrity checks; this helper does not rehash the native packages.
+    """
     sys.path.insert(0, str(ROOT / "src"))
     from inklow.update_keys import APP_ID, PUBLISHER_PUBLIC_KEY
     import base64
@@ -114,6 +129,12 @@ def signed_update_files(native: list[dict], output: Path, source: str) -> list[P
 
 
 def prepare_release(args) -> list[Path]:
+    """Validate transferred assets and write signed metadata without publishing.
+
+    Require exactly the requested native manifests at one version and commit.
+    Return artifact and metadata paths; a failure after creating the output
+    directory can leave partial local metadata, but makes no GitHub mutation.
+    """
     app_version = version()
     if args.tag != 'v' + app_version:
         raise ValueError('Release tag does not match the application version.')
@@ -169,6 +190,11 @@ def prepare_release(args) -> list[Path]:
 
 
 def publish(args) -> None:
+    """Create a verified tag if absent, upload a draft, then publish it as latest.
+
+    Existing tags must resolve to the requested commit. GitHub failures
+    propagate; completed remote steps are not rolled back automatically.
+    """
     app_version = version()
     source = commit(args.commit)
     requested = set(args.targets)
@@ -230,6 +256,7 @@ def publish(args) -> None:
 
 
 def main() -> None:
+    """Dispatch version, native manifest, local preparation or remote publication."""
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
     check = commands.add_parser('version')

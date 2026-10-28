@@ -1,3 +1,4 @@
+# Desktop launcher template; build/package tools supply the executable and icon.
 [Desktop Entry]
 Type=Application
 Name=BroTypist

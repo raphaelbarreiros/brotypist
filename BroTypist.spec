@@ -28,6 +28,7 @@ if sys.platform == "linux":
 
     @isolated.decorate
     def require_linux_bindings():
+        """Import required desktop bindings in isolation before collecting them."""
         import gi
         import gi._gi
         import pyatspi
@@ -46,6 +47,8 @@ if sys.platform == "linux":
     linux_binaries.append((str(wayland_library), "inklow/native"))
     linux_imports = collect_submodules("pyatspi") + ["gi", "gi._gi", "Xlib"]
     pending = [("Atspi", "2.0"), ("Pango", "1.0"), ("PangoCairo", "1.0")]
+    # Traverse typelib dependencies once so frozen GI imports retain their
+    # matching native libraries, not just the top-level accessibility namespace.
     collected = set()
     while pending:
         namespace, version = pending.pop()

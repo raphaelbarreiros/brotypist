@@ -21,6 +21,8 @@ from platformdirs import user_cache_path
 
 @dataclass(frozen=True)
 class ModelPreset:
+    """Pinned weight identity, license policy and physical-memory floor in bytes."""
+
     id: str
     label: str
     description: str
@@ -144,6 +146,7 @@ PRESETS = (
 
 
 def get_preset(preset_id: str) -> ModelPreset:
+    """Resolve a configured preset ID, raising ValueError for unknown IDs."""
     for preset in PRESETS:
         if preset.id == preset_id:
             return preset
@@ -169,6 +172,7 @@ def recommended_preset(memory_bytes: int | None = None) -> ModelPreset:
 
 
 def model_availability(preset: ModelPreset, memory_bytes: int | None = None) -> str:
+    """Return a memory-capacity warning, or an empty string if not ruled out."""
     capacity = physical_memory_bytes() if memory_bytes is None else memory_bytes
     if capacity is not None and capacity < preset.minimum_memory_bytes:
         return f"Requires at least {preset.minimum_memory_bytes // 1024**3} GB of physical memory."
@@ -176,6 +180,7 @@ def model_availability(preset: ModelPreset, memory_bytes: int | None = None) -> 
 
 
 def model_path(preset: ModelPreset) -> Path:
+    """Return the per-user cache destination without creating or verifying it."""
     return user_cache_path("inklow", appauthor=False) / "models" / preset.filename
 
 
@@ -197,6 +202,7 @@ class DownloadCancellation(Event):
         self._socket = None
 
     def _interrupt(self):
+        """Shut down the registered socket while holding ``_interrupt_lock``."""
         if self.is_set() and self._socket is not None:
             try:
                 self._socket.shutdown(socket.SHUT_RDWR)
@@ -204,12 +210,14 @@ class DownloadCancellation(Event):
                 pass  # The owned connection may already have closed.
 
     def set(self):
+        """Signal cancellation and interrupt an attached response body read."""
         super().set()
         with self._interrupt_lock:
             self._interrupt()
 
     @contextmanager
     def response(self, response):
+        """Temporarily attach one response socket; the caller still closes it."""
         # urllib's HTTPResponse owns a BufferedReader over SocketIO. In-memory
         # response doubles need only the normal cooperative Event checks.
         raw = getattr(getattr(response, "fp", None), "raw", None)
@@ -225,11 +233,13 @@ class DownloadCancellation(Event):
 
 
 def _check_cancel(cancel: Event | None) -> None:
+    """Raise RuntimeError at a cooperative cancellation boundary."""
     if cancel is not None and cancel.is_set():
         raise RuntimeError("Model download cancelled.")
 
 
 def _digest(path: Path, cancel: Event | None) -> str:
+    """Hash a file in bounded chunks, honoring cancellation between reads."""
     digest = hashlib.sha256()
     with path.open("rb") as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
@@ -239,6 +249,8 @@ def _digest(path: Path, cancel: Event | None) -> str:
 
 
 class _HTTPSRedirects(urllib.request.HTTPRedirectHandler):
+    """Permit CDN redirects only while the model transfer remains HTTPS."""
+
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if urlsplit(newurl).scheme != "https":
             raise RuntimeError("Refusing a non-HTTPS model download redirect.")
@@ -252,7 +264,16 @@ def download_model(
     *,
     accept_license: bool = False,
 ) -> Path:
-    """Return verified weights, preserving the old model on cancel or failure."""
+    """Return verified cached or downloaded weights without changing settings.
+
+    ``progress`` runs synchronously with downloaded and expected byte counts;
+    an already verified cache entry reports completion without a transfer.
+    ``cancel`` is checked between reads and during cache hashing. A
+    DownloadCancellation can also interrupt an attached response body read.
+    License and memory-policy failures, cancellation and integrity failures
+    raise RuntimeError; transport, filesystem and callback errors propagate.
+    Only a fully verified temporary file replaces the existing destination.
+    """
     preset = get_preset(preset_id)
     unavailable = model_availability(preset)
     if unavailable:
@@ -269,6 +290,7 @@ def download_model(
         if progress is not None:
             progress(preset.size_bytes, preset.size_bytes)
         return target
+    # Stage beside the target so verification precedes an atomic replacement.
     fd, temporary = tempfile.mkstemp(prefix=".download-", dir=target.parent)
     try:
         count = 0

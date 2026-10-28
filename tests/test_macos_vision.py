@@ -1,3 +1,10 @@
+"""Constrain consent, stale-window rejection, OCR retention and style evidence.
+
+Capture/recognition doubles isolate privacy and cache behavior without reading
+the desktop. Darwin-only raster tests draw synthetic text with native fonts;
+they do not establish compatibility with every application's rendering.
+"""
+
 import sys
 import threading
 import time
@@ -13,6 +20,7 @@ darwin = pytest.mark.skipif(sys.platform != "darwin", reason="macOS frameworks")
 
 
 def _snapshot(**changes):
+    """Build a synthetic field/window identity with overridable capture geometry."""
     values = dict(caret_rect=(300, 210, 1, 20), field_rect=(100, 200, 400, 40),
                   window_id="writer:window", window_revision="revision-1",
                   window_pid=4242, window_bounds=(0, 0, 1000, 800))
@@ -21,6 +29,7 @@ def _snapshot(**changes):
 
 
 def _ax_reader(text, calls):
+    """Return a journaled AX context response for testing acquisition precedence."""
     def read(snapshot, *, authorized, max_chars):
         calls.append("accessibility")
         return {"text": text, "status": "ready" if text else "empty",
@@ -112,6 +121,7 @@ def test_ocr_text_skips_the_typed_field_masked_and_uncertain_text():
 
 
 def _evidence(top, words=("Hello brave", "world"), widths=(80.0, 40.0), left=200.0):
+    """Build two adjacent sample boxes in screen points without claiming a font."""
     first = {"text": words[0], "rect": (left, top, widths[0], 20)}
     second_left = left + widths[0] + 4
     second = {"text": words[1], "rect": (second_left, top, widths[1], 20)}
@@ -124,6 +134,8 @@ def test_style_requests_are_latest_only_and_disabling_forgets_backoff(monkeypatc
     engine = vision._StyleEngine()
     monkeypatch.setattr(vision, "_MIN_CAPTURE_INTERVAL", 0.0)
     started, release, seen = threading.Event(), threading.Event(), []
+    # Hold the first verification so both newer requests reach the pending slot
+    # before the worker resumes; only the last pending line should survive.
 
     def verify(line, authorized):
         seen.append(line.top)
@@ -154,6 +166,11 @@ def test_style_requests_are_latest_only_and_disabling_forgets_backoff(monkeypatc
 
 
 def _pixels(font_name, size, runs, baseline, origin, *, scale=2.0, size_pt=(300, 40), draw=True, font=None):
+    """Rasterize synthetic host text into scaled pixels, not a desktop capture.
+
+    Run positions, baseline and origin use screen points; ``scale`` converts
+    them to bitmap pixels. An explicit font supplies fixed-advance test glyphs.
+    """
     import CoreText as CT
     import Quartz as Q
     from AppKit import NSFont
@@ -168,6 +185,8 @@ def _pixels(font_name, size, runs, baseline, origin, *, scale=2.0, size_pt=(300,
         attributes = {"NSFont": font or NSFont.fontWithName_size_(font_name, size),
                       CT.kCTForegroundColorAttributeName: Q.CGColorCreateSRGB(0.1, 0.15, 0.3, 1.0)}
         for x, text in runs:
+            # Screen-space y grows downward; the CoreText bitmap baseline grows
+            # upward, so subtract the crop-relative baseline from its height.
             line = CT.CTLineCreateWithAttributedString(
                 NSAttributedString.alloc().initWithString_attributes_(text, attributes))
             Q.CGContextSetTextPosition(context, x - origin[0], size_pt[1] - (baseline - origin[1]))
@@ -177,6 +196,7 @@ def _pixels(font_name, size, runs, baseline, origin, *, scale=2.0, size_pt=(300,
 
 
 def _host_line(font_name="Helvetica", size=15.0, draw=True, evidence_font=None, family=""):
+    """Return parsed native-width samples, their raster and the known baseline."""
     from AppKit import NSFont
     from inklow.native.macos import text_width
     font = NSFont.fontWithName_size_(font_name, size)
@@ -257,6 +277,8 @@ def test_appearance_reauthorizes_after_shareable_window_enumeration(monkeypatch,
         frame=lambda: SimpleNamespace(origin=SimpleNamespace(x=0, y=0),
                                       size=SimpleNamespace(width=1000, height=800)))
 
+    # Retain the completion callback to change authorization while enumeration
+    # is in flight, before the real verification path can request any pixels.
     def enumerate_windows(desktop, on_screen, callback):
         callbacks.append(callback)
         enumeration.set()
@@ -320,7 +342,11 @@ def test_appearance_without_live_authorization_never_schedules_capture():
 
 @pytest.fixture
 def ocr_boundary(monkeypatch):
-    """Replace OS acquisition/recognition, preserving the real OCR/cache consumer."""
+    """Replace OS acquisition/recognition, preserving the real OCR/cache consumer.
+
+    Clear shared plaintext on both sides of the fixture. ``recognized`` injects
+    a state change during OCR so stale work cannot silently restore cleared data.
+    """
     vision.clear_text_cache()
     state = SimpleNamespace(text="First site context", captures=0, recognized=None)
 
@@ -388,6 +414,8 @@ def test_ocr_plaintext_expires_without_a_followup_request(monkeypatch, ocr_bound
     timers = []
 
     class Timer:
+        """Capture the expiry callback for explicit invocation, without a thread."""
+
         def __init__(self, interval, function, args):
             self.interval, self.function, self.args = interval, function, args
             self.cancelled = False

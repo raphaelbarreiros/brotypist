@@ -18,6 +18,8 @@ from inklow.native import macos_terminal as terminal
 
 
 class Automation:
+    """Journal permission and session queries without sending AppleEvents."""
+
     def __init__(self):
         self.calls = []
         self.state = "granted"
@@ -35,6 +37,8 @@ class Automation:
 
 
 class Bridge:
+    """Expose mutable privacy/focus state while forbidding AX content reads."""
+
     def __init__(self):
         self.front = (41, "/Applications/iTerm.app/Contents/MacOS/iTerm2",
                       {"app_id": terminal.ITERM, "domain": ""})
@@ -61,6 +65,7 @@ class Bridge:
 
 @pytest.fixture
 def setup():
+    """Wire metadata and process doubles; no native ownership is assumed yet."""
     adapter, bridge, automation = terminal.TerminalAdapter(), Bridge(), Automation()
     process = terminal.ProcessIdentity(351, 350, 351, (1729000000, 19), "/opt/bin/codex")
     calls = []
@@ -167,6 +172,8 @@ def test_native_tmux_keeps_pane_identity_without_claiming_remote_process_ownersh
 
 
 class NativeCall:
+    """Callable double that also accepts ctypes function-signature attributes."""
+
     def __init__(self, function):
         self.function = function
 
@@ -239,6 +246,8 @@ def test_native_appleevents_query_only_allowlisted_metadata_for_running_pid(monk
     variables = {"jobPid": "351", "tmuxRole": "", "tmuxWindowPane": ""}
 
     class Descriptor:
+        """Model descriptor nesting and reject properties outside the allowlist."""
+
         def __init__(self, value=None):
             self.value, self.fields = value, {}
 
@@ -357,7 +366,11 @@ def test_native_permission_query_never_prompts_unless_explicitly_requested(monke
 
 
 class InputBridge(Bridge):
-    """Stateful native boundary: range reads, cursor and actual glyph boxes."""
+    """Model bounded AX rows and glyph boxes, journaling keys instead of posting.
+
+    Window identity, permission, cancellation and geometry can be changed
+    independently so a plausible prompt alone cannot satisfy every oracle.
+    """
 
     def __init__(self):
         super().__init__()
@@ -400,6 +413,7 @@ class InputBridge(Bridge):
             kCGEventFlagMaskAlternate=4)
 
     def rows(self):
+        """Return physical rows as UTF-16 (offset, length, text) triples."""
         strings = {18: self.attachment_guard + "\n", 19: self.extra_above + "\n",
                    20: self.prompt + self.text + "\n", 21: "\n", 22: self.footer + "\n"}
         offset, result = 1000, {}
@@ -427,6 +441,7 @@ class InputBridge(Bridge):
         return values.get(name)
 
     def parameter(self, field, name, value, unused):
+        """Serve exact row-range reads only; reject broad or unexpected requests."""
         assert field is self.field
         self.reads.append((name, value))
         if name == "AXLineForIndex":
@@ -469,6 +484,11 @@ class InputBridge(Bridge):
 
 @pytest.fixture
 def composer(setup, monkeypatch):
+    """Provide synthetic verified-code identity and disable real font registration.
+
+    Signature validation is tested separately; this fixture isolates capture and
+    append authorization without requiring an installed Codex executable.
+    """
     adapter, _, automation, process, _ = setup
     bridge = InputBridge()
     automation.metadata.update(app_version="2.15", font_name="SFMonoTerminal-Regular",
@@ -858,6 +878,8 @@ def test_running_code_validation_uses_exact_pid_and_releases_all_native_referenc
     monkeypatch.setattr(terminal, "sys", SimpleNamespace(platform="darwin"))
     process = terminal.ProcessIdentity(351, 350, 351, (1729000000, 19), "/any/codex")
     assert identity.accepts(process) is (failure is None)
+    # Native lookup can return an owned reference even alongside an error.
+    # Release expectations follow allocations, not just the success status.
     expected = ([103] if failure not in {"number", "dictionary", "missing-code", "exception"}
                 else []) + ([102] if failure not in {"number", "dictionary"} else [])
     expected += [101] if failure != "number" else []

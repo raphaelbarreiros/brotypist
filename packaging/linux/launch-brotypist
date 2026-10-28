@@ -1,4 +1,5 @@
 #!/bin/sh
+# Launch the adjacent frozen app, preserving arguments and its process exit status.
 # Resolve our own directory, not the caller's working directory.
 APP_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1
 exec "$APP_DIR/BroTypist" "$@"

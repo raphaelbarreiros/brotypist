@@ -26,6 +26,7 @@ MARKER = ".inklow-build.json"
 
 
 def marker_path(bundle: Path, platform: str) -> Path:
+    """Locate the ownership marker within the platform's application layout."""
     if platform == "darwin":
         return bundle / "Contents" / "Resources" / MARKER
     return bundle / MARKER
@@ -56,6 +57,7 @@ def desktop_value(value: str) -> str:
 
 
 def desktop_exec(path: Path) -> str:
+    """Quote a literal executable path for the desktop-entry Exec field."""
     # Exec values follow desktop-entry quoting, not shell/shlex quoting. Double
     # percent avoids accidental field-code expansion in a directory name.
     value = str(path).replace("%", "%%")
@@ -65,7 +67,11 @@ def desktop_exec(path: Path) -> str:
 
 
 def prepare_linux(bundle: Path, destination: Path) -> None:
-    """Create a movable shell launcher and desktop integration payload."""
+    """Stage Linux integration files using absolute paths at the final destination.
+
+    The shell launcher relocates with the bundle; generated desktop entries
+    refer to ``destination`` and must be refreshed after moving the bundle.
+    """
     launcher = bundle / "launch-brotypist"
     shutil.copy2(ROOT / "packaging" / "linux" / "launch-brotypist", launcher)
     launcher.chmod(0o755)
@@ -117,6 +123,12 @@ def publish(bundle: Path, destination: Path, *, replace: bool, platform: str) ->
 
 
 def build(destination: Path, *, replace: bool = False) -> Path:
+    """Freeze, inspect and publish an application for the current host platform.
+
+    Return the normalized destination after staging on its filesystem. Explicit
+    replacement is limited to marked builds; validation and subprocess errors
+    propagate without publishing an incomplete staging directory.
+    """
     platform = sys.platform
     if platform not in ("darwin", "win32", "linux"):
         raise RuntimeError(f"Unsupported native build platform: {platform}")
@@ -188,6 +200,7 @@ def build(destination: Path, *, replace: bool = False) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse build options and report expected build failures with exit status 1."""
     parser = argparse.ArgumentParser(description=__doc__)
     default = ROOT / "dist" / ("BroTypist.app" if sys.platform == "darwin" else "BroTypist")
     parser.add_argument("--output", type=Path, default=default,

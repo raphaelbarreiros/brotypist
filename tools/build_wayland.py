@@ -21,6 +21,7 @@ DEFAULT_OUTPUT = ROOT / "src" / "inklow" / "native" / "libinklow_wayland.so"
 
 
 def run(command: list[str]) -> str:
+    """Return stripped command output or raise with captured failure diagnostics."""
     result = subprocess.run(command, check=False, capture_output=True, text=True)
     if result.returncode:
         detail = result.stderr.strip() or result.stdout.strip()
@@ -56,6 +57,8 @@ def build(output: Path = DEFAULT_OUTPUT) -> Path:
     if output.is_symlink():
         raise RuntimeError(f"Refusing a symlink output library: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
+    # Generate and link beside the destination so the final rename is atomic
+    # and a compiler/scanner failure cannot truncate the previously built library.
     with tempfile.TemporaryDirectory(prefix=".inklow-wayland-", dir=output.parent) as temporary:
         directory = Path(temporary)
         header = directory / "input-method-client-protocol.h"
@@ -81,6 +84,7 @@ def build(output: Path = DEFAULT_OUTPUT) -> Path:
 
 
 def main() -> int:
+    """Build the requested library and return 1 for toolchain or filesystem errors."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT,
                         help="destination shared library (default: native/libinklow_wayland.so)")

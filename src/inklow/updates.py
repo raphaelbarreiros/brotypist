@@ -58,6 +58,7 @@ class UpdateCancelled(UpdateError):
 
 @dataclass(frozen=True)
 class UpdateAsset:
+    """Package identity and byte-size/digest constraints from signed metadata."""
     name: str
     target: str
     format: str
@@ -67,6 +68,7 @@ class UpdateAsset:
 
 @dataclass(frozen=True)
 class UpdateRelease:
+    """Immutable release inventory; construction alone does not authenticate it."""
     version: str
     source_commit: str
     assets: tuple[UpdateAsset, ...]
@@ -78,12 +80,14 @@ class UpdateRelease:
 
 
 def _version(value):
+    """Validate a stable three-part version and return its numeric sort key."""
     if not isinstance(value, str) or not _VERSION.fullmatch(value):
         raise UpdateError("The update version is not a supported stable version.")
     return tuple(int(part) for part in value.split("."))
 
 
 def _object(pairs):
+    """Reject duplicate JSON keys rather than letting later values shadow them."""
     value = {}
     for key, item in pairs:
         if key in value:
@@ -98,6 +102,7 @@ def _fields(value, expected):
 
 
 def _asset(value, version):
+    """Validate exact package naming, platform, byte limit and lowercase digest."""
     _fields(value, {"name", "target", "format", "size", "sha256"})
     if any(type(value[field]) is not str for field in ("name", "target", "format", "sha256")):
         raise UpdateError("The update asset metadata is invalid.")
@@ -112,14 +117,18 @@ def _asset(value, version):
 
 
 def verify_manifest(data: bytes, signature: bytes) -> UpdateRelease:
-    """Authenticate exact bytes with the built-in publisher key before JSON parsing."""
+    """Authenticate exact manifest bytes, then return a schema-checked release.
+
+    ``signature`` contains base64-encoded Ed25519 bytes. Invalid bounds,
+    signatures or schema raise UpdateError; no package bytes are verified here.
+    """
     if type(data) is not bytes or not 0 < len(data) <= MAX_MANIFEST_BYTES:
         raise UpdateError("The update metadata exceeds its allowed bounds.")
     if type(signature) is not bytes or not 0 < len(signature) <= MAX_SIGNATURE_BYTES:
         raise UpdateError("The update signature exceeds its allowed bounds.")
     try:
-        # A single trailing newline accommodates the publisher's text asset;
-        # whitespace inside a base64 signature is never accepted.
+        # CR/LF padding accommodates the publisher's text asset; whitespace
+        # inside a base64 signature is never accepted.
         encoded = signature.strip(b"\r\n")
         encoded.decode("ascii")
         raw_signature = base64.b64decode(encoded, validate=True)
@@ -160,6 +169,7 @@ class DownloadCancellation(Event):
         self._socket = None
 
     def _interrupt(self):
+        """Shut down the attached socket when cancelled; caller holds the lock."""
         if self.is_set() and self._socket is not None:
             try:
                 self._socket.shutdown(socket.SHUT_RDWR)
@@ -167,12 +177,14 @@ class DownloadCancellation(Event):
                 pass
 
     def set(self):
+        """Signal cancellation and interrupt an attached blocking socket read."""
         super().set()
         with self._interrupt_lock:
             self._interrupt()
 
     @contextmanager
     def response(self, response):
+        """Attach one response socket for this context without owning its close."""
         raw = getattr(getattr(response, "fp", None), "raw", None)
         connection = getattr(raw, "_sock", None)
         with self._interrupt_lock:
@@ -191,6 +203,7 @@ def _check_cancel(cancel):
 
 
 def _trusted_url(url):
+    """Reject credentials, non-HTTPS URLs and hosts outside the release allowlist."""
     try:
         parsed = urlsplit(url)
         valid = (parsed.scheme == "https" and parsed.hostname in _ALLOWED_HOSTS
@@ -203,11 +216,18 @@ def _trusted_url(url):
 
 class _GitHubRedirects(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        """Apply the same transport policy before following every redirect."""
         _trusted_url(newurl)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def _stream(url, limit, *, cancel=None, expected=None):
+    """Yield bounded response chunks; consumers enforce final size and digest.
+
+    ``limit`` and optional Content-Length expectation are bytes. Cancellation
+    is checked around reads; DownloadCancellation additionally interrupts the
+    active socket. Transport failures become user-safe UpdateError instances.
+    """
     _trusted_url(url)
     _check_cancel(cancel)
     request = urllib.request.Request(url, headers={"User-Agent": "BroTypist-updater/1",
@@ -255,6 +275,7 @@ def _stream(url, limit, *, cancel=None, expected=None):
 
 
 def fetch_release(*, cancel=None) -> tuple[UpdateRelease, bytes, bytes]:
+    """Fetch and authenticate a release, retaining exact bytes for offline handoff."""
     data = b"".join(_stream(_FEED, MAX_MANIFEST_BYTES, cancel=cancel))
     signature = b"".join(_stream(_FEED.removesuffix(".json") + ".sig", MAX_SIGNATURE_BYTES, cancel=cancel))
     _check_cancel(cancel)
@@ -262,6 +283,7 @@ def fetch_release(*, cancel=None) -> tuple[UpdateRelease, bytes, bytes]:
 
 
 def _checked_asset(release, asset):
+    """Revalidate the selected asset's membership and schema before constructing URLs."""
     _version(release.version)
     if not isinstance(asset, UpdateAsset) or asset not in release.assets:
         raise UpdateError("The selected package is not part of the signed release.")
@@ -308,7 +330,12 @@ def _mark_web_download(path, source_url, origin_url):
 
 
 def download_asset(release, asset, destination: Path, *, cancel=None, progress=None) -> Path:
-    """Stream/hash to a private sibling, then promote only verified complete bytes."""
+    """Stream/hash privately, then atomically replace destination on verification.
+
+    Callers must supply a release authenticated by verify_manifest. ``progress``
+    runs synchronously on the downloading thread with received/total byte counts.
+    Cancellation or failure removes the temporary file, not a prior destination.
+    """
     _checked_asset(release, asset)
     _check_cancel(cancel)
     destination = Path(destination)
@@ -359,6 +386,7 @@ def _cache_root():
 
 
 def _private_directory(path):
+    """Create or require an owner-only staging directory, rejecting a final symlink."""
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     info = path.lstat()
     if not stat.S_ISDIR(info.st_mode) or (hasattr(os, "getuid") and info.st_uid != os.getuid()):
@@ -369,6 +397,7 @@ def _private_directory(path):
 
 
 def _write_private(path, data):
+    """Fsync metadata in a private sibling before replacing the staging record."""
     fd, temporary = tempfile.mkstemp(prefix=".update-record-", dir=path.parent)
     try:
         with os.fdopen(fd, "wb") as output:
@@ -384,6 +413,7 @@ def _write_private(path, data):
 
 
 def _recent_check(root, now):
+    """Accept only a bounded, finite check timestamp within the daily interval."""
     path = root / "check.json"
     try:
         if path.is_symlink() or path.stat().st_size > 1024:
@@ -409,6 +439,7 @@ class UpdateService:
     """One worker, one cancellation owner, and copied scalar-only snapshots."""
 
     def __init__(self):
+        """Inspect installation policy without starting a worker or network request."""
         from .update_install import detect_installation
         self._lock = RLock()
         self._worker = None
@@ -432,6 +463,7 @@ class UpdateService:
                         "install_reason": self._installation.reason, "release_url": ""}
 
     def snapshot(self) -> dict:
+        """Return a lock-protected status copy safe for UI/CLI readers to retain."""
         with self._lock:
             return dict(self._status)
 
@@ -443,6 +475,7 @@ class UpdateService:
             raise UpdateError("The update service has closed.")
 
     def _launch(self, operation):
+        """Start one operation under the caller's lock; publish sanitized failures."""
         cancel = self._cancel = DownloadCancellation()
 
         def run():
@@ -460,6 +493,11 @@ class UpdateService:
         self._worker.start()
 
     def start_check(self, *, automatic=False) -> None:
+        """Start a nonblocking signed-feed check, unless already busy or installing.
+
+        Automatic checks respect both in-process and persisted daily throttles
+        and leave a ready download alone. Explicit checks bypass those throttles.
+        """
         with self._lock:
             if automatic and (self._closed or time.monotonic() < self._next_automatic_check
                               or self._status["state"] == "ready"):
@@ -483,6 +521,8 @@ class UpdateService:
                             self._status.update(state=state, message="Automatic updates are checked once per day. Use Check for Updates to check now.")
                     return
                 _check_cancel(cancel)
+                # Record the attempt before transport so failures cannot cause a
+                # tight automatic retry loop across application restarts.
                 _write_private(root / "check.json", json.dumps({"checked_at": now}).encode("ascii"))
                 release, data, signature = fetch_release(cancel=cancel)
                 newer = _version(release.version) > _version(self._status["current_version"])
@@ -499,6 +539,7 @@ class UpdateService:
             self._launch(check)
 
     def _select_asset(self):
+        """Choose native archive or Debian package without bypassing install policy."""
         installation = self._installation
         if not installation.installable and installation.kind != "linux_debian":
             raise UpdateError("This installation cannot be updated in place.")
@@ -512,6 +553,7 @@ class UpdateService:
         return asset
 
     def start_download(self) -> None:
+        """Start a verified download of the newer release; completion sets ready."""
         with self._lock:
             self._ensure_open()
             if self._busy():
@@ -558,6 +600,7 @@ class UpdateService:
             self._launch(download)
 
     def cancel(self) -> None:
+        """Cancel active work or an uncommitted install; committed handoffs survive."""
         with self._lock:
             if self._handoff is not None and self._handoff.committed:
                 return
@@ -569,6 +612,7 @@ class UpdateService:
                 self._status.update(state="ready", message="Installation was cancelled. The verified update is still ready.")
 
     def _settle_worker(self):
+        """Join outside the progress lock; raise ShutdownPending after 250 ms."""
         with self._lock:
             worker = self._worker
         if worker is not None and worker.is_alive():
@@ -578,6 +622,11 @@ class UpdateService:
                 raise ShutdownPending("Finishing cancellation of the update operation.")
 
     def prepare_install(self):
+        """Return an uncommitted helper handoff after rechecking installation identity.
+
+        The caller must commit only when app shutdown is approved, then exit.
+        Pending worker teardown can raise ShutdownPending without spawning.
+        """
         # A successful handoff must not leave a worker that could make the
         # post-commit close fail. Never join while holding its progress lock.
         self._settle_worker()
@@ -599,6 +648,7 @@ class UpdateService:
             return handoff
 
     def open_package_installer(self) -> None:
+        """Reverify a Debian download and request its system handler, without elevation."""
         with self._lock:
             self._ensure_open()
             if (self._status["state"] != "ready" or self._installation.kind != "linux_debian"
@@ -627,6 +677,7 @@ class UpdateService:
             self._status.update(message="Opening the verified package was requested. Complete the upgrade in your system installer, then restart BroTypist.")
 
     def close(self) -> None:
+        """Reject new work and cancel owned resources; pending teardown may need retry."""
         with self._lock:
             self._closed = True
             if self._cancel is not None:

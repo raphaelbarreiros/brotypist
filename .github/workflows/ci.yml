@@ -1,3 +1,5 @@
+# Build and retain native macOS/Linux artifacts and receipts; this workflow
+# does not publish GitHub releases or access the publisher signing key.
 name: macOS and Linux checks
 on:
   push:
@@ -95,6 +97,7 @@ jobs:
       - name: Install, exercise visible Quit and remove actual Linux package
         if: runner.os == 'Linux'
         run: dbus-run-session -- xvfb-run -a python tools/smoke_linux_installer.py --deb "release/BroTypist-$INKLOW_VERSION-linux-amd64.deb" --archive "release/BroTypist-$INKLOW_VERSION-linux-amd64.tar.gz" --version "$INKLOW_VERSION"
+      # Seal provenance only after that platform's installer smoke has passed.
       - name: Seal successful native asset provenance
         shell: bash
         run: |

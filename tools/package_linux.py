@@ -25,6 +25,7 @@ FORBIDDEN_NAMES = {"settings.json", "config.json", "secrets.yaml", ".env", "hist
 
 
 def run(command: list[str], **kwargs) -> str:
+    """Capture command output with a 300-second timeout; reject nonzero exits."""
     result = subprocess.run(command, text=True, capture_output=True, timeout=300, **kwargs)
     if result.returncode:
         raise RuntimeError(f"{command[0]} exited {result.returncode}:\n{result.stderr}\n{result.stdout}")
@@ -32,6 +33,11 @@ def run(command: list[str], **kwargs) -> str:
 
 
 def validate_bundle(bundle: Path, version: str) -> None:
+    """Inspect provenance, ELF architecture and payload, and run frozen --version.
+
+    Reject mismatched metadata, escaping symlinks, private/model filenames and
+    missing accessibility components before copying anything into a package.
+    """
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         raise ValueError("--version must be a numeric major.minor.patch release")
     if bundle.is_symlink() or not bundle.is_dir():
@@ -50,6 +56,8 @@ def validate_bundle(bundle: Path, version: str) -> None:
     if len(header) != 20 or header[:6] != b"\x7fELF\x02\x01" or struct.unpack_from("<H", header, 18)[0] != 62:
         raise ValueError("Release bundle must be an ELF64 little-endian amd64 executable")
     environment = dict(os.environ)
+    # Avoid validating against Python/GI/native libraries inherited from the
+    # packaging shell instead of those provided by the frozen application.
     for name in ("PYTHONPATH", "PYTHONHOME", "GI_TYPELIB_PATH", "LD_LIBRARY_PATH"):
         environment.pop(name, None)
     if run([str(executable), "--version"], env=environment) != f"BroTypist {version}":
@@ -68,6 +76,7 @@ def validate_bundle(bundle: Path, version: str) -> None:
 
 
 def copy_application(bundle: Path, target: Path) -> None:
+    """Copy a validated bundle, remove location-bound entries and normalize modes."""
     shutil.copytree(bundle, target, symlinks=True)
     # build_app's entries point to its original destination. Portable users run
     # launch-brotypist directly; .deb integration is rendered for installed paths.
@@ -81,6 +90,12 @@ def copy_application(bundle: Path, target: Path) -> None:
 
 
 def shared_library_dependencies(app: Path, work: Path) -> str:
+    """Return Debian dependencies by scanning ELF files in an isolated work tree.
+
+    Bundled SONAMEs resolve to this package; external libraries must still have
+    usable system package metadata. Session services and dlopen dependencies
+    are appended explicitly because ELF linkage alone cannot discover them.
+    """
     debian = work / "debian"
     debian.mkdir()
     (debian / "control").write_text(
@@ -131,6 +146,11 @@ def shared_library_dependencies(app: Path, work: Path) -> str:
 
 
 def package(bundle: Path, output: Path, version: str) -> tuple[Path, Path]:
+    """Create and return the .deb and portable archive without rebuilding the app.
+
+    Require a matching native amd64 bundle and unused output filenames. Both
+    artifacts are staged before publication, but their final renames are separate.
+    """
     if sys.platform != "linux" or run(["dpkg", "--print-architecture"]) != "amd64":
         raise RuntimeError("Build Linux release packages on native Debian/Ubuntu amd64")
     bundle = bundle.expanduser().absolute()
@@ -182,6 +202,7 @@ def package(bundle: Path, output: Path, version: str) -> tuple[Path, Path]:
         copy_application(bundle, portable)
         staged_archive = work / archive.name
         def root_owner(info: tarfile.TarInfo) -> tarfile.TarInfo:
+            """Normalize archive ownership without changing staged filesystem owners."""
             info.uid = info.gid = 0
             info.uname = info.gname = "root"
             return info
@@ -193,6 +214,7 @@ def package(bundle: Path, output: Path, version: str) -> tuple[Path, Path]:
 
 
 def main() -> int:
+    """Parse release inputs and print artifact paths, exiting on packaging errors."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=Path("release"))

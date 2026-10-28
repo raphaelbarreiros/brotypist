@@ -45,6 +45,11 @@ class InlineRender:
     fixed_advance: float = 0.0
 
     def valid(self, caret_rect) -> bool:
+        """Check finite LTR geometry and safe suffix repaint within the clip.
+
+        Rectangles use (x, y, width, height) in the native adapter's shared
+        coordinate space. This checks supplied measurements, not host freshness.
+        """
         import math
         if (not isinstance(self.clip_rect, (tuple, list)) or len(self.clip_rect) != 4
                 or not isinstance(caret_rect, (tuple, list)) or len(caret_rect) != 4):
@@ -81,6 +86,13 @@ class InlineRender:
 
 @dataclass(frozen=True)
 class Snapshot:
+    """Immutable field observation with Python-character text offsets.
+
+    Native adapters translate platform offsets before constructing a snapshot.
+    Geometry and window metadata accompany the text but are not part of ``key``;
+    callers must separately recheck layout and window-context freshness.
+    """
+
     app_id: str
     field_id: str
     text: str
@@ -149,11 +161,13 @@ class Snapshot:
 
     @property
     def key(self) -> tuple:
+        """Identity of writing and editing policy, intentionally excluding geometry."""
         return (self.app_id, self.field_id, self.text, self.caret,
                 self.selection_length, self.protected, self.domain, self.multiline,
                 self.on_demand_only, self.can_replace)
 
     def eligible(self, min_chars: int = 1) -> bool:
+        """Check text-only completion eligibility; no focus or layout guarantee."""
         return (not self.protected and self.selection_length == 0
                 and 0 <= self.caret <= len(self.text)
                 and len(self.prefix.strip()) >= min_chars)
@@ -191,6 +205,12 @@ def take_word(suggestion: str, trailing_space: bool = True,
 
 
 class SuggestionState:
+    """Lock-protected suggestion generations without native insertion side effects.
+
+    Returned acceptance text is only a proposed edit. The controller owns
+    insertion, failure invalidation and recording after native confirmation.
+    """
+
     def __init__(self) -> None:
         self.snapshot: Snapshot | None = None
         self.text = ""
@@ -198,6 +218,7 @@ class SuggestionState:
         self._lock = RLock()
 
     def invalidate(self) -> int:
+        """Discard the candidate and return the generation that supersedes it."""
         with self._lock:
             self.generation += 1
             self.snapshot = None
@@ -205,6 +226,7 @@ class SuggestionState:
             return self.generation
 
     def offer(self, generation: int, snapshot: Snapshot, text: str) -> bool:
+        """Store eligible text only if its producer's generation is still current."""
         with self._lock:
             if generation != self.generation or not snapshot.eligible(1):
                 return False
@@ -239,6 +261,10 @@ class SuggestionState:
         """Accept from the shown suggestion; ``visible`` bounds it to drawn text.
 
         Only whitespace may extend past ``visible``: hidden words never insert.
+
+        Mutate the predicted snapshot and remainder, returning the proposed
+        insertion or an empty string when stale/unacceptable. Geometry is
+        cleared because only the native adapter can observe the resulting caret.
         """
         with self._lock:
             if (self.snapshot is None or current.key != self.snapshot.key

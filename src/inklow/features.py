@@ -35,6 +35,7 @@ COMPLETION_LIMITS = {"word": (8, 1), "short": (16, 2), "medium": (32, 4), "long"
 
 
 def completion_limits(length: str) -> tuple[int, int]:
+    """Return (token cap, visible word cap); reject unknown lengths with ValueError."""
     try:
         return COMPLETION_LIMITS[length]
     except KeyError:
@@ -79,6 +80,7 @@ def _neutral_key(text: str) -> str:
 
 @lru_cache(maxsize=1)
 def _catalogue():
+    """Cache packaged base glyphs, tone variants and qualified Unicode names."""
     data = json.loads(files("inklow").joinpath("assets", "emoji.json").read_text(encoding="utf-8"))
     rows = data["emoji"]
     variants: dict[str, list[str]] = {}
@@ -93,6 +95,7 @@ def _catalogue():
 
 
 def _preferred(glyph: str, config) -> list[str]:
+    """Apply configured gender/tone preferences using only catalogue sequences."""
     _, variants, names = _catalogue()
     gender = config.emoji_gender
     # Only choose sequences actually present in Unicode's qualified catalogue.
@@ -117,7 +120,12 @@ def _preferred(glyph: str, config) -> list[str]:
 
 
 def emoji_choices(prefix: str, config) -> tuple[str, list[str]] | None:
-    """Return the exact typed suffix to replace; preserve any preceding space."""
+    """Return (typed suffix, choices), or None when no enabled query matches.
+
+    The suffix excludes preceding whitespace so replacement preserves it.
+    Colon searches return up to five distinct, preference-adjusted glyphs;
+    recognized emoticons use their preferred variants directly.
+    """
     if not config.emoji_enabled:
         return None
     if config.emoticons_enabled:
@@ -169,7 +177,12 @@ def synonym_prompt(prefix: str, suffix: str, selection: str) -> str:
 
 
 def parse_choices(text: str, max_choices: int = 5) -> list[str]:
-    """Only structured bounded strings become insertable alternatives."""
+    """Parse a JSON array into bounded, case-insensitively distinct choices.
+
+    Invalid envelopes return an empty list; invalid entries are skipped.
+    Control/format characters are rejected and leading spaces are retained for
+    direct insertion. The requested result count is clamped to one through nine.
+    """
     if not isinstance(text, str) or len(text) > 8192:
         return []
     content = text.strip()

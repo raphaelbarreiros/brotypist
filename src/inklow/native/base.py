@@ -66,6 +66,7 @@ def utf16_to_index(text: str, offset: int) -> int:
 
 
 def index_to_utf16(text: str, index: int) -> int:
+    """Return UTF-16 code units before a Python index; reject invalid bounds."""
     if not 0 <= index <= len(text):
         raise ValueError("Invalid codepoint index")
     return len(text[:index].encode("utf-16-le", errors="strict")) // 2
@@ -100,6 +101,7 @@ class BridgeBase:
         self._global_enabled = True
 
     def configure(self, config) -> None:
+        """Publish copied policy and shortcut bindings without retaining config."""
         # Build complete replacements first, then publish each by reference.
         rules = MappingProxyType({key: MappingProxyType(dict(value))
                                   for key, value in config.app_rules.items()})
@@ -141,6 +143,7 @@ class BridgeBase:
         return False
 
     def _allowed(self, app_id: str, domain: str = "", *names: str, editor_probe: bool = False) -> bool:
+        """Apply exclusions before reading text, then app and domain overrides."""
         rules = self._app_rules
         if not self._global_enabled or self._excluded(app_id, *names):
             return False
@@ -199,6 +202,7 @@ class BridgeBase:
                 pass
 
     def foreground(self) -> dict:
+        """Return empty identity metadata until a platform supplies native focus."""
         return {"app_id": "", "name": "", "domain": "", "browser": False, "domain_observable": False}
 
     def _tab_metadata(self) -> dict:
@@ -206,6 +210,7 @@ class BridgeBase:
         return self.foreground()
 
     def context_matches(self, snapshot: Snapshot) -> bool:
+        """Deny context reuse unless a platform can verify the snapshot owner."""
         return False
 
     def focused_context(self, snapshot: Snapshot, *, authorized: Callable[[], bool],
@@ -244,6 +249,7 @@ class BridgeBase:
 
     @staticmethod
     def _valid_replacement(snapshot: Snapshot, start: int, length: int, text: str) -> bool:
+        """Check Python-index bounds and payload shape, not current native focus."""
         return (isinstance(text, str) and bool(text) and "\x00" not in text
                 and not snapshot.protected and isinstance(start, int) and isinstance(length, int)
                 and 0 <= snapshot.caret <= len(snapshot.text)
@@ -251,11 +257,13 @@ class BridgeBase:
                 and 0 <= start <= len(snapshot.text) and 0 <= length <= len(snapshot.text) - start)
 
     def replace_selection(self, snapshot: Snapshot, text: str) -> bool:
+        """Replace only a nonempty selection through the platform range contract."""
         if snapshot.selection_length <= 0:
             return False
         return self.replace_range(snapshot, snapshot.caret, snapshot.selection_length, text)
 
     def replace_range(self, snapshot: Snapshot, start: int, length: int, text: str) -> bool:
+        """Decline replacement by default; adapters must revalidate native focus."""
         return False
 
     def range_rect(self, snapshot: Snapshot, start: int, length: int):
@@ -263,6 +271,7 @@ class BridgeBase:
         return None
 
     def secure_input_active(self) -> bool:
+        """Report no secure-input signal; adapters must still reject protected fields."""
         return False
 
     def set_excluded_apps(self, excluded_apps: tuple[str, ...]) -> None:
@@ -294,13 +303,16 @@ class BridgeBase:
             return False
 
     def set_shortcuts_enabled(self, enabled: bool) -> None:
+        """Toggle interception without allowing a stopped bridge to reactivate."""
         with self._state_lock:
             self._enabled = bool(enabled) and not self._stopped.is_set()
 
     def start_shortcuts(self, callback: Shortcut) -> None:
+        """Register the action callback; native adapters own hook installation."""
         self._callback = callback
 
     def stop(self) -> None:
+        """Permanently disable callbacks; adapters must also release native hooks."""
         self._stopped.set()
         self.set_shortcuts_enabled(False)
         self._callback = None

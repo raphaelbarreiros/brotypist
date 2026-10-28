@@ -18,6 +18,7 @@ from inklow.native.macos import text_width
 
 @pytest.fixture
 def screen(monkeypatch):
+    """Fix screen bounds and scale while retaining real native font rendering."""
     screen = SimpleNamespace(frame=lambda: A.NSMakeRect(0, 0, 1000, 700),
                              visibleFrame=lambda: A.NSMakeRect(0, 0, 1000, 676),
                              backingScaleFactor=lambda: 2.0)
@@ -26,6 +27,11 @@ def screen(monkeypatch):
 
 
 def overlay_with_recording_panels():
+    """Return an overlay, panel-state recorder, and ordered presentation reports.
+
+    Fake panels expose visibility and active-space failures independently of the
+    real content views, so a successful ordering call alone is not the oracle.
+    """
     observed, reports = {}, []
     panel = SimpleNamespace(
         orderOut_=lambda sender: observed.update(visible=False),
@@ -64,6 +70,7 @@ def overlay_with_recording_panels():
 
 
 def ghost_event(text=" tomorrow", clip_width=900):
+    """Return a native font and synthetic host metrics in top-origin screen points."""
     font = A.NSFont.fontWithName_size_("Helvetica", 13)
     ascent, descent = float(font.ascender()), abs(float(font.descender()))
     render = InlineRender("Helvetica", 13, 200, (0, 0, clip_width, 600), ascent, descent,
@@ -183,6 +190,7 @@ def test_hidden_completion_is_not_acknowledged_when_native_ordering_cannot_show_
 
 
 def chooser_event(rows=None, mode="synonyms"):
+    """Build a revision-keyed chooser event with caller-controlled row contents."""
     return {"type": "suggestion", "key": ("editor", "field", 17), "mode": mode,
             "choices": rows if rows is not None else ["tomorrow", "next week"],
             "rect": (100, 200, 1, 16)}

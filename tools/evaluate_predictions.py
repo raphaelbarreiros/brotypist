@@ -21,11 +21,17 @@ REVIEW_LABELS = frozenset({"unreviewed", "acceptable", "unacceptable", "uncertai
 
 
 def quality_corpus() -> dict:
+    """Read the authored corpus and rubric afresh; propagate file/JSON errors."""
     return json.loads(QUALITY_CORPUS.read_text(encoding="utf-8"))
 
 
 def quality_observation(case: dict, text: str, choices: list[str] | None = None) -> dict:
-    """Declare literal evidence separately from inspectable, ungraded semantics."""
+    """Build ungraded review evidence for exact fixture inputs and generated text.
+
+    For utility requests, choices must be the caller's parsed insertions.
+    Literal regex matches inspect insertions only, not the surrounding draft,
+    and do not establish factual or semantic correctness.
+    """
     kind = case.get("kind", "completion")
     insertions = [text] if kind == "completion" else (choices or [])
     prefix, suffix = case["prefix"], case.get("suffix", "")
@@ -45,6 +51,8 @@ def quality_observation(case: dict, text: str, choices: list[str] | None = None)
                                    "status": "contradiction_observed" if contradicted else
                                    "supported_literal_observed" if supported else "not_observed",
                                    "scope": rule["scope"]})
+    # Bind labels to the exact supplied request/output, not a case name alone.
+    # This is an identity key for review matching, not artifact authentication.
     identity = {"case": case["id"], "prefix": prefix, "suffix": suffix,
                 "selection": case.get("selection", ""), "kind": kind, "output": text,
                 "context": case.get("context", ""), "reference_sources": case.get("reference_sources", []),
@@ -60,7 +68,13 @@ def quality_observation(case: dict, text: str, choices: list[str] | None = None)
 
 
 def attach_reviews(report: dict, review_file: dict) -> dict:
-    """Attach labels only to matching output identities, never mutate raw outputs."""
+    """Mutate and return report metadata for matching saved sample identities.
+
+    Raw generated outputs stay unchanged. Reject invalid reviews with ValueError;
+    malformed report structures may raise KeyError or TypeError. Dimension
+    validation happens per row, so failure can leave earlier rows updated in
+    memory; callers should discard the report rather than treat this as atomic.
+    """
     rubric = quality_corpus()["rubric"]
     reviews = {}
     for review in review_file["reviews"]:
@@ -103,6 +117,11 @@ def attach_reviews(report: dict, review_file: dict) -> dict:
 
 
 def write_private_report(path: Path, report: dict) -> None:
+    """Create a mode-0600 JSON report without replacing an existing path.
+
+    The parent directory must exist. File and serialization errors propagate;
+    a failed write may leave the newly created file incomplete.
+    """
     fd = os.open(path.expanduser(), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as artifact:
         json.dump(report, artifact, ensure_ascii=False, indent=2)
@@ -110,6 +129,7 @@ def write_private_report(path: Path, report: dict) -> None:
 
 
 def main() -> int:
+    """Dispatch offline review or local generation; reject invalid CLI input."""
     parser = argparse.ArgumentParser(description=__doc__)
     model = parser.add_mutually_exclusive_group()
     model.add_argument("--preset", choices=["tiny", "balanced"], default=None)

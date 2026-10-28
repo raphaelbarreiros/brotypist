@@ -2,6 +2,9 @@
 
 The controller owns all typing, storage, downloads and background processes. Qt
 objects are created and updated exclusively on the application thread.
+Settings maintain drafts; menus suspend native shortcut capture until focus can
+be revalidated. Qt overlays render suggestions but never insert into host fields;
+native typing and eligibility remain controller and bridge responsibilities.
 """
 from __future__ import annotations
 
@@ -44,6 +47,8 @@ _CLIPBOARD_TIMEOUT = 0.25
 
 @dataclass
 class _ClipboardRead:
+    """Carry one authorized read and its monotonic deadline across threads."""
+
     authorized: Callable[[], bool]
     deadline: float
     done: threading.Event = field(default_factory=threading.Event)
@@ -64,6 +69,12 @@ class ClipboardReader(QObject):
         self._requested.connect(self._read, Qt.ConnectionType.QueuedConnection)
 
     def read(self, *, authorized: Callable[[], bool]) -> str:
+        """Return authorized clipboard text, or empty text if busy or expired.
+
+        Worker callers wait at most the request deadline; GUI callers read
+        directly. Authorization is checked again before returning worker data.
+        Completed worker failures raise a sanitized RuntimeError.
+        """
         if not authorized():
             return ""
         if QThread.currentThread() == self.thread():
@@ -74,6 +85,8 @@ class ClipboardReader(QObject):
                 return ""
             self._pending = request
         self._requested.emit(request)
+        # A timed-out request remains pending until the GUI slot drains it;
+        # this bounds queued reads even when the application thread is busy.
         request.done.wait(max(0, request.deadline - time.monotonic()))
         with self._lock:
             completed = request.done.is_set() and time.monotonic() < request.deadline
@@ -88,6 +101,7 @@ class ClipboardReader(QObject):
 
     @Slot(object)
     def _read(self, request):
+        """Read on the GUI thread and discard results cancelled by the waiter."""
         def authorized():
             with self._lock:
                 active = not request.cancelled and time.monotonic() < request.deadline
@@ -228,13 +242,19 @@ def _size(value: int) -> str:
 
 def merge_preferences(config: Config, changes: dict) -> Config:
     """Apply only explicitly edited preferences to the *current* config."""
+
+    # Validate a detached candidate before the controller persists any change.
     candidate = replace(config, **deepcopy(changes))
     candidate.validate()
     return candidate
 
 
 def merge_mapping_edits(current: dict, baseline: dict, draft: dict) -> dict:
-    """Three-way merge changed keys, including fields inside per-app rules."""
+    """Rebase draft edits onto current values without mutating any input.
+
+    Only differences from baseline win, including deletions and nested rule
+    fields; concurrent changes to untouched keys remain in the returned copy.
+    """
     result = deepcopy(current)
     missing = object()
     for key in baseline.keys() | draft.keys():
@@ -268,6 +288,7 @@ class ShortcutRecorder(QPushButton):
         return self._value
 
     def set_value(self, value: str) -> None:
+        """Normalize a chord and end recording without emitting a user edit."""
         normalized = normalize_shortcut(value)
         was_recording = self._recording
         self._value = normalized
@@ -293,6 +314,7 @@ class ShortcutRecorder(QPushButton):
         return super().event(event)
 
     def keyPressEvent(self, event) -> None:
+        """Record one non-modifier chord, leaving unsupported keys in recording."""
         if not self._recording:
             super().keyPressEvent(event)
             return
@@ -405,6 +427,7 @@ class ModelManager(QDialog):
             _error(self, exc)
 
     def refresh_inventory(self) -> None:
+        """Refresh cached inventory while preserving the selected model ID."""
         previous = self._models
         selected = self.models.currentData()
         try:
@@ -427,6 +450,7 @@ class ModelManager(QDialog):
         self.refresh()
 
     def refresh(self, *_args) -> None:
+        """Render transfer state without starting downloads or loading models."""
         index = self.models.currentIndex()
         model = self._models[index] if 0 <= index < len(self._models) else None
         download = self.controller.status().get("download") or {}
@@ -456,6 +480,7 @@ class ModelManager(QDialog):
         self.status.setText(str(message))
 
     def _download(self) -> None:
+        """Request a download only after the current model's consent prompt."""
         index = self.models.currentIndex()
         if not self.download.isEnabled() or not 0 <= index < len(self._models):
             return
@@ -476,6 +501,7 @@ class ModelManager(QDialog):
         self.refresh()
 
     def _custom(self) -> None:
+        """Check the selected file's GGUF magic before requesting model selection."""
         filename, _ = QFileDialog.getOpenFileName(self, "Choose local GGUF model", "", "GGUF models (*.gguf)")
         if not filename:
             return
@@ -490,6 +516,8 @@ class ModelManager(QDialog):
 
 
 class RuleEditor(QDialog):
+    """Collect a rule draft; the owning settings window decides when to save."""
+
     def __init__(self, key: str = "", rule: dict | None = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Application or website settings")
@@ -539,6 +567,7 @@ class RuleEditor(QDialog):
                            if name not in self.options and name != "custom_instructions"}
 
     def _accept(self) -> None:
+        """Validate the identifier and publish a draft with unedited fields kept."""
         value = self.identifier.text().strip()
         kind = self.kind.currentData()
         if not value:
@@ -682,6 +711,7 @@ class SettingsWindow(QDialog):
         return form
 
     def _bind(self, field: str, control, read, write, signal) -> None:
+        """Register draft accessors; control signals only update dirty state."""
         control.setObjectName(field)
         control.setAccessibleName(field.replace("_", " "))
         self._bindings[field] = (control, read, write)
@@ -1024,6 +1054,7 @@ class SettingsWindow(QDialog):
         self.refresh_updates()
 
     def refresh_updates(self, snapshot: dict | None = None) -> None:
+        """Render update progress and enable actions for the current service state."""
         status = self.shell.updates.snapshot() if snapshot is None else snapshot
         state = status.get("state", "idle")
         kind = status.get("install_kind", "source")
@@ -1090,6 +1121,7 @@ class SettingsWindow(QDialog):
         self.activateWindow()
 
     def _changes(self) -> dict:
+        """Return edited fields, rebasing mapping drafts against live config."""
         changes = {field: read() for field, (_control, read, _write) in self._bindings.items() if read() != self._baseline.get(field)}
         shortcuts = {name: recorder.value() for name, recorder in self.shortcut_controls.items()}
         if shortcuts != self._baseline.get("shortcuts"):
@@ -1107,6 +1139,7 @@ class SettingsWindow(QDialog):
         self.dirty_label.setText("Unsaved changes" if count else "All changes saved")
 
     def reload(self) -> None:
+        """Discard unsaved edits and snapshot live configuration into controls."""
         self._loading = True
         config = self.controller.config
         for field, (_control, _read, write) in self._bindings.items():
@@ -1126,6 +1159,7 @@ class SettingsWindow(QDialog):
         self.refresh_status()
 
     def apply(self) -> bool:
+        """Persist a validated draft delta; return False and retain it on failure."""
         try:
             changes = self._changes()
             if changes:
@@ -1138,6 +1172,7 @@ class SettingsWindow(QDialog):
         return True
 
     def _login_changed(self, enabled: bool) -> None:
+        """Apply login registration immediately, attempting rollback on save failure."""
         if self._loading:
             return
         old = self.controller.config.launch_at_login
@@ -1163,6 +1198,7 @@ class SettingsWindow(QDialog):
             self._bindings[field][0].setChecked(False)
 
     def _history_changed(self, enabled: bool) -> None:
+        """Apply recording consent immediately, then show the controller's state."""
         if self._loading:
             return
         old = self.controller.config.record_history
@@ -1233,6 +1269,7 @@ class SettingsWindow(QDialog):
                 self.rule_table.setItem(row, column, QTableWidgetItem(value))
 
     def open_models(self) -> None:
+        """Lazily retain and activate the separate model-management dialog."""
         if self.model_manager is None:
             self.model_manager = ModelManager(self.controller, self)
         self.model_manager.refresh_inventory()
@@ -1256,6 +1293,7 @@ class SettingsWindow(QDialog):
             self.stats_table.setRowCount(0)
 
     def refresh_status(self) -> None:
+        """Refresh diagnostics and rebase untouched controls without saving drafts."""
         status = self.controller.status()
         message = str(status.get("message", ""))
         if status.get("enabled") and status.get("state") in {"idle", "ready"} and not status.get("inline_available", True):
@@ -1531,6 +1569,7 @@ class WelcomeWindow(QDialog):
         return bool(config.model) if config.backend != "gguf" else bool(config.model_path and Path(config.model_path).is_file())
 
     def _select(self, index: int) -> None:
+        """Close the prior preview before changing steps or assigning field focus."""
         self._close_preview()
         self.pages.setCurrentIndex(index)
         self.back.setVisible(index > 0)
@@ -1563,6 +1602,7 @@ class WelcomeWindow(QDialog):
             self._select(index + 1)
 
     def _preview_update(self) -> None:
+        """Send only the owned try-it document and selection to its preview session."""
         if self.pages.currentIndex() != 4 or not self.try_field.hasFocus():
             return
         self.suggestion.hide()
@@ -1585,6 +1625,7 @@ class WelcomeWindow(QDialog):
             self._close_preview()
 
     def _close_preview(self) -> None:
+        """Close the preview before releasing its reference and restoring shortcuts."""
         if self.preview is not None:
             self.preview.close()
             self.preview = None
@@ -1593,6 +1634,7 @@ class WelcomeWindow(QDialog):
         QTimer.singleShot(0, self.shell._sync_shortcuts)
 
     def eventFilter(self, watched, event) -> bool:
+        """Handle preview acceptance locally; pass unrelated keys to the editor."""
         if watched is self.try_field:
             if event.type() == QEvent.Type.FocusOut:
                 self._close_preview()
@@ -1720,6 +1762,7 @@ class CaretOverlay(QWidget):
             "QFrame#suggestion_chip QLabel { color: palette(toolTipText); background: transparent; border: none; }")
 
     def present(self, event: dict, point: QPoint) -> None:
+        """Render explicit choices near the supplied logical desktop anchor."""
         if event.get("mode", "completion") == "completion" or not event.get("choices"):
             self.hide()
             return
@@ -1743,6 +1786,11 @@ class CaretOverlay(QWidget):
 
 
     def present_inline(self, event: dict, point: QPoint, *, ratio: float) -> None:
+        """Render ghost text only when host font metrics and geometry agree.
+
+        ``point`` uses Qt logical coordinates; ``ratio`` converts native
+        device-pixel metrics. The widget clips drawing to the available width.
+        """
         self.hide()
         try:
             render = InlineRender(**event["render"])
@@ -1826,6 +1874,8 @@ class Accessory(QWidget):
 
 
 class MenuAgent:
+    """Own resident controls and coordinate controller and update shutdown."""
+
     def __init__(self, app: QApplication, config: Config, *, no_tray: bool = False):
         self.app = app
         self.controller = Controller(config)
@@ -1883,6 +1933,7 @@ class MenuAgent:
             self.controller.bridge.bind_ui(self._native_action)
 
     def start(self, *, background: bool = False) -> None:
+        """Start resident work while keeping recovery or first-run controls visible."""
         try:
             self.controller.start()
         except Exception as exc:
@@ -2001,6 +2052,7 @@ class MenuAgent:
         self.tick()
 
     def _native_action(self, identifier: str) -> None:
+        """Route native context and menu callbacks without resuming capture early."""
         if self._stopped:
             return
         if identifier == "context_changed":
@@ -2063,6 +2115,7 @@ class MenuAgent:
             QTimer.singleShot(0, self._finish_menu_session)
 
     def _sync_shortcuts(self) -> None:
+        """Suspend native interception while menus, recording or preview own input."""
         if self._stopped:
             return
         recording = self.settings and any(
@@ -2074,12 +2127,14 @@ class MenuAgent:
             self.controller.bridge.hide_native()
 
     def _menu_action(self, function, *args) -> None:
+        """Defer menu actions until tracking releases focus, or call immediately."""
         if self._menu_session:
             self._deferred_actions.append((function, args))
         else:
             self._call(function, *args)
 
     def _finish_menu_session(self) -> None:
+        """Drain selected actions and revalidate focus before restoring shortcuts."""
         if self._tracking_menus or self._native_menu_active or not self._menu_session or self._stopped:
             return
         actions, self._deferred_actions = self._deferred_actions, []
@@ -2206,6 +2261,7 @@ class MenuAgent:
                 action.setEnabled(not self._shutdown_pending and snapshot.get("state") not in {"checking", "downloading", "installing"})
 
     def install_update(self) -> None:
+        """Confirm package handoff or request shutdown before approving replacement."""
         if self._shutdown_pending or self._stopped:
             return
         status = self.updates.snapshot()
@@ -2233,6 +2289,7 @@ class MenuAgent:
         self.quit()
 
     def _position(self, rect, *, clamp: bool = True) -> tuple[QPoint, int]:
+        """Return a logical anchor and line height from a native device-pixel rect."""
         x, y, width, height = (float(value) for value in rect)
         # Native Windows and X11 caret rectangles use device pixels. Qt widgets
         # use logical desktop coordinates. Convert relative to the owning screen
@@ -2263,6 +2320,7 @@ class MenuAgent:
         return point, max(18, round(height))
 
     def _suggestion(self, event: dict) -> None:
+        """Route controller suggestions to native or Qt surfaces, never insertion."""
         if (self.welcome and (self.welcome.isActiveWindow() or (self.welcome.model_manager and self.welcome.model_manager.isActiveWindow()))) or (
                 self.settings and (self.settings.isActiveWindow() or (self.settings.model_manager and self.settings.model_manager.isActiveWindow()))):
             self.clear_overlay()
@@ -2345,6 +2403,7 @@ class MenuAgent:
         self.accessory.show()
 
     def clear_overlay(self, *, hide_accessory: bool = True) -> None:
+        """Forget suggestions, deferring accessory removal while its menu is tracked."""
         self._last_overlay = None
         self.choices = []
         self.overlay.hide()
@@ -2378,6 +2437,7 @@ class MenuAgent:
             self.tray.show()
 
     def tick(self) -> None:
+        """Drain controller events on the GUI thread, keeping recovery UI independent."""
         if self._stopped or self._stopping:
             return
         try:
@@ -2426,6 +2486,11 @@ class MenuAgent:
             self.show_settings("General")
 
     def stop(self) -> None:
+        """Stop preview and controller work before approving an update handoff.
+
+        ShutdownPending leaves the timer active for a later retry. Other
+        cleanup failures abort any uncommitted update and propagate to quit().
+        """
         if self._stopped or self._stopping:
             return
         self._stopping = True
@@ -2501,6 +2566,11 @@ class MenuAgent:
         self._install_requested = False
 
     def quit(self) -> bool:
+        """Request exit, returning True only once cleanup permits QApplication.quit.
+
+        Pending workers schedule a GUI-thread retry. Cancelled drafts and
+        cleanup errors return False without pretending the process has stopped.
+        """
         if self._quitting:
             return False
         self._quitting = True

@@ -1,4 +1,8 @@
-"""Exercise actual anonymous-pipe workers against a synthetic loopback model peer."""
+"""Constrain real worker IPC and lifetime using synthetic model implementations.
+
+Loopback HTTP and child-process providers exercise protocol/cancellation ordering,
+not native model quality, memory usage or production latency.
+"""
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -16,6 +20,7 @@ from inklow.process_client import ProcessClient, worker_command
 
 
 def until(predicate, timeout=5):
+    """Return the first truthy observation, or fail when the seconds budget expires."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         value = predicate()
@@ -26,10 +31,13 @@ def until(predicate, timeout=5):
 
 
 class Handler(BaseHTTPRequestHandler):
+    """Serve two flushed chunks, with an event-gated tail for cancellation cases."""
+
     def log_message(self, *args):
         pass
 
     def do_POST(self):
+        """Record a request and tolerate a client disconnect while streaming."""
         length = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(length))
         self.server.requests.put(body)
@@ -39,6 +47,8 @@ class Handler(BaseHTTPRequestHandler):
             prefix = body.get("prompt", "")
             self.wfile.write(json.dumps({"response": " first words "}).encode() + b"\n")
             self.wfile.flush()
+            # The first chunk proves the stream is active before a test supersedes
+            # it; release controls whether that obsolete stream can finish.
             if prefix == "blocked synthetic draft":
                 self.server.release.wait(5)
             self.wfile.write(json.dumps({"response": "completed", "done": True, "done_reason": "stop"}).encode() + b"\n")
@@ -49,6 +59,7 @@ class Handler(BaseHTTPRequestHandler):
 
 @pytest.fixture
 def peer():
+    """Own an ephemeral loopback server and release stalled handlers on teardown."""
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.daemon_threads = True
     server.requests = queue.Queue()
@@ -62,6 +73,7 @@ def peer():
 
 @pytest.fixture
 def worker(peer, tmp_path, monkeypatch):
+    """Own a lazy worker client targeting the peer in an isolated profile."""
     monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
     client = ProcessClient()
     config = replace(Config(), backend="ollama", endpoint=f"http://127.0.0.1:{peer.server_port}", model="synthetic", idle_release_seconds=1)
@@ -70,6 +82,7 @@ def worker(peer, tmp_path, monkeypatch):
 
 
 def final(client, identifier):
+    """Collect events until this request finishes, failing immediately on errors."""
     seen = []
     def receive():
         events = client.poll()
@@ -278,9 +291,12 @@ raise SystemExit(main())
     canceled = threading.Event()
 
     class CancelAtReady(queue.Queue):
+        """Revoke authorization as ready is dequeued, before its caller handles it."""
+
         delay_next = False
 
         def get_nowait(self):
+            """Leave a brief observation window for any incorrectly started child."""
             if self.delay_next:
                 self.delay_next = False
                 time.sleep(0.2)  # Let an incorrectly authorized child start.

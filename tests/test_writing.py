@@ -1,4 +1,7 @@
-"""Guided suggestions must not spill into unrelated prose or model roles."""
+"""Constrain guided writing boundaries, reference selection and evaluation receipts.
+
+Synthetic quality observations test review plumbing, not generated-text quality.
+"""
 import json
 
 import pytest
@@ -265,6 +268,7 @@ def test_optional_framework_absence_leaves_exact_draft_prefill(monkeypatch):
 
 
 def _quality_tool():
+    """Load the repository evaluation tool directly without invoking its CLI."""
     import importlib.util
     from pathlib import Path
     path = Path(__file__).resolve().parents[1] / "tools" / "evaluate_predictions.py"

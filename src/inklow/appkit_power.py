@@ -2,6 +2,8 @@
 
 ``NativePowerUI.present(reading, allow_help=False)`` is also the small synthetic
 visual-proof interface: it changes only this UI, never the OS battery source.
+All UI mutation belongs on the AppKit run loop; ``close`` removes the workspace
+observers installed by ``configure``.
 """
 from __future__ import annotations
 
@@ -18,6 +20,8 @@ from .power import LowBatteryHelpPolicy
 
 @dataclass(frozen=True)
 class PowerPresentation:
+    """Immutable card text and symbol derived from a supplied power sample."""
+
     state: str
     title: str
     detail: str
@@ -26,7 +30,11 @@ class PowerPresentation:
 
 
 def power_presentation(reading: dict) -> PowerPresentation:
-    """Keep unknown, absent, discharging, charging and externally powered distinct."""
+    """Map native samples to card text, preserving unknown charging status.
+
+    Availability, battery presence and power source use truth-value checks;
+    callers supply the native sampler's booleans for those fields.
+    """
     percent = reading.get("percent")
     percent = percent if type(percent) is int and 0 <= percent <= 100 else None
     level = f"{percent}%" if percent is not None else "Battery level unavailable"
@@ -48,6 +56,7 @@ def power_presentation(reading: dict) -> PowerPresentation:
 
 
 def charging_help_text(locale: str) -> tuple[str, str]:
+    """Return Brazilian Portuguese help for pt-BR locales, English otherwise."""
     if str(locale).replace("_", "-").lower().startswith("pt-br"):
         return "Me coloca na tomada?", "A bateria está baixinha. Uma carga ajuda a gente a continuar escrevendo."
     return "Could you plug me in?", "The battery is getting low. A little charge will keep us writing."
@@ -62,6 +71,8 @@ def _label(text, frame, *, small=False):
 
 
 class PowerHelpPanel(A.NSPanel):
+    """Display charging help without taking keyboard or main-window focus."""
+
     def canBecomeKeyWindow(self):
         return False
 
@@ -70,8 +81,11 @@ class PowerHelpPanel(A.NSPanel):
 
 
 class NativePowerUI(NSObject):
+    """Own power cards, workspace observers and the timed menu-bar help surface."""
+
     @objc.python_method
     def configure(self, status_item=None):
+        """Initialize once with an optional borrowed status item; pair with close."""
         self.status_item = status_item
         self.policy = LowBatteryHelpPolicy()
         self.reading = {"available": False, "has_battery": False, "on_battery": False, "charging": None, "percent": None}
@@ -132,6 +146,7 @@ class NativePowerUI(NSObject):
 
     @objc.python_method
     def make_card(self, name="pane", *, compact=False):
+        """Replace a named card and return its view for the caller's hierarchy."""
         self.release_card(name)
         height = 46 if compact else 84
         box = A.NSBox.alloc().initWithFrame_(A.NSMakeRect(0, 0, 300, height))
@@ -155,12 +170,14 @@ class NativePowerUI(NSObject):
 
     @objc.python_method
     def release_card(self, name):
+        """Forget a card and stop its icon animation; do not detach its view."""
         card = self.cards.pop(name, None)
         if card:
             card[1].layer().removeAllAnimations()
 
     @objc.python_method
     def _render_card(self, name):
+        """Refresh an existing card from the current presentation and display flags."""
         box, icon, title, detail = self.cards[name]
         p = self.presentation
         self._style_box(box)
@@ -175,6 +192,7 @@ class NativePowerUI(NSObject):
 
     @objc.python_method
     def _charge_motion(self, view):
+        """Pulse a visible charging indicator unless motion/session guards forbid it."""
         if self.reduce_motion or self.increase_contrast or self.closed or not self.session_active:
             return
         view.setWantsLayer_(True)
@@ -189,6 +207,7 @@ class NativePowerUI(NSObject):
 
     @objc.python_method
     def set_visibility(self, *, menu=None, pane=None):
+        """Track host menu/pane visibility and stop animations on hidden surfaces."""
         if menu is not None:
             self.menu_visible = bool(menu)
         if pane is not None:
@@ -214,6 +233,7 @@ class NativePowerUI(NSObject):
             self.stop_motion()
             for name in self.cards:
                 self._render_card(name)
+        # Power details live in cards; never replace the resident icon with text.
         if self.status_item:
             button = self.status_item.button()
             button.setTitle_("")
@@ -238,6 +258,7 @@ class NativePowerUI(NSObject):
 
     @objc.python_method
     def _help_anchor(self):
+        """Return the status-button screen rect and screen, or None for unsafe sessions."""
         session = Quartz.CGSessionCopyCurrentDictionary()
         if (not session or session.get("CGSSessionScreenIsLocked")
                 or not session.get(Quartz.kCGSessionOnConsoleKey, False)
@@ -253,6 +274,7 @@ class NativePowerUI(NSObject):
 
     @objc.python_method
     def _show_help(self):
+        """Recheck the menu-bar anchor, then show help with a 12-second deadline."""
         # A menu-bar anchor, never the text caret; nonactivating and no Space move.
         target = self._help_anchor()
         if target is None:
@@ -310,6 +332,7 @@ class NativePowerUI(NSObject):
 
     @objc.python_method
     def dismiss_help(self):
+        """Hide the bubble and clear its pending deadline without rearming policy."""
         if self.help_panel:
             if self.help_panel.contentView().layer():
                 self.help_panel.contentView().layer().removeAllAnimations()
@@ -319,6 +342,7 @@ class NativePowerUI(NSObject):
 
     @objc.python_method
     def tick(self, now=None):
+        """Expire help using monotonic seconds; the owner supplies periodic calls."""
         if self.help_showing and (time.monotonic() if now is None else now) >= self.help_deadline:
             self.dismiss_help()
 
@@ -328,6 +352,8 @@ class NativePowerUI(NSObject):
         if self.closed or not self.session_active:
             return
         start = 0.0
+        # A repeated reveal continues from the current compositor opacity rather
+        # than restarting at zero. Reduced motion shortens, not removes, the fade.
         if self.arrival_view is view and view.layer() is not None:
             live = view.layer().presentationLayer()
             if live is not None:
@@ -345,6 +371,7 @@ class NativePowerUI(NSObject):
 
     @objc.python_method
     def stop_motion(self):
+        """Remove charge/arrival animations from all currently retained surfaces."""
         if self.status_item and self.status_item.button().layer():
             self.status_item.button().layer().removeAnimationForKey_("inklow.charge")
         for card in self.cards.values():
@@ -356,6 +383,7 @@ class NativePowerUI(NSObject):
 
     @objc.python_method
     def close(self):
+        """Idempotently stop UI activity and unregister workspace notifications."""
         if self.closed:
             return
         self.closed = True

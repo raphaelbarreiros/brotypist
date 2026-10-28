@@ -12,6 +12,7 @@ from inklow.config import Config
 
 @pytest.fixture
 def shell(monkeypatch):
+    """Build menu state without capture; record controller calls in dispatch order."""
     shell = appkit_ui.BroTypistApplication.alloc().init()
     bridge = SimpleNamespace(_enabled=True)
     bridge.set_shortcuts_enabled = lambda enabled: setattr(bridge, "_enabled", enabled)
@@ -123,6 +124,7 @@ def test_queued_wake_is_released_even_when_tick_cannot_capture(shell, monkeypatc
 
 @pytest.fixture
 def field_menu(shell, monkeypatch):
+    """Expose mutable focus metadata to test the menu's captured action target."""
     from inklow.config import Config
     shell, bridge, calls = shell
     status = {"current_app": "fixture.writer", "current_domain": "writing.example",
@@ -153,6 +155,7 @@ def test_field_app_toggle_shows_disabled_state_and_requires_a_target(field_menu,
 
 @pytest.fixture
 def status_menu(field_menu, monkeypatch):
+    """Use real status-menu refresh with synthetic permissions and power UI."""
     shell, bridge, calls, status = field_menu
     status.update(enabled=True, state="idle", inline_available=True)
     shell.controller.config.backend = "ollama"
@@ -343,6 +346,7 @@ def test_deep_links_only_navigate_to_known_panes(url, pane):
 
 @pytest.fixture
 def screen(monkeypatch):
+    """Fix screen geometry so top-origin host bounds have deterministic placement."""
     screen = SimpleNamespace(frame=lambda: A.NSMakeRect(0, 0, 1000, 700),
                              visibleFrame=lambda: A.NSMakeRect(0, 0, 1000, 676))
     monkeypatch.setattr(appkit_overlay.A, "NSScreen", SimpleNamespace(screens=lambda: [screen]))

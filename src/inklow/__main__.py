@@ -20,8 +20,15 @@ _PANES = (("welcome", "setup", "general", "context", "personalization", "emoji",
            "battery", "appSettings", "labs", "statistics", "about") if sys.platform == "darwin"
           else ("welcome", "general", "models", "autocomplete", "languages", "privacy", "about"))
 def main(argv: list[str] | None = None) -> int:
+    """Dispatch CLI or desktop mode, returning a process exit status.
+
+    Launch overrides stay in memory; only explicit model selection is saved.
+    CLI-owned providers, bridges and update workers are closed on exit. Argparse
+    retains its own SystemExit behavior for help and invalid arguments.
+    """
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments == ["_worker"]:
+        # Frozen inference children bypass desktop/configuration startup.
         from .process_worker import main as worker_main
         return worker_main()
     parser = argparse.ArgumentParser(prog="brotypist", description="Local-first predictive typing")
@@ -53,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(arguments)
     prepared_input_method = False
     try:
+        # Claim KWin's inherited socket before launch; release it even on failure.
         if args.wayland_input_method:
             if not sys.platform.startswith("linux") or args.command:
                 raise ValueError("The Wayland input-method mode is only for KDE application launches on Linux.")
@@ -95,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 service.close()
         if args.model_path:
+            # A per-launch model override must not silently persist new settings.
             known = next((p for p in PRESETS if p.filename == Path(args.model_path).name), None)
             config = replace(config, backend="gguf", model_path=args.model_path,
                              prompt_style=known.prompt_style if known else "continuation",

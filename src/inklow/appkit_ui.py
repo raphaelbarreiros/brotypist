@@ -1,7 +1,9 @@
 """The macOS menu-first shell; this module never imports a Qt component.
 
-Accessibility identifiers use ``inklow.<pane>.<setting>``. The AppKit timer is
-sole owner of controller events and overlays; keyboard callbacks never own UI.
+Accessibility identifiers use ``inklow.<pane>.<setting>``. Main-run-loop ticks
+own controller events and overlays; native bridge callbacks never own UI.
+The shell retains native delegates, prompts for opt-in settings, and waits for
+local cleanup before committing an updater handoff.
 """
 from __future__ import annotations
 
@@ -111,13 +113,18 @@ def _minutes(seconds):
 
 
 class FlippedView(A.NSView):
+    """Use top-left coordinates for manually laid-out settings content."""
+
     def isFlipped(self):
         return True
 
 
 class ShortcutRecorder(A.NSButton):
+    """Capture a local key chord while the shell suspends global shortcuts."""
+
     @objc.python_method
     def configure(self, value, callback, recording_changed):
+        """Retain callbacks; ``callback(value)`` must approve a saved chord."""
         self.value = value
         self.callback = callback
         self._recording_callback = recording_changed
@@ -130,6 +137,7 @@ class ShortcutRecorder(A.NSButton):
         self.setToolTip_("Click, then press a key combination. Escape cancels; Delete clears.")
     @objc.python_method
     def recording_changed(self, recording):
+        """Replace the retained event monitor and notify the shortcut owner."""
         if self._monitor is not None:
             A.NSEvent.removeMonitor_(self._monitor)
             self._monitor = None
@@ -167,6 +175,7 @@ class ShortcutRecorder(A.NSButton):
         return False
 
     def keyDown_(self, event):
+        """Consume recording keys; cancel or reject without replacing the value."""
         if not self.recording:
             objc.super(ShortcutRecorder, self).keyDown_(event)
             return
@@ -221,6 +230,8 @@ def _sidebar_icon(key, symbol_name, label):
 
 
 class TableSource(NSObject, protocols=[objc.protocolNamed("NSTableViewDataSource"), objc.protocolNamed("NSTableViewDelegate")]):
+    """Retained table delegate for sidebar navigation and aggregate rows."""
+
     @objc.python_method
     def configure(self, rows, columns, callback=None, sidebar=False, link=None):
         self.rows, self.columns = rows, columns
@@ -350,6 +361,7 @@ class RuleListSource(NSObject, protocols=[objc.protocolNamed("NSTableViewDataSou
 
     @objc.python_method
     def _dropped(self, info):
+        """Extract app identifiers or HTTP(S) hosts, without opening dropped URLs."""
         items = []
         urls = info.draggingPasteboard().readObjectsForClasses_options_([NSURL], {}) or []
         for url in urls:
@@ -385,6 +397,7 @@ class BarChartView(A.NSView):
 
     @objc.python_method
     def set_bars(self, bars, formatter):
+        """Snapshot label/value pairs and refresh drawing and spoken summaries."""
         self.bars = list(bars)
         self.formatter = formatter
         summary = "; ".join(f"{label}: {formatter(value)}" for label, value in self.bars[-12:])
@@ -455,6 +468,7 @@ class Form:
 
     @staticmethod
     def text_height(label, width):
+        """Measure wrapped attributed text in AppKit points, with a small inset."""
         size = label.attributedStringValue().boundingRectWithSize_options_(
             A.NSMakeSize(max(1, width), 10000),
             A.NSStringDrawingUsesLineFragmentOrigin | A.NSStringDrawingUsesFontLeading)
@@ -482,6 +496,7 @@ class Form:
         self.group = None
 
     def row(self, title, detail="", control=None, *, height=None, control_width=220):
+        """Retain a grouped row; widths and optional minimum height are points."""
         if self.group is None:
             self.section()
         content = self.group["content"]
@@ -505,12 +520,14 @@ class Form:
         self.blocks.append(("note", label))
 
     def custom(self, view, height, *, layout=None, visible=None):
+        """Add a view whose optional layout callback returns its height in points."""
         self.end_group()
         view.setFrameSize_(A.NSMakeSize(self.width, height))
         self.view.addSubview_(view)
         self.blocks.append(("custom", (view, height, layout, visible)))
 
     def reflow(self, width=None, viewport_height=None):
+        """Reposition retained controls without replacing editors or their focus."""
         if width is not None:
             self.width = max(1, width - 48)
         width, y = self.width, 24
@@ -571,8 +588,11 @@ class Form:
 
 
 class BroTypistApplication(NSObject):
+    """Own the native shell and serialize controller/UI lifetime on the main loop."""
+
     @objc.python_method
     def configure(self, config, background, no_tray, pane=None):
+        """Initialize retained state; native launch and controller start happen later."""
         self.initial_config = config
         self.background, self.no_tray = background, no_tray
         self.controller = Controller(config)
@@ -644,6 +664,7 @@ class BroTypistApplication(NSObject):
         return self
 
     def applicationDidFinishLaunching_(self, notification):
+        """Build native UI and schedule ticks before allowing local inference."""
         app = A.NSApplication.sharedApplication()
         app.setActivationPolicy_(A.NSApplicationActivationPolicyAccessory)
         # Packaged apps let macOS choose the native adaptive bundle artwork.
@@ -713,6 +734,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _bind(self, control, callback):
+        """Retain a callback behind a native tag until its menu or pane is released."""
         self.next_tag += 1
         control.setTag_(self.next_tag)
         control.setTarget_(self)
@@ -721,6 +743,7 @@ class BroTypistApplication(NSObject):
         return control
 
     def perform_(self, sender):
+        """Defer menu actions until tracking ends; handle ordinary controls inline."""
         callback = self.bindings.get(int(sender.tag()))
         if callback:
             if isinstance(sender, A.NSMenuItem):
@@ -917,6 +940,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _set_scope_rule(self, scope, field, value):
+        """Persist a scoped override, returning false if recording consent is refused."""
         if not scope:
             raise ValueError("Switch to an app or website first.")
         if field == "record_history" and value and not self._confirm_recording():
@@ -979,6 +1003,7 @@ class BroTypistApplication(NSObject):
         return self.field_menu
 
     def menuWillOpen_(self, menu):
+        """Suspend native shortcuts across nested menus until a later shell tick."""
         if getattr(self, "power_ui", None):
             self.power_ui.dismiss_help()
         if not self.shutdown_started and not self.tracking_menus and not self.resume_menu_shortcuts:
@@ -1004,6 +1029,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _wake_controller(self):
+        """Coalesce worker wake requests into one asynchronous main-thread selector."""
         with self._wake_lock:
             if self.stopping or self._wake_pending:
                 return
@@ -1024,6 +1050,7 @@ class BroTypistApplication(NSObject):
         self.tick_(None)
 
     def tick_(self, timer):
+        """Advance startup, queued actions and presentation outside menu tracking."""
         if self.stopping or self.tracking_menus:
             return
         if not self.startup_initialized:
@@ -1052,6 +1079,8 @@ class BroTypistApplication(NSObject):
                 self.last_error = str(exc)
                 self._error(self.last_error)
         try:
+            # Menu actions may replace views or begin termination. Drain them
+            # before controller work and only then restore global shortcuts.
             while self.pending_menu_actions:
                 callback, sender = self.pending_menu_actions.popleft()
                 callback(sender)
@@ -1182,6 +1211,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _refresh_power_status(self):
+        """Sample OS power off-main; present each completed snapshot on the UI thread."""
         power_ui = getattr(self, "power_ui", None)
         if power_ui is None:
             return
@@ -1315,6 +1345,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _change(self, **changes):
+        """Validate a replacement config before handing persistence to the controller."""
         candidate = replace(self.controller.config, **changes)
         candidate.validate()
         self.controller.update_config(candidate)
@@ -1322,6 +1353,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _switch(self, field, title, detail="", *, callback=None):
+        """Bind a Boolean setting and restore its actual value when saving raises."""
         control = A.NSSwitch.alloc().initWithFrame_(A.NSMakeRect(0, 0, 42, 25))
         control.setState_(A.NSControlStateValueOn if getattr(self.controller.config, field) else A.NSControlStateValueOff)
         _identify(control, f"inklow.{self.pane}.{field}", title)
@@ -1343,6 +1375,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _popup(self, field, title, options, detail="", *, value=None, callback=None, control_width=220):
+        """Map displayed options to stored values, restoring selection on errors."""
         control = A.NSPopUpButton.alloc().initWithFrame_pullsDown_(A.NSMakeRect(0, 0, 220, 26), False)
         for label, item_value in options:
             control.addItemWithTitle_(label)
@@ -1389,6 +1422,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def show_settings(self, pane="general"):
+        """Hide external overlays, select a pane and activate the retained window."""
         if pane == "welcome":
             self.show_welcome()
             return
@@ -1522,6 +1556,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _show_pane(self, pane):
+        """Replace pane controls while preserving drafts and application menu actions."""
         pane = _canonical_pane(pane) or "general"
         if self.window is None or not hasattr(self, "content_scroll"):
             return
@@ -1575,6 +1610,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _permission_state(self):
+        """Read current OS grants without presenting permission prompts."""
         import ApplicationServices as AX
         import Quartz
         return {
@@ -1773,6 +1809,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _autostart(self, value):
+        """Change OS login startup first, restoring it if config persistence fails."""
         old = system.launch_at_login_state()
         outcome = system.set_launch_at_login(value)
         if outcome is False:
@@ -1923,6 +1960,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _select_model(self, preset_id, apply=True):
+        """Select a catalogue entry; only an installed choice is applied immediately."""
         preset_id = str(preset_id)
         self.model_inventory = self.controller.models()
         model = next((item for item in self.model_inventory if str(item["id"]) == preset_id), None)
@@ -1947,7 +1985,11 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _request_model(self, preset_id):
-        """One explicit use/download path for Settings and the welcome window."""
+        """Use an installed preset or request its download after any license consent.
+
+        Return false on consent cancellation or opening the terms. Unknown or
+        unavailable presets and shutdown-in-progress raise rather than download.
+        """
         if self.shutdown_started:
             raise ValueError("Local cleanup has started. Quit and reopen BroTypist before starting another model download.")
         self.model_inventory = self.controller.models()
@@ -2073,6 +2115,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _context_consent(self, field, value):
+        """Save an opt-in choice after consent; OS screenshot permission is separate."""
         if value:
             title, message = _CONSENT[field]
             if not self._confirm(title, message):
@@ -2187,6 +2230,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _delete_history(self, app_id=None, domain=None):
+        """Confirm scoped or complete history deletion, then refresh cached counts."""
         if app_id:
             target = f"encrypted history recorded in {self._app_name(app_id)}."
         elif domain:
@@ -2257,6 +2301,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _instructions_editor(self, key, saved_value, *, app_rule=False):
+        """Restore an unsaved draft into a retained editor with explicit save actions."""
         self.form.end_group()
         scroll = A.NSScrollView.alloc().initWithFrame_(A.NSMakeRect(0, 0, self.form.width, 152))
         scroll.setHasVerticalScroller_(True)
@@ -2316,6 +2361,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _save_instructions(self, key, app_rule):
+        """Persist the editor text, dropping its cached draft only after success."""
         value = str(self.editors[key].string())
         if len(value) > 8000:
             raise ValueError("Custom instructions are limited to 8,000 characters.")
@@ -2603,6 +2649,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _normalize_domain(self, value):
+        """Return a normalized hostname; reject credentials, ports and incomplete names."""
         from .config import normalize_domain
         text = value.strip()
         parsed = urlsplit(text if "://" in text else "https://" + text)
@@ -2684,6 +2731,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _rule_override(self, field, choice):
+        """Apply a tri-state override; inheritance removes the key, not its value."""
         rules = deepcopy(self.controller.config.app_rules)
         if choice == "inherit":
             rules[self.selected_rule].pop(field, None)
@@ -2814,6 +2862,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _refresh_statistics(self):
+        """Refresh aggregate views, converting estimated seconds to display minutes."""
         stats = self.controller.stats(self.stat_period, self.stat_group)
         metric = self.stat_metric
         rows = stats.get("rows", [])
@@ -2939,6 +2988,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _refresh_updates(self):
+        """Render one updater snapshot and retain the exact displayed button intent."""
         status = self.updates.snapshot()
         state = status.get("state", "idle")
         busy = state in {"checking", "downloading", "installing"}
@@ -3000,6 +3050,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _allow_discard_instruction_drafts(self):
+        """Ask before discarding changed drafts, including editors in inactive panes."""
         self._remember_drafts()
         config = self.controller.config
         dirty = False
@@ -3018,6 +3069,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _install_update(self):
+        """Prepare an approved update; deferred termination owns the eventual commit."""
         status = self.updates.snapshot()
         if self.termination_requested or status.get("state") != "ready" or not status.get("installable"):
             return
@@ -3078,6 +3130,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _cancel_termination(self):
+        """Abort an uncommitted handoff without restarting already-stopped activity."""
         if self.update_committed:
             return
         try:
@@ -3099,6 +3152,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def _advance_shutdown(self):
+        """Retry pending cleanup, cancelling quit on failure and committing only last."""
         if getattr(self, "_shutdown_advancing", False) or time.monotonic() < self.shutdown_next_retry:
             return
         self._shutdown_advancing = True
@@ -3121,6 +3175,8 @@ class BroTypistApplication(NSObject):
             if self.update_handoff is None:
                 cleanup.append(("updates", self.updates.close))
             pending, failed = False, False
+            # Attempt every owner's cleanup even when another is still pending.
+            # ShutdownPending schedules another turn; errors cancel termination.
             for name, action in cleanup:
                 try:
                     action()
@@ -3171,6 +3227,7 @@ class BroTypistApplication(NSObject):
 
     @objc.python_method
     def shutdown(self):
+        """Release shell resources; an unexpected exit must abort a prepared update."""
         if self.stopping:
             return
         # Unexpected event-loop exit must never approve a waiting installer.

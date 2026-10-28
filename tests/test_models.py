@@ -10,6 +10,7 @@ from inklow import models
 
 @pytest.fixture
 def model_source(monkeypatch, tmp_path):
+    """Seed isolated old weights and return the preset, new bytes, path and old bytes."""
     payload = b"verified replacement weights"
     preset = models.ModelPreset(
         "fixture", "Fixture", "Synthetic weights for integrity boundaries only",
@@ -24,6 +25,7 @@ def model_source(monkeypatch, tmp_path):
 
 
 def serve(monkeypatch, payload):
+    """Replace the opener with an in-memory body; no external download occurs."""
     class ResponseSource:
         def open(self, request, timeout):
             return BytesIO(payload)
@@ -59,6 +61,8 @@ def test_cancellation_interrupts_stalled_body_read_and_removes_partial(monkeypat
 
     preset, payload, target, previous = model_source
     release, reading = threading.Event(), threading.Event()
+    # Hold the body open after its first bytes; cancellation must interrupt the
+    # client's next read rather than wait for the server to finish the response.
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args):
@@ -81,6 +85,7 @@ def test_cancellation_interrupts_stalled_body_read_and_removes_partial(monkeypat
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     class Response:
+        """Expose the owned HTTP response, including its socket-bearing file object."""
         def __init__(self):
             self.connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
             self.connection.request("GET", "/")
@@ -99,6 +104,7 @@ def test_cancellation_interrupts_stalled_body_read_and_removes_partial(monkeypat
             return self.read1(size)
 
         def read1(self, size):
+            """Signal entry to the second read so cancellation targets a stalled body."""
             self.reads += 1
             if self.reads == 2:
                 reading.set()
@@ -128,6 +134,7 @@ def test_cancellation_interrupts_stalled_body_read_and_removes_partial(monkeypat
         assert target.read_bytes() == previous
         assert list(target.parent.glob(".download-*")) == []
     finally:
+        # Release both sides even on assertion failure before stopping the listener.
         cancel.set()
         release.set()
         thread.join(timeout=5)

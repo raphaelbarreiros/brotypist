@@ -23,6 +23,11 @@ import time
 
 
 def main() -> int:
+    """Run one isolated virtual session and persist its limited smoke evidence.
+
+    Missing primitives remain incomplete, not passing. The launched session
+    gets an owned process group; cleanup also covers surviving descendants.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-path", required=True, type=Path,
                         help="Existing cached GGUF; used only as a launch override")
@@ -54,6 +59,7 @@ def main() -> int:
     process = None
     started = time.monotonic()
     def interrupted(number, _frame):
+        """Route termination through receipt writing and owned-group cleanup."""
         raise InterruptedError(f"Smoke interrupted by signal {number}")
 
     signals = (signal.SIGINT, signal.SIGTERM)
@@ -138,6 +144,11 @@ def main() -> int:
 
 
 def terminate_group(pid: int) -> None:
+    """Terminate an owned process-group ID, escalating after two seconds.
+
+    The caller must supply a group created with start_new_session=True, never an
+    arbitrary application PID. A missing group is already cleaned up.
+    """
     try:
         os.killpg(pid, signal.SIGTERM)
     except ProcessLookupError:

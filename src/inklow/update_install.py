@@ -1,7 +1,8 @@
 """Unprivileged, offline OTA handoff and atomic native installation.
 
-The onefile helper copies its inputs out of the running app, waits for approval
-AND the parent's pipe to close, and never invokes a shell or changes Gatekeeper.
+Handoff copies the inputs and helper outside the running app. The helper waits
+for approval, pipe closure and parent exit; it never invokes a shell or changes
+Gatekeeper. Models and user settings are not part of the replacement payload.
 """
 from __future__ import annotations
 
@@ -50,6 +51,7 @@ class InstallError(RuntimeError):
 
 @dataclass(frozen=True)
 class Installation:
+    """Detected layout and replacement policy, not a promise that install will succeed."""
     path: Path | None
     kind: str
     installable: bool
@@ -68,6 +70,7 @@ def _version(value: str) -> tuple[int, int, int]:
 
 
 def _json(data: bytes) -> dict:
+    """Decode object metadata without accepting duplicate keys at any nesting level."""
     def pairs(items):
         result = {}
         for key, value in items:
@@ -85,6 +88,11 @@ def _json(data: bytes) -> dict:
 
 
 def _read_file(path: Path, maximum: int, *, private: bool = False) -> bytes:
+    """Read at most maximum bytes from a regular file, refusing a final symlink.
+
+    With ``private=True``, require the effective user to own an owner-only file.
+    Parent-component checks are a separate responsibility of the caller.
+    """
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
@@ -102,6 +110,7 @@ def _read_file(path: Path, maximum: int, *, private: bool = False) -> bytes:
 
 
 def _write_private(path: Path, value: dict | bytes) -> None:
+    """Create an exclusive owner-only file and fsync its bytes; never overwrite."""
     data = json.dumps(value, separators=(",", ":")).encode() if isinstance(value, dict) else value
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "wb") as stream:
@@ -111,6 +120,7 @@ def _write_private(path: Path, value: dict | bytes) -> None:
 
 
 def _marker(bundle: Path, native: str) -> dict:
+    """Read and validate the native build marker without authenticating its publisher."""
     path = bundle / "Contents/Resources" / MARKER if native == "darwin" else bundle / MARKER
     _no_symlink_components(path)
     value = _json(_read_file(path, 8192))
@@ -125,6 +135,7 @@ def _marker(bundle: Path, native: str) -> dict:
 
 
 def _no_symlink_components(path: Path) -> None:
+    """Require an absolute path with no parent traversal or existing symlink component."""
     if not path.is_absolute() or ".." in path.parts:
         raise InstallError("Application path must be canonical.")
     for part in (path, *path.parents):
@@ -137,6 +148,7 @@ def _executable(bundle: Path, native: str) -> Path:
 
 
 def _managed_debian(path: Path) -> bool:
+    """Keep the conventional Debian location and dpkg-owned binaries out of self-update."""
     if path == Path("/opt/brotypist") or Path("/opt/brotypist") in path.parents:
         return True
     tool = Path("/usr/bin/dpkg-query")
@@ -148,6 +160,7 @@ def _managed_debian(path: Path) -> bool:
 
 
 def _target_policy(bundle: Path, native: str, isolated_home: str | None) -> dict:
+    """Require a writable native app outside source trees and return its build identity."""
     _no_symlink_components(bundle)
     info = bundle.lstat()
     parent = bundle.parent.stat()
@@ -176,6 +189,7 @@ def _target_policy(bundle: Path, native: str, isolated_home: str | None) -> dict
 
 
 def detect_installation() -> Installation:
+    """Classify the running executable without mutating it or claiming install success."""
     if sys.platform not in {"darwin", "linux"}:
         return Installation(None, "held", False, "Updates are not available for this platform.")
     if not getattr(sys, "frozen", False):
@@ -202,13 +216,20 @@ def detect_installation() -> Installation:
 
 
 class Handoff:
+    """Own the parent's approval pipe until abort or irrevocable commit.
+
+    Commit retains the writer until process exit: approval alone must not let
+    the helper replace a still-running application.
+    """
     def __init__(self, writer: int, process: subprocess.Popen, request_root: Path):
+        """Take ownership of writer; the detached helper owns the pipe's read end."""
         self._writer: int | None = writer
         self.process = process
         self.request_root = request_root
         self.committed = False
 
     def commit(self) -> None:
+        """Send approval once and retain the writer for the rest of this process."""
         if self.committed:
             return
         if self._writer is None or self.process.poll() is not None:
@@ -222,6 +243,7 @@ class Handoff:
         _COMMITTED_WRITERS.add(self._writer)
 
     def abort(self) -> None:
+        """Close an uncommitted pipe to cancel; never revoke a committed handoff."""
         if self.committed:
             return
         if self._writer is not None:
@@ -233,6 +255,7 @@ class Handoff:
 
 
 def _copy_private(source: Path, destination: Path, maximum: int) -> None:
+    """Copy bounded regular-file bytes privately and retain native quarantine metadata."""
     fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
@@ -295,6 +318,7 @@ def _darwin_setxattr(path: Path, name: str, value: bytes, *, create: bool = Fals
 
 
 def _preserve_quarantine(source: Path, destination: Path) -> None:
+    """Copy Darwin quarantine only when present and absent from the destination."""
     if sys.platform != "darwin":
         return
     missing = {errno.ENODATA, getattr(errno, "ENOATTR", 93)}
@@ -313,6 +337,11 @@ def _preserve_quarantine(source: Path, destination: Path) -> None:
 
 def spawn_installer(manifest_path: Path, signature_path: Path, archive_path: Path,
                     installation: Installation) -> Handoff:
+    """Copy a private transaction and launch its detached, initially unapproved helper.
+
+    Recheck the running installation before staging next to it. The caller owns
+    the returned Handoff and must commit or abort it; no replacement occurs here.
+    """
     if not installation.installable or installation.path is None:
         raise InstallError("This installation does not support self-updating.")
     actual = detect_installation()
@@ -373,6 +402,7 @@ def _clean_environment() -> dict[str, str]:
 
 
 def _wait_for_exit(fd: int, parent_pid: int, timeout: float = APPROVAL_TIMEOUT) -> None:
+    """Require one approval byte, pipe EOF and parent exit within timeout seconds."""
     import fcntl
     if (not stat.S_ISFIFO(os.fstat(fd).st_mode)
             or fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE != os.O_RDONLY):
@@ -405,6 +435,7 @@ def _wait_for_exit(fd: int, parent_pid: int, timeout: float = APPROVAL_TIMEOUT) 
 
 
 def _request(path: Path) -> dict:
+    """Validate the private transaction location, schema and same-parent destination."""
     _no_symlink_components(path)
     root = path.parent
     info = root.stat()
@@ -429,6 +460,7 @@ def _request(path: Path) -> dict:
 
 
 def _check_destination(request: dict) -> Path:
+    """Recheck replacement policy and the original build's device/inode identity."""
     bundle = Path(request["destination"])
     identity = _target_policy(bundle, request["platform"], request["isolated_home"])
     info = bundle.stat()
@@ -439,6 +471,7 @@ def _check_destination(request: dict) -> Path:
 
 
 def _verified_asset(root: Path, request: dict):
+    """Reauthenticate metadata and hash the private native package before extraction."""
     from .updates import verify_manifest
     release = verify_manifest(_read_file(root / "manifest.json", 256 * 1024, private=True),
                               _read_file(root / "manifest.sig", 128, private=True))
@@ -469,6 +502,7 @@ def _verified_asset(root: Path, request: dict):
 
 
 def _archive_path(name: str, expected_root: str) -> PurePosixPath:
+    """Admit only application-root paths, excluding traversal and private-data names."""
     path = PurePosixPath(name)
     if (not name or "\x00" in name or "\\" in name or path.is_absolute()
             or any(part in {"", ".", ".."} for part in name.rstrip("/").split("/"))
@@ -480,6 +514,7 @@ def _archive_path(name: str, expected_root: str) -> PurePosixPath:
 
 
 def _link_target(path: PurePosixPath, link: str, root: str) -> PurePosixPath:
+    """Resolve a relative archive link lexically without escaping its application root."""
     if not link or link.startswith("/") or "\\" in link or "\x00" in link:
         raise InstallError("Update archive contains an unsafe link.")
     parts = list(path.parent.parts)
@@ -496,6 +531,7 @@ def _link_target(path: PurePosixPath, link: str, root: str) -> PurePosixPath:
 
 
 def _validate_members(rows: list[tuple[PurePosixPath, str | None, bool]]) -> None:
+    """Reject case-insensitive duplicates and any member nested beneath a link or file."""
     names = set()
     links = set()
     files = set()
@@ -514,6 +550,12 @@ def _validate_members(rows: list[tuple[PurePosixPath, str | None, bool]]) -> Non
 
 
 def _extract_package(archive: Path, stage: Path, native: str) -> Path:
+    """Preflight an archive, extract into private stage, then inspect resulting files.
+
+    ZIP uses native ditto to preserve bundle metadata; tar uses the data filter.
+    Both paths enforce entry/byte limits and application-root link containment.
+    Returns the extracted bundle, not a publisher-authenticated installation.
+    """
     root_name = "BroTypist.app" if native == "darwin" else "BroTypist"
     rows = []
     total = 0
@@ -591,6 +633,7 @@ def _extract_package(archive: Path, stage: Path, native: str) -> Path:
     if (not bundle.is_dir() or bundle.is_symlink()
             or bundle.stat().st_uid != os.geteuid() or bundle.stat().st_mode & 0o022):
         raise InstallError("Update archive has no native application.")
+    # Validate what extraction actually produced, not only the archive inventory.
     count = total = 0
     for path in bundle.rglob("*"):
         count += 1
@@ -612,6 +655,7 @@ def _extract_package(archive: Path, stage: Path, native: str) -> Path:
 
 
 def _signing_identity(bundle: Path) -> tuple[str, str, tuple[str, ...]]:
+    """Verify macOS code seals and return identifier/team/authorities, not notarization."""
     subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(bundle)],
                    capture_output=True, check=True, timeout=60)
     result = subprocess.run(["/usr/bin/codesign", "--display", "--verbose=4", str(bundle)],
@@ -630,6 +674,7 @@ def _signing_identity(bundle: Path) -> tuple[str, str, tuple[str, ...]]:
 
 
 def _binary_architecture(executable: Path, native: str) -> None:
+    """Require the host architecture in a thin Mach-O or little-endian ELF64 header."""
     header = _read_header(executable)
     expected = _architecture()
     if native == "linux":
@@ -649,6 +694,7 @@ def _read_header(path: Path) -> bytes:
 
 
 def _health_version(bundle: Path, version: str, native: str) -> None:
+    """Check the signed release version via sealed macOS plist or Linux CLI execution."""
     if native == "darwin":
         # codesign has verified this sealed plist. Do not execute quarantined
         # code for a CLI probe before LaunchServices can request OS approval.
@@ -664,6 +710,7 @@ def _health_version(bundle: Path, version: str, native: str) -> None:
 
 
 def _atomic_exchange(left: Path, right: Path) -> None:
+    """Swap two paths atomically or fail; no non-atomic replacement fallback is used."""
     library = ctypes.CDLL(None, use_errno=True)
     if sys.platform == "darwin":
         function = getattr(library, "renameatx_np", None)
@@ -684,6 +731,7 @@ def _atomic_exchange(left: Path, right: Path) -> None:
 
 
 def _launch(bundle: Path, native: str, root: Path | None = None, request: dict | None = None):
+    """Launch a native app, optionally carrying a one-transaction startup receipt token."""
     environment = _clean_environment()
     if root is not None and request is not None:
         environment[HEALTH_PATH] = str(root / "startup.json")
@@ -746,6 +794,7 @@ def acknowledge_startup() -> bool:
 
 
 def _wait_startup(root: Path, request: dict, process, timeout: float = STARTUP_TIMEOUT) -> None:
+    """Wait for a nonce-bound receipt and live PID, not merely launcher success."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         path = root / "startup.json"
@@ -769,6 +818,7 @@ def _wait_startup(root: Path, request: dict, process, timeout: float = STARTUP_T
 
 def _receipt(root: Path, request: dict, status: str, *, rollback: Path | None = None,
              message: str | None = None) -> None:
+    """Atomically publish transaction state while retaining the rollback path, if any."""
     value = {"schema": 1, "application": APP_ID, "version": request["version"], "status": status,
              "previous_version": request["identity"]["version"], "notarization": "not claimed"}
     if message:
@@ -781,6 +831,12 @@ def _receipt(root: Path, request: dict, status: str, *, rollback: Path | None = 
 
 
 def run_installer(request_path: Path, approval_fd: int) -> int:
+    """Run an offline replacement and startup handshake, attempting rollback on failure.
+
+    Returns 0 after acknowledged GUI startup or 1 for a handled failure.
+    Invalid requests and failures during rollback/cleanup may propagate.
+    Once inside the transaction try/finally, this function owns approval_fd.
+    """
     request = _request(request_path)
     root = request_path.parent
     stage = root / "payload"
@@ -811,6 +867,8 @@ def run_installer(request_path: Path, approval_fd: int) -> int:
         _check_destination(request)
         if sys.platform == "darwin" and _signing_identity(destination) != signing:
             raise InstallError("The installed application's signing identity changed.")
+        # After exchange, candidate names the previous full build. Keep it until
+        # the replacement acknowledges GUI startup, and retain it for recovery.
         _atomic_exchange(candidate, destination)
         exchanged = True
         _receipt(root, request, "promoted", rollback=candidate)
@@ -826,7 +884,7 @@ def run_installer(request_path: Path, approval_fd: int) -> int:
                 _atomic_exchange(candidate, Path(request["destination"]))
             except BaseException:
                 _receipt(root, request, "rollback_failed", rollback=candidate)
-                # Keep both full builds and all evidence for manual recovery.
+                # Keep both full builds and the transaction receipt for recovery.
                 raise InstallError("Automatic rollback failed; the previous build is retained beside the application.")
             _receipt(root, request, "rolled_back", message=message)
             _launch(Path(request["destination"]), sys.platform)
@@ -842,6 +900,7 @@ def run_installer(request_path: Path, approval_fd: int) -> int:
 
 
 def helper_main(argv: list[str] | None = None) -> int:
+    """Parse helper-only arguments and translate expected installer failures to exit 1."""
     parser = argparse.ArgumentParser(description="BroTypist offline update transaction")
     parser.add_argument("--request", required=True, type=Path)
     parser.add_argument("--approval-fd", required=True, type=int)

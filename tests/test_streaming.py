@@ -1,4 +1,7 @@
-"""Scenarios C1-C6 from the inference upgrade plan, against a real loopback peer."""
+"""Exercise streaming sanitization, cancellation and response limits over loopback.
+
+The HTTP peer sends scripted frames, not predictions from a running model.
+"""
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -14,16 +17,18 @@ TIMEOUT = 5
 
 
 def ndjson(**event) -> bytes:
+    """Encode one newline-delimited Ollama response event."""
     return json.dumps(event).encode() + b"\n"
 
 
 def sse(text: str, finish_reason=None) -> bytes:
+    """Encode one OpenAI-compatible completion event with its SSE separator."""
     event = {"choices": [{"text": text, "finish_reason": finish_reason}]}
     return b"data: " + json.dumps(event).encode() + b"\n\n"
 
 
 def send(handler, *frames, status=200, headers=()):
-    """Write frames in order; an Event frame pauses the response until released."""
+    """Write flushed frames in order, pausing Event frames for at most TIMEOUT seconds."""
     try:
         handler.send_response(status)
         for name, value in headers:
@@ -40,6 +45,7 @@ def send(handler, *frames, status=200, headers=()):
 
 
 class Handler(BaseHTTPRequestHandler):
+    """Record requests before dispatching to the test's scripted response callback."""
     def log_message(self, *args):
         pass
 
@@ -54,6 +60,7 @@ class Handler(BaseHTTPRequestHandler):
 
 @pytest.fixture
 def server():
+    """Own an ephemeral loopback listener; each test supplies its response callback."""
     peer = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     peer.daemon_threads = True
     peer.seen = queue.Queue()
@@ -65,12 +72,14 @@ def server():
 
 
 def config_for(server, backend="ollama", **changes):
+    """Point a provider configuration at this test's dynamically assigned local port."""
     endpoint = f"http://127.0.0.1:{server.server_address[1]}"
     values = dict(backend=backend, endpoint=endpoint, model="base") | changes
     return replace(Config(), **values)
 
 
 def drain(server):
+    """Drain already-recorded requests; this does not wait for in-flight handlers."""
     seen = []
     while not server.seen.empty():
         seen.append(server.seen.get_nowait())

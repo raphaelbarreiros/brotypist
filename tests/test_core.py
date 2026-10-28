@@ -1,3 +1,8 @@
+"""Constrain pure suggestion acceptance by field identity and displayed text.
+
+Snapshots use Python character offsets; no native insertion or drawing occurs.
+"""
+
 from dataclasses import replace
 
 import pytest

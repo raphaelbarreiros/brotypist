@@ -1,3 +1,8 @@
+"""Constrain spelling range conversion, language selection and stale-result isolation.
+
+Most cases use a gated dictionary double; the final macOS-only case uses the OS.
+"""
+
 import contextlib
 import sys
 import threading
@@ -12,6 +17,7 @@ from inklow.spelling import SpellingService
 
 
 def _units(text):
+    """Return native UTF-16 code units, not Python character indexes."""
     return len(text.encode("utf-16-le")) // 2
 
 
@@ -40,6 +46,7 @@ class Dictionary:
         return dict(self.hypotheses)
 
     def misspelled(self, word, language):
+        """Gate the worker and return UTF-16 ranges for rejected compound parts."""
         self.entered.set()
         self.gate.wait(5)
         self.checked.append((word, language))
@@ -56,6 +63,7 @@ class Dictionary:
         return any(w.startswith(folded) and w != folded for w in self.words[language])
 
     def suggestions(self, text, start, length, language):
+        """Resolve a native UTF-16 range against the fixed correction table."""
         flagged = text.encode("utf-16-le")[2 * start:2 * (start + length)].decode("utf-16-le")
         return self.fixes.get(flagged, ""), ()
 
@@ -64,6 +72,11 @@ class Dictionary:
 
 
 def settle(service, snapshot, woke, timeout=5.0):
+    """Await a non-pending verdict, failing within ``timeout`` seconds.
+
+    Wakeups are hints: repeated assessment and bounded waits also handle a
+    notification arriving between assessment and event clearing.
+    """
     deadline = time.monotonic() + timeout
     while True:
         result = service.assess(snapshot)
@@ -75,6 +88,7 @@ def settle(service, snapshot, woke, timeout=5.0):
 
 
 def service_for(hypotheses):
+    """Return the caller-owned service, controllable backend and wakeup event."""
     woke = threading.Event()
     backend = Dictionary(hypotheses)
     return SpellingService(woke.set, backend=backend), backend, woke
@@ -158,6 +172,7 @@ def test_typo_requires_rejection_by_every_plausible_language():
 
 def test_stale_result_never_attaches_to_another_field():
     service, backend, woke = service_for({"en": 0.95})
+    # Keep the first request in flight while replacing its focused-field identity.
     backend.gate.clear()
     first = Snapshot("mail", "subject", "we will recieve", 15)
     other = replace(first, field_id="body")

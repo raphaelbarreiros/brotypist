@@ -1,3 +1,5 @@
+"""Constrain emoji replacement spans and safe, whitespace-preserving choices."""
+
 from dataclasses import replace
 
 from inklow.config import Config

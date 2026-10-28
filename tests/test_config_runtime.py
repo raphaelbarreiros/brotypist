@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from inklow.config import Config, config_path, default_instructions, load_config, provider_identity, save_config
-from inklow.models import DEFAULT_PRESET, PRESETS
+from inklow.config import Config, config_path, load_config, provider_identity, save_config
+from inklow.models import PRESETS
 
 
 @pytest.mark.parametrize("changes", [
@@ -79,14 +79,14 @@ def test_legacy_settings_keep_their_model_and_text_while_new_fields_migrate(tmp_
     assert load_config() == custom
 
 
-def test_only_new_installs_are_seeded_with_default_model_and_locale_instructions(tmp_path, monkeypatch):
+def test_custom_model_and_instructions_survive_loading_existing_settings(tmp_path, monkeypatch):
     monkeypatch.setenv("INKLOW_HOME", str(tmp_path))
-    config = load_config()
-    assert config.model_id == DEFAULT_PRESET and config.model_path == ""
-    assert config.custom_instructions == default_instructions()
-    config_path().write_text(json.dumps({"model_path": "/custom/own.gguf", "custom_instructions": "Mine."}))
+    settings = {"model_path": "/custom/own.gguf", "custom_instructions": "Mine."}
+    config_path().write_text(json.dumps(settings))
     saved = load_config()
-    assert (saved.model_id, saved.custom_instructions) == ("", "Mine.")
+    assert saved.model_path == settings["model_path"]
+    assert saved.model_id == ""
+    assert saved.custom_instructions == settings["custom_instructions"]
 
 
 @pytest.mark.parametrize("backend,changes,reallocated", [

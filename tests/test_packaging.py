@@ -1,4 +1,8 @@
-"""Packaging safety scenarios: local://inklow-packaging-test-design.json."""
+"""Constrain build ownership, private-payload exclusion and relocated resources.
+
+Temporary trees exercise publication and rollback without building a frozen app
+or replacing an installed application.
+"""
 import json
 from pathlib import Path
 import runpy
@@ -11,6 +15,7 @@ BUILD = runpy.run_path(str(Path(__file__).resolve().parents[1] / "tools" / "buil
 
 
 def mark(bundle, platform="linux"):
+    """Mark a temporary tree as build-owned without constructing a frozen binary."""
     path = BUILD["marker_path"](bundle, platform)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"application": resources.APP_ID, "platform": platform}))
@@ -35,6 +40,7 @@ def test_asset_lookup_uses_relocated_package_and_refuses_escape(tmp_path, monkey
 
 @pytest.fixture
 def macos_relocated_assets(tmp_path, monkeypatch):
+    """Model the macOS resource-root symlink plus a forbidden link outside assets."""
     contents = tmp_path / "BroTypist.app" / "Contents"
     package = contents / "Frameworks" / "inklow"
     assets = contents / "Resources" / "inklow" / "assets"

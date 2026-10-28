@@ -1,8 +1,8 @@
 """Windows UI Automation with exact native Edit and Unicode-input insertion.
 
 Native Edit controls use EM_REPLACESEL. Other writable UIA Edit/Document
-providers must expose collapsed TextPattern selection and TextEditPattern
-composition state before SendInput(KEYEVENTF_UNICODE) is allowed. No clipboard,
+providers must expose TextPattern selection and TextEditPattern composition
+state before SendInput(KEYEVENTF_UNICODE) is allowed. No clipboard,
 whole-document SetValue, or browser DOM fallback is used.
 """
 from __future__ import annotations
@@ -49,6 +49,8 @@ class INPUT(C.Structure):
 
 
 class WindowsBridge(BridgeBase):
+    """Use per-operation COM clients and a separate native keyboard-hook thread."""
+
     def __init__(self) -> None:
         super().__init__()
         import comtypes
@@ -72,6 +74,7 @@ class WindowsBridge(BridgeBase):
         )
 
     def _configure_api(self) -> None:
+        """Declare pointer-sized Win32 signatures before any cross-process calls."""
         u, k, im = self.user, self.kernel, self.imm
         u.GetForegroundWindow.restype = W.HWND
         u.GetWindowThreadProcessId.argtypes = [W.HWND, C.POINTER(W.DWORD)]
@@ -124,6 +127,7 @@ class WindowsBridge(BridgeBase):
 
     @contextmanager
     def _automation(self):
+        """Yield a calling-thread UIA client inside a balanced COM apartment scope."""
         # COM interfaces never cross threads/apartments. Each operation creates
         # and releases its own automation client on the calling thread.
         self.com.CoInitialize()
@@ -134,12 +138,14 @@ class WindowsBridge(BridgeBase):
             self.com.CoUninitialize()
 
     def _message(self, hwnd, message: int, wparam: int = 0, lparam: int = 0) -> int:
+        """Send a bounded native message; raise OSError on timeout or isolation."""
         result = C.c_size_t()
         if not self.user.SendMessageTimeoutW(hwnd, message, wparam, lparam, 0x0003, 200, C.byref(result)):
             raise OSError("Target edit is unresponsive or blocked by Windows integrity isolation")
         return int(result.value)
 
     def _process_name(self, pid: int) -> str | None:
+        """Read an executable path and always close the temporary process handle."""
         handle = self.kernel.OpenProcess(0x1000, False, pid)
         if not handle:
             return None
@@ -152,6 +158,7 @@ class WindowsBridge(BridgeBase):
             self.kernel.CloseHandle(handle)
 
     def _focus(self):
+        """Return another process's focused HWND and GUI-thread state, or None."""
         foreground = self.user.GetForegroundWindow()
         pid = W.DWORD()
         thread_id = self.user.GetWindowThreadProcessId(foreground, C.byref(pid))
@@ -164,6 +171,7 @@ class WindowsBridge(BridgeBase):
         return info, int(pid.value)
 
     def foreground(self) -> dict:
+        """Report executable identity without reading editable browser metadata."""
         with self._lock:
             try:
                 window = self.user.GetForegroundWindow()
@@ -180,6 +188,7 @@ class WindowsBridge(BridgeBase):
                 return super().foreground()
 
     def _capture(self, automation):
+        """Return a snapshot and optional native Edit HWND after privacy gates."""
         if self._stopped.is_set():
             return None
         focus = self._focus()
@@ -249,6 +258,7 @@ class WindowsBridge(BridgeBase):
         return snapshot, hwnd
 
     def _capture_uia(self, element, pid: int, app: str, *, automation=None):
+        """Capture provider ranges without assuming its Character-unit encoding."""
         # TextEditPattern is required to establish that no IME composition is
         # active. Merely lacking IMM state is not evidence for TSF-backed apps.
         try:
@@ -312,6 +322,7 @@ class WindowsBridge(BridgeBase):
             return None
 
     def _inline_metrics(self, element, selected, text, caret, rect, *, automation=None):
+        """Require visible UIA glyph evidence to agree with native GDI font metrics."""
         if not rect or not caret or (text[caret:] and not text[caret:].startswith(("\r", "\n"))):
             return None
         try:
@@ -414,6 +425,7 @@ class WindowsBridge(BridgeBase):
             return None
 
     def context_matches(self, snapshot):
+        """Verify current process, window and field identity without reading text."""
         try:
             focus = self._focus()
             if not focus:
@@ -434,6 +446,7 @@ class WindowsBridge(BridgeBase):
             return False
 
     def focused_context(self, snapshot, *, authorized, max_chars=2400):
+        """Collect bounded static Text labels while authorization and focus hold."""
         result = {"text": "", "provenance": "accessibility",
                   "window_id": snapshot.window_id, "revision": snapshot.window_revision,
                   "status": "unavailable"}
@@ -478,6 +491,7 @@ class WindowsBridge(BridgeBase):
             return {**result, "status": "error"}
 
     def _send_unicode(self, text: str) -> bool:
+        """Send UTF-16 key pairs; False can also mean a partially delivered batch."""
         if any(self.user.GetAsyncKeyState(key) & 0x8000 for key in (0x11, 0x12, 0x5B, 0x5C)):
             return False
         encoded = text.encode("utf-16-le", errors="strict")
@@ -497,6 +511,7 @@ class WindowsBridge(BridgeBase):
         return True
 
     def capture(self) -> Snapshot | None:
+        """Capture on the calling COM thread, returning None on provider failures."""
         with self._lock:
             try:
                 with self._automation() as automation:
@@ -507,6 +522,7 @@ class WindowsBridge(BridgeBase):
 
     @staticmethod
     def _uia_focus_matches(automation, snapshot: Snapshot) -> bool:
+        """Compare the focused UIA runtime ID and refuse protected elements."""
         focused = automation.GetFocusedElement()
         if focused is None or focused.CurrentIsPassword or not focused.CurrentHasKeyboardFocus:
             return False
@@ -514,6 +530,7 @@ class WindowsBridge(BridgeBase):
         return identity == snapshot.field_id
 
     def insert(self, snapshot: Snapshot, text: str) -> bool:
+        """Recapture before insertion; use native undo or guarded Unicode input."""
         if not text or "\x00" in text or snapshot.protected or snapshot.selection_length:
             return False
         with self._lock:
@@ -534,6 +551,7 @@ class WindowsBridge(BridgeBase):
                 return False
 
     def replace_range(self, snapshot: Snapshot, start: int, length: int, text: str) -> bool:
+        """Replace Python-index ranges in native Edit, or an existing UIA selection."""
         if not self._valid_replacement(snapshot, start, length, text):
             return False
         with self._lock:
@@ -566,6 +584,7 @@ class WindowsBridge(BridgeBase):
                 return False
 
     def start_shortcuts(self, callback: Shortcut) -> None:
+        """Start the daemon that owns the hook callback and Windows message queue."""
         super().start_shortcuts(callback)
         with self._lock:
             if self._thread is not None or self._stopped.is_set():
@@ -574,6 +593,7 @@ class WindowsBridge(BridgeBase):
             self._thread.start()
 
     def _event_loop(self) -> None:
+        """Dispatch physical shortcuts and unhook on message-loop termination."""
         u = self.user
 
         def hook(code, message, pointer):
@@ -623,6 +643,7 @@ class WindowsBridge(BridgeBase):
                 self._hook_thread_id = 0
 
     def set_shortcuts_enabled(self, enabled: bool) -> None:
+        """Publish interception state and wake the hook thread to apply it."""
         super().set_shortcuts_enabled(enabled)
         with self._lock:
             thread_id = self._hook_thread_id
@@ -630,6 +651,7 @@ class WindowsBridge(BridgeBase):
             self.user.PostThreadMessageW(thread_id, 0x8001, 0, 0)
 
     def stop(self) -> None:
+        """Disable callbacks and request asynchronous hook cleanup with WM_QUIT."""
         super().stop()
         with self._lock:
             thread_id = self._hook_thread_id

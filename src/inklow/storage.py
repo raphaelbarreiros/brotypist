@@ -1,4 +1,8 @@
-"""Aggregate counters and opt-in AEAD history. No plaintext history fallback."""
+"""Store plaintext aggregate counters and opt-in authenticated encrypted drafts.
+
+History keys come from an OS credential store; recording and personalization
+require an explicit unlock. Callers own field eligibility and recording consent.
+"""
 from __future__ import annotations
 
 from collections import Counter
@@ -40,6 +44,7 @@ _COMMON_WORDS = frozenset().union(*_LANGUAGE_WORDS.values())
 
 
 def _writing_language(text: str) -> str:
+    """Return a supported language only when recent marker evidence is decisive."""
     words = [word.casefold() for word in _TOKENS.findall(unicodedata.normalize("NFC", text)[-4000:])]
     scores = sorted(((sum(word in markers for word in words), language)
                      for language, markers in _LANGUAGE_WORDS.items()), reverse=True)
@@ -52,7 +57,11 @@ def _letter_or_mark(char: str) -> bool:
 
 
 def _authored_fragments(text: str, spans) -> list[str]:
-    """Only explicit, validated non-overlapping ranges establish authorship."""
+    """Extract authored ranges in Python character offsets, or reject all spans.
+
+    Ranges must be ordered and non-overlapping. Trim partial boundary words so
+    edits inside generated text cannot establish authorship of the whole word.
+    """
     if not isinstance(spans, (list, tuple)) or len(spans) > _MAX_AUTHORSHIP_SPANS:
         return []
     fragments, previous = [], 0
@@ -78,6 +87,7 @@ def _authored_fragments(text: str, spans) -> list[str]:
 
 
 def _style_features(fragments):
+    """Derive bounded vocabulary counts and numeric style totals from fragments."""
     words, totals = Counter(), Counter()
     for fragment in fragments:
         tokens = _TOKENS.findall(fragment)
@@ -101,13 +111,21 @@ def _style_features(fragments):
 
 
 def history_safe(text: str) -> bool:
-    """Only substantial, non-secret-looking writing from already eligible fields."""
+    """Apply length and secret-pattern heuristics, not a complete secret detector.
+
+    The caller must already have established field eligibility and consent.
+    """
     return (len(text.strip()) >= _MIN_HISTORY_CHARS and len(text.split()) >= 12
             and len(text) <= 32000 and not _SENSITIVE.search(text))
 
 
 def os_history_key() -> bytes:
-    """Accept only actual OS credential stores, never keyrings.alt/plaintext."""
+    """Load or create a 32-byte key in an allowlisted OS credential backend.
+
+    The account is scoped to the configured data directory. Existing encrypted
+    records prevent replacement of a missing key. Failures raise RuntimeError
+    with a generic message; the original exception remains chained.
+    """
     try:
         import keyring
         backend = keyring.get_keyring()
@@ -143,7 +161,7 @@ def os_history_key() -> bytes:
             raise RuntimeError("The stored history key is invalid.")
         return key
     except Exception as error:
-        # Backend exceptions may include secrets; never propagate their details.
+        # Keep the public message generic; the original cause remains chained.
         raise RuntimeError("Encrypted history requires an unlocked macOS Keychain, Windows Credential Manager, or Linux Secret Service/KWallet and keyring support. No history was written.") from error
 
 
@@ -156,9 +174,14 @@ def _scope_domain(domain: str) -> str:
 
 
 class LocalStorage:
-    """Only enable_history() loads the key. Reads never unlock implicitly."""
+    """Serialize local storage access and keep unlocked history state in memory.
+
+    Only enable_history() loads the key; ordinary reads never unlock implicitly.
+    SQLite connections are operation-scoped, not retained by this object.
+    """
 
     def __init__(self, path: Path | None = None, key_loader: Callable[[], bytes] | None = None):
+        """Configure storage without opening SQLite or loading an encryption key."""
         self.path = path or config_path().parent / "local.sqlite3"
         self._key_loader = key_loader or os_history_key
         self._cipher = None
@@ -170,11 +193,17 @@ class LocalStorage:
         self._counts = None
 
     def _invalidate(self) -> None:
+        """Discard derived caches after history mutations or loss of the key."""
         self._learning_index = None
         self._counts = None
 
     @contextmanager
     def _connect(self):
+        """Yield a private SQLite transaction and always close its connection.
+
+        Initialize tables lazily; callers serialize access with the instance lock.
+        Filesystem and SQLite errors propagate to the caller.
+        """
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         connection = sqlite3.connect(self.path, timeout=2)
         try:
@@ -188,7 +217,11 @@ class LocalStorage:
             connection.close()
 
     def enable_history(self) -> None:
-        """The explicit unlock; call only for current recording consent or a user action."""
+        """Unlock for current recording consent or an explicit user action.
+
+        Repeated unlocks are harmless. Key failures raise RuntimeError; an
+        authentication failure remains latched until all history is deleted.
+        """
         with self._lock:
             if self._broken:
                 raise RuntimeError(self._error)
@@ -207,13 +240,18 @@ class LocalStorage:
                 raise RuntimeError(self._error) from error
 
     def lock_history(self) -> None:
+        """Drop the cipher and derived caches without deleting encrypted records."""
         with self._lock:
             self._cipher = None
             self._invalidate()
 
     @contextmanager
     def _unlocked(self, unlock: bool):
-        """Use the current unlock, or an explicit one-operation unlock."""
+        """Use an existing unlock or temporarily unlock for this operation.
+
+        Caller holds the instance lock. A temporary unlock is released even on
+        failure; a pre-existing recording unlock is left intact.
+        """
         if self._cipher is not None:
             yield
             return
@@ -227,7 +265,13 @@ class LocalStorage:
 
     def record_history(self, identifier: str, app_id: str, text: str, domain: str = "",
                        *, authored_spans=()) -> bool:
-        """Seal history plus observed authored ranges; absent proof never learns."""
+        """Replace one encrypted record using its identifier as authenticated data.
+
+        Return False for rejected text, invalid domains, or locked history.
+        Authored spans use Python character offsets; missing or invalid proof
+        permits recording but contributes no learned writing evidence.
+        Encryption and database failures propagate without a plaintext fallback.
+        """
         if not history_safe(text):
             return False
         try:
@@ -249,8 +293,12 @@ class LocalStorage:
             return True
 
     def _entries(self, limit: int | None = None):
-        """Decrypted (identifier, record) pairs, newest first. Records written
-        before domain scoping carry no domain and stay attributed to their app."""
+        """Return decrypted (identifier, record) pairs in reverse insertion order.
+
+        Caller holds the instance lock. Legacy domainless records stay assigned
+        to their app. Any decryption or record-shape failure locks history,
+        invalidates caches, and latches a RuntimeError until history is cleared.
+        """
         if self._cipher is None:
             raise HistoryLocked("Encrypted history is locked.")
         if not self.path.exists():
@@ -344,7 +392,10 @@ class LocalStorage:
         """Delete all history, one app's records, or one exact website host's records.
 
         Scoped deletion must decrypt records to find them; ``unlock=True`` marks an
-        explicit user action that may unlock for this operation only."""
+        explicit user action that may unlock for this operation only. Full
+        deletion needs no key and resets the authentication-failure latch.
+        Statistics and the OS credential-store key are not deleted.
+        """
         if app_id is not None and domain is not None:
             raise ValueError("Delete history for one app or one domain, not both.")
         target = normalize_domain(domain) if domain is not None else None
@@ -370,7 +421,11 @@ class LocalStorage:
             self._invalidate()
 
     def history_counts(self, *, unlock: bool = False) -> dict:
-        """Record counts per app and per website host; empty and unavailable while locked."""
+        """Return per-app/host counts, optionally with a one-operation unlock.
+
+        Locked existing storage reports unavailable; a missing database is
+        known empty without consulting the key store.
+        """
         with self._lock:
             if self._counts is not None and self._cipher is not None:
                 return {"available": True, "apps": dict(self._counts[0]), "domains": dict(self._counts[1])}
@@ -388,6 +443,7 @@ class LocalStorage:
             return {"available": True, "apps": dict(counts[0]), "domains": dict(counts[1])}
 
     def history_info(self) -> dict:
+        """Read ciphertext counts/bytes and unlock status without decrypting."""
         with self._lock:
             count = size = 0
             if self.path.exists():
@@ -396,6 +452,11 @@ class LocalStorage:
             return {"count": count, "bytes": size, "available": self._cipher is not None, "error": self._error}
 
     def record_acceptance(self, app_id: str, text: str, *, completion: bool = True, now: datetime | None = None) -> None:
+        """Increment plaintext daily app counters without persisting accepted text.
+
+        ``completion=False`` still counts words and characters. Dates follow
+        ``now`` when supplied, otherwise the current local timezone.
+        """
         if not text:
             return
         day = (now or datetime.now().astimezone()).date().isoformat()
@@ -405,7 +466,12 @@ class LocalStorage:
                 (day, app_id[:512], int(completion), len(re.findall(r"[^\W_]+(?:[’'-][^\W_]+)*", text, re.UNICODE)), len(text)))
 
     def stats(self, period: str = "week", group_by: str = "day", *, now: datetime | None = None) -> dict:
-        """Totals, grouped rows, and averages over active days (days with any acceptance)."""
+        """Return bounded-period totals, grouped rows, and active-day averages.
+
+        Week/month/year mean rolling 7/30/365-day windows, including today.
+        Estimated seconds use five characters per second, not measured latency.
+        Invalid period or grouping values raise ValueError.
+        """
         period = "today" if period == "day" else period
         if period not in {"today", "week", "month", "year", "all"}:
             raise ValueError("Statistics period must be today, week, month, year, or all.")

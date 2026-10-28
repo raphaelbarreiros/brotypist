@@ -1,3 +1,5 @@
+"""Constrain generation invalidation and suffix preservation during streamed edits."""
+
 from dataclasses import replace
 
 import pytest
@@ -6,6 +8,7 @@ from inklow.core import Snapshot, SuggestionState
 
 
 def suggested_state():
+    """Offer Unicode text before a sentinel suffix to expose accidental overwrites."""
     snapshot = Snapshot("writer", "body", "Olá 🖋|existing suffix", 5)
     state = SuggestionState()
     assert state.offer(state.generation, snapshot, " café amanhã")

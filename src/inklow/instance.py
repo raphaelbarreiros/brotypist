@@ -11,6 +11,12 @@ from .config import config_path
 
 @contextmanager
 def instance_lock():
+    """Yield whether this profile's nonblocking process lock was acquired.
+
+    A False result is normal contention: callers must not start another key
+    interceptor. The descriptor remains owned for the context's lifetime;
+    unexpected filesystem or locking errors propagate.
+    """
     folder = config_path().parent
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     descriptor = os.open(folder / "instance.lock", os.O_RDWR | os.O_CREAT, 0o600)
@@ -36,6 +42,7 @@ def instance_lock():
                 if error.errno not in (errno.EACCES, errno.EAGAIN):
                     raise
         yield acquired
+        # Keep the lock file in place so later launches lock the same inode.
     finally:
         if acquired:
             if sys.platform == "win32":

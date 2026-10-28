@@ -112,6 +112,12 @@ def provider_identity(config) -> tuple:
 
 @dataclass
 class Config:
+    """Mutable preferences; call ``validate`` before applying or persisting.
+
+    ``enabled`` is the default per-app policy; ``global_enabled`` is the
+    independent master switch. Optional context and writing history are opt-in.
+    """
+
     backend: str = "gguf"
     model_path: str = ""
     endpoint: str = "http://127.0.0.1:11434"
@@ -171,6 +177,12 @@ class Config:
     app_rules: dict[str, dict] = field(default_factory=dict)
 
     def validate(self) -> None:
+        """Validate values and normalize collections in place.
+
+        Shortcut defaults, exclusion tuples and canonical domain-rule keys are
+        written back to this instance. A ValueError may leave earlier fields
+        normalized; callers must not apply the instance after a failed check.
+        """
         enums = {
             "backend": {"gguf", "ollama", "openai"}, "acceleration": {"auto", "cpu"},
             "prompt_style": {"continuation", "writing"},
@@ -251,7 +263,12 @@ class Config:
 
 
 def local_endpoint(endpoint: str) -> str:
-    """Literal loopback only: no DNS, proxies, auth or redirects."""
+    """Return a normalized HTTP(S) URL with a literal loopback address.
+
+    Raise ValueError for remote hosts, credentials, query/fragment or invalid
+    ports. This validates the URL only; transport code must enforce its own
+    proxy and redirect policy.
+    """
     parsed = urlsplit(endpoint)
     try:
         loopback = ipaddress.ip_address(parsed.hostname or "").is_loopback
@@ -266,6 +283,7 @@ def local_endpoint(endpoint: str) -> str:
 
 
 def config_path() -> Path:
+    """Locate settings under INKLOW_HOME or the platform's user config folder."""
     home = os.environ.get("INKLOW_HOME")
     return (Path(home).expanduser() if home else user_config_path("inklow", appauthor=False)) / "settings.json"
 
@@ -278,6 +296,12 @@ def reset_instructions(config: Config) -> Config:
 
 
 def load_config() -> Config:
+    """Read saved preferences, migrate known legacy fields and validate them.
+
+    Missing settings seed locale/model defaults without writing a file.
+    Unknown keys are discarded; malformed JSON, invalid values and filesystem
+    errors propagate rather than silently replacing saved preferences.
+    """
     path = config_path()
     if not path.exists():
         # Only a genuinely new install is seeded; saved preferences stay as-is.
@@ -309,6 +333,11 @@ def load_config() -> Config:
 
 
 def save_config(config: Config) -> None:
+    """Validate in place and atomically replace settings with a synced file.
+
+    The temporary file lives beside the destination so replacement stays on
+    one filesystem. Validation and filesystem errors propagate to the caller.
+    """
     config.validate()
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
