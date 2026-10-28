@@ -386,7 +386,9 @@ class CaretOverlay:
         if mode in ("completion", "correction"):
             identity = (str(event.get("text", "")), mode, tuple(rect), repr(event.get("render")),
                         event.get("inline"), str(event.get("advance") or ""), repr(event.get("correction")))
-            if self._ghost_state is None or self._ghost_state[0] != identity:
+            if (self._ghost_state is None or self._ghost_state[0] != identity
+                    or not self._ghost_state[1] or not self.ghost.isVisible()
+                    or not self.ghost.isOnActiveSpace()):
                 self._ghost_state = (identity, self._present_ghost(event, mode))
             self._report(key, self._ghost_state[1], mode)
             if choices:
@@ -542,7 +544,7 @@ class CaretOverlay:
             self.ghost.setContentView_(surface)
             self.ghost.setFrame_display_(frame, True)
             self.ghost.orderFrontRegardless()
-            return visible
+            return visible if self.ghost.isVisible() and self.ghost.isOnActiveSpace() else ""
         except (TypeError, ValueError, KeyError, AttributeError):
             return self._hide_ghost()
 

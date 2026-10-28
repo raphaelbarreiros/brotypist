@@ -30,7 +30,9 @@ def overlay_with_recording_panels():
         orderOut_=lambda sender: observed.update(visible=False),
         setContentView_=lambda value: observed.update(surface=value),
         setFrame_display_=lambda frame, display: observed.update(frame=frame),
-        orderFrontRegardless=lambda: observed.update(visible=True))
+        orderFrontRegardless=lambda: observed.update(visible=True, on_active_space=True),
+        isVisible=lambda: observed.get("visible", False),
+        isOnActiveSpace=lambda: observed.get("on_active_space", True))
     overlay = appkit_overlay.CaretOverlay.__new__(appkit_overlay.CaretOverlay)
     overlay.ghost = panel
     overlay.chooser = SimpleNamespace(orderOut_=lambda sender: observed.update(chooser_hidden=True))
@@ -116,3 +118,46 @@ def test_return_from_docs_help_preserves_real_ghost_acknowledgment(screen):
     overlay.docs_help(None)  # A delayed metadata revocation must not clear the real ghost.
     assert observed["visible"]
     assert reports == [(("editor", "field"), " tomorrow", "completion")]
+
+
+def test_identical_completion_reappears_after_native_window_is_hidden(screen):
+    overlay, observed, reports = overlay_with_recording_panels()
+    _, _, event = ghost_event()
+    overlay.present(event)
+    overlay.ghost.orderOut_(None)  # Native hiding does not change the suggestion.
+    overlay.present(event)
+    assert observed["visible"]
+    assert reports[-1] == (event["key"], " tomorrow", "completion")
+
+
+def test_identical_completion_returns_to_the_active_space(screen):
+    overlay, observed, reports = overlay_with_recording_panels()
+    _, _, event = ghost_event()
+    overlay.present(event)
+    observed["on_active_space"] = False
+    overlay.present(event)
+    assert observed["on_active_space"]
+    assert reports[-1] == (event["key"], " tomorrow", "completion")
+
+
+def test_unchanged_completion_recovers_after_font_resolution_becomes_available(screen, monkeypatch):
+    overlay, observed, reports = overlay_with_recording_panels()
+    font, _, event = ghost_event()
+    fonts = iter((None, font))
+    monkeypatch.setattr(appkit_overlay, "resolve_font", lambda render: next(fonts))
+    overlay.present(event)
+    assert not observed["visible"] and reports[-1][1] == ""
+    overlay.present(event)
+    assert observed["visible"]
+    assert reports[-1] == (event["key"], " tomorrow", "completion")
+
+
+def test_hidden_completion_is_not_acknowledged_when_native_ordering_cannot_show_it(screen, monkeypatch):
+    overlay, observed, reports = overlay_with_recording_panels()
+    _, _, event = ghost_event()
+    overlay.present(event)
+    overlay.ghost.orderOut_(None)
+    monkeypatch.setattr(overlay.ghost, "orderFrontRegardless", lambda: None)
+    overlay.present(event)
+    assert not observed["visible"]
+    assert reports[-1] == (event["key"], "", "completion")
