@@ -3,7 +3,8 @@
   "version": "0.4.9",
   "platform": "macos-arm64",
   "runtime_source_commit": "273fb600f76123f8f8a5a25c5a5970a8007d282d",
-  "status": "signed real WhatsApp isolated-profile compositor proof and normal installation passed; normal-profile visible prediction remains unverified, further desktop checks refused protected loginwindow foreground",
+  "status": "historical first 0.4.9 checkpoint; original normal-profile miss retained below, superseded by the corrected-runtime normal-profile verification",
+  "superseded_by": "overlay-visibility-0.4.9.json",
   "artifacts": [
     {
       "name": "BroTypist-0.4.9-macos-arm64.dmg",

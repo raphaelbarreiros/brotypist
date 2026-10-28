@@ -1,0 +1,145 @@
+{
+  "schema": 1,
+  "kind": "verification receipt, not an OTA update manifest",
+  "version": "0.4.9",
+  "platform": "macos-arm64",
+  "runtime_source_commit": "d26b75e31efbceb016febf4da5cafbc1ce8f39c4",
+  "previous_runtime_source_commit": "273fb600f76123f8f8a5a25c5a5970a8007d282d",
+  "status": "corrected signed runtime installed; actual normal-profile WhatsApp inline pixels and actual menu Quit verified",
+  "executable": {
+    "name": "BroTypist",
+    "sha256": "e0cb1cd27bb1553a6f5043a610a283d1aed9636e4b7a4153d885570360ce84c4"
+  },
+  "artifacts": [
+    {
+      "name": "BroTypist-0.4.9-macos-arm64.dmg",
+      "bytes": 54360651,
+      "sha256": "f2cb7031e1fb4f9b8faaa7785e00b532aa96a717061e1ec11bf3b333aea0966c"
+    },
+    {
+      "name": "BroTypist-0.4.9-macos-arm64.zip",
+      "bytes": 50777511,
+      "sha256": "83a57e6953c0a1ceef73f7780814251cc3f960461ac6a28a9cfc9e978f3b03bb"
+    }
+  ],
+  "signing": {
+    "strict_deep_verification": "passed",
+    "signer_class": "Apple Development",
+    "pinned_leaf_identity_sha1": "1AF11A65BB6EF906798D4D1B4B140C4F568D8DEB",
+    "existing_bundle_id_team_and_authorities_retained": true,
+    "developer_id_distribution": "not claimed",
+    "notarization": "not claimed",
+    "quarantine_stripped": false
+  },
+  "source_regressions": {
+    "passed": 1334,
+    "skipped": 22,
+    "new_cases": 4,
+    "all_new_cases_observed_red_before_their_respective_fixes": true,
+    "cases": [
+      "identical event after native hiding",
+      "identical event after leaving active Space",
+      "temporary font resolution recovers",
+      "native ordering refusal must not acknowledge invisible text"
+    ]
+  },
+  "actual_native_panel_reproduction": {
+    "test_surface": "real isolated nonactivating AppKit panel, real fonts and renderer; synthetic writing only",
+    "before": {
+      "initially_visible": true,
+      "externally_hidden": true,
+      "visible_after_identical_valid_event": false,
+      "invisible_text_acknowledged": true
+    },
+    "after": {
+      "initially_visible": true,
+      "externally_hidden": true,
+      "visible_after_identical_valid_event": true,
+      "invisible_text_acknowledged": false
+    },
+    "foreground_unchanged": true,
+    "input_events": false,
+    "user_app_windows_modified": false,
+    "actual_physical_sleep_wake_trial": false,
+    "exact_trigger_of_prior_long_lived_offscreen_session": "not established; normal relaunch recovered it, cache failure mechanism reproduced independently"
+  },
+  "signed_candidate_before_cutover": {
+    "real_native_model_and_compositor_pass": true,
+    "exact_executable_hash_bound": true,
+    "known_prefix_characters_including_space": 6,
+    "stable_changed_grey_pixels_right_of_caret": 382,
+    "fresh_process_launch_to_completed_visual_proof_seconds": 9.582538582995767,
+    "timing_is_keystroke_latency": false,
+    "os_filesystem_metal_caches_cleared": false,
+    "candidate_exited_normally": true,
+    "candidate_exit_code": 0,
+    "remaining_observed_worker_pids": [],
+    "draft_caret_selection_unchanged": true,
+    "original_foreground_restored": true,
+    "private_profile_removed": true
+  },
+  "normal_profile": {
+    "actual_canonical_installed_executable": true,
+    "exact_executable_sha256_verified": true,
+    "source_commit": "d26b75e31efbceb016febf4da5cafbc1ce8f39c4",
+    "model": "existing cached Gemma 4 E2B it Q4_0",
+    "prefix": "Então ",
+    "visible_example": "preciso confirmar se o",
+    "prefix_words": 1,
+    "grey_same_line_not_popup": true,
+    "host_only_control_and_two_included_overlay_frames": true,
+    "composer_source_rect_applied_before_image_delivery": true,
+    "full_window_or_desktop_image_delivered": false,
+    "chat_tree_read_by_observer": false,
+    "normal_context_recording_personalization_options_changed": false,
+    "typing_acceptance_sending_or_draft_edits": false,
+    "draft_caret_selection_unchanged_after_captures": true,
+    "settings_byte_identical": true,
+    "original_foreground_restored": true,
+    "stable_focus_to_first_owned_onscreen_ghost_metadata_ms": 934.2940420028754,
+    "timing_sample_count": 1,
+    "timing_is_physical_key_or_pixel_latency": false,
+    "image": "whatsapp-normal-inline-0.4.9.png"
+  },
+  "quit_and_relaunch": {
+    "actual_menu_item": "Quit BroTypist",
+    "semantic_accessibility_press_error_code": 0,
+    "actual_menu_quit_exited": true,
+    "canonical_gui_relaunched_in_background": true,
+    "settings_byte_identical": true,
+    "forced_termination": false,
+    "hid_typing_or_messenger_action": false
+  },
+  "installation": {
+    "kind": "local atomic manual cutover, not an OTA acknowledgment",
+    "canonical_app": "/Applications/BroTypist.app",
+    "unversioned_app_name": true,
+    "signed_candidate_verified_before_cutover": true,
+    "canonical_gui_finished_launching": true,
+    "all_original_profile_files_present": true,
+    "profile_files_byte_identical_across_cutover_and_after_native_launch": true,
+    "cached_model_device_inode_size_mtime_unchanged": true,
+    "complete_old_bundle_and_profile_rollback_retained_privately": true,
+    "new_model_download_or_permission_grant": false
+  },
+  "headless_dmg_smoke": {
+    "read_only_mount": "passed",
+    "drag_install_layout": "passed",
+    "copy_pinned_signature_source_version_and_executable": "passed",
+    "actual_copied_cli": "BroTypist 0.4.9",
+    "outside_sentinel_bytes_preserved_after_removal": true,
+    "detached": true,
+    "gui": "deliberately not exercised; separate signed-candidate and canonical GUI proof above",
+    "normal_profile_touched": false
+  },
+  "unchanged_feature_evidence": "inline-power-0.4.9.json retains the source-scoped bilingual/power/UI observations; this correction changes only native ghost visibility and its regressions",
+  "limits": [
+    "One-word normal-profile proof is not universal input support or a physical-key latency percentile.",
+    "Cold startup still costs seconds; the fresh-process capture timing includes launch/preparation/compositor overhead.",
+    "No physical-key acceptance, human-calibrated grammar score, active-original RAM comparison or complete [redacted reference] parity is claimed.",
+    "Model abstention, unreliable explicit language overrides and unsupported suggested specifics remain possible.",
+    "Physical discharge to 20% and a complete device sleep/wake cycle were not exercised.",
+    "No global menu-hider, security policy, learning consent, Linux/Windows build, push, tag, GitHub publication or public OTA manifest change."
+  ],
+  "repository_history_redaction": "Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations."
+}
