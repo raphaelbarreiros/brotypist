@@ -16,11 +16,15 @@
 
 ### Packaged resource follow-up
 
-Actual signed-candidate verification exposed a startup defect absent from the source-only layout: the tray artwork existed, but PyInstaller relocated the asset directory from `Contents/Frameworks/inklow/assets` to `Contents/Resources/inklow/assets` through a directory symlink. The lookup resolved each image but not its containment root, rejecting legitimate bundled images before menu-bar status-item creation. This was not an authentication failure.
+Package-path inspection found that the old lookup rejected a valid asset-root directory symlink when the module was rooted in `Contents/Frameworks`: each image was resolved into `Contents/Resources/inklow/assets`, but the containment root was not. A real-filesystem regression demonstrates that path-handling defect. It was **not established as the cause of the missing-menu observation**. On this Mac, MenuBarAgent exposes the native status button with the original BroTypist PID; the first observer incorrectly assumed it would be under the application's `AXExtrasMenuBar`. No Thaw or native menu-bar visibility setting was changed.
 
 Resolve the asset root before checking the requested path against it. A new real-filesystem macOS-layout positive failed against the previous implementation; the corrected integrated suite passed **1,396 / 22 skipped** in **23.09 seconds**, including rejection of parent traversal, an absolute outside path, a per-file outside symlink and a missing image. The initial remediation receipt above remains scoped to its earlier 1,391-test source snapshot; it is not silently rebound to these later runtime bytes.
 
-Source and headless checks do not prove native menu health. The corrected signed candidate still requires its own actual status-item/Quit verification before canonical installation; record that source/executable/signature and data-preservation proof separately. No normal installation or security-policy change follows from the source tests alone.
+Actual signed-candidate menu discovery now verifies each hosted element's owning PID and uses the actual candidate-owned popup window for semantic hit-testing. Native actions exposed a separate deferred-Quit stall: a native stack sample showed `NSApplication.terminate` waiting inside the initiating GUI timer. [Apple documents that `NSTerminateLater` waits in `NSModalPanelRunLoopMode`](https://developer.apple.com/documentation/appkit/nsapplication/terminate(_:)); cleanup cannot depend on that same timer re-entering. An independent modal-mode selector now drives the existing cleanup/retry/cancellation state machine. Three real modal-run-loop regression cases failed before the change; the corrected focused native menu/termination slice passed **38 tests**, including pending cleanup and refusing draft discard.
+
+The integrated source including both follow-ups passed **1,399 / 22 skipped** in **24.55 seconds**, with per-case JUnit timing. The source changes do not change local-learning consent, selected models, ordinary same-line rendering, native permission grants or remote publication policy.
+
+Source and headless checks do not replace a fresh signed-app lifecycle check. Candidate and canonical status-menu/Quit outcomes, exact runtime provenance and data-preservation proof remain separately recorded. No normal installation, security-policy change or abrupt test-process cleanup is counted as a native Quit pass.
 
 
 

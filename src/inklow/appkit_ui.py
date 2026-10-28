@@ -3127,11 +3127,24 @@ class BroTypistApplication(NSObject):
     def applicationShouldTerminate_(self, app):
         if self.shutdown_complete:
             return A.NSTerminateNow
-        # Always defer: a menu may still own tracking, and cleanup may need
-        # several bounded cancellation attempts on the existing main-loop timer.
+        # AppKit waits in NSModalPanelRunLoopMode for NSTerminateLater. Quit
+        # can originate inside tick:, so that timer cannot drive its own wait.
         self.termination_requested = True
         self.termination_waiting = True
+        self.performSelector_withObject_afterDelay_inModes_(
+            "continueTermination:", None, 0,
+            [A.NSModalPanelRunLoopMode, NSRunLoopCommonModes])
         return A.NSTerminateLater
+
+    def continueTermination_(self, sender):
+        if not self.termination_requested or not self.termination_waiting or self.shutdown_complete:
+            return
+        if not self.tracking_menus:
+            self._advance_shutdown()
+        if self.termination_requested and self.termination_waiting and not self.shutdown_complete:
+            self.performSelector_withObject_afterDelay_inModes_(
+                "continueTermination:", None, max(0.01, self.shutdown_next_retry - time.monotonic()),
+                [A.NSModalPanelRunLoopMode, NSRunLoopCommonModes])
 
     @objc.python_method
     def _cancel_termination(self):
