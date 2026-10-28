@@ -104,6 +104,23 @@ def test_power_card_renders_truthful_native_title_and_accessibility(power_ui, sa
         assert "%" not in result.compact
 
 
+@pytest.mark.parametrize("sample", [
+    reading(percent=100),
+    reading(charging=True, percent=54),
+    reading(on_battery=True, percent=19),
+    reading(available=False, has_battery=False, charging=None, percent=None),
+])
+def test_power_updates_keep_the_resident_button_icon_only(power_ui, sample):
+    button = A.NSButton.buttonWithTitle_target_action_("100%", None, None)
+    image = A.NSImage.imageWithSystemSymbolName_accessibilityDescription_("sparkles", "BroTypist")
+    button.setImage_(image)
+    power_ui.status_item = SimpleNamespace(button=lambda: button, isVisible=lambda: False)
+    power_ui.present(sample, allow_help=False)
+    assert button.title() == ""
+    assert button.imagePosition() == A.NSImageOnly
+    assert button.image() == image
+
+
 @pytest.mark.parametrize("percent,state,symbol", [
     (19, "low", "battery.25percent"),
     (20, "low", "battery.25percent"),

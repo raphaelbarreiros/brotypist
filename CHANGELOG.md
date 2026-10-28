@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.4.12 — Icon-only menu bar
+
+- Remove battery percentages and power-state text from the macOS menu-bar item. Keep the BroTypist icon, compact menu, charging cue, Battery settings and accessible power details.
+- Preserve user settings, selected models, native prediction behavior and clean Quit. The 0.4.11 tag remains unchanged; that release was not published.
+
 ## 0.4.11 — Unreleased, compact native menu
 
 - Replace the macOS dashboard-style resident menu with six native action groups: global predictions, Pause, current-app predictions, Settings, Updates and Quit. Move model, power, recording and statistics detail out of the menu; existing Settings destinations remain available.

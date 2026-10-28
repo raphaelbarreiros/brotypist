@@ -216,8 +216,8 @@ class NativePowerUI(NSObject):
                 self._render_card(name)
         if self.status_item:
             button = self.status_item.button()
-            button.setTitle_(self.presentation.compact)
-            button.setImagePosition_(A.NSImageLeft)
+            button.setTitle_("")
+            button.setImagePosition_(A.NSImageOnly)
         if previous != self.presentation and self.presentation.state == "charging" and previous.state != "charging":
             if self.status_item and self.status_item.isVisible():
                 self._charge_motion(self.status_item.button())
