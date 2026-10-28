@@ -3,7 +3,7 @@
   "version": "0.4.9",
   "platform": "macos-arm64",
   "runtime_source_commit": "273fb600f76123f8f8a5a25c5a5970a8007d282d",
-  "status": "signed local candidate with source, frozen inference and headless installer proof; normal installation and live WhatsApp overlay verification blocked by locked console",
+  "status": "signed real WhatsApp isolated-profile compositor proof and normal installation passed; normal-profile visible prediction remains unverified, further desktop checks refused protected loginwindow foreground",
   "artifacts": [
     {
       "name": "BroTypist-0.4.9-macos-arm64.dmg",
@@ -40,8 +40,53 @@
     "draft_caret_selection_unchanged": true,
     "previous_foreground_restored": true,
     "full_chat_tree_read": false,
-    "live_prediction_pixels": "not verified",
+    "live_prediction_pixels": "passed for exact signed executable with optional context/history disabled in an isolated profile; production privacy and input-safety guards retained; normal-profile visible output not verified",
     "physical_typing_acceptance_or_sending": "not exercised"
+  },
+  "signed_whatsapp_compositor": {
+    "success": true,
+    "prefix_characters_including_space": 6,
+    "prefix_words": 1,
+    "actual_gemma_worker_observed": true,
+    "grey_same_line_not_popup": true,
+    "exact_host_and_owned_ghost_window_ids": true,
+    "composer_source_rect_applied_before_image_delivery": true,
+    "full_chat_tree_read": false,
+    "whole_window_or_desktop_image_delivered": false,
+    "host_only_control_and_two_composited_frames": true,
+    "stable_changed_grey_pixels_right_of_caret": 2377,
+    "fresh_process_launch_to_completed_visual_proof_seconds": 3.4989218749979045,
+    "timing_is_keystroke_latency": false,
+    "draft_caret_selection_unchanged": true,
+    "candidate_and_worker_exited_normally": true,
+    "original_foreground_restored": true,
+    "image": "whatsapp-short-inline-0.4.9.png"
+  },
+  "normal_profile_whatsapp": {
+    "visible_ghost_gate": "not passed",
+    "first_existing_draft_focus_observation_seconds": 12,
+    "separate_own_menu_status_observations": [
+      "Generating a local suggestion…",
+      "Ready."
+    ],
+    "menu_status_is_visible_prediction_proof": false,
+    "enabled_native_status_item": "inklow.statusItem",
+    "enabled_quit_menu_item": "Quit BroTypist",
+    "saved_prediction_gates_enabled": true,
+    "saved_min_chars": 1,
+    "saved_resident_timeout_seconds": 0,
+    "normal_app_hidden": false,
+    "context_recording_personalization_consent_changed": false,
+    "automated_typing_acceptance_sending_or_draft_changes": false,
+    "full_chat_tree_read_by_observer": false,
+    "later_foreground_refusal": "com.apple.loginwindow",
+    "later_session_flags": {
+      "on_console": true,
+      "login_done": true,
+      "locked": false
+    },
+    "loginwindow_activated_or_unlocked_by_observer": false,
+    "cause": "unresolved; not attributed to permissions, context or model abstention without evidence"
   },
   "source_native_ui": {
     "exact_owned_window_compositor_images": 7,
@@ -141,20 +186,27 @@
     "copy_signature_source_version": "passed",
     "copied_cli_version": "passed",
     "external_data_preservation_and_detach": "passed",
-    "gui": "skipped: current-user Aqua console locked"
+    "gui": "earlier DMG GUI check skipped locked console; exact separately verified bundle was later installed and its canonical native status item observed"
   },
   "preservation": {
-    "normal_installation_performed": false,
+    "normal_installation_performed": true,
     "normal_profile_edited": false,
     "normal_app_force_killed": false,
     "normal_settings_hash_unchanged_after_foreground_attempt": true,
-    "observed_installed_version": "0.4.8",
-    "observed_installed_source": "853bea377ff51cd5838e9a87b6ff5844fd0f0a93",
+    "observed_installed_version": "0.4.9",
+    "observed_installed_source": "273fb600f76123f8f8a5a25c5a5970a8007d282d",
+    "atomic_same_signer_manual_cutover": true,
+    "canonical_gui_finished_launching": true,
+    "profile_files_byte_identical_across_cutover_and_after_native_launch": true,
+    "all_original_profile_files_present": true,
+    "cached_model_inode_size_mtime_unchanged": true,
+    "old_bundle_and_complete_profile_rollback_retained_privately": true,
+    "cryptographic_ota_acknowledgment": "not claimed",
     "new_learning_consent_or_security_policy_change": false
   },
   "limits": [
-    "Live WhatsApp compositor, physical-key and acceptance behavior remain unverified.",
-    "The final normal-installation GUI acknowledgment requires an unlocked console.",
+    "The signed isolated profile proved real grey WhatsApp pixels after one word; the normal-profile visible-prediction discrepancy remains unresolved.",
+    "Further live inspection requires the interactive desktop rather than protected loginwindow foreground; physical typing/acceptance and warm keystroke latency remain unverified.",
     "No Linux/Windows build, push, tag, GitHub release or public OTA manifest was produced.",
     "No [redacted reference] parity, memory superiority, universal input support, grammar guarantee or spoken TTS is claimed."
   ],

@@ -10,6 +10,7 @@
 - Add asynchronous shared power sampling, live menu/Battery percentages, distinct charging/plugged-in/unknown/no-battery states and a bounded charging cue. Honor Reduce Motion, contrast and session/visibility changes without putting hardware sampling on the typing path.
 - Ask for charging help once per known discharge at 20% or below, without taking keyboard focus or moving Spaces. Rearm only on verified external power; never prompt from missing/unknown capacity. Use native SDK session keys and recognize optimized-charge-hold reports where presence metadata directly follows “not charging.”
 - This is macOS work only. Preserve saved models, local-learning consent, privacy switches, history, shortcuts and resident-model settings; new Linux/Windows builds remain held.
+- Local signed 0.4.9 now has composer-only real WhatsApp pixel proof after one word and a same-identity installation with unchanged external data. Normal-profile visible prediction remains an open verification gate; no new public release or completed normal-typing/latency claim follows. See `evidence/VERIFICATION.md`.
 
 
 ## 0.4.8 — Unreleased, opt-in resident model
