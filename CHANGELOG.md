@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.4.11 — Unreleased, compact native menu
+
+- Replace the macOS dashboard-style resident menu with six native action groups: global predictions, Pause, current-app predictions, Settings, Updates and Quit. Move model, power, recording and statistics detail out of the menu; existing Settings destinations remain available.
+- Keep pause choices in a tracked submenu. Resume clears only the timed pause; a pause expiring while the menu is open cannot accidentally disable global predictions.
+- Capture the app/domain targeted by a menu action before deferred execution. Preserve field controls, keyboard shortcuts, updater intent, draft handling and clean shutdown.
+- This is a scoped macOS menu change. Linux development remains separate; no GitHub publication, Windows/Linux release or new prediction-quality claim.
+
 ## 0.4.10 — Unreleased, native visibility and learning QA remediation
 
 - Apply the native ghost visibility/active-Space contract to explicit chooser presentation and cache reuse. Hidden, refused or other-Space choices acknowledge no insertion; unchanged presentations can recover without arming unseen words. Ordinary completion remains grey same-line text, not a popup fallback.

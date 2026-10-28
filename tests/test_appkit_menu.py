@@ -33,10 +33,12 @@ def shell(monkeypatch):
     shell.resume_menu_shortcuts = False
     shell.bindings = {}
     shell.window = None
+    shell.menu = None
+    shell.status_item = None
+    shell.last_error = ""
     shell.welcome = None
     monkeypatch.setattr(shell, "_refresh_status", lambda: None)
     monkeypatch.setattr(shell, "_refresh_updates", lambda: None)
-    monkeypatch.setattr(shell, "_refresh_menu_stats", lambda: None)
     return shell, bridge, calls
 
 
@@ -149,40 +151,96 @@ def test_field_app_toggle_shows_disabled_state_and_requires_a_target(field_menu,
     assert item.state() == A.NSControlStateValueOff
     assert item.isEnabled() == bool(app)
 
-def test_unsupported_field_badge_does_not_claim_active_or_disable_predictions(field_menu, monkeypatch):
-    shell, _, _, status = field_menu
-    status.update(enabled=True, state="idle", inline_available=False,
-                  inline_message="Unsupported text control")
+@pytest.fixture
+def status_menu(field_menu, monkeypatch):
+    shell, bridge, calls, status = field_menu
+    status.update(enabled=True, state="idle", inline_available=True)
     shell.controller.config.backend = "ollama"
     shell.controls = {}
-    shell.status_item = None
     shell.last_status = None
-    shell.overlay = SimpleNamespace(configure=lambda *args: None)
+    shell.overlay = None
+    shell.power_ui = SimpleNamespace(dismiss_help=lambda: None)
+    monkeypatch.setattr(shell, "_refresh_power_status", lambda: None)
     monkeypatch.setattr(shell, "_permission_state",
                         lambda: {"accessibility": True, "input_monitoring": True})
+    shell._build_status_menu()
+    monkeypatch.setattr(shell, "_refresh_status",
+                        lambda: appkit_ui.BroTypistApplication._refresh_status(shell))
+    return shell, bridge, calls, status
 
-    class Control:
-        text = ""
 
-        def setStringValue_(self, value):
-            self.text = value
-
-        def tag(self):
-            return 0
-
-        def __getattr__(self, name):
-            if name.startswith("set"):
-                return lambda value: None
-            raise AttributeError(name)
-
-    for name in ("status_line", "pause_item", "resume_item", "hour_item", "tomorrow_item",
-                 "attention_item", "secure_item", "download_item", "menu_badge", "menu_model",
-                 "menu_backend", "menu_subtitle", "current_item", "record_item", "tab_item"):
-        setattr(shell, name, Control())
-    appkit_ui.BroTypistApplication._refresh_status(shell)
-    assert "Active" not in shell.menu_badge.text
-    assert shell.menu_subtitle.text
+def test_unsupported_field_reports_reason_without_disabling_predictions(status_menu):
+    shell, _, _, status = status_menu
+    status.update(inline_available=False, inline_message="Unsupported text control")
+    shell._refresh_status()
+    assert shell.last_status["message"] == status["inline_message"]
+    assert shell.last_status["enabled"]
     assert shell.controller.config.global_enabled
+
+
+@pytest.mark.parametrize("app, allowed", [("fixture.writer", False), ("", True)])
+def test_status_app_toggle_shows_disabled_state_and_requires_a_target(status_menu, app, allowed):
+    shell, _, _, status = status_menu
+    status.update(current_app=app, current_app_enabled=allowed)
+    shell._refresh_status()
+    assert shell.current_item.state() == A.NSControlStateValueOff
+    assert shell.current_item.isEnabled() == bool(app)
+
+
+def test_status_toggle_keeps_original_app_until_tracking_ends(status_menu):
+    shell, bridge, calls, status = status_menu
+    shell.menuWillOpen_(shell.menu)
+    assert shell.current_item.state() == A.NSControlStateValueOn
+    status.update(current_app="another.writer", current_domain="another.example")
+    shell.perform_(shell.current_item)
+    shell.tick_(None)
+    assert calls == [] and not bridge._enabled
+    shell.menuDidClose_(shell.menu)
+    shell.tick_(None)
+    assert calls == [("app_toggle", {"app": "fixture.writer", "domain": "writing.example"}), "capture"]
+    assert bridge._enabled
+
+
+def test_pause_submenu_defers_action_until_all_tracking_ends(status_menu):
+    shell, bridge, calls, _ = status_menu
+    shell.menuWillOpen_(shell.menu)
+    shell.menuWillOpen_(shell.pause_menu)
+    shell.perform_(shell.hour_item)
+    shell.menuDidClose_(shell.pause_menu)
+    shell.tick_(None)
+    assert calls == [] and not bridge._enabled
+    shell.menuDidClose_(shell.menu)
+    shell.tick_(None)
+    assert calls == [("pause", 60), "capture"]
+    assert bridge._enabled
+
+
+def test_resume_expiring_while_menu_tracks_never_disables_predictions(status_menu):
+    shell, _, calls, status = status_menu
+    status["paused_until"] = appkit_ui.time.monotonic() + 60
+    shell.menuWillOpen_(shell.menu)
+    assert not shell.resume_item.isHidden()
+    status["paused_until"] = 0
+    shell.perform_(shell.resume_item)
+    shell.menuDidClose_(shell.menu)
+    shell.tick_(None)
+    assert calls == [("pause", 0), "capture"]
+    assert shell.controller.config.global_enabled
+    shell._refresh_status()
+    assert shell.resume_item.isHidden()
+
+
+def test_master_toggle_can_disable_predictions_during_timed_pause(status_menu):
+    shell, _, _, status = status_menu
+    status["paused_until"] = appkit_ui.time.monotonic() + 60
+    shell.menuWillOpen_(shell.menu)
+    assert shell.enabled_item.state() == A.NSControlStateValueOn
+    shell.perform_(shell.enabled_item)
+    shell.menuDidClose_(shell.menu)
+    shell.tick_(None)
+    assert not shell.controller.config.global_enabled
+    shell._refresh_status()
+    assert shell.enabled_item.state() == A.NSControlStateValueOff
 
 
 

@@ -84,7 +84,7 @@ Versions through 0.4.3 have no updater: **one manual installation of an OTA-capa
 
 Welcome covers privacy, system access, explicit model selection, a real local prediction preview and the resident menu. Reopen it from **About → Show Welcome**. macOS settings contain:
 
-The layout below describes the **unreleased macOS 0.4.10 development version**, including the 0.4.6 native redesign. Published 0.4.5 keeps model controls in General; no 0.4.6–0.4.10 Linux or Windows package has been published.
+The layout below describes the **unreleased macOS 0.4.11 development version**, including the 0.4.6 native redesign. Published 0.4.5 keeps model controls in General; no 0.4.6–0.4.11 Linux or Windows package has been published.
 
 - **Setup:** live required/optional permission and model-readiness states.
 - **General:** startup, accessory icon, master/default prediction switches, completion length, inside-text behavior and typo controls.
@@ -105,7 +105,9 @@ Automatic completion is eligible after one non-whitespace character by default, 
 
 Writing prompts follow the clause at the cursor rather than forcing the dominant language of the whole message. Brazilian Portuguese and English can coexist without translating existing text or introducing gratuitous slang. The original typed ending remains exact, untrusted task data while token healing restores its native token boundary. Explicit language preferences are model guidance, not a guaranteed language switch; short ambiguous prefixes can remain uncertain, and a model can return no useful suggestion.
 
-The native resident menu and Battery pane show verified power readings sampled off the UI thread at most once per 15 seconds. A brief charging cue animates the resident icon and visible power card; Reduce Motion or increased contrast keeps the charging indicator static. Reduced pane-arrival fades remain short, and hiding the surface, locking/switching sessions or quitting stops motion. At a known discharging level of **20% or below**, BroTypist asks for charging help once per discharge cycle in a nonactivating menu-bar-anchored hint; dismissing it or battery-level fluctuations do not repeat it. Reconnecting to verified external power rearms the next cycle. Unknown/no-battery readings never invent a percentage or a low-battery request.
+The menu bar stays compact: **Enable predictions**, a **Pause** submenu, the current app's prediction switch, **Settings…**, **Check for Updates…** and **Quit BroTypist**. Model details, diagnostics, recording controls, statistics and battery information live in Settings instead of menu cards. The global and current-app checkmarks describe their saved preferences; Resume clears the timed pause without changing the global switch.
+
+The Battery pane and resident-icon tooltip show verified power readings sampled off the UI thread at most once per 15 seconds. A brief charging cue animates the resident icon and visible Settings power card; Reduce Motion or increased contrast keeps the charging indicator static. Reduced pane-arrival fades remain short, and hiding the surface, locking/switching sessions or quitting stops motion. At a known discharging level of **20% or below**, BroTypist asks for charging help once per discharge cycle in a nonactivating menu-bar-anchored hint; dismissing it or opening the menu hides that hint. Battery-level fluctuations do not repeat it. Reconnecting to verified external power rearms the next cycle. Unknown/no-battery readings never invent a percentage or a low-battery request.
 
 | Action | Existing default |
 | --- | --- |

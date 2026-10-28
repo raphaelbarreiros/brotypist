@@ -776,10 +776,9 @@ class BroTypistApplication(NSObject):
         item.setIdentifier_(identifier)
         action = identifier.rsplit(".", 1)[-1]
         symbol = {
-            "toggle": "sparkles", "resume": "play", "60": "pause", "tomorrow": "moon",
-            "force": "wand.and.stars", "settings": "slider.horizontal.3", "quit": "power",
-            "checkUpdates": "arrow.triangle.2.circlepath", "stats": "chart.bar",
-            "battery": "battery.75percent", "dismissPowerHelp": "xmark.circle",
+            "resume": "play", "60": "pause", "tomorrow": "moon",
+            "settings": "slider.horizontal.3", "quit": "power",
+            "checkUpdates": "arrow.triangle.2.circlepath",
         }.get(action)
         if symbol:
             item.setImage_(A.NSImage.imageWithSystemSymbolName_accessibilityDescription_(symbol, title))
@@ -821,54 +820,22 @@ class BroTypistApplication(NSObject):
         self.menu = A.NSMenu.alloc().initWithTitle_(APP_NAME)
         self.menu.setAutoenablesItems_(False)
         self.menu.setDelegate_(self)
-        header = A.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(APP_NAME, None, "")
-        panel = FlippedView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 300, 205))
-        panel.setAccessibilityLabel_(f"{APP_NAME} status and local model")
-        icon = A.NSImageView.alloc().initWithFrame_(A.NSMakeRect(14, 12, 28, 28))
-        icon.setImage_(A.NSImage.alloc().initWithContentsOfFile_(str(asset_path("app.icns"))))
-        panel.addSubview_(icon)
-        panel.addSubview_(_label(APP_NAME, A.NSMakeRect(52, 10, 160, 20), bold=True))
-        self.menu_badge = _label("", A.NSMakeRect(180, 12, 110, 20), small=True)
-        self.menu_subtitle = _label("", A.NSMakeRect(52, 33, 234, 31), small=True)
-        model_card = A.NSBox.alloc().initWithFrame_(A.NSMakeRect(8, 70, 284, 76))
-        model_card.setBoxType_(A.NSBoxCustom)
-        model_card.setCornerRadius_(8)
-        model_card.setBorderWidth_(2 if A.NSWorkspace.sharedWorkspace().accessibilityDisplayShouldIncreaseContrast() else 1)
-        model_card.setBorderColor_(A.NSColor.separatorColor())
-        model_card.setFillColor_(A.NSColor.controlBackgroundColor())
-        panel.addSubview_(model_card)
-        self.menu_model = _label("", A.NSMakeRect(18, 78, 264, 36))
-        self.menu_model.setFont_(A.NSFont.monospacedSystemFontOfSize_weight_(12, A.NSFontWeightMedium))
-        self.menu_backend = _label("", A.NSMakeRect(18, 116, 264, 25), small=True)
-        for label in (self.menu_badge, self.menu_subtitle, self.menu_model, self.menu_backend):
-            panel.addSubview_(label)
-        power_card = self.power_ui.make_card("menu", compact=True)
-        power_card.setFrame_(A.NSMakeRect(8, 152, 284, 46))
-        panel.addSubview_(power_card)
-        header.setView_(panel)
-        self.menu.addItem_(header)
-        self.status_line = self._menu_item(self.menu, APP_NAME, "inklow.menu.status")
-        self.status_line.setEnabled_(False)
-        self.secure_item = self._menu_item(self.menu, "Secure Input is on — shortcuts can’t be detected", "inklow.menu.secureInput", lambda: self.show_settings("shortcuts"))
-        self.secure_item.setToolTip_("Another app turned on macOS Secure Input (usually a password or terminal field). macOS hides typing from BroTypist until it ends.")
-        self.download_item = self._menu_item(self.menu, "Downloading model…", "inklow.menu.download", lambda: self.show_settings("models"))
-        self.attention_item = self._menu_item(self.menu, "Open Setup", "inklow.menu.attention", lambda: self.show_settings("setup"))
-        self.pause_item = self._menu_item(self.menu, "Predictions", "inklow.menu.toggle", self.controller.toggle_enabled)
-        self.resume_item = self._menu_item(self.menu, "Resume now", "inklow.menu.resume", self.controller.toggle_enabled)
-        self.hour_item = self._menu_item(self.menu, "Pause for 1 hour", "inklow.menu.pause.60", lambda: self.controller.pause(60))
-        self.tomorrow_item = self._menu_item(self.menu, "Pause until tomorrow", "inklow.menu.pause.tomorrow", self._pause_until_tomorrow)
+        self.enabled_item = self._menu_item(
+            self.menu, "Enable predictions", "inklow.menu.toggle",
+            lambda: self._change(global_enabled=not self.controller.config.global_enabled))
+        self.pause_item = self._menu_item(self.menu, "Pause", "inklow.menu.pause")
+        self.pause_menu = A.NSMenu.alloc().initWithTitle_("Pause")
+        self.pause_menu.setAutoenablesItems_(False)
+        self.pause_menu.setDelegate_(self)
+        self.pause_item.setSubmenu_(self.pause_menu)
+        self.hour_item = self._menu_item(self.pause_menu, "For 1 hour", "inklow.menu.pause.60", lambda: self.controller.pause(60))
+        self.tomorrow_item = self._menu_item(self.pause_menu, "Until tomorrow", "inklow.menu.pause.tomorrow", self._pause_until_tomorrow)
+        self.resume_item = self._menu_item(self.pause_menu, "Resume now", "inklow.menu.resume", lambda: self.controller.pause(0))
+        self.current_item = self._menu_item(self.menu, "Predictions in Current App", "inklow.menu.currentApp", self.controller.toggle_current_app)
         self.menu.addItem_(A.NSMenuItem.separatorItem())
-        self.current_item = self._menu_item(self.menu, "Turn off in Current App", "inklow.menu.currentApp", self.controller.toggle_current_app)
-        self.record_item = self._menu_item(self.menu, "Record Writing in Current App", "inklow.menu.record", lambda: self._toggle_scope_from_status("record_history"))
-        self.tab_item = self._menu_item(self.menu, "Accept with Tab in Current App", "inklow.menu.tab", lambda: self._toggle_scope_from_status("tab_enabled"))
-        self._menu_item(self.menu, "Suggest Now", "inklow.menu.force", self.controller.force)
-        self.menu.addItem_(A.NSMenuItem.separatorItem())
-        self.stats_line = self._menu_item(self.menu, "Today", "inklow.menu.stats", lambda: self.show_settings("statistics"))
-        self.power_item = self._menu_item(self.menu, "Battery…", "inklow.menu.battery", lambda: self.show_settings("battery"))
-        self.power_help_item = self._menu_item(self.menu, "Dismiss charging help", "inklow.menu.dismissPowerHelp", self.power_ui.dismiss_help)
-        self.power_help_item.setHidden_(True)
         self._menu_item(self.menu, "Settings…", "inklow.menu.settings", lambda: self.show_settings("general"), ",")
         self.update_item = self._menu_item(self.menu, "Check for Updates…", "inklow.menu.checkUpdates", self._check_updates)
+        self.menu.addItem_(A.NSMenuItem.separatorItem())
         self._menu_item(self.menu, f"Quit {APP_NAME}", "inklow.menu.quit", lambda: A.NSApplication.sharedApplication().terminate_(None), "q")
         self._build_field_menu()
         self.menu_binding_limit = self.next_tag
@@ -1013,8 +980,7 @@ class BroTypistApplication(NSObject):
 
     def menuWillOpen_(self, menu):
         if getattr(self, "power_ui", None):
-            self.power_ui.set_visibility(menu=menu == self.menu)
-            self.power_ui.hide_help_surface()
+            self.power_ui.dismiss_help()
         if not self.shutdown_started and not self.tracking_menus and not self.resume_menu_shortcuts:
             self.menu_shortcuts_were_enabled = bool(self.controller.bridge._enabled)
         self.tracking_menus.add(menu)
@@ -1023,16 +989,16 @@ class BroTypistApplication(NSObject):
         try:
             if menu == getattr(self, "field_menu", None):
                 self._refresh_field_menu()
-            else:
+            elif menu == self.menu:
                 self._refresh_status()
-                self._refresh_menu_stats()
         except Exception as exc:
-            self.status_line.setTitle_((str(exc)[:41] + "…") if len(str(exc)) > 42 else str(exc))
+            self.last_error = str(exc)
+            if self.status_item:
+                self.status_item.button().setToolTip_(f"{APP_NAME} — {self.last_error}")
+                self.status_item.button().setAccessibilityLabel_(f"{APP_NAME}, {self.last_error}")
 
     def menuDidClose_(self, menu):
         self.tracking_menus.discard(menu)
-        if getattr(self, "power_ui", None) and menu == self.menu:
-            self.power_ui.set_visibility(menu=False)
         if not self.tracking_menus and not self.shutdown_started:
             self.resume_menu_shortcuts = True
 
@@ -1126,14 +1092,9 @@ class BroTypistApplication(NSObject):
             message = str(exc)
             if message != self.last_error:
                 self.last_error = message
-                self.status_line.setTitle_((message[:41] + "…") if len(message) > 42 else message)
-                self.status_line.setToolTip_(message)
-
-    @objc.python_method
-    def _refresh_menu_stats(self):
-        stats = self.controller.stats("week", "day")
-        today = stats.get("today", {})
-        self.stats_line.setTitle_(f"Today: {int(today.get('completions', 0))} completions · {int(today.get('words', 0))} words")
+                if self.status_item:
+                    self.status_item.button().setToolTip_(f"{APP_NAME} — {message}")
+                    self.status_item.button().setAccessibilityLabel_(f"{APP_NAME}, {message}")
 
     @objc.python_method
     def _model_ready(self):
@@ -1160,8 +1121,6 @@ class BroTypistApplication(NSObject):
             if state != "permission" and not self._model_ready():
                 state, message = "empty", "No model installed — choose a model in AI Models"
         status = {**status, "state": state, "message": message}
-        self.status_line.setTitle_((message[:41] + "…") if len(message) > 42 else message)
-        self.status_line.setToolTip_(message)
         paused = float(status.get("paused_until", 0)) > time.monotonic()
         loading = state in {"loading", "starting", "warming"}
         needs_attention = state in {"error", "permission", "empty"}
@@ -1169,35 +1128,12 @@ class BroTypistApplication(NSObject):
         icon_state = "off" if needs_attention else ("loading" if loading and enabled else ("paused" if paused else ("active" if enabled else "off")))
         badge = "▲ Needs attention" if needs_attention else ("◌ Loading" if loading and enabled else (
             "■ Paused" if paused else ("Unavailable here" if unavailable else ("● Active" if enabled else "○ Off"))))
-        self.pause_item.setTitle_("Enable predictions")
-        self.pause_item.setState_(A.NSControlStateValueOn if self.controller.config.global_enabled else A.NSControlStateValueOff)
+        self.enabled_item.setState_(A.NSControlStateValueOn if self.controller.config.global_enabled else A.NSControlStateValueOff)
+        self.pause_item.setEnabled_(bool(self.controller.config.global_enabled) or paused)
         self.resume_item.setHidden_(not paused)
-        self.hour_item.setHidden_(paused or not enabled)
-        self.tomorrow_item.setHidden_(paused or not enabled)
-        self.attention_item.setHidden_(not needs_attention)
-        self.secure_item.setHidden_(not status.get("secure_input"))
-        download = status.get("download") or {}
-        downloading = download.get("state") == "downloading"
-        self.download_item.setHidden_(not downloading)
-        if downloading:
-            done = float(download.get("received", 0) or 0)
-            total = float(download.get("total", 0) or 0)
-            self.download_item.setTitle_(f"Downloading model… {int(done * 100 / total)}%" if total else "Downloading model…")
-        self.menu_badge.setStringValue_(badge)
-        color = A.NSColor.labelColor()
-        if needs_attention:
-            color = A.NSColor.systemRedColor()
-        elif paused:
-            color = _rgb("F0B65A" if _dark(self.menu_badge) else "8A5A00")
-        elif loading and enabled:
-            color = A.NSColor.systemBlueColor()
-        elif enabled and not unavailable:
-            color = _rgb("6FDDB2" if _dark(self.menu_badge) else "0B6B4C")
-        self.menu_badge.setTextColor_(color)
+        self.hour_item.setEnabled_(bool(self.controller.config.global_enabled))
+        self.tomorrow_item.setEnabled_(bool(self.controller.config.global_enabled))
         model_name = self._model_name()
-        self.menu_model.setStringValue_(model_name)
-        backend = {"gguf": "On-device · GGUF / llama.cpp", "ollama": "Local loopback · Ollama", "openai": "Local loopback · OpenAI-compatible"}[self.controller.config.backend]
-        self.menu_backend.setStringValue_(backend + (" · worker ready" if status.get("model_loaded") else " · on demand"))
         subtitle = message
         if paused:
             from datetime import datetime, timedelta
@@ -1205,17 +1141,18 @@ class BroTypistApplication(NSObject):
             subtitle = f"Resumes at {resumes:%H:%M}"
         elif enabled and not needs_attention and not loading and status.get("inline_available", True):
             subtitle = f"Predicting in {self._app_name(str(status.get('current_app') or '')) or 'eligible text fields'}"
-        self.menu_subtitle.setStringValue_(subtitle)
-        app = str(status.get("current_app", ""))
+        app = str(status.get("current_app") or "")
         if app:
             self.last_external_app = app
         active = bool(status.get("current_app_enabled", self.controller.config.enabled))
         display_name = self._scope_name(app, "", 24)
-        self.current_item.setTitle_(("Pause" if active else "Resume") + f" in {display_name}")
+        self.current_item.setTitle_(f"Predictions in {display_name}")
         self.current_item.setToolTip_("Temporarily toggles completions here for a few minutes. Saved rules are in App Settings.")
         self.current_item.setEnabled_(bool(app))
         self.current_item.setState_(A.NSControlStateValueOn if active and app else A.NSControlStateValueOff)
-        self._refresh_scope_items(self.record_item, self.tab_item, status)
+        domain = str(status.get("current_domain") or "")
+        self.bindings[int(self.current_item.tag())] = (
+            lambda sender: self.controller.toggle_current_app(app=app, domain=domain))
         if self.status_item and not self.status_item.isVisible():
             self.status_item.setVisible_(True)
         frame = -1  # Static Ghost Caret; no Python frame-redraw loop while typing.
@@ -1265,13 +1202,6 @@ class BroTypistApplication(NSObject):
         if reading is not None and reading is not self._presented_power_reading:
             self._presented_power_reading = reading
             power_ui.present(reading, allow_help=not self.tracking_menus and not self.shutdown_started)
-        if hasattr(self, "power_item"):
-            if getattr(self, "_power_menu_presentation", None) != power_ui.presentation:
-                self._power_menu_presentation = power_ui.presentation
-                self.power_item.setTitle_(power_ui.presentation.title + "…")
-                self.power_item.setImage_(A.NSImage.imageWithSystemSymbolName_accessibilityDescription_(
-                    power_ui.presentation.symbol, power_ui.presentation.title))
-            self.power_help_item.setHidden_(not power_ui.help_showing)
 
     @objc.python_method
     def _refresh_live_pane(self, status):

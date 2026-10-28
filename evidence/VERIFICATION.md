@@ -2,6 +2,13 @@
 
 # Observed verification
 
+## 0.4.11 compact macOS menu — source verification
+
+- Isolated the macOS menu change from the unfinished Linux port, using `7cb3c77c87fa1a701029354299456466ae6d61b8` as the release-source base. Prediction/native-insertion behavior is unchanged.
+- The isolated source suite passed **1,405 tests / 22 skipped** in **24.34 seconds**, with per-case JUnit timing. Behavioral regressions cover nested menu tracking, captured app/domain targets, independent master/app preferences and pause expiry without an accidental global disable.
+- An actual production AppKit `NSMenu` rendered six action groups without custom dashboard views. An owned-PID WindowServer capture verified the visible result; this was not a mockup. The real controller used a disposable profile and was not started, so this menu-only proof exercised no keyboard monitoring, inference or personal input.
+- Source visual evidence and JUnit records are retained privately under `~/Library/Caches/inklow/brotypist-linux-port-39y1c4xc/`. This source observation is not itself packaged-app, canonical-installation, prediction-speed, Linux-compositor or GitHub-release evidence.
+
 ## 0.4.10 native visibility and Unicode-learning remediation — 2026-10-28
 
 [Source-tree-bound remediation receipt](brotypist/qa-remediation-0.4.10.json) closes the actionable findings from the [0.4.9 QA review](QA-REVIEW-0.4.9.md). This section records source verification; installer/canonical-app observations must be bound separately to their actual signed runtime. Older installation sections below remain historical observations, not fresh 0.4.10 compositor evidence.
