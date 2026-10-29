@@ -174,6 +174,7 @@ def test_mac_exact_selected_text_replacement_does_not_rewrite_document():
     bridge._capture = lambda: (snapshot, field)
     bridge._settable = lambda element, attribute: attribute == "AXSelectedText"
     bridge.ax = SimpleNamespace(AXUIElementSetMessagingTimeout=lambda field, seconds: 0,
+                               AXUIElementCopyAttributeValue=lambda *args: (-25205, None),
                                AXUIElementSetAttributeValue=lambda element, attribute, text:
                                 writes.append((element, attribute, text)) or 0)
     assert bridge.replace_selection(snapshot, "term")
@@ -226,7 +227,8 @@ def quartz_bridge(monkeypatch, callback):
     BridgeBase.__init__(bridge)
     bridge._refresh_status = lambda: None
     bridge.ax = SimpleNamespace(AXIsProcessTrusted=lambda: True,
-                                AXUIElementSetMessagingTimeout=lambda field, seconds: 0)
+                                AXUIElementSetMessagingTimeout=lambda field, seconds: 0,
+                                AXUIElementCopyAttributeValue=lambda *args: (-25205, None))
     bridge.secure_input_active = lambda: False
     bridge._event_type = SimpleNamespace(eventWithCGEvent_=lambda event:
                                          SimpleNamespace(charactersIgnoringModifiers=lambda: "a"))
@@ -1734,6 +1736,7 @@ def test_mac_range_bounds_resolves_descendant_static_text_when_container_bounds_
     bridge = MacBridge.__new__(MacBridge)
     attributes = {
         ("field", "AXRole"): "AXTextArea",
+        ("field", "AXValue"): "hello world",
         ("field", "AXChildren"): ["group"],
         ("group", "AXRole"): "AXGroup",
         ("group", "AXChildren"): ["static_text"],

@@ -1241,7 +1241,7 @@ class Controller:
             not snapshot.text and snapshot.caret == 0 and snapshot.window_pid > 0
             and bool(snapshot.window_id) and self._rect(snapshot.field_rect) is not None)
         if (not self._active() or snapshot.protected
-                or not snapshot.multiline or not snapshot.can_replace
+                or not snapshot.multiline
                 or not (snapshot.inline_safe or empty_native_field) or not snapshot.has_anchor
                 or snapshot.selection_length or snapshot.on_demand_only
                 or self._field_paused(snapshot)

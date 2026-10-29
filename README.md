@@ -31,6 +31,8 @@ This describes the current source. Check each release's notes for its packaged f
 
 **Not every text field is supported.** BroTypist needs reliable focus, text, caret and insertion information. Password fields, active text composition and unsafe or unobservable targets are excluded. It stays silent rather than substituting a popup. Linux Wayland inline support is not yet ready for general use; see the [compatibility evidence](evidence/VERIFICATION.md).
 
+On macOS, Electron/Chromium controls with unreliable replacement setters support ordinary completion only when safe inline geometry is available. Emoji replacement, synonyms and typo replacement are disabled for those controls; they must not report edits the host did not apply.
+
 ## Install
 
 ### macOS

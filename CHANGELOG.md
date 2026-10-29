@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.4.13 — macOS Electron safety fixes
+
+- Resolve delegated text geometry only through bounded, cycle-safe Accessibility traversal and an exact field-local UTF-16 mapping. Reject protected, hidden, nested-editable, ambiguous and unrelated descendants rather than guessing an inline anchor.
+- Route completion insertion using exact chat bundle identities or Chromium node capabilities, not application-name substrings. Preserve modifier, permission, focus and stale-snapshot checks.
+- Mark unreliable Electron/Chromium replacement controls as append-only. Ordinary completion and focused model preparation remain available; emoji replacement, synonyms and typo replacement are unavailable there rather than falsely reporting an edit.
+- Extend native and runtime behavioral regressions for emoji, paragraphs, traversal limits, forbidden reads, host mutations and capability changes. Local verification: 1,524 passed / 22 skipped; an isolated real Gemma worker generated a continuation and exited cleanly. These checks do not establish live Discord rendering or Tab acceptance.
+- macOS release candidate only until installer and real Discord verification pass. Linux and Windows packages remain held.
+
 ## 0.4.12 — Icon-only menu bar
 
 - Remove battery percentages and power-state text from the macOS menu-bar item. Keep the BroTypist icon, compact menu, charging cue, Battery settings and accessible power details.

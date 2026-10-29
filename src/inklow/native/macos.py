@@ -617,7 +617,9 @@ class MacBridge(BridgeBase):
         snapshot = Snapshot(app_id, field_id, text, caret, end - caret, rect,
                             domain=domain, multiline=multiline, field_rect=field_rect,
                             window_id=window_id, window_revision=window_revision,
-                            window_pid=pid, window_bounds=window_bounds)
+                            window_pid=pid, window_bounds=window_bounds,
+                            can_replace=(not self._uses_unicode_insertion(field, app_id)
+                                         and self._settable(field, "AXSelectedText")))
         render = self._styled_render(snapshot, render, evidence)
         if render is not None:
             snapshot = dataclasses.replace(snapshot, inline_render=render)
@@ -680,41 +682,124 @@ class MacBridge(BridgeBase):
         return bounds
 
     def _range_bounds(self, field, location, length):
-        """Read top-left screen bounds for a range expressed in UTF-16 units."""
-        value = self.ax.AXValueCreate(self.ax.kAXValueCFRangeType, (location, length))
-        error, bounds = self.ax.AXUIElementCopyParameterizedAttributeValue(field, "AXBoundsForRange", value, None)
-        if not error and bounds is not None:
-            valid, bounds = self.ax.AXValueGetValue(bounds, self.ax.kAXValueCGRectType, None)
-            if valid and bounds[1][1] > 0 and (bounds[1][0] > 0 or length == 0):
-                bounds = (float(bounds[0][0]), float(bounds[0][1]), float(bounds[1][0]), float(bounds[1][1]))
-                if all(math.isfinite(value) for value in bounds) and bounds[2] >= 0:
-                    return bounds
+        """Return native bounds only for an unambiguous field-local UTF-16 range."""
+        if (not isinstance(location, int) or not isinstance(length, int)
+                or location < 0 or length < 0):
+            return None
 
-        # Descendant resolution for Electron / Chromium web editors (Discord, Slack, Notion)
-        # where AXTextArea delegates text glyph bounds to child AXStaticText nodes.
-        offset = 0
-        stack = [field]
+        def native_bounds(node, start):
+            value = self.ax.AXValueCreate(self.ax.kAXValueCFRangeType, (start, length))
+            error, bounds = self.ax.AXUIElementCopyParameterizedAttributeValue(
+                node, "AXBoundsForRange", value, None)
+            if error or bounds is None:
+                return None
+            valid, bounds = self.ax.AXValueGetValue(bounds, self.ax.kAXValueCGRectType, None)
+            if valid:
+                rect = (float(bounds[0][0]), float(bounds[0][1]),
+                        float(bounds[1][0]), float(bounds[1][1]))
+                if (all(math.isfinite(value) for value in rect) and rect[3] > 0
+                        and (rect[2] > 0 or (rect[2] == 0 and length == 0))):
+                    return rect
+            return None
+
+        bounds = native_bounds(field, location)
+        if bounds is not None:
+            return bounds  # Native field geometry needs no descendant assumptions.
+
+        # Chromium may delegate glyph bounds to static-text descendants. A
+        # partial, protected or unrelated subtree is never evidence of offsets.
+        deadline = time.monotonic() + 0.05
+        stack, visited, leaves = [(field, 0)], [], []
+        field_text = None
+        secure_description = getattr(self, "_secure_description", None)
         while stack:
-            node = stack.pop()
+            if len(visited) >= 128 or time.monotonic() >= deadline:
+                return None
+            node, depth = stack.pop()
+            # Native equality also catches a cycle returned through new wrappers.
+            if node in visited:
+                return None
+            visited.append(node)
+            if (self._attribute(node, "AXHidden")
+                    or self._attribute(node, "AXProtectedContent")
+                    or self._attribute(node, "AXSubrole") == "AXSecureTextField"
+                    or (secure_description is not None
+                        and self._attribute(node, "AXRoleDescription") == secure_description)):
+                return None
             role = self._attribute(node, "AXRole")
-            text = self._attribute(node, "AXValue")
-            if role == "AXStaticText" and isinstance(text, str):
-                node_len = len(text)
-                if offset <= location < offset + node_len or (location == offset + node_len and length == 0):
-                    rel_loc = location - offset
-                    val = self.ax.AXValueCreate(self.ax.kAXValueCFRangeType, (rel_loc, length))
-                    err, b = self.ax.AXUIElementCopyParameterizedAttributeValue(node, "AXBoundsForRange", val, None)
-                    if not err and b is not None:
-                        valid, r = self.ax.AXValueGetValue(b, self.ax.kAXValueCGRectType, None)
-                        if valid and r[1][1] > 0 and (r[1][0] > 0 or length == 0):
-                            rect = (float(r[0][0]), float(r[0][1]), float(r[1][0]), float(r[1][1]))
-                            if all(math.isfinite(v) for v in rect) and rect[2] >= 0:
-                                return rect
-                offset += node_len
-            else:
-                for c in reversed(self._attribute(node, "AXChildren") or []):
-                    stack.append(c)
-        return None
+            if (depth and (role in ("AXTextField", "AXTextArea", "AXComboBox")
+                           or self._attribute(node, "AXEditable"))):
+                return None
+            if time.monotonic() >= deadline:
+                return None
+            if depth == 0:
+                if role not in ("AXTextField", "AXTextArea"):
+                    return None
+                field_text = self._attribute(node, "AXValue")
+                if not isinstance(field_text, str) or len(field_text) > 1_000_000:
+                    return None
+            elif role == "AXStaticText":
+                # Do not treat an aggregate static-text subtree as a text leaf.
+                if self._attribute(node, "AXChildren") or time.monotonic() >= deadline:
+                    return None
+                text = self._attribute(node, "AXValue")
+                if not isinstance(text, str) or len(text) > len(field_text):
+                    return None
+                if text:
+                    leaves.append((node, text))
+                continue
+            children = self._attribute(node, "AXChildren") or []
+            if children and (depth >= 8 or len(children) > 128 - len(visited) - len(stack)):
+                return None
+            stack.extend((child, depth + 1) for child in reversed(children))
+        if not leaves or sum(len(text) for _, text in leaves) > len(field_text):
+            return None
+        try:
+            start = utf16_to_index(field_text, location)
+            end = utf16_to_index(field_text, location + length)
+        except ValueError:
+            return None
+
+        # Match literal leaves in native order. Only paragraph separators
+        # actually present BETWEEN leaves may be unrepresented in the tree.
+        # Enumerate exact placements instead of assigning separators to a leaf;
+        # two complete placements, or exhausted work, mean unavailable geometry.
+        pending, mapping, work = [(0, 0, ())], None, 0
+        while pending:
+            if time.monotonic() >= deadline:
+                return None
+            index, cursor, spans = pending.pop()
+            if index == len(leaves):
+                if cursor == len(field_text):
+                    if mapping is not None:
+                        return None
+                    mapping = spans
+                continue
+            text = leaves[index][1]
+            while True:
+                work += 1
+                if work > 4096 or time.monotonic() >= deadline:
+                    return None
+                if field_text.startswith(text, cursor):
+                    stop = cursor + len(text)
+                    pending.append((index + 1, stop, spans + ((cursor, stop),)))
+                if (index == 0 or cursor == len(field_text)
+                        or field_text[cursor] not in "\r\n\u2028\u2029"):
+                    break
+                cursor += 1
+        if mapping is None:
+            return None
+
+        candidates = [index for index, (left, right) in enumerate(mapping)
+                      if left <= start <= end <= right]
+        # A caret shared by adjacent leaves has two native owners. Never choose
+        # one by traversal order, and never synthesize bounds across leaf/gap edges.
+        if len(candidates) != 1 or time.monotonic() >= deadline:
+            return None
+        index = candidates[0]
+        relative = location - index_to_utf16(field_text, mapping[index][0])
+        bounds = native_bounds(leaves[index][0], relative)
+        return bounds if time.monotonic() < deadline else None
 
     def _caret_bounds(self, field, text, caret, location):
         """Resolve a caret row from native glyph evidence, or reject ambiguity."""
@@ -1232,11 +1317,17 @@ class MacBridge(BridgeBase):
             q.CGEventSetIntegerValueField(event, q.kCGEventSourceUserData, SYNTHETIC_TAG)
             q.CGEventPost(q.kCGSessionEventTap, event)
 
+    def _uses_unicode_insertion(self, field, app_id):
+        """Identify controls whose advertised selected-text setter can be a no-op."""
+        return ((app_id or "").casefold() in _ELECTRON_CHAT_BUNDLES
+                or self._attribute(field, "ChromeAXNodeId") is not None)
+
     def insert(self, snapshot: Snapshot, text: str) -> bool:
         """Insert at a freshly matched collapsed caret, returning dispatch success.
 
-        Prefer AXSelectedText; otherwise post tagged Unicode events without
-        replacing AXValue or using the clipboard. True is not host readback.
+        Prefer AXSelectedText outside known Electron/Chromium controls; otherwise
+        post tagged Unicode events without AXValue or clipboard replacement.
+        True is dispatch success, not host readback.
         """
         if not text or "\x00" in text or snapshot.protected or snapshot.selection_length:
             return False
@@ -1253,16 +1344,13 @@ class MacBridge(BridgeBase):
                     self._set_status("macOS could not configure a bounded Accessibility edit; no text was inserted.")
                     return False
                 # AXSelectedText replaces only the revalidated collapsed range.
-                is_electron = bool(
-                    any(name in (snapshot.app_id or "").lower() for name in ("discord", "slack"))
-                    or (hasattr(self.ax, "AXUIElementCopyAttributeValue") and self._attribute(field, "ChromeAXNodeId"))
-                )
-                if self._settable(field, "AXSelectedText") and not is_electron:
+                uses_unicode = self._uses_unicode_insertion(field, snapshot.app_id)
+                if self._settable(field, "AXSelectedText") and not uses_unicode:
                     if not self._commit_input():
                         return False
                     return self.ax.AXUIElementSetAttributeValue(field, "AXSelectedText", text) == 0
                 q = self.q
-                if not (self._settable(field, "AXValue") or is_electron) or not q.CGPreflightPostEventAccess():
+                if not (self._settable(field, "AXValue") or uses_unicode) or not q.CGPreflightPostEventAccess():
                     return False
                 flags = q.CGEventSourceFlagsState(q.kCGEventSourceStateCombinedSessionState)
                 if flags & (q.kCGEventFlagMaskCommand | q.kCGEventFlagMaskControl | q.kCGEventFlagMaskAlternate):
@@ -1292,7 +1380,10 @@ class MacBridge(BridgeBase):
         Revalidate a changed selection before writing. False may follow a
         successful selection change; this operation does not roll it back.
         """
-        if not snapshot.can_replace or not self._valid_replacement(snapshot, start, length, text):
+        if not snapshot.can_replace:
+            self._set_status("This control does not support safe range replacement; completion insertion may still work. Emoji, synonyms and typo replacement are unavailable.")
+            return False
+        if not self._valid_replacement(snapshot, start, length, text):
             return False
         with self._lock:
             try:
@@ -1305,7 +1396,8 @@ class MacBridge(BridgeBase):
                 if self.ax.AXUIElementSetMessagingTimeout(field, _AX_MUTATION_TIMEOUT):
                     self._set_status("macOS could not configure a bounded Accessibility edit; no text was replaced.")
                     return False
-                if not self._settable(field, "AXSelectedText"):
+                if (self._uses_unicode_insertion(field, snapshot.app_id)
+                        or not current[0].can_replace or not self._settable(field, "AXSelectedText")):
                     self._set_status("This control does not expose safe AXSelectedText replacement. Ordinary completion insertion may still work.")
                     return False
                 if (start, length) != (snapshot.caret, snapshot.selection_length):

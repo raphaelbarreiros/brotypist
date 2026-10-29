@@ -2351,7 +2351,7 @@ def test_focused_preparation_overlaps_typing_without_idle_reload(runtime, tmp_pa
     ({"field_rect": None}, False),
     ({"field_rect": (0, 0, 0, 200)}, False),
     ({"field_rect": (0, float("nan"), 400, 200)}, False),
-    ({"can_replace": False}, False),
+    ({"can_replace": False}, True),
 ])
 def test_empty_native_field_prepares_without_evaluating_or_accepting_writing(runtime, tmp_path, changes, prepares):
     controller, bridge, client = runtime
@@ -2373,7 +2373,7 @@ def test_empty_native_field_prepares_without_evaluating_or_accepting_writing(run
 
 @pytest.mark.parametrize("changes", [
     {"multiline": False}, {"protected": True}, {"selection_length": 1},
-    {"on_demand_only": True}, {"can_replace": False}, {"inline_render": None},
+    {"on_demand_only": True}, {"inline_render": None},
 ])
 def test_nonordinary_fields_never_prepare_model(runtime, tmp_path, changes):
     controller, bridge, client = runtime
