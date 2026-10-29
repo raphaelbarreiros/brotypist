@@ -50,6 +50,9 @@ _STOCK_CHAT_NAMES = (
     "Chat Input (Edit), edit files in your workspace.",
     "Chat Input (Ask), ask questions or type / for topics.",
 )
+_ELECTRON_CHAT_BUNDLES = frozenset({
+    "com.hnc.discord", "com.hammerandchisel.discord", "com.tinyspeck.slackmacgap"
+})
 SECURE_INPUT_STATUS = (
     "Secure Input is on: an app (often a password field or a terminal) is protecting keyboard input. "
     "BroTypist reads no text and captures no shortcuts until that app turns it off."
@@ -450,22 +453,19 @@ class MacBridge(BridgeBase):
         self._accessibility_target = target
         if rule is False:
             return
-        manual = self._attribute(app, "AXManualAccessibility")
-        if manual is not None:
-            attribute, enabled = "AXManualAccessibility", manual
-        elif app_id.casefold() in CHROMIUM_BROWSER_BUNDLES:
-            attribute = "AXEnhancedUserInterface"
-            enabled = self._attribute(app, attribute)
-        elif rule is True:
-            attribute = next((name for name in ("AXManualAccessibility", "AXEnhancedUserInterface")
-                              if self._settable(app, name)), "")
-            if not attribute:
-                return
-            enabled = self._attribute(app, attribute) or False
-        else:
-            return
-        if enabled is not None and not enabled and self._settable(app, attribute):
-            self.ax.AXUIElementSetAttributeValue(app, attribute, True)
+        attributes_to_enable = []
+        if self._settable(app, "AXManualAccessibility"):
+            val = self._attribute(app, "AXManualAccessibility")
+            if val is not None and not val:
+                attributes_to_enable.append("AXManualAccessibility")
+        if (app_id.casefold() in CHROMIUM_BROWSER_BUNDLES or app_id.casefold() in _ELECTRON_CHAT_BUNDLES
+                or (rule is True and "AXEnhancedUserInterface" not in attributes_to_enable)):
+            if self._settable(app, "AXEnhancedUserInterface"):
+                val = self._attribute(app, "AXEnhancedUserInterface")
+                if val is not None and not val:
+                    attributes_to_enable.append("AXEnhancedUserInterface")
+        for attr in attributes_to_enable:
+            self.ax.AXUIElementSetAttributeValue(app, attr, True)
 
     def _focused(self):
         """Resolve an allowed writable field without reading its text value."""
@@ -683,15 +683,38 @@ class MacBridge(BridgeBase):
         """Read top-left screen bounds for a range expressed in UTF-16 units."""
         value = self.ax.AXValueCreate(self.ax.kAXValueCFRangeType, (location, length))
         error, bounds = self.ax.AXUIElementCopyParameterizedAttributeValue(field, "AXBoundsForRange", value, None)
-        if error or bounds is None:
-            return None
-        valid, bounds = self.ax.AXValueGetValue(bounds, self.ax.kAXValueCGRectType, None)
-        if not valid or bounds[1][1] <= 0:
-            return None
-        bounds = (float(bounds[0][0]), float(bounds[0][1]), float(bounds[1][0]), float(bounds[1][1]))
-        if not all(math.isfinite(value) for value in bounds) or bounds[2] < 0:
-            return None
-        return bounds
+        if not error and bounds is not None:
+            valid, bounds = self.ax.AXValueGetValue(bounds, self.ax.kAXValueCGRectType, None)
+            if valid and bounds[1][1] > 0 and (bounds[1][0] > 0 or length == 0):
+                bounds = (float(bounds[0][0]), float(bounds[0][1]), float(bounds[1][0]), float(bounds[1][1]))
+                if all(math.isfinite(value) for value in bounds) and bounds[2] >= 0:
+                    return bounds
+
+        # Descendant resolution for Electron / Chromium web editors (Discord, Slack, Notion)
+        # where AXTextArea delegates text glyph bounds to child AXStaticText nodes.
+        offset = 0
+        stack = [field]
+        while stack:
+            node = stack.pop()
+            role = self._attribute(node, "AXRole")
+            text = self._attribute(node, "AXValue")
+            if role == "AXStaticText" and isinstance(text, str):
+                node_len = len(text)
+                if offset <= location < offset + node_len or (location == offset + node_len and length == 0):
+                    rel_loc = location - offset
+                    val = self.ax.AXValueCreate(self.ax.kAXValueCFRangeType, (rel_loc, length))
+                    err, b = self.ax.AXUIElementCopyParameterizedAttributeValue(node, "AXBoundsForRange", val, None)
+                    if not err and b is not None:
+                        valid, r = self.ax.AXValueGetValue(b, self.ax.kAXValueCGRectType, None)
+                        if valid and r[1][1] > 0 and (r[1][0] > 0 or length == 0):
+                            rect = (float(r[0][0]), float(r[0][1]), float(r[1][0]), float(r[1][1]))
+                            if all(math.isfinite(v) for v in rect) and rect[2] >= 0:
+                                return rect
+                offset += node_len
+            else:
+                for c in reversed(self._attribute(node, "AXChildren") or []):
+                    stack.append(c)
+        return None
 
     def _caret_bounds(self, field, text, caret, location):
         """Resolve a caret row from native glyph evidence, or reject ambiguity."""
@@ -943,11 +966,11 @@ class MacBridge(BridgeBase):
             whole = (self._range_bounds(field, span_location, location - span_location)
                      if run_start > 0 else whole)
             descriptor = attributes.get("AXFont")
-            if not descriptor:
+            name = str(descriptor.get("AXFontName") or "") if descriptor else ""
+            family = str(descriptor.get("AXFontFamily") or "") if descriptor else ""
+            if not descriptor or not (name or family):
                 return ((self._fitted_system_render(span, whole, rect, clip), None)
                         if not after else (None, None))
-            name = str(descriptor.get("AXFontName") or "")
-            family = str(descriptor.get("AXFontFamily") or "")
             size = float(descriptor.get("AXFontSize") or 0)
             if not math.isfinite(size) or not 1 <= size <= 300:
                 return None, None
@@ -1230,15 +1253,16 @@ class MacBridge(BridgeBase):
                     self._set_status("macOS could not configure a bounded Accessibility edit; no text was inserted.")
                     return False
                 # AXSelectedText replaces only the revalidated collapsed range.
-                if self._settable(field, "AXSelectedText"):
+                is_electron = bool(
+                    any(name in (snapshot.app_id or "").lower() for name in ("discord", "slack"))
+                    or (hasattr(self.ax, "AXUIElementCopyAttributeValue") and self._attribute(field, "ChromeAXNodeId"))
+                )
+                if self._settable(field, "AXSelectedText") and not is_electron:
                     if not self._commit_input():
                         return False
                     return self.ax.AXUIElementSetAttributeValue(field, "AXSelectedText", text) == 0
-                # Some writable AX controls (including Qt) expose AXValue but
-                # not an AXSelectedText setter. Type at the validated caret;
-                # never use AXValue to replace the document or the clipboard.
                 q = self.q
-                if not self._settable(field, "AXValue") or not q.CGPreflightPostEventAccess():
+                if not (self._settable(field, "AXValue") or is_electron) or not q.CGPreflightPostEventAccess():
                     return False
                 flags = q.CGEventSourceFlagsState(q.kCGEventSourceStateCombinedSessionState)
                 if flags & (q.kCGEventFlagMaskCommand | q.kCGEventFlagMaskControl | q.kCGEventFlagMaskAlternate):

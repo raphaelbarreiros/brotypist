@@ -1728,3 +1728,70 @@ def test_mac_browser_focus_window_mismatch_never_reads_the_detached_field():
     attributes[("application", "AXFocusedWindow")] = "other-window"
     assert bridge.capture() is None
     assert ("field", "AXValue") not in reads
+
+
+def test_mac_range_bounds_resolves_descendant_static_text_when_container_bounds_empty():
+    bridge = MacBridge.__new__(MacBridge)
+    attributes = {
+        ("field", "AXRole"): "AXTextArea",
+        ("field", "AXChildren"): ["group"],
+        ("group", "AXRole"): "AXGroup",
+        ("group", "AXChildren"): ["static_text"],
+        ("static_text", "AXRole"): "AXStaticText",
+        ("static_text", "AXValue"): "hello world",
+    }
+    bounds_map = {
+        ("field", (10, 1)): ((0, 1920), (0, 0)),
+        ("static_text", (10, 1)): ((513, 1872), (9, 21)),
+    }
+    bridge.ax = SimpleNamespace(
+        kAXValueCFRangeType=1, kAXValueCGRectType=2,
+        AXValueCreate=lambda kind, value: value,
+        AXUIElementCopyAttributeValue=lambda el, name, out: (0, attributes.get((el, name))),
+        AXUIElementCopyParameterizedAttributeValue=lambda el, name, val, out:
+            ((0, bounds_map[(el, val)]) if (el, val) in bounds_map else (-25205, None)),
+        AXValueGetValue=lambda value, kind, output: (True, value),
+    )
+    assert bridge._range_bounds("field", 10, 1) == (513.0, 1872.0, 9.0, 21.0)
+
+
+def test_mac_inline_metrics_falls_back_to_fitted_system_font_when_font_descriptor_omits_name_and_family(monkeypatch):
+    bridge = mac_metrics(monkeypatch, text="Hello world")
+    attributed = SimpleNamespace(
+        length=lambda: 11,
+        string=lambda: "Hello world",
+        attribute_atIndex_longestEffectiveRange_inRange_=lambda key, idx, longest, r: (
+            ({"AXFontSize": 16.0} if key == "AXFont" else None), (0, 11)
+        ),
+    )
+    bridge.ax.AXUIElementCopyParameterizedAttributeValue = lambda field, name, val, out: (0, attributed)
+    bridge._range_bounds = lambda field, loc, length: ((447.0, 1872.0, 60.0, 20.0) if length > 0 else (507.0, 1872.0, 0.0, 20.0))
+    render, evidence = bridge._inline_metrics("field", "Hello world", 11, 11, (507.0, 1872.0, 1.0, 20.0), (447.0, 1855.0, 540.0, 56.0))
+    assert render is not None
+    assert render.system_font is True
+    assert render.source == "macos-ax-caret-row"
+
+def test_mac_electron_insertion_posts_unicode_events_when_selected_text_is_no_op():
+    bridge, attributes, reads, writes = mac_capture_boundary("hello world")
+    attributes[("field", "ChromeAXNodeId")] = "12345"
+    attributes[("field", "AXSelectedText")] = ""
+    is_settable = bridge.ax.AXUIElementIsAttributeSettable
+    bridge.ax.AXUIElementIsAttributeSettable = lambda el, name, out: (
+        (0, True) if (el, name) in (("field", "AXSelectedText"), ("field", "AXValue"))
+        else is_settable(el, name, out)
+    )
+    posted_keys = []
+    bridge._post_key = lambda code, flags, uni: posted_keys.append((code, flags, uni))
+    bridge.q = SimpleNamespace(
+        CGPreflightPostEventAccess=lambda: True,
+        CGEventSourceFlagsState=lambda state: 0,
+        kCGEventSourceStateCombinedSessionState=1,
+        kCGEventFlagMaskCommand=1,
+        kCGEventFlagMaskControl=2,
+        kCGEventFlagMaskAlternate=4,
+    )
+    snapshot = bridge.capture()
+    assert snapshot is not None
+    assert bridge.insert(snapshot, " works") is True
+    assert writes == []
+    assert posted_keys == [(0, 0, (" works", 6))]
