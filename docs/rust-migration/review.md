@@ -5,7 +5,7 @@ Baseline: `6eaeed5fe56e1ea8dcf878b1b7498f922c26fd59` (`main`, version 0.4.13).
 
 ## Scope and evidence
 
-Five bounded read-only reviews covered runtime/features/spelling, inference/models/workers, macOS native integration, Windows/Linux/Wayland, and UI/data/updater/packaging. The integration owner independently exercised the current application and selected findings. This is a broad engineering review, not exhaustive vulnerability certification. No application implementation, installed application, normal profile, permissions, remote branch, release, or OS integration was changed.
+The baseline phase used five bounded read-only reviews covering runtime/features/spelling, inference/models/workers, macOS native integration, Windows/Linux/Wayland, and UI/data/updater/packaging. The integration owner independently exercised the old application and selected findings before implementation. This is a broad engineering review, not exhaustive vulnerability certification. Subsequent Rust implementation and independent review are recorded separately below; the normal installed application, profile, permissions and releases remain unchanged.
 
 Tracked implementation contains 24,614 lines across `src/inklow` Python/C/header files. The indexed source graph contains 2,975 nodes and 32,023 edges across 99 parsed files. Its controller trace misresolved an explicit anchor and its file-level test queries returned no matches despite existing tests; graph output was not treated as proof of coverage.
 
@@ -60,4 +60,22 @@ Current limitations are part of the safety contract: ordinary KDE Wayland inline
 
 ## Migration prerequisites
 
-Use [the parity inventory](parity.md) as the acceptance register and [the implementation plan](README.md) as the work/dependency contract. Rust/Cargo were not installed/on PATH and no rustup toolchain was found in the usual user locations; Xcode 27.1, Clang, Swift and CMake are available. Toolchain installation and frontend strategy must be settled before implementation builds. No Rust application or migrated behavior is claimed by this review.
+Use [the parity inventory](parity.md) as the acceptance register and [the implementation plan](README.md) as the work/dependency contract. Rust/Cargo were absent during the baseline phase; approved Rust 1.99.1 is now installed/pinned, with native AppKit/Win32/GTK selected and an isolated migration branch/draft PR. No completed cross-platform parity is inferred from source conversion.
+
+## Independent Rust review and exercised integration
+
+Additional bounded reviews covered text/provider parity, persistence, updater/distribution boundaries, and native/runtime authority. Findings below concern the Rust candidate, not new claims against the historical baseline.
+
+| Finding | Correction / evidence |
+|---|---|
+| HTTP total request deadline incorrectly replaced streaming inactivity timeout. | Separate streaming read timeout and longer preparation timeout. Owned-loopback regressions exercised active NDJSON/SSE streams outliving the timeout, silent-read failure and preparation timing. |
+| Linux history credentials did not unlock/create the native default collection; sensitive-text boundaries used Rust rather than Python word semantics. | Direct Secret Service collection handling and explicit compatible boundary predicate. Shared sensitive-history regressions passed; actual locked/unlocked Linux desktop credential-store behavior remains a native gate. |
+| Windows/X11 input notifications revoked cached claims before initiating shortcut dispatch. | Transaction-first shortcut claiming; only forwarded/cancelled input invalidates. Target-native transaction/replay tests are included; their execution requires the hosted native lanes. |
+| Non-browser Mac snapshots had empty document authority, preventing consented window context. | Stable process/window/document identity, detached-ticket revalidation and focused-window ownership. Mac identity regressions passed; live permission/host context is not claimed. |
+| Anchored alternatives bumped the epoch while retaining old completion claims. | Disarm and republish the retained completion for fresh visible acknowledgment. Regression failed before the fix, then passed for pending alternatives and safe abstention, including actual engine acceptance/remainder. |
+| Terminal authority included mutable row/caret evidence, making successful dispatched appends fail readback confirmation. | Separate stable signed session/window authority from exact one-use append evidence. Mac lease/readback regressions passed; live signed Codex host typing remains unverified. |
+| Native installer probes emitted boolean success rejected by the release consumer. | Canonical boolean receipt support; explicit conflicting failures remain failures. Regression failed before correction and passed afterward. Limited matrix declarations remain intact. |
+| Version changes omitted workspace package identities in Cargo.lock. | Offline workspace-only Cargo update, rejection of unrelated dependency changes, restoration on failure. A real disposable Cargo workspace failed locked resolution before correction and passed afterward. The obsolete source-string assertion was removed. |
+| Crate archives omitted complete standard license text; source `copying.rs` falsely counted as legal material. | Exact checksum/source-bound upstream declarations plus authentic vendored standard terms; source-code false positives rejected. Actual offline collection passed. No first-party, Apple SDK, model or toolchain license certification is implied. |
+
+Integrated local check: **425 passing invocations**, including two child probes, followed by successful native bins/examples builds. Real Tiny/Gemma worker and CLI receipts, direct/worker benchmark observations and native owned-field feasibility evidence are distinct from full native UI/installer/host parity. See the implementation plan's current integration section for limits. Updated Windows/Linux CI execution and signed macOS host/installer gates remain open.

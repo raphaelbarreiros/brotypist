@@ -1,1 +1,3 @@
-fn main() { std::process::exit(brotypist::cli::entry()); }
+fn main() {
+    std::process::exit(brotypist::cli::entry());
+}

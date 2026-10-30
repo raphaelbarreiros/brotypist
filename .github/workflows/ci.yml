@@ -1,5 +1,5 @@
-# Native compile/runtime evidence and development portable binaries only.
-# No installer, publisher signing, notarization, OTA, release or deployment claims.
+# Native compile/runtime, development bundles, and guarded hosted Linux/Windows installer evidence.
+# No publisher signing, notarization, OTA, release publication, or macOS installer evidence.
 name: Native Rust checks
 on:
   push:
@@ -36,7 +36,7 @@ jobs:
             target: x86_64-pc-windows-msvc
             rustflags: '-C target-feature=+crt-static'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    timeout-minutes: 150
     defaults:
       run:
         shell: pwsh
@@ -59,8 +59,14 @@ jobs:
           $env:CARGO_TARGET_DIR = Join-Path $env:RUNNER_TEMP 'brotypist-native-target'
           $env:INKLOW_HOME = Join-Path $env:RUNNER_TEMP 'brotypist-native-profile'
           $env:NATIVE_REPORTS = Join-Path $env:RUNNER_TEMP 'brotypist-native-reports'
+          $env:NATIVE_PACKAGE_BUNDLE = Join-Path $env:RUNNER_TEMP 'brotypist-native-clean-bundle/BroTypist'
+          $env:NATIVE_PACKAGES = Join-Path $env:RUNNER_TEMP 'brotypist-native-packages'
           $env:NATIVE_PORTABLE = Join-Path $env:RUNNER_TEMP 'brotypist-native-portable'
-          foreach ($name in @('CARGO_TARGET_DIR', 'INKLOW_HOME', 'NATIVE_REPORTS', 'NATIVE_PORTABLE')) {
+          if ($IsLinux) {
+            # INKLOW_HOME redirects settings, not the independent model cache.
+            "XDG_CACHE_HOME=$(Join-Path $env:RUNNER_TEMP 'brotypist-native-cache')" >> $env:GITHUB_ENV
+          }
+          foreach ($name in @('CARGO_TARGET_DIR', 'INKLOW_HOME', 'NATIVE_REPORTS', 'NATIVE_PORTABLE', 'NATIVE_PACKAGE_BUNDLE', 'NATIVE_PACKAGES')) {
             "$name=$([Environment]::GetEnvironmentVariable($name))" >> $env:GITHUB_ENV
           }
           New-Item -ItemType Directory -Force -Path $env:INKLOW_HOME, $env:NATIVE_REPORTS, $env:NATIVE_PORTABLE | Out-Null
@@ -83,6 +89,7 @@ jobs:
             libcairo2-dev libdbus-1-dev libwayland-dev libxkbcommon-dev wayland-protocols \
             libssl-dev libsecret-1-dev libgl1-mesa-dev dbus-x11 at-spi2-core xvfb xauth \
             fonts-dejavu-core fonts-noto-color-emoji patchelf desktop-file-utils \
+            dpkg-dev dbus-user-session x11-utils libatk-adaptor \
             2>&1 | tee "$NATIVE_REPORTS/linux-dependencies.log"
       - name: Configure installed MSVC and Windows SDK
         if: runner.os == 'Windows'
@@ -121,6 +128,20 @@ jobs:
       - name: Assemble and inspect development portable binaries (not installers or OTA)
         timeout-minutes: 30
         run: ./.github/native/checks.ps1 -Phase portable
+      - name: Install pinned build-only WiX tooling (no signing secrets)
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        run: ./.github/native/checks.ps1 -Phase installer-tools
+      - name: Assemble clean-source native package and portable (not development or publication)
+        if: runner.os != 'macOS'
+        timeout-minutes: 35
+        run: ./.github/native/checks.ps1 -Phase package
+      - name: Exercise guarded hosted installer lifecycle and real installed worker
+        if: runner.os != 'macOS'
+        timeout-minutes: 25
+        run: ./.github/native/checks.ps1 -Phase installer
+      # macOS intentionally retains only the development bundle lane. Its real
+      # installer smoke requires an authorized local distribution identity.
       - name: Retain actual native logs and smoke evidence
         if: ${{ always() && env.NATIVE_REPORTS != '' }}
         uses: actions/upload-artifact@v7
@@ -141,5 +162,19 @@ jobs:
             ${{ env.NATIVE_PORTABLE }}/BroTypist/
             ${{ env.NATIVE_PORTABLE }}/*.tar.gz
           include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Retain canonical Linux and unsigned held Windows packages and receipts
+        if: ${{ always() && runner.os != 'macOS' && env.NATIVE_PACKAGES != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: installer-packages-${{ matrix.platform }}-not-published
+          # Exclude failed staging trees, build caches and arbitrary probe files.
+          path: |
+            ${{ env.NATIVE_PACKAGES }}/*.deb
+            ${{ env.NATIVE_PACKAGES }}/*.tar.gz
+            ${{ env.NATIVE_PACKAGES }}/*.msi
+            ${{ env.NATIVE_PACKAGES }}/*.zip
+            ${{ env.NATIVE_PACKAGES }}/package-receipt-*.json
           if-no-files-found: warn
           retention-days: 14

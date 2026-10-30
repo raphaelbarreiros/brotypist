@@ -5,15 +5,27 @@ use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
 /// Apply only edits relative to baseline. Concurrent untouched fields/rules survive.
-pub fn merge_mapping_edits(current: &Map<String, Value>, baseline: &Map<String, Value>, draft: &Map<String, Value>) -> Map<String, Value> {
+pub fn merge_mapping_edits(
+    current: &Map<String, Value>,
+    baseline: &Map<String, Value>,
+    draft: &Map<String, Value>,
+) -> Map<String, Value> {
     let mut result = current.clone();
-    let keys: BTreeSet<&str> = baseline.keys().chain(draft.keys()).map(String::as_str).collect();
+    let keys: BTreeSet<&str> = baseline
+        .keys()
+        .chain(draft.keys())
+        .map(String::as_str)
+        .collect();
     for key in keys {
         let before = baseline.get(key);
         let after = draft.get(key);
-        if before == after { continue; }
+        if before == after {
+            continue;
+        }
         match after {
-            None => { result.remove(key); }
+            None => {
+                result.remove(key);
+            }
             Some(Value::Object(after)) if before.is_some_and(Value::is_object) => {
                 let empty = Map::new();
                 let previous = before.and_then(Value::as_object).unwrap();
@@ -21,7 +33,9 @@ pub fn merge_mapping_edits(current: &Map<String, Value>, baseline: &Map<String, 
                 let merged = merge_mapping_edits(current, previous, after);
                 result.insert(key.into(), Value::Object(merged));
             }
-            Some(value) => { result.insert(key.into(), value.clone()); }
+            Some(value) => {
+                result.insert(key.into(), value.clone());
+            }
         }
     }
     result
@@ -34,20 +48,34 @@ pub struct SettingsDraft {
 }
 impl SettingsDraft {
     pub fn new(config: &Config) -> Result<Self> {
-        let baseline = serde_json::to_value(config)?.as_object().context("Settings must be an object")?.clone();
-        Ok(Self { draft: baseline.clone(), baseline })
+        let baseline = serde_json::to_value(config)?
+            .as_object()
+            .context("Settings must be an object")?
+            .clone();
+        Ok(Self {
+            draft: baseline.clone(),
+            baseline,
+        })
     }
-    pub fn value(&self, field: &str) -> Option<&Value> { self.draft.get(field) }
+    pub fn value(&self, field: &str) -> Option<&Value> {
+        self.draft.get(field)
+    }
     pub fn set(&mut self, field: &str, value: Value) -> Result<()> {
         ensure!(self.baseline.contains_key(field), "Unknown settings field.");
         self.draft.insert(field.into(), value);
         Ok(())
     }
-    pub fn is_dirty(&self) -> bool { self.baseline != self.draft }
+    pub fn is_dirty(&self) -> bool {
+        self.baseline != self.draft
+    }
     pub fn apply_to(&self, current: &Config) -> Result<Config> {
         let value = serde_json::to_value(current)?;
         let current = value.as_object().context("Settings must be an object")?;
-        let mut candidate: Config = serde_json::from_value(Value::Object(merge_mapping_edits(current, &self.baseline, &self.draft)))?;
+        let mut candidate: Config = serde_json::from_value(Value::Object(merge_mapping_edits(
+            current,
+            &self.baseline,
+            &self.draft,
+        )))?;
         candidate.validate()?;
         Ok(candidate)
     }
@@ -55,11 +83,17 @@ impl SettingsDraft {
     pub fn refresh(&mut self, current: &Config) -> Result<()> {
         let candidate = self.apply_to(current)?;
         self.baseline = serde_json::to_value(current)?.as_object().unwrap().clone();
-        self.draft = serde_json::to_value(candidate)?.as_object().unwrap().clone();
+        self.draft = serde_json::to_value(candidate)?
+            .as_object()
+            .unwrap()
+            .clone();
         Ok(())
     }
     /// Call after confirmed save, explicit Revert or Discard, never before persistence succeeds.
-    pub fn reset(&mut self, current: &Config) -> Result<()> { *self = Self::new(current)?; Ok(()) }
+    pub fn reset(&mut self, current: &Config) -> Result<()> {
+        *self = Self::new(current)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -70,7 +104,12 @@ mod tests {
     fn staged_instructions_do_not_undo_concurrent_model_or_consent_changes() {
         let original = Config::default();
         let mut draft = SettingsDraft::new(&original).unwrap();
-        draft.set("custom_instructions", json!("Continue in Brazilian Portuguese.")).unwrap();
+        draft
+            .set(
+                "custom_instructions",
+                json!("Continue in Brazilian Portuguese."),
+            )
+            .unwrap();
         let mut current = original.clone();
         current.model_path = "/synthetic/new-model.gguf".into();
         current.global_enabled = false;
@@ -79,7 +118,10 @@ mod tests {
         assert_eq!(candidate.model_path, current.model_path);
         assert!(!candidate.global_enabled);
         assert!(candidate.record_history);
-        assert_eq!(candidate.custom_instructions, "Continue in Brazilian Portuguese.");
+        assert_eq!(
+            candidate.custom_instructions,
+            "Continue in Brazilian Portuguese."
+        );
         assert_eq!(current.custom_instructions, original.custom_instructions);
     }
     #[test]
@@ -87,8 +129,15 @@ mod tests {
         let baseline = json!({"app:editor":{"enabled":true,"record_history":false},"domain:old.test":{"enabled":false}});
         let draft = json!({"app:editor":{"enabled":false,"record_history":false}});
         let current = json!({"app:editor":{"enabled":true,"record_history":true,"tab_enabled":false},"domain:old.test":{"enabled":false},"domain:new.test":{"enabled":true}});
-        let merged = merge_mapping_edits(current.as_object().unwrap(),baseline.as_object().unwrap(),draft.as_object().unwrap());
-        assert_eq!(Value::Object(merged), json!({"app:editor":{"enabled":false,"record_history":true,"tab_enabled":false},"domain:new.test":{"enabled":true}}));
+        let merged = merge_mapping_edits(
+            current.as_object().unwrap(),
+            baseline.as_object().unwrap(),
+            draft.as_object().unwrap(),
+        );
+        assert_eq!(
+            Value::Object(merged),
+            json!({"app:editor":{"enabled":false,"record_history":true,"tab_enabled":false},"domain:new.test":{"enabled":true}})
+        );
     }
     #[test]
     fn invalid_staged_value_does_not_mutate_or_reset_the_active_config() {

@@ -10,14 +10,25 @@ fn run() -> Result<i32> {
     if arguments == [std::ffi::OsString::from("_worker")] {
         return brotypist::cli::run(vec!["_worker".into()]);
     }
-    ensure!(arguments.len() == 1, "Usage: native_desktop_smoke <absolute-output-directory>");
-    let output = PathBuf::from(arguments.into_iter().next().context("Missing output directory")?);
+    ensure!(
+        arguments.len() == 1,
+        "Usage: native_desktop_smoke <absolute-output-directory>"
+    );
+    let output = PathBuf::from(
+        arguments
+            .into_iter()
+            .next()
+            .context("Missing output directory")?,
+    );
     brotypist::ui::smoke(&output)
 }
 
 fn main() -> ExitCode {
     match run() {
         Ok(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
-        Err(error) => { eprintln!("BroTypist native desktop smoke: {error:#}"); ExitCode::FAILURE }
+        Err(error) => {
+            eprintln!("BroTypist native desktop smoke: {error:#}");
+            ExitCode::FAILURE
+        }
     }
 }

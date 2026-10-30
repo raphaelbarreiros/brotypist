@@ -7,6 +7,8 @@
 - Introduce a Rust application/worker with OS-native AppKit, Win32 and GTK interfaces, retaining the pinned llama.cpp engine and the complete existing model catalogue rather than substituting inference backends.
 - Preserve configuration and OS identity, independent context/history consent, scalar-indexed authored text, encrypted SQLite formats and credential-store addressing. Keep a separately linked offline updater and Rust-native build/distribution tooling.
 - Correct review findings in authority leases, decoded choices, pending spelling, consumed-key pairing, secure-input refusal and interrupted build promotion instead of preserving unsafe legacy behavior.
+- Preserve transaction-first shortcut authority, non-browser Mac window context, visible completion acceptance during alternatives, and terminal append readback through stable session identity and one-use mutable evidence.
+- Keep streaming inactivity timeouts separate from preparation deadlines, preserve the direct native benchmark's tokenizer/sampler/raw-stream/RSS diagnostics, and keep version changes compatible with locked Cargo builds. Include authentic, source-bound dependency notices without inventing a first-party license.
 - Add native macOS/Windows/Linux CI, real model-worker probes, owned-window UI checks and guarded installer continuity probes. Published releases and the normal installed application remain unchanged.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
 

@@ -1,22 +1,26 @@
 //! Quartz input ownership and ordered, bounded-before-commit shortcut transactions.
 //! Layout translation and foreground/AX observation are published by the bridge;
 //! neither event-tap callback calls AppKit, Accessibility, capture, or inference.
-use crate::platform::{policy::ObservationPolicy, Action, Foreground, ShortcutHandler};
-use anyhow::{anyhow, bail, Result};
-use serde_json::{json, Value};
 use super::ax::ffi::{
-    Native,CGEventTapCreate,CGEventTapEnable,CGEventCreateCopy,CGEventGetIntegerValueField,
-    CGEventSetIntegerValueField,CGEventGetFlags,CGEventSetFlags,CGEventKeyboardGetUnicodeString,
-    CGEventCreateKeyboardEvent,CGEventKeyboardSetUnicodeString,CGEventPost,
-    CGPreflightPostEventAccess,CGEventSourceFlagsState,CFMachPortCreateRunLoopSource,
-    CFMachPortInvalidate,CFRunLoopGetCurrent,CFRunLoopAddSource,CFRunLoopRemoveSource,
-    CFRunLoopRunInMode,CFRetain,CFRelease,kCFRunLoopCommonModes,kCFRunLoopDefaultMode,
+    CFMachPortCreateRunLoopSource, CFMachPortInvalidate, CFRelease, CFRetain, CFRunLoopAddSource,
+    CFRunLoopGetCurrent, CFRunLoopRemoveSource, CFRunLoopRunInMode, CGEventCreateCopy,
+    CGEventCreateKeyboardEvent, CGEventGetFlags, CGEventGetIntegerValueField,
+    CGEventKeyboardGetUnicodeString, CGEventKeyboardSetUnicodeString, CGEventPost, CGEventSetFlags,
+    CGEventSetIntegerValueField, CGEventSourceFlagsState, CGEventTapCreate, CGEventTapEnable,
+    CGPreflightPostEventAccess, Native, kCFRunLoopCommonModes, kCFRunLoopDefaultMode,
 };
+use crate::platform::{Action, Foreground, ShortcutHandler, policy::ObservationPolicy};
+use anyhow::{Result, anyhow, bail};
+use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, VecDeque},
-    panic::{catch_unwind, AssertUnwindSafe},
+    panic::{AssertUnwindSafe, catch_unwind},
     ptr,
-    sync::{atomic::{AtomicU64, Ordering}, mpsc, Arc, Mutex, MutexGuard},
+    sync::{
+        Arc, Mutex, MutexGuard,
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
@@ -42,10 +46,19 @@ const STOP_TIME: Duration = Duration::from_secs(2);
 type InputCallback = Arc<dyn Fn() + Send + Sync>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum InputSourceKind { Layout, Ime, #[default] Unknown }
+pub enum InputSourceKind {
+    Layout,
+    Ime,
+    #[default]
+    Unknown,
+}
 impl InputSourceKind {
     fn label(self) -> &'static str {
-        match self { Self::Layout => "layout", Self::Ime => "ime", Self::Unknown => "unknown" }
+        match self {
+            Self::Layout => "layout",
+            Self::Ime => "ime",
+            Self::Unknown => "unknown",
+        }
     }
 }
 
@@ -82,19 +95,31 @@ impl Event {
         // of delivering it ahead of an issued mutation. Quartz releases its
         // callback loan after return; our reference pins it until ordered replay.
         // SAFETY: raw is nonnull and live; Retain does not allocate a new event.
-        let native = if copied.is_null() { unsafe { CFRetain(raw); } raw } else { copied };
+        let native = if copied.is_null() {
+            unsafe {
+                CFRetain(raw);
+            }
+            raw
+        } else {
+            copied
+        };
         let mut length = 0;
         let mut characters = [0u16; 4];
         // SAFETY: all output buffers are valid for the advertised capacities.
         if kind == KEY_DOWN {
-            unsafe { CGEventKeyboardGetUnicodeString(raw, 4, &mut length, characters.as_mut_ptr()) };
+            unsafe {
+                CGEventKeyboardGetUnicodeString(raw, 4, &mut length, characters.as_mut_ptr())
+            };
         }
         Self {
-            native: OwnedEvent(native), kind,
+            native: OwnedEvent(native),
+            kind,
             // SAFETY: raw is still the live callback reference.
             code: unsafe { CGEventGetIntegerValueField(raw, KEYCODE) } as u16,
-            flags: unsafe { CGEventGetFlags(raw) }, has_characters: length != 0,
-            #[cfg(test)] serial: 0,
+            flags: unsafe { CGEventGetFlags(raw) },
+            has_characters: length != 0,
+            #[cfg(test)]
+            serial: 0,
         }
     }
     fn post(self) {
@@ -108,7 +133,10 @@ impl Event {
     }
 }
 
-struct Queued { event: Event, redispatch: bool }
+struct Queued {
+    event: Event,
+    redispatch: bool,
+}
 struct Gate {
     id: u64,
     code: u16,
@@ -150,48 +178,101 @@ struct State {
 }
 impl Default for State {
     fn default() -> Self {
-        Self { policy: None, foreground: Foreground::default(), layout: BTreeMap::new(),
-            source: InputSourceKind::Unknown, enabled: false, stopping: false,
-            handler: None, callback: None, gate: None, next_gate: 0,
-            replay: VecDeque::new(), driving: false, suppressed: SuppressedKeyUps::default(),
-            timeouts: VecDeque::with_capacity(4), revision: 0, user_revision: 0,
+        Self {
+            policy: None,
+            foreground: Foreground::default(),
+            layout: BTreeMap::new(),
+            source: InputSourceKind::Unknown,
+            enabled: false,
+            stopping: false,
+            handler: None,
+            callback: None,
+            gate: None,
+            next_gate: 0,
+            replay: VecDeque::new(),
+            driving: false,
+            suppressed: SuppressedKeyUps::default(),
+            timeouts: VecDeque::with_capacity(4),
+            revision: 0,
+            user_revision: 0,
             revision_signal: Arc::new(AtomicU64::new(0)),
-            timestamp: None, dead_key: false, notify: false, message: "not started" }
+            timestamp: None,
+            dead_key: false,
+            notify: false,
+            message: "not started",
+        }
     }
 }
 impl State {
     fn note(&mut self, user: bool, now: Instant) {
         self.revision = self.revision.wrapping_add(1);
         self.revision_signal.store(self.revision, Ordering::Release);
-        if user { self.user_revision = self.user_revision.wrapping_add(1); }
+        if user {
+            self.user_revision = self.user_revision.wrapping_add(1);
+        }
         self.timestamp = Some(now);
         self.notify = true;
     }
     fn intercepting(&self) -> bool {
         self.enabled && !self.stopping && !self.gate.as_ref().is_some_and(|g| g.released)
     }
-    fn holding(&self) -> bool { self.gate.as_ref().is_some_and(|g| !g.released) }
-    fn tap_needed(&self) -> bool { self.intercepting() || self.holding() || self.driving || !self.replay.is_empty() }
+    fn holding(&self) -> bool {
+        self.gate.as_ref().is_some_and(|g| !g.released)
+    }
+    fn tap_needed(&self) -> bool {
+        self.intercepting() || self.holding() || self.driving || !self.replay.is_empty()
+    }
     fn action(&self, code: u16, flags: u64) -> Option<Action> {
-        if !self.intercepting() { return None; }
+        if !self.intercepting() {
+            return None;
+        }
         let key = self.layout.get(&code)?;
         // Fn modifies ordinary keys (for example Fn+Backspace); it must not
         // accidentally match an unmodified binding. Function keys retain the
         // system Fn flag as on the original Quartz path.
-        if flags & FUNCTION != 0 && !is_function_key(key) { return None; }
+        if flags & FUNCTION != 0 && !is_function_key(key) {
+            return None;
+        }
         let mut modifiers = [""; 4];
         let mut count = 0;
-        for (name, mask) in [("Ctrl", CONTROL), ("Alt", ALTERNATE), ("Shift", SHIFT), ("Super", COMMAND)] {
-            if flags & mask != 0 { modifiers[count] = name; count += 1; }
+        for (name, mask) in [
+            ("Ctrl", CONTROL),
+            ("Alt", ALTERNATE),
+            ("Shift", SHIFT),
+            ("Super", COMMAND),
+        ] {
+            if flags & mask != 0 {
+                modifiers[count] = name;
+                count += 1;
+            }
         }
-        self.policy.as_ref()?.key_action(key, &modifiers[..count], "macos",
-            &self.foreground.app_id, &self.foreground.domain)
+        self.policy.as_ref()?.key_action(
+            key,
+            &modifiers[..count],
+            "macos",
+            &self.foreground.app_id,
+            &self.foreground.domain,
+        )
     }
-    fn ordinary(&mut self, kind: u32, code: u16, flags: u64, has_characters: bool, now: Instant) -> bool {
-        if kind == KEY_UP { return !self.suppressed.remove(&code); }
+    fn ordinary(
+        &mut self,
+        kind: u32,
+        code: u16,
+        flags: u64,
+        has_characters: bool,
+        now: Instant,
+    ) -> bool {
+        if kind == KEY_UP {
+            return !self.suppressed.remove(&code);
+        }
         if kind == KEY_DOWN {
             self.suppressed.remove(&code);
-            if flags & FUNCTION == 0 || self.layout.get(&code).is_some_and(|key| is_function_key(key)) {
+            if flags & FUNCTION == 0
+                || self
+                    .layout
+                    .get(&code)
+                    .is_some_and(|key| is_function_key(key))
+            {
                 self.dead_key = flags & (COMMAND | CONTROL) == 0 && !has_characters;
             }
         } else if kind != FLAGS_CHANGED {
@@ -203,16 +284,31 @@ impl State {
     fn open(&mut self, action: &Action, original: Event, now: Instant) -> u64 {
         self.next_gate = self.next_gate.wrapping_add(1);
         let id = self.next_gate;
-        self.gate = Some(Gate { id, code: original.code, original: Some(original),
-            events: VecDeque::with_capacity(REPLAY_LIMIT), deadline: now + REPLAY_TIME,
-            dispatching: true, issued: false, committing: false, ready: false,
-            consumed: false, aborted: false, released: false, overrun: false,
-            bypass: *action == Action::Bypass });
+        self.gate = Some(Gate {
+            id,
+            code: original.code,
+            original: Some(original),
+            events: VecDeque::with_capacity(REPLAY_LIMIT),
+            deadline: now + REPLAY_TIME,
+            dispatching: true,
+            issued: false,
+            committing: false,
+            ready: false,
+            consumed: false,
+            aborted: false,
+            released: false,
+            overrun: false,
+            bypass: *action == Action::Bypass,
+        });
         id
     }
     fn abort(&mut self, now: Instant) {
-        let Some(gate) = self.gate.as_mut() else { return; };
-        if gate.released { return; }
+        let Some(gate) = self.gate.as_mut() else {
+            return;
+        };
+        if gate.released {
+            return;
+        }
         gate.aborted = true;
         if gate.issued && !gate.ready {
             // No fixed memory bound is claimed after an irreversible OS call.
@@ -220,13 +316,23 @@ impl State {
             gate.overrun = true;
             return;
         }
-        if !gate.dispatching { self.release(now); }
+        if !gate.dispatching {
+            self.release(now);
+        }
     }
     fn expire(&mut self, now: Instant) {
-        if self.gate.as_ref().is_some_and(|g| !g.released && now >= g.deadline) { self.abort(now); }
+        if self
+            .gate
+            .as_ref()
+            .is_some_and(|g| !g.released && now >= g.deadline)
+        {
+            self.abort(now);
+        }
     }
     fn release(&mut self, now: Instant) {
-        let Some(mut gate) = self.gate.take() else { return; };
+        let Some(mut gate) = self.gate.take() else {
+            return;
+        };
         if gate.released || gate.dispatching || (!gate.ready && (!gate.aborted || gate.issued)) {
             self.gate = Some(gate);
             return;
@@ -237,12 +343,20 @@ impl State {
         } else {
             self.suppressed.remove(&gate.code);
             if let Some(event) = gate.original.take() {
-                self.replay.push_back(Queued { event, redispatch: false });
+                self.replay.push_back(Queued {
+                    event,
+                    redispatch: false,
+                });
             }
         }
-        if gate.aborted { self.note(true, now); }
+        if gate.aborted {
+            self.note(true, now);
+        }
         for event in gate.events.drain(..) {
-            self.replay.push_back(Queued { event, redispatch: !gate.aborted });
+            self.replay.push_back(Queued {
+                event,
+                redispatch: !gate.aborted,
+            });
         }
         if gate.overrun {
             self.enabled = false;
@@ -260,21 +374,33 @@ impl State {
     fn enqueue(&mut self, event: Event, now: Instant) {
         let was_holding = self.holding();
         if self.holding() {
-            let over_limit = self.gate.as_ref().is_some_and(|g| now >= g.deadline || g.events.len() >= REPLAY_LIMIT);
-            if over_limit { self.abort(now); }
+            let over_limit = self
+                .gate
+                .as_ref()
+                .is_some_and(|g| now >= g.deadline || g.events.len() >= REPLAY_LIMIT);
+            if over_limit {
+                self.abort(now);
+            }
             if let Some(gate) = self.gate.as_mut().filter(|g| !g.released) {
                 gate.events.push_back(event);
                 return;
             }
         }
-        self.replay.push_back(Queued { event, redispatch: !was_holding && (self.driving || !self.replay.is_empty()) });
+        self.replay.push_back(Queued {
+            event,
+            redispatch: !was_holding && (self.driving || !self.replay.is_empty()),
+        });
     }
     fn complete_dispatch(&mut self, id: u64, accepted: bool, now: Instant) {
-        let Some(gate) = self.gate.as_mut().filter(|g| g.id == id) else { return; };
+        let Some(gate) = self.gate.as_mut().filter(|g| g.id == id) else {
+            return;
+        };
         gate.dispatching = false;
         if gate.bypass {
             if accepted {
-                if let Some(event) = gate.original.as_mut() { event.flags &= !ALTERNATE; }
+                if let Some(event) = gate.original.as_mut() {
+                    event.flags &= !ALTERNATE;
+                }
             }
             gate.ready = true;
             gate.consumed = false;
@@ -286,7 +412,11 @@ impl State {
         self.release(now);
     }
     fn timeout(&mut self, now: Instant) {
-        while self.timeouts.front().is_some_and(|t| now.duration_since(*t) >= Duration::from_secs(60)) {
+        while self
+            .timeouts
+            .front()
+            .is_some_and(|t| now.duration_since(*t) >= Duration::from_secs(60))
+        {
             self.timeouts.pop_front();
         }
         self.timeouts.push_back(now);
@@ -299,14 +429,18 @@ impl State {
     }
 }
 fn is_function_key(key: &str) -> bool {
-    key.strip_prefix('F').and_then(|n| n.parse::<u8>().ok()).is_some_and(|n| (1..=20).contains(&n))
+    key.strip_prefix('F')
+        .and_then(|n| n.parse::<u8>().ok())
+        .is_some_and(|n| (1..=20).contains(&n))
 }
 
 /// A CGKeyCode is u16. A fixed bitset avoids allocator work when consuming or
 /// matching keyups, including unusual keycodes outside the usual hardware map.
 struct SuppressedKeyUps([u64; 1024]);
 impl Default for SuppressedKeyUps {
-    fn default() -> Self { Self([0; 1024]) }
+    fn default() -> Self {
+        Self([0; 1024])
+    }
 }
 impl SuppressedKeyUps {
     fn insert(&mut self, code: u16) {
@@ -340,7 +474,10 @@ impl Shared {
     fn post(&self, event: Event) {
         #[cfg(test)]
         if event.native.0.is_null() {
-            self.posted.lock().unwrap().push((event.kind, event.code, event.flags, event.serial));
+            self.posted
+                .lock()
+                .unwrap()
+                .push((event.kind, event.code, event.flags, event.serial));
             return;
         }
         event.post();
@@ -348,19 +485,29 @@ impl Shared {
     fn notify(&self) {
         let callback = {
             let mut state = self.lock();
-            if !std::mem::take(&mut state.notify) { return; }
+            if !std::mem::take(&mut state.notify) {
+                return;
+            }
             state.callback.clone()
         };
-        if let Some(callback) = callback { let _ = catch_unwind(AssertUnwindSafe(|| callback())); }
+        if let Some(callback) = callback {
+            let _ = catch_unwind(AssertUnwindSafe(|| callback()));
+        }
     }
     fn pump(&self) {
         {
             let mut state = self.lock();
-            if state.driving { return; }
+            if state.driving {
+                return;
+            }
             state.driving = true;
         }
         loop {
-            enum Work { Post(Event), Dispatch(u64, Action, Option<ShortcutHandler>), Done }
+            enum Work {
+                Post(Event),
+                Dispatch(u64, Action, Option<ShortcutHandler>),
+                Done,
+            }
             let work = {
                 let mut state = self.lock();
                 let now = Instant::now();
@@ -373,19 +520,30 @@ impl Shared {
                     let event = queued.event;
                     let action = if queued.redispatch && event.kind == KEY_DOWN {
                         state.action(event.code, event.flags)
-                    } else { None };
+                    } else {
+                        None
+                    };
                     if let Some(action) = action {
                         let id = state.open(&action, event, now);
                         // The older replay tail must precede events arriving
                         // while this nested handler runs outside the mutex.
                         let tail = std::mem::take(&mut state.replay);
                         if let Some(gate) = state.gate.as_mut() {
-                            gate.events.extend(tail.into_iter().map(|queued| queued.event));
+                            gate.events
+                                .extend(tail.into_iter().map(|queued| queued.event));
                         }
                         Work::Dispatch(id, action, state.handler.clone())
-                    } else if state.ordinary(event.kind, event.code, event.flags, event.has_characters, now) {
+                    } else if state.ordinary(
+                        event.kind,
+                        event.code,
+                        event.flags,
+                        event.has_characters,
+                        now,
+                    ) {
                         Work::Post(event)
-                    } else { continue; }
+                    } else {
+                        continue;
+                    }
                 } else {
                     state.driving = false;
                     Work::Done
@@ -397,7 +555,10 @@ impl Shared {
                     let accepted = invoke(handler, action);
                     self.lock().complete_dispatch(id, accepted, Instant::now());
                 }
-                Work::Done => { self.notify(); return; }
+                Work::Done => {
+                    self.notify();
+                    return;
+                }
             }
             self.notify();
         }
@@ -409,7 +570,8 @@ impl Shared {
     }
 }
 fn invoke(handler: Option<ShortcutHandler>, action: Action) -> bool {
-    handler.is_some_and(|handler| catch_unwind(AssertUnwindSafe(|| handler(action))).unwrap_or(false))
+    handler
+        .is_some_and(|handler| catch_unwind(AssertUnwindSafe(|| handler(action))).unwrap_or(false))
 }
 
 struct Worker {
@@ -419,17 +581,34 @@ struct Worker {
 }
 /// The bridge owns this handle; the Quartz thread owns native taps and sources.
 /// stop() only relinquishes ownership after native cleanup acknowledges and joins.
-pub struct Input { shared: Arc<Shared>, worker: Option<Worker> }
-impl Default for Input { fn default() -> Self { Self::new() } }
+pub struct Input {
+    shared: Arc<Shared>,
+    worker: Option<Worker>,
+}
+impl Default for Input {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Input {
-    pub fn new() -> Self { Self { shared: Arc::new(Shared::default()), worker: None } }
-    pub fn configure(&self, policy: Arc<ObservationPolicy>) { self.shared.lock().policy = Some(policy); }
+    pub fn new() -> Self {
+        Self {
+            shared: Arc::new(Shared::default()),
+            worker: None,
+        }
+    }
+    pub fn configure(&self, policy: Arc<ObservationPolicy>) {
+        self.shared.lock().policy = Some(policy);
+    }
     pub fn set_foreground(&self, foreground: Foreground) {
         let mut state = self.shared.lock();
         let previous = &state.foreground;
-        let changed = previous.app_id != foreground.app_id || previous.executable != foreground.executable
-            || previous.domain != foreground.domain || previous.window_id != foreground.window_id
-            || previous.window_pid != foreground.window_pid || previous.document_id != foreground.document_id;
+        let changed = previous.app_id != foreground.app_id
+            || previous.executable != foreground.executable
+            || previous.domain != foreground.domain
+            || previous.window_id != foreground.window_id
+            || previous.window_pid != foreground.window_pid
+            || previous.document_id != foreground.document_id;
         state.foreground = foreground;
         if changed {
             state.dead_key = false;
@@ -451,7 +630,9 @@ impl Input {
     pub fn start(&mut self, handler: ShortcutHandler) -> Result<()> {
         {
             let mut state = self.shared.lock();
-            if state.stopping { bail!("Quartz input is stopping; stop must acknowledge before restart"); }
+            if state.stopping {
+                bail!("Quartz input is stopping; stop must acknowledge before restart");
+            }
             state.handler = Some(handler);
         }
         if let Some(worker) = self.worker.as_ref() {
@@ -473,25 +654,39 @@ impl Input {
             }
             let _ = done_tx.send(result);
         })?;
-        self.worker = Some(Worker { thread, done: done_rx, started: false });
+        self.worker = Some(Worker {
+            thread,
+            done: done_rx,
+            started: false,
+        });
         match ready_rx.recv_timeout(STOP_TIME) {
             Ok(Ok(())) => {
-                if let Some(worker) = self.worker.as_mut() { worker.started = true; }
+                if let Some(worker) = self.worker.as_mut() {
+                    worker.started = true;
+                }
                 Ok(())
             }
             Ok(Err(message)) => Err(anyhow!(message)),
-            Err(_) => bail!("Quartz startup did not acknowledge within two seconds; native ownership is retained"),
+            Err(_) => bail!(
+                "Quartz startup did not acknowledge within two seconds; native ownership is retained"
+            ),
         }
     }
     pub fn set_enabled(&self, enabled: bool) {
         let mut state = self.shared.lock();
         state.enabled = enabled && !state.stopping;
-        if !enabled { state.abort(Instant::now()); }
-        if enabled && !state.stopping { state.message = "Quartz shortcuts enabled"; }
+        if !enabled {
+            state.abort(Instant::now());
+        }
+        if enabled && !state.stopping {
+            state.message = "Quartz shortcuts enabled";
+        }
         drop(state);
         self.shared.pump();
     }
-    pub fn set_callback(&self, callback: Option<InputCallback>) { self.shared.lock().callback = callback; }
+    pub fn set_callback(&self, callback: Option<InputCallback>) {
+        self.shared.lock().callback = callback;
+    }
     pub fn notifier(&self) -> Arc<dyn Fn(bool) + Send + Sync> {
         let shared = self.shared.clone();
         Arc::new(move |user| shared.note(user))
@@ -502,15 +697,23 @@ impl Input {
         let revision = self.shared.lock().revision_signal.clone();
         Arc::new(move || revision.load(Ordering::Acquire))
     }
-    pub fn clear_composition(&self) { self.shared.lock().dead_key = false; }
+    pub fn clear_composition(&self) {
+        self.shared.lock().dead_key = false;
+    }
     /// Linearization point after authoritative focus/text validation and before
     /// the first irreversible AX setter or Unicode post. No lock spans OS work.
     pub fn commit(&self) -> bool {
         let mut state = self.shared.lock();
-        if state.stopping { return false; }
+        if state.stopping {
+            return false;
+        }
         let now = Instant::now();
-        let Some(gate) = state.gate.as_mut() else { return true; };
-        if gate.aborted || gate.released || gate.ready || gate.committing || now >= gate.deadline { return false; }
+        let Some(gate) = state.gate.as_mut() else {
+            return true;
+        };
+        if gate.aborted || gate.released || gate.ready || gate.committing || now >= gate.deadline {
+            return false;
+        }
         gate.issued = true;
         gate.committing = true;
         true
@@ -518,7 +721,9 @@ impl Input {
     /// Records that the setter returned, but deliberately keeps input pinned
     /// through readback and runtime outcome publication.
     pub fn mutation_finished(&self) {
-        if let Some(gate) = self.shared.lock().gate.as_mut() { gate.committing = false; }
+        if let Some(gate) = self.shared.lock().gate.as_mut() {
+            gate.committing = false;
+        }
     }
     /// `consumed` is true for Applied, Dispatched AND Indeterminate. Rejected
     /// before commit is the only outcome allowed to replay the initiating key.
@@ -530,26 +735,49 @@ impl Input {
             gate.ready = true;
             gate.committing = false;
             gate.consumed = consumed || gate.issued;
-            if now >= gate.deadline { gate.aborted = true; gate.overrun |= gate.issued; }
-            if gate.released { state.gate = None; } else { state.release(now); }
+            if now >= gate.deadline {
+                gate.aborted = true;
+                gate.overrun |= gate.issued;
+            }
+            if gate.released {
+                state.gate = None;
+            } else {
+                state.release(now);
+            }
         }
         drop(state);
         self.shared.pump();
         Ok(())
     }
-    pub fn revision(&self) -> u64 { self.shared.lock().revision }
-    pub fn user_revision(&self) -> u64 { self.shared.lock().user_revision }
-    pub fn timestamp(&self) -> Option<Instant> { self.shared.lock().timestamp }
-    pub fn dead_key(&self) -> bool { self.shared.lock().dead_key }
-    pub fn source_kind(&self) -> InputSourceKind { self.shared.lock().source }
-    pub fn note_input(&self, user: bool) { self.shared.note(user); }
+    pub fn revision(&self) -> u64 {
+        self.shared.lock().revision
+    }
+    pub fn user_revision(&self) -> u64 {
+        self.shared.lock().user_revision
+    }
+    pub fn timestamp(&self) -> Option<Instant> {
+        self.shared.lock().timestamp
+    }
+    pub fn dead_key(&self) -> bool {
+        self.shared.lock().dead_key
+    }
+    pub fn source_kind(&self) -> InputSourceKind {
+        self.shared.lock().source
+    }
+    pub fn note_input(&self, user: bool) {
+        self.shared.note(user);
+    }
     /// This helper must also be checked BEFORE commit by the bridge. It never
     /// requests permissions and never releases physical modifiers artificially.
     pub fn preflight_unicode(&self) -> Result<()> {
-        if self.shared.lock().stopping { bail!("Quartz input is stopping"); }
+        if self.shared.lock().stopping {
+            bail!("Quartz input is stopping");
+        }
         // SAFETY: read-only Quartz state/preflight calls have no borrowed inputs.
         unsafe {
-            if !CGPreflightPostEventAccess() { bail!("Posting keyboard input is not authorized"); }
+            if !CGPreflightPostEventAccess() {
+                bail!("Posting keyboard input is not authorized");
+            }
             if CGEventSourceFlagsState(0) & (COMMAND | CONTROL | ALTERNATE | FUNCTION) != 0 {
                 bail!("Unicode insertion refused while a command modifier is held");
             }
@@ -560,7 +788,9 @@ impl Input {
     /// surrogate splitting nor allocation failures after the first post.
     /// The bridge must call commit() once immediately before this operation.
     pub fn post_unicode(&self, text: &str) -> Result<()> {
-        if text.is_empty() || text.contains('\0') { bail!("Unicode insertion requires nonempty, NUL-free text"); }
+        if text.is_empty() || text.contains('\0') {
+            bail!("Unicode insertion requires nonempty, NUL-free text");
+        }
         self.preflight_unicode()?;
         let mut events = Vec::new();
         for chunk in unicode_chunks(text) {
@@ -568,7 +798,9 @@ impl Input {
                 // SAFETY: null source selects the default source; this returns
                 // a new owned CF reference, checked before any mutation.
                 let raw = unsafe { CGEventCreateKeyboardEvent(ptr::null_mut(), 0, down) };
-                if raw.is_null() { bail!("Quartz could not allocate a Unicode event"); }
+                if raw.is_null() {
+                    bail!("Quartz could not allocate a Unicode event");
+                }
                 let event = OwnedEvent(raw);
                 // SAFETY: chunk is a live contiguous UTF-16 buffer and these
                 // setters synchronously copy its contents into our owned event.
@@ -588,7 +820,9 @@ impl Input {
         }
         Ok(())
     }
-    pub fn stop(&mut self) -> Result<()> { self.stop_with_timeout(STOP_TIME) }
+    pub fn stop(&mut self) -> Result<()> {
+        self.stop_with_timeout(STOP_TIME)
+    }
     fn stop_with_timeout(&mut self, timeout: Duration) -> Result<()> {
         {
             let mut state = self.shared.lock();
@@ -598,18 +832,30 @@ impl Input {
         }
         self.shared.pump();
         let Some(worker) = self.worker.as_ref() else {
-            if self.shared.lock().holding() { bail!("Native mutation still owns deferred input"); }
+            if self.shared.lock().holding() {
+                bail!("Native mutation still owns deferred input");
+            }
             return Ok(());
         };
         let result = match worker.done.recv_timeout(timeout) {
             Ok(result) => result,
-            Err(mpsc::RecvTimeoutError::Timeout) => bail!("Quartz stop did not acknowledge within two seconds; thread and event ownership are retained"),
-            Err(mpsc::RecvTimeoutError::Disconnected) => Err("Quartz owner exited without cleanup acknowledgment".into()),
+            Err(mpsc::RecvTimeoutError::Timeout) => bail!(
+                "Quartz stop did not acknowledge within two seconds; thread and event ownership are retained"
+            ),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                Err("Quartz owner exited without cleanup acknowledgment".into())
+            }
         };
         // Receipt is sent only after native sources, callbacks and taps are gone.
         // Joining cannot wait for any live native callback after that receipt.
-        let worker = self.worker.take().expect("worker retained until acknowledgment");
-        worker.thread.join().map_err(|_| anyhow!("Quartz owner thread panicked"))?;
+        let worker = self
+            .worker
+            .take()
+            .expect("worker retained until acknowledgment");
+        worker
+            .thread
+            .join()
+            .map_err(|_| anyhow!("Quartz owner thread panicked"))?;
         result.map_err(|message| anyhow!(message))
     }
     pub fn status(&self) -> Value {
@@ -629,11 +875,16 @@ impl Drop for Input {
                 // retains its JoinHandle until cleanup acknowledgment/exit.
                 let retained = Arc::new(Mutex::new(Some(worker)));
                 let owner = retained.clone();
-                if thread::Builder::new().name("brotypist-quartz-reaper".into())
+                if thread::Builder::new()
+                    .name("brotypist-quartz-reaper".into())
                     .spawn(move || {
                         let worker = owner.lock().unwrap_or_else(|e| e.into_inner()).take();
-                        if let Some(worker) = worker { let _ = worker.thread.join(); }
-                    }).is_err() {
+                        if let Some(worker) = worker {
+                            let _ = worker.thread.join();
+                        }
+                    })
+                    .is_err()
+                {
                     // If even spawning a reaper fails, retain the handle rather
                     // than implicitly detaching its still-live native owner.
                     std::mem::forget(retained);
@@ -643,18 +894,28 @@ impl Drop for Input {
     }
 }
 
-struct UnicodeChunk { units: [u16; 20], length: usize }
+struct UnicodeChunk {
+    units: [u16; 20],
+    length: usize,
+}
 impl std::ops::Deref for UnicodeChunk {
     type Target = [u16];
-    fn deref(&self) -> &[u16] { &self.units[..self.length] }
+    fn deref(&self) -> &[u16] {
+        &self.units[..self.length]
+    }
 }
 fn unicode_chunks(text: &str) -> impl Iterator<Item = UnicodeChunk> + '_ {
     let mut characters = text.chars().peekable();
     std::iter::from_fn(move || {
-        let mut chunk = UnicodeChunk { units: [0; 20], length: 0 };
+        let mut chunk = UnicodeChunk {
+            units: [0; 20],
+            length: 0,
+        };
         while let Some(character) = characters.peek().copied() {
             let width = character.len_utf16();
-            if chunk.length + width > 20 { break; }
+            if chunk.length + width > 20 {
+                break;
+            }
             characters.next();
             character.encode_utf16(&mut chunk.units[chunk.length..chunk.length + width]);
             chunk.length += width;
@@ -663,7 +924,12 @@ fn unicode_chunks(text: &str) -> impl Iterator<Item = UnicodeChunk> + '_ {
     })
 }
 
-unsafe extern "C" fn keyboard_callback(_: Native, kind: u32, raw: Native, context: Native) -> Native {
+unsafe extern "C" fn keyboard_callback(
+    _: Native,
+    kind: u32,
+    raw: Native,
+    context: Native,
+) -> Native {
     // SAFETY: event_loop retains the Arc allocation until both taps are
     // invalidated and run-loop sources removed on this same callback thread.
     let shared = unsafe { &*(context as *const Shared) };
@@ -683,11 +949,16 @@ unsafe fn receive(shared: &Shared, kind: u32, raw: Native) -> Native {
         shared.pump();
         return raw;
     }
-    if kind == TAP_USER_DISABLED { return raw; } // owner loop restores requested state
-    if raw.is_null() { return raw; }
+    if kind == TAP_USER_DISABLED {
+        return raw;
+    } // owner loop restores requested state
+    if raw.is_null() {
+        return raw;
+    }
     // SAFETY: raw is the callback's live borrowed CGEvent reference.
     if unsafe { CGEventGetIntegerValueField(raw, SOURCE_TAG) } == SYNTHETIC_TAG
-        || unsafe { CGEventGetIntegerValueField(raw, SOURCE_PID) } == i64::from(std::process::id()) {
+        || unsafe { CGEventGetIntegerValueField(raw, SOURCE_PID) } == i64::from(std::process::id())
+    {
         return raw;
     }
     // SAFETY: same live event; no AppKit translation or AX work is performed.
@@ -696,7 +967,11 @@ unsafe fn receive(shared: &Shared, kind: u32, raw: Native) -> Native {
     let mut state = shared.lock();
     let now = Instant::now();
     let queue = state.holding() || state.driving || !state.replay.is_empty();
-    let action = if !queue && kind == KEY_DOWN { state.action(code, flags) } else { None };
+    let action = if !queue && kind == KEY_DOWN {
+        state.action(code, flags)
+    } else {
+        None
+    };
     if queue || action.is_some() {
         // SAFETY: copy is taken while the borrowed callback event is live.
         let event = unsafe { Event::copy(kind, raw) };
@@ -723,7 +998,12 @@ unsafe fn receive(shared: &Shared, kind: u32, raw: Native) -> Native {
     shared.notify();
     if pass { raw } else { ptr::null_mut() }
 }
-unsafe extern "C" fn pointer_callback(_: Native, kind: u32, raw: Native, context: Native) -> Native {
+unsafe extern "C" fn pointer_callback(
+    _: Native,
+    kind: u32,
+    raw: Native,
+    context: Native,
+) -> Native {
     // SAFETY: context lifetime is the same as the keyboard callback above.
     let shared = unsafe { &*(context as *const Shared) };
     let _ = catch_unwind(AssertUnwindSafe(|| {
@@ -731,7 +1011,9 @@ unsafe extern "C" fn pointer_callback(_: Native, kind: u32, raw: Native, context
             // SAFETY: raw is the live borrowed pointer event; tagged replay and
             // this process's own posts must not invalidate cached observations.
             if unsafe { CGEventGetIntegerValueField(raw, SOURCE_TAG) } == SYNTHETIC_TAG
-                || unsafe { CGEventGetIntegerValueField(raw, SOURCE_PID) } == i64::from(std::process::id()) {
+                || unsafe { CGEventGetIntegerValueField(raw, SOURCE_PID) }
+                    == i64::from(std::process::id())
+            {
                 return;
             }
         }
@@ -747,8 +1029,15 @@ unsafe extern "C" fn pointer_callback(_: Native, kind: u32, raw: Native, context
 }
 
 /// All native resources are created, run and destroyed by this one thread.
-fn event_loop(shared: &Arc<Shared>, ready: mpsc::SyncSender<std::result::Result<(), String>>) -> std::result::Result<(), String> {
-    struct Resources { runloop: Native, taps: Vec<Native>, sources: Vec<Native> }
+fn event_loop(
+    shared: &Arc<Shared>,
+    ready: mpsc::SyncSender<std::result::Result<(), String>>,
+) -> std::result::Result<(), String> {
+    struct Resources {
+        runloop: Native,
+        taps: Vec<Native>,
+        sources: Vec<Native>,
+    }
     impl Drop for Resources {
         fn drop(&mut self) {
             // SAFETY: this destructor runs on the creating/run-loop owner thread
@@ -759,7 +1048,10 @@ fn event_loop(shared: &Arc<Shared>, ready: mpsc::SyncSender<std::result::Result<
                     CFRunLoopRemoveSource(self.runloop, source, kCFRunLoopCommonModes);
                     CFRelease(source);
                 }
-                for tap in self.taps.drain(..) { CFMachPortInvalidate(tap); CFRelease(tap); }
+                for tap in self.taps.drain(..) {
+                    CFMachPortInvalidate(tap);
+                    CFRelease(tap);
+                }
             }
         }
     }
@@ -768,9 +1060,14 @@ fn event_loop(shared: &Arc<Shared>, ready: mpsc::SyncSender<std::result::Result<
     unsafe {
         let context = Arc::as_ptr(shared) as Native;
         let runloop = CFRunLoopGetCurrent();
-        let mut resources = Resources { runloop, taps: Vec::with_capacity(2), sources: Vec::with_capacity(2) };
+        let mut resources = Resources {
+            runloop,
+            taps: Vec::with_capacity(2),
+            sources: Vec::with_capacity(2),
+        };
         let mask = [KEY_DOWN, KEY_UP, FLAGS_CHANGED, 1, 2, 3, 4, 25, 26, 22]
-            .into_iter().fold(0, |mask, kind| mask | (1u64 << kind));
+            .into_iter()
+            .fold(0, |mask, kind| mask | (1u64 << kind));
         let tap = CGEventTapCreate(1, 0, 0, mask, keyboard_callback, context);
         if tap.is_null() {
             let message = "Keyboard capture denied. Enable Accessibility and Input Monitoring for BroTypist, then restart.".to_owned();
@@ -778,10 +1075,13 @@ fn event_loop(shared: &Arc<Shared>, ready: mpsc::SyncSender<std::result::Result<
             return Err(message);
         }
         resources.taps.push(tap);
-        let pointer_mask = [1, 3, 25, 22].into_iter().fold(0, |mask, kind| mask | (1u64 << kind));
+        let pointer_mask = [1, 3, 25, 22]
+            .into_iter()
+            .fold(0, |mask, kind| mask | (1u64 << kind));
         let pointer = CGEventTapCreate(1, 1, 1, pointer_mask, pointer_callback, context);
         if pointer.is_null() {
-            let message = "Pointer observation tap unavailable; keyboard capture was not started.".to_owned();
+            let message =
+                "Pointer observation tap unavailable; keyboard capture was not started.".to_owned();
             let _ = ready.send(Err(message.clone()));
             return Err(message);
         }
@@ -809,16 +1109,21 @@ fn event_loop(shared: &Arc<Shared>, ready: mpsc::SyncSender<std::result::Result<
             shared.pump();
             let state = shared.lock();
             let desired = state.tap_needed();
-            let exit = state.stopping && !state.holding() && !state.driving && state.replay.is_empty();
+            let exit =
+                state.stopping && !state.holding() && !state.driving && state.replay.is_empty();
             drop(state);
-            if exit { break; }
+            if exit {
+                break;
+            }
             if desired != enabled {
                 CGEventTapEnable(tap, desired);
                 enabled = desired;
             }
             // Re-enable timeout/user-disabled notifications only according to
             // current intent, including notifications queued by our own disable.
-            if enabled { CGEventTapEnable(tap, true); }
+            if enabled {
+                CGEventTapEnable(tap, true);
+            }
             CGEventTapEnable(pointer, true);
             CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.01, 1);
         }
@@ -830,7 +1135,14 @@ fn event_loop(shared: &Arc<Shared>, ready: mpsc::SyncSender<std::result::Result<
 mod tests {
     use super::*;
     fn event(kind: u32, code: u16, serial: usize) -> Event {
-        Event { native: OwnedEvent(ptr::null_mut()), kind, code, flags: 0, has_characters: true, serial }
+        Event {
+            native: OwnedEvent(ptr::null_mut()),
+            kind,
+            code,
+            flags: 0,
+            has_characters: true,
+            serial,
+        }
     }
     fn open(state: &mut State, now: Instant) -> u64 {
         let id = state.open(&Action::Word, event(KEY_DOWN, 48, 0), now);
@@ -860,7 +1172,9 @@ mod tests {
         let mut serials = Vec::new();
         while let Some(queued) = state.replay.pop_front() {
             let e = queued.event;
-            if state.ordinary(e.kind, e.code, e.flags, e.has_characters, now) { serials.push(e.serial); }
+            if state.ordinary(e.kind, e.code, e.flags, e.has_characters, now) {
+                serials.push(e.serial);
+            }
         }
         serials
     }
@@ -901,11 +1215,19 @@ mod tests {
             let now = Instant::now();
             let mut state = State::default();
             open(&mut state, now);
-            for index in 1..=REPLAY_LIMIT { state.enqueue(event(KEY_DOWN, 0, index), now); }
-            if deadline { state.expire(now + REPLAY_TIME); }
-            else { state.enqueue(event(KEY_DOWN, 0, 257), now); }
+            for index in 1..=REPLAY_LIMIT {
+                state.enqueue(event(KEY_DOWN, 0, index), now);
+            }
+            if deadline {
+                state.expire(now + REPLAY_TIME);
+            } else {
+                state.enqueue(event(KEY_DOWN, 0, 257), now);
+            }
             let expected = if deadline { 256 } else { 257 };
-            assert_eq!(delivered(&mut state, now), (0..=expected).collect::<Vec<_>>());
+            assert_eq!(
+                delivered(&mut state, now),
+                (0..=expected).collect::<Vec<_>>()
+            );
             assert!(state.gate.as_ref().unwrap().released);
             assert!(state.gate.as_ref().unwrap().aborted);
             assert!(!state.intercepting());
@@ -919,7 +1241,9 @@ mod tests {
         let gate = state.gate.as_mut().unwrap();
         gate.issued = true;
         gate.committing = true;
-        for index in 1..=400 { state.enqueue(event(KEY_DOWN, 0, index), now); }
+        for index in 1..=400 {
+            state.enqueue(event(KEY_DOWN, 0, index), now);
+        }
         state.expire(now + REPLAY_TIME);
         assert!(state.replay.is_empty());
         assert_eq!(state.gate.as_ref().unwrap().events.len(), 400);
@@ -945,8 +1269,21 @@ mod tests {
         let next_id = state.open(&Action::Word, next.event, now);
         let tail = state.replay.pop_front().unwrap().event;
         state.enqueue(tail, now);
-        assert_eq!(state.gate.as_ref().unwrap().original.as_ref().unwrap().serial, 2);
-        assert_eq!(state.gate.as_ref().unwrap().events.front().unwrap().serial, 3);
+        assert_eq!(
+            state
+                .gate
+                .as_ref()
+                .unwrap()
+                .original
+                .as_ref()
+                .unwrap()
+                .serial,
+            2
+        );
+        assert_eq!(
+            state.gate.as_ref().unwrap().events.front().unwrap().serial,
+            3
+        );
         state.complete_dispatch(next_id, false, now);
         assert_eq!(delivered(&mut state, now), [2, 3]);
     }
@@ -960,7 +1297,14 @@ mod tests {
         let handler: ShortcutHandler = Arc::new(move |_| {
             let shared = weak.upgrade().unwrap();
             let mut state = shared.lock();
-            let serial = state.gate.as_ref().unwrap().original.as_ref().unwrap().serial;
+            let serial = state
+                .gate
+                .as_ref()
+                .unwrap()
+                .original
+                .as_ref()
+                .unwrap()
+                .serial;
             observations.lock().unwrap().push(serial);
             if serial == 2 {
                 // This new physical event must follow the older tail (3).
@@ -971,7 +1315,9 @@ mod tests {
         let id = {
             let mut state = input.shared.lock();
             state.enabled = true;
-            state.policy = Some(Arc::new(ObservationPolicy::new(&crate::config::Config::default()).unwrap()));
+            state.policy = Some(Arc::new(
+                ObservationPolicy::new(&crate::config::Config::default()).unwrap(),
+            ));
             state.layout.insert(48, "Tab".into());
             state.handler = Some(handler.clone());
             state.open(&Action::Word, event(KEY_DOWN, 48, 0), now)
@@ -987,7 +1333,14 @@ mod tests {
         assert_eq!(*seen.lock().unwrap(), [0, 2]);
         assert!(input.shared.posted.lock().unwrap().is_empty());
         input.finish(false).unwrap();
-        let serials: Vec<_> = input.shared.posted.lock().unwrap().iter().map(|e| e.3).collect();
+        let serials: Vec<_> = input
+            .shared
+            .posted
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|e| e.3)
+            .collect();
         assert_eq!(serials, [2, 3, 4]);
         input.finish(false).unwrap();
         assert_eq!(input.shared.posted.lock().unwrap().len(), 3);
@@ -995,8 +1348,14 @@ mod tests {
     #[test]
     fn rolling_timeout_window_recovers_three_then_disables() {
         let now = Instant::now();
-        let mut state = State { enabled: true, ..State::default() };
-        for _ in 0..3 { state.timeout(now); assert!(state.enabled); }
+        let mut state = State {
+            enabled: true,
+            ..State::default()
+        };
+        for _ in 0..3 {
+            state.timeout(now);
+            assert!(state.enabled);
+        }
         state.timeout(now);
         assert!(!state.enabled);
         state.enabled = true;
@@ -1006,8 +1365,13 @@ mod tests {
     }
     #[test]
     fn modifiers_layout_and_option_tab_are_exact_and_cached() {
-        let mut state = State { enabled: true, ..State::default() };
-        state.policy = Some(Arc::new(ObservationPolicy::new(&crate::config::Config::default()).unwrap()));
+        let mut state = State {
+            enabled: true,
+            ..State::default()
+        };
+        state.policy = Some(Arc::new(
+            ObservationPolicy::new(&crate::config::Config::default()).unwrap(),
+        ));
         state.layout.insert(48, "Tab".into());
         state.layout.insert(10, "AboveTab".into());
         assert_eq!(state.action(48, ALTERNATE), Some(Action::Bypass));
@@ -1032,23 +1396,43 @@ mod tests {
     }
     #[test]
     fn unicode_chunks_never_split_surrogates_at_twenty_units() {
-        for text in ["a".repeat(19) + "😀b", "😀".repeat(21), "a\r\n".into(), "".into()] {
+        for text in [
+            "a".repeat(19) + "😀b",
+            "😀".repeat(21),
+            "a\r\n".into(),
+            "".into(),
+        ] {
             let chunks: Vec<_> = unicode_chunks(&text).collect();
-            assert!(chunks.iter().all(|chunk| chunk.len() <= 20 && !chunk.is_empty()));
-            let reconstructed: String = chunks.iter().map(|chunk| String::from_utf16(chunk).unwrap()).collect();
+            assert!(
+                chunks
+                    .iter()
+                    .all(|chunk| chunk.len() <= 20 && !chunk.is_empty())
+            );
+            let reconstructed: String = chunks
+                .iter()
+                .map(|chunk| String::from_utf16(chunk).unwrap())
+                .collect();
             assert_eq!(reconstructed, text);
         }
     }
     #[test]
     fn same_window_document_navigation_revokes_cached_input_authority() {
         let input = Input::new();
-        let first = Foreground { app_id: "browser".into(), domain: "example.test".into(),
-            window_id: "window".into(), document_id: "first-native-digest".into(), ..Foreground::default() };
+        let first = Foreground {
+            app_id: "browser".into(),
+            domain: "example.test".into(),
+            window_id: "window".into(),
+            document_id: "first-native-digest".into(),
+            ..Foreground::default()
+        };
         input.set_foreground(first.clone());
         let revision = input.revision();
         input.set_foreground(first.clone());
         assert_eq!(input.revision(), revision);
-        input.set_foreground(Foreground { document_id: "second-native-digest".into(), ..first });
+        input.set_foreground(Foreground {
+            document_id: "second-native-digest".into(),
+            ..first
+        });
         assert_eq!(input.revision(), revision + 1);
         assert_eq!(input.user_revision(), revision + 1);
     }
@@ -1060,7 +1444,10 @@ mod tests {
         input.set_layout(BTreeMap::new(), InputSourceKind::Ime);
         assert_eq!(revision(), 1);
         assert_eq!(input.source_kind(), InputSourceKind::Ime);
-        input.set_foreground(Foreground { app_id: "editor".into(), ..Foreground::default() });
+        input.set_foreground(Foreground {
+            app_id: "editor".into(),
+            ..Foreground::default()
+        });
         assert_eq!(revision(), 2);
         input.notifier()(false);
         assert_eq!(revision(), 3);
@@ -1077,7 +1464,11 @@ mod tests {
             done_tx.send(Ok(())).unwrap();
             ack_tx.send(()).unwrap();
         });
-        input.worker = Some(Worker { thread, done: done_rx, started: true });
+        input.worker = Some(Worker {
+            thread,
+            done: done_rx,
+            started: true,
+        });
         assert!(input.stop_with_timeout(Duration::ZERO).is_err());
         assert!(input.worker.is_some());
         release_tx.send(()).unwrap();
@@ -1100,7 +1491,14 @@ mod tests {
         assert!(input.shared.posted.lock().unwrap().is_empty());
         assert!(!input.commit());
         input.finish(false).unwrap();
-        let serials: Vec<_> = input.shared.posted.lock().unwrap().iter().map(|e| e.3).collect();
+        let serials: Vec<_> = input
+            .shared
+            .posted
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|e| e.3)
+            .collect();
         assert_eq!(serials, [1]); // initiating down can never repeat an issued edit
         input.stop_with_timeout(Duration::ZERO).unwrap();
     }

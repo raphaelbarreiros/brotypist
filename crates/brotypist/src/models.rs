@@ -2,7 +2,13 @@
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{fs::File, io::{Read, Write}, path::{Path, PathBuf}, sync::LazyLock, time::Duration};
+use std::{
+    fs::File,
+    io::{Read, Write},
+    path::{Path, PathBuf},
+    sync::LazyLock,
+    time::Duration,
+};
 use tokio_util::sync::CancellationToken;
 
 pub const DEFAULT_PRESET: &str = "gemma4-e2b";
@@ -29,22 +35,36 @@ static CATALOG: LazyLock<Vec<ModelPreset>> = LazyLock::new(|| {
         .expect("embedded model catalogue must be valid")
 });
 
-pub fn presets() -> &'static [ModelPreset] { CATALOG.as_slice() }
+pub fn presets() -> &'static [ModelPreset] {
+    CATALOG.as_slice()
+}
 
 pub fn get_preset(id: &str) -> Result<&'static ModelPreset> {
-    presets().iter().find(|p| p.id == id).with_context(|| format!("Unknown model preset: {id}"))
+    presets()
+        .iter()
+        .find(|p| p.id == id)
+        .with_context(|| format!("Unknown model preset: {id}"))
 }
 
 static CAPACITY: LazyLock<Option<u64>> = LazyLock::new(measure_physical_memory);
-pub fn physical_memory_bytes() -> Option<u64> { *CAPACITY }
+pub fn physical_memory_bytes() -> Option<u64> {
+    *CAPACITY
+}
 
 #[cfg(target_os = "macos")]
 fn measure_physical_memory() -> Option<u64> {
     let mut size = std::mem::size_of::<u64>();
     let mut value = 0_u64;
     // SAFETY: hw.memsize is a fixed read-only sysctl; both output pointers match its ABI.
-    let status = unsafe { libc::sysctlbyname(c"hw.memsize".as_ptr(), (&mut value as *mut u64).cast(),
-        &mut size, std::ptr::null_mut(), 0) };
+    let status = unsafe {
+        libc::sysctlbyname(
+            c"hw.memsize".as_ptr(),
+            (&mut value as *mut u64).cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
     (status == 0 && size == std::mem::size_of::<u64>() && value > 0).then_some(value)
 }
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -52,34 +72,55 @@ fn measure_physical_memory() -> Option<u64> {
     // SAFETY: sysconf accepts these constant selectors and returns no borrowed memory.
     let pages = unsafe { libc::sysconf(libc::_SC_PHYS_PAGES) };
     let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
-    if pages <= 0 || page_size <= 0 { None } else { (pages as u64).checked_mul(page_size as u64) }
+    if pages <= 0 || page_size <= 0 {
+        None
+    } else {
+        (pages as u64).checked_mul(page_size as u64)
+    }
 }
 #[cfg(target_os = "windows")]
 fn measure_physical_memory() -> Option<u64> {
     use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
-    let mut status = MEMORYSTATUSEX { dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
-        ..Default::default() };
+    let mut status = MEMORYSTATUSEX {
+        dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+        ..Default::default()
+    };
     // SAFETY: initialized documented length and writable structure; no retained pointer.
-    unsafe { GlobalMemoryStatusEx(&mut status).ok()?; }
+    unsafe {
+        GlobalMemoryStatusEx(&mut status).ok()?;
+    }
     (status.ullTotalPhys > 0).then_some(status.ullTotalPhys)
 }
 #[cfg(not(any(unix, target_os = "windows")))]
-fn measure_physical_memory() -> Option<u64> { None }
+fn measure_physical_memory() -> Option<u64> {
+    None
+}
 
 pub fn recommended_preset(memory: Option<u64>) -> &'static ModelPreset {
     get_preset(if memory.is_some_and(|bytes| bytes < 8 * 1024_u64.pow(3)) {
         "balanced"
-    } else { DEFAULT_PRESET }).expect("embedded recommendation must exist")
+    } else {
+        DEFAULT_PRESET
+    })
+    .expect("embedded recommendation must exist")
 }
 pub fn model_availability(preset: &ModelPreset, memory: Option<u64>) -> Option<String> {
-    memory.filter(|bytes| *bytes < preset.minimum_memory_bytes)
-        .map(|_| format!("Requires at least {} GB of physical memory.", preset.minimum_memory_bytes / 1024_u64.pow(3)))
+    memory
+        .filter(|bytes| *bytes < preset.minimum_memory_bytes)
+        .map(|_| {
+            format!(
+                "Requires at least {} GB of physical memory.",
+                preset.minimum_memory_bytes / 1024_u64.pow(3)
+            )
+        })
 }
 pub fn model_path(preset: &ModelPreset) -> Result<PathBuf> {
     Ok(crate::paths::model_dir()?.join(&preset.filename))
 }
 pub fn is_installed(preset: &ModelPreset) -> bool {
-    model_path(preset).ok().and_then(|p| p.metadata().ok())
+    model_path(preset)
+        .ok()
+        .and_then(|p| p.metadata().ok())
         .is_some_and(|m| m.is_file() && m.len() == preset.size_bytes)
 }
 
@@ -87,10 +128,18 @@ pub fn is_installed(preset: &ModelPreset) -> bool {
 #[derive(Clone, Debug, Default)]
 pub struct DownloadCancellation(CancellationToken);
 impl DownloadCancellation {
-    pub fn new() -> Self { Self::default() }
-    pub fn set(&self) { self.0.cancel(); }
-    pub fn is_set(&self) -> bool { self.0.is_cancelled() }
-    pub async fn cancelled(&self) { self.0.cancelled().await; }
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn set(&self) {
+        self.0.cancel();
+    }
+    pub fn is_set(&self) -> bool {
+        self.0.is_cancelled()
+    }
+    pub async fn cancelled(&self) {
+        self.0.cancelled().await;
+    }
     pub fn check(&self) -> Result<()> {
         ensure!(!self.is_set(), "Model download cancelled.");
         Ok(())
@@ -104,7 +153,9 @@ fn digest_file(path: &Path, cancel: &DownloadCancellation) -> Result<String> {
     loop {
         cancel.check()?;
         let count = source.read(&mut chunk)?;
-        if count == 0 { break; }
+        if count == 0 {
+            break;
+        }
         digest.update(&chunk[..count]);
     }
     cancel.check()?;
@@ -112,13 +163,22 @@ fn digest_file(path: &Path, cancel: &DownloadCancellation) -> Result<String> {
 }
 
 /// Blocking public entrypoint. Call on a download owner, never the GUI or keyboard hook.
-pub fn download_model(id: &str, accept_license: bool, cancel: &DownloadCancellation,
-    progress: &mut dyn FnMut(u64, u64)) -> Result<PathBuf> {
+pub fn download_model(
+    id: &str,
+    accept_license: bool,
+    cancel: &DownloadCancellation,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<PathBuf> {
     let preset = get_preset(id)?;
-    if let Some(reason) = model_availability(preset, physical_memory_bytes()) { bail!(reason); }
-    ensure!(!preset.requires_license_acceptance || accept_license,
+    if let Some(reason) = model_availability(preset, physical_memory_bytes()) {
+        bail!(reason);
+    }
+    ensure!(
+        !preset.requires_license_acceptance || accept_license,
         "Read and accept {} before downloading: {}. CLI downloads require --accept-model-license.",
-        preset.license_name, preset.license_url);
+        preset.license_name,
+        preset.license_url
+    );
     let target = model_path(preset)?;
     cancel.check()?;
     std::fs::create_dir_all(target.parent().context("Model has no cache directory")?)?;
@@ -129,30 +189,49 @@ pub fn download_model(id: &str, accept_license: bool, cancel: &DownloadCancellat
         cancel.check()?;
         return Ok(target);
     }
-    let url = format!("https://huggingface.co/{}/resolve/{}/{}", preset.repo, preset.revision, preset.filename);
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let url = format!(
+        "https://huggingface.co/{}/resolve/{}/{}",
+        preset.repo, preset.revision, preset.filename
+    );
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     runtime.block_on(download_to(preset, &url, &target, cancel, progress))?;
     Ok(target)
 }
 
-async fn download_to(preset: &ModelPreset, url: &str, target: &Path,
-    cancel: &DownloadCancellation, progress: &mut dyn FnMut(u64,u64)) -> Result<()> {
-    ensure!(url::Url::parse(url)?.scheme() == "https", "Model download requires HTTPS.");
-    let client = reqwest::Client::builder().connect_timeout(Duration::from_secs(30))
+async fn download_to(
+    preset: &ModelPreset,
+    url: &str,
+    target: &Path,
+    cancel: &DownloadCancellation,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<()> {
+    ensure!(
+        url::Url::parse(url)?.scheme() == "https",
+        "Model download requires HTTPS."
+    );
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(30))
         .user_agent("inklow/0.2")
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             if attempt.url().scheme() != "https" {
                 attempt.error("Refusing a non-HTTPS model download redirect.")
             } else if attempt.previous().len() >= 10 {
                 attempt.error("Too many model download redirects.")
-            } else { attempt.follow() }
-        })).build()?;
+            } else {
+                attempt.follow()
+            }
+        }))
+        .build()?;
     let mut response = tokio::select! {
         _ = cancel.cancelled() => { cancel.check()?; unreachable!() },
         result = client.get(url).send() => result?.error_for_status()?,
     };
     let parent = target.parent().context("Model target has no parent")?;
-    let mut staging = tempfile::Builder::new().prefix(".download-").tempfile_in(parent)?;
+    let mut staging = tempfile::Builder::new()
+        .prefix(".download-")
+        .tempfile_in(parent)?;
     let mut digest = Sha256::new();
     let mut count = 0_u64;
     loop {
@@ -163,12 +242,19 @@ async fn download_to(preset: &ModelPreset, url: &str, target: &Path,
                 result.context("Model download body timed out")??
             }
         };
-        let Some(chunk) = next else { break; };
+        let Some(chunk) = next else {
+            break;
+        };
         // reqwest's transport chunks can be larger; process/progress remain bounded to 64 KiB.
         for part in chunk.chunks(64 * 1024) {
             cancel.check()?;
-            count = count.checked_add(part.len() as u64).context("Model download size overflow")?;
-            ensure!(count <= preset.size_bytes, "Model download exceeds its verified size.");
+            count = count
+                .checked_add(part.len() as u64)
+                .context("Model download size overflow")?;
+            ensure!(
+                count <= preset.size_bytes,
+                "Model download exceeds its verified size."
+            );
             digest.update(part);
             staging.write_all(part)?;
             progress(count, preset.size_bytes);
@@ -178,13 +264,18 @@ async fn download_to(preset: &ModelPreset, url: &str, target: &Path,
     verify_download(preset, count, &format!("{:x}", digest.finalize()))?;
     staging.as_file().sync_all()?;
     cancel.check()?;
-    staging.persist(target).map_err(|e| e.error).context("Could not atomically install verified model")?;
+    staging
+        .persist(target)
+        .map_err(|e| e.error)
+        .context("Could not atomically install verified model")?;
     Ok(())
 }
 
 fn verify_download(preset: &ModelPreset, size: u64, hash: &str) -> Result<()> {
-    ensure!(size == preset.size_bytes && hash == preset.sha256,
-        "Model integrity verification failed; the existing model was not replaced.");
+    ensure!(
+        size == preset.size_bytes && hash == preset.sha256,
+        "Model integrity verification failed; the existing model was not replaced."
+    );
     Ok(())
 }
 
@@ -195,7 +286,10 @@ mod tests {
     fn capacity_policy_distinguishes_unknown_and_low_memory() {
         assert_eq!(recommended_preset(None).id, "gemma4-e2b");
         assert_eq!(recommended_preset(Some(4 * 1024_u64.pow(3))).id, "balanced");
-        assert!(model_availability(get_preset("gemma3-1b").unwrap(), Some(3 * 1024_u64.pow(3))).is_some());
+        assert!(
+            model_availability(get_preset("gemma3-1b").unwrap(), Some(3 * 1024_u64.pow(3)))
+                .is_some()
+        );
         assert!(model_availability(get_preset("gemma3-1b").unwrap(), None).is_none());
     }
     #[test]
