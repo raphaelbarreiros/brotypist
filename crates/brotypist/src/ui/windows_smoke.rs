@@ -770,11 +770,11 @@ unsafe extern "system" fn dialog(hwnd: HWND, param: LPARAM) -> BOOL {
             let expected = String::from_utf16_lossy(&path[..path.len() - 1]);
             if let Ok(control) = GetDlgItem(Some(hwnd), 0x480) {
                 request.filename_edit_present = true;
-                request.filename_edit_matches = text(control) == expected.as_ref();
+                request.filename_edit_matches = text(control) == expected;
             }
             if let Ok(control) = GetDlgItem(Some(hwnd), 0x47c) {
                 request.filename_combo_present = true;
-                request.filename_combo_matches = text(control) == expected.as_ref();
+                request.filename_combo_matches = text(control) == expected;
             }
         }
         if let Ok(control) = GetDlgItem(Some(hwnd), request.button) {
