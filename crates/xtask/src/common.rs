@@ -3,6 +3,7 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    borrow::Cow,
     collections::BTreeSet,
     ffi::OsStr,
     fs::{self, File, OpenOptions},
@@ -290,6 +291,38 @@ pub fn ensure_destination(path: &Path, replace: bool, platform: &str) -> Result<
         }
     }
 }
+/// Preserve filesystem identity; adapt only namespace spelling at native tool boundaries.
+pub fn external_tool_path(path: &Path) -> Cow<'_, Path> {
+    #[cfg(windows)]
+    {
+        use std::{ffi::OsString, path::Prefix};
+        let mut components = path.components();
+        if let Some(Component::Prefix(prefix)) = components.next() {
+            let ordinary = match prefix.kind() {
+                Prefix::VerbatimDisk(drive) => {
+                    let drive_prefix = [drive, b':'];
+                    let mut ordinary = OsString::with_capacity(path.as_os_str().len());
+                    ordinary.push(std::str::from_utf8(&drive_prefix).expect("ASCII drive prefix"));
+                    ordinary
+                }
+                Prefix::VerbatimUNC(server, share) => {
+                    let mut ordinary = OsString::with_capacity(path.as_os_str().len());
+                    ordinary.push(r"\\");
+                    ordinary.push(server);
+                    ordinary.push(r"\");
+                    ordinary.push(share);
+                    ordinary
+                }
+                _ => return Cow::Borrowed(path),
+            };
+            let mut ordinary = PathBuf::from(ordinary);
+            ordinary.extend(components);
+            return Cow::Owned(ordinary);
+        }
+    }
+    Cow::Borrowed(path)
+}
+
 pub fn stage(parent: &Path, label: &str) -> Result<PathBuf> {
     fs::create_dir_all(parent)?;
     let prefix = format!(".inklow-{label}-");

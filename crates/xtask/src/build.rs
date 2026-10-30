@@ -4,7 +4,6 @@ use fs2::FileExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
-    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     fs::{self, OpenOptions},
     path::{Path, PathBuf},
@@ -73,25 +72,6 @@ pub fn build(root: &Path, output: &Path, replace: bool, development: bool) -> Re
             target_dir.display()
         ))),
     }
-}
-
-fn external_tool_path(path: &Path) -> Cow<'_, Path> {
-    #[cfg(windows)]
-    {
-        use std::path::{Component, Prefix};
-        let mut components = path.components();
-        if let Some(Component::Prefix(prefix)) = components.next()
-            && let Prefix::VerbatimDisk(drive) = prefix.kind()
-        {
-            // Keep canonical paths for identity checks. cmd/MSBuild need DOS spelling.
-            let drive_prefix = [drive, b':'];
-            let mut ordinary = PathBuf::with_capacity(path.as_os_str().len());
-            ordinary.push(std::str::from_utf8(&drive_prefix).expect("ASCII drive prefix"));
-            ordinary.extend(components);
-            return Cow::Owned(ordinary);
-        }
-    }
-    Cow::Borrowed(path)
 }
 
 fn assemble(

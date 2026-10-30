@@ -148,11 +148,11 @@ fn execute(bundle: &Path, assets: &Path, output: &Path, receipt: &mut Value) -> 
     receipt["stage"] = json!("native_per_user_installer_lifecycle");
     let status = Command::new("pwsh.exe")
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-File"])
-        .arg(&script)
+        .arg(&*external_tool_path(&script))
         .arg("-InputFile")
-        .arg(&input)
+        .arg(&*external_tool_path(&input))
         .arg("-Work")
-        .arg(&work)
+        .arg(&*external_tool_path(&work))
         .stdin(std::process::Stdio::null())
         .status()
         .context("cannot invoke owned native installer probe")?;
@@ -220,7 +220,8 @@ fn verified_package(directory: &Path) -> Result<Value> {
                 && value["artifacts"][kind]["size"] == fs::metadata(&artifact)?.len(),
             "artifact bytes differ from canonical receipt"
         );
-        value["artifacts"][kind]["path"] = json!(artifact.canonicalize()?);
+        let canonical = artifact.canonicalize()?;
+        value["artifacts"][kind]["path"] = json!(&*external_tool_path(&canonical));
     }
     let rows: Vec<Row> = serde_json::from_value(value["files"].clone())?;
     verify_zip(

@@ -267,7 +267,7 @@ fn collect_metadata(
         if members.contains(package.id.as_str()) && package.source.is_none() {
             let manifest = package
                 .manifest_path
-                .strip_prefix(root)
+                .strip_prefix(&metadata.workspace_root)
                 .context("workspace manifest outside source root")?;
             checked_path(root, manifest, false)?;
             first_party.push(FirstParty {
@@ -1140,6 +1140,34 @@ mod tests {
                 "runtime"
             ]
         );
+    }
+    #[test]
+    fn canonical_checkout_accepts_equivalent_cargo_workspace_spelling() {
+        let f = Fixture::new();
+        let root = f.root().canonicalize().unwrap();
+        collect_metadata(
+            &root,
+            "aarch64-apple-darwin",
+            &f.root().join("equivalent-workspace"),
+            &f.parsed(),
+            &f.lock,
+            &f.root().join("native"),
+        )
+        .unwrap();
+        assert_eq!(
+            f.inventory("equivalent-workspace")["first_party"][0]["manifest"],
+            "brotypist/Cargo.toml"
+        );
+    }
+    #[test]
+    fn first_party_manifest_outside_verified_workspace_is_refused_before_output() {
+        let mut f = Fixture::new();
+        let outside = tempdir().unwrap();
+        let manifest = outside.path().join("Cargo.toml");
+        fs::write(&manifest, "[package]\n").unwrap();
+        f.metadata["packages"][0]["manifest_path"] = json!(manifest);
+        assert!(f.collect("outside-workspace").is_err());
+        assert!(!f.root().join("outside-workspace").exists());
     }
     #[test]
     fn preserves_exact_bytes_identity_checksums_and_separate_unlicensed_first_party() {

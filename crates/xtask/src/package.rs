@@ -731,6 +731,7 @@ fn xml(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 pub fn payload_source(bundle: &Path, files: &[Row]) -> Result<String> {
+    let bundle = external_tool_path(bundle);
     let mut directories = BTreeMap::new();
     directories.insert(String::new(), String::from("INSTALLFOLDER"));
     for row in files {
@@ -807,12 +808,12 @@ fn windows_package(
     let zip = work.join(format!("{stem}.zip"));
     let mut command = Command::new("wix");
     command
-        .current_dir(work)
+        .current_dir(&*external_tool_path(work))
         .arg("build")
-        .arg(product)
-        .arg(payload)
+        .arg(&*external_tool_path(&product))
+        .arg(&*external_tool_path(&payload))
         .args(["-arch", "x64", "-o"])
-        .arg(&msi);
+        .arg(&*external_tool_path(&msi));
     for define in [
         format!("Version={version}"),
         format!("ProductCode={}", stable_guid(&format!("product/{version}"))),
@@ -822,7 +823,7 @@ fn windows_package(
             metadata["source_commit"].as_str().unwrap()
         ),
         format!("RegistrationGuid={}", stable_guid("registration")),
-        format!("BundlePath={}", bundle.display()),
+        format!("BundlePath={}", external_tool_path(bundle).display()),
     ] {
         command.arg("-d").arg(define);
     }

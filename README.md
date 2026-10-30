@@ -81,6 +81,8 @@ cargo test --locked --workspace
 
 Build on the target OS and architecture. macOS packaging requires full Xcode 27.1 or 27.2; CI remains pinned to 27.1 and each bundle records its actual compiler version. Windows requires native MSVC Developer PowerShell and the Windows SDK, including the selected installation's `VCINSTALLDIR` and `VCToolsRedistDir`; native llama/ggml DLLs share the dynamic CRT and bundles carry authenticated app-local Microsoft redistributables. Linux uses GTK 3, AT-SPI, Pango/Cairo, session D-Bus, X11 and the explicitly selected KDE input-method transport. The [native CI workflow](.github/workflows/ci.yml) records the dependencies and separates development artifacts from releasable installers.
 
+Windows compiler scratch uses a separate private temporary directory, not the requested bundle destination. Keep `TMP`/`TEMP` short for legacy MSBuild FileTracker limits. Failed builds report and retain both staging paths; successful builds remove compiler scratch without changing OS long-path policy.
+
 Use an absolute, disposable `INKLOW_HOME` for experiments. It isolates settings/history, not the shared model cache. Existing profile paths, the internal `inklow` identity and OS credential-store names are retained.
 
 ```sh

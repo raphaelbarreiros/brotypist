@@ -531,7 +531,7 @@ public static class BroTypistInstallerNative {
         else {
             try {
                 foreach ($product in $products) {
-                    if (@(Contexts $product).Count -gt 0) { [void](Msi-Transaction 'uninstall' @('/x', $product)) }
+                    if (@(Contexts $product).Count -gt 0) { [void](Msi-Transaction 'uninstall_transaction' @('/x', $product)) }
                 }
                 foreach ($product in $products) {
                     Require (@(Contexts $product).Count -eq 0) 'Uninstall left MSI registration'
