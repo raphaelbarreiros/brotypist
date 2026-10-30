@@ -11,13 +11,18 @@ on:
         description: 'Optional v-prefixed version to validate with Rust xtask (does not publish)'
         required: false
         type: string
+      installer_artifact_run:
+        description: 'Optional same-repo run ID: probe its canonical Windows installer only (no rebuild/publication)'
+        required: false
+        type: string
 permissions:
   contents: read
 concurrency:
-  group: native-checks-${{ github.workflow }}-${{ github.ref }}
+  group: native-checks-${{ github.workflow }}-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.installer_artifact_run != '' && '-installer-reuse' || '' }}
   cancel-in-progress: true
 jobs:
   native:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.installer_artifact_run == '' }}
     name: Native ${{ matrix.platform }}
     strategy:
       fail-fast: false
@@ -177,4 +182,36 @@ jobs:
             ${{ env.NATIVE_PACKAGES }}/*.zip
             ${{ env.NATIVE_PACKAGES }}/package-receipt-*.json
           if-no-files-found: warn
+          retention-days: 14
+  windows-installer-reuse:
+    name: Windows installer artifact reuse (no build/publication)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.installer_artifact_run != '' }}
+    runs-on: windows-2025
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      INSTALLER_ARTIFACT_RUN: ${{ inputs.installer_artifact_run }}
+      NATIVE_REPORTS: ${{ runner.temp }}/brotypist-installer-reuse-reports
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Authenticate and verify existing package, then run guarded native probe
+        timeout-minutes: 27
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./.github/native/windows-installer-reuse.ps1 -ArtifactRun $env:INSTALLER_ARTIFACT_RUN -Work (Join-Path $env:RUNNER_TEMP 'brotypist-installer-reuse-work') -Reports $env:NATIVE_REPORTS
+      - name: Retain bounded reuse provenance and native diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-evidence-windows-installer-reuse
+          path: ${{ env.NATIVE_REPORTS }}/*.json
+          if-no-files-found: error
           retention-days: 14

@@ -179,25 +179,130 @@ function Contexts([string]$Product) {
         if ($null -ne $state) { @{ context = $context; state = $state } }
     }
 }
-function Arp-Keys([string]$Product) {
+function Packed-Code([string]$Product) {
     $parts = $Product.Trim('{}').Split('-')
     $packed = ''
     foreach ($part in $parts[0..2]) { $chars = $part.ToCharArray(); [array]::Reverse($chars); $packed += -join $chars }
     $tail = $parts[3] + $parts[4]
     for ($index = 0; $index -lt $tail.Length; $index += 2) { $packed += [string]$tail[$index + 1] + [string]$tail[$index] }
+    return $packed
+}
+function Arp-Keys([string]$Product) {
+    $packed = Packed-Code $Product
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     # This exact SID-scoped MSI database entry is not machine installation.
     # It is read-only here; no probe code writes HKLM.
     return @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$Product", "HKLM:\Software\Microsoft\Windows\CurrentVersion\Installer\UserData\$sid\Products\$packed\InstallProperties")
 }
+function Read-RegistrationObservation([Microsoft.Win32.RegistryHive]$Hive, [Microsoft.Win32.RegistryView]$View, [string]$Subkey, [string]$Sid, [string]$Product, $Package) {
+    # Exact product keys only; never enumerate products, users, values or policy.
+    # Report comparisons rather than user paths, commands, icons or arbitrary strings.
+    $result = [ordered]@{ hive = $Hive.ToString(); view = $View.ToString(); subkey = $Subkey.Replace($Sid, '<current-user-sid>'); status = 'unread'; exists = $null; values = [ordered]@{} }
+    $base = $null; $key = $null
+    try {
+        $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($Hive, $View)
+        $key = $base.OpenSubKey($Subkey, $false)
+        $result.exists = $null -ne $key
+        $result.status = 'read'
+        if ($null -ne $key) {
+            $expected = [ordered]@{
+                DisplayName = 'BroTypist'; ProductName = 'BroTypist'; DisplayVersion = [string]$Package.version
+                InstallLocation = $installDirectory; UninstallString = $Product; DisplayIcon = $installDirectory
+                WindowsInstaller = 1; SystemComponent = 0; AssignmentType = 0
+            }
+            foreach ($name in $expected.Keys) {
+                $value = $key.GetValue($name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+                $property = [ordered]@{ present = $null -ne $value }
+                if ($null -ne $value) {
+                    $property.kind = $key.GetValueKind($name).ToString()
+                    if ($value -is [int]) { $property.value = $value }
+                    elseif ($value -is [string]) {
+                        $property.length = $value.Length
+                        if ($name -in @('UninstallString', 'DisplayIcon')) {
+                            $property.references_expected = $value.IndexOf([string]$expected[$name], [StringComparison]::OrdinalIgnoreCase) -ge 0
+                        } else {
+                            $property.matches_expected = $value.TrimEnd('\').Equals(([string]$expected[$name]).TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)
+                        }
+                    } else { $property.unexpected_type = $true }
+                }
+                $result.values[$name] = $property
+            }
+        }
+    } catch {
+        # Error messages can contain SIDs/paths; type and HRESULT discriminate
+        # missing, access-denied and provider/runtime failures without leaking them.
+        $result.status = 'error'; $result.error_type = $_.Exception.GetType().FullName; $result.hresult = $_.Exception.HResult
+    } finally {
+        if ($null -ne $key) { $key.Dispose() }
+        if ($null -ne $base) { $base.Dispose() }
+    }
+    return $result
+}
+function Observe-RegistrationScope($Package, [string]$Product, $Contexts, [string]$Assignment) {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    try {
+        $sid = $identity.User.Value
+        $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+        $uninstall = "Software\Microsoft\Windows\CurrentVersion\Uninstall\$Product"
+        $packed = Packed-Code $Product
+        $userData = "Software\Microsoft\Windows\CurrentVersion\Installer\UserData\$sid\Products\$packed\InstallProperties"
+        $registry = [System.Collections.Generic.List[object]]::new()
+        foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
+            $registry.Add((Read-RegistrationObservation LocalMachine $view $uninstall $sid $Product $Package))
+            $registry.Add((Read-RegistrationObservation CurrentUser $view $uninstall $sid $Product $Package))
+            $registry.Add((Read-RegistrationObservation Users $view "$sid\$uninstall" $sid $Product $Package))
+            $registry.Add((Read-RegistrationObservation LocalMachine $view $userData $sid $Product $Package))
+        }
+        # Also observe the literal WOW6432Node path used by the second guard.
+        $registry.Add((Read-RegistrationObservation LocalMachine Registry64 "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$Product" $sid $Product $Package))
+        $provider = [System.Collections.Generic.List[object]]::new()
+        foreach ($path in @("HKLM:\$uninstall", "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$Product")) {
+            $row = [ordered]@{ literal_path = $path; status = 'unread'; exists = $null }
+            try {
+                $row.exists = Test-Path -LiteralPath $path
+                $row.status = 'read'
+                if ($row.exists) {
+                    $item = Get-Item -LiteralPath $path
+                    try {
+                        $row.registry_key_type = $item -is [Microsoft.Win32.RegistryKey]
+                        $row.resolved_name_matches_literal = $item.Name -ieq $path.Replace('HKLM:', 'HKEY_LOCAL_MACHINE')
+                    } finally { if ($item -is [IDisposable]) { $item.Dispose() } }
+                }
+            } catch { $row.status = 'error'; $row.error_type = $_.Exception.GetType().FullName; $row.hresult = $_.Exception.HResult }
+            $provider.Add($row)
+        }
+        $drives = @(
+            foreach ($name in @('HKLM', 'HKCU')) {
+                $drive = Get-PSDrive -Name $name
+                @{ name = $name; registry_provider = $drive.Provider.Name -ceq 'Registry'; expected_root = $drive.Root -ceq $(if ($name -ceq 'HKLM') { 'HKEY_LOCAL_MACHINE' } else { 'HKEY_CURRENT_USER' }) }
+            }
+        )
+        $receipt.observations.Add(@{
+            check = 'installed_registration_scope'; passed = $null; status = 'observed'
+            evidence = @{
+                product_code = $Product; input_product_code_is_unbraced_guid = ([string]$Package.product_code) -cmatch '^[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}$'
+                source_commit = $Package.source_commit; msi_query_sid = 'native NULL (current user)'; contexts = @($Contexts); assignment_type = $Assignment
+                installed_name_version_location_assertions_passed = $true
+                runtime = @{ powershell = $PSVersionTable.PSVersion.ToString(); edition = $PSVersionTable.PSEdition; process_64_bit = [Environment]::Is64BitProcess; os_64_bit = [Environment]::Is64BitOperatingSystem; drives = $drives }
+                token = @{ sid = '<current-user-sid>'; is_system = $identity.IsSystem; authenticated = $identity.IsAuthenticated; impersonation_level = $identity.ImpersonationLevel.ToString(); administrator_role_enabled = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) }
+                provider_guards = @($provider); explicit_registry_views = @($registry)
+                interpretation = 'observations only; native exclusive per-user and both machine ARP absence gates remain required'
+            }
+        })
+    } finally { $identity.Dispose() }
+}
 function Assert-Installed($Package) {
     $product = Guid-Code $Package
     $contexts = @(Contexts $product)
     Require ($contexts.Count -eq 1 -and $contexts[0].context -eq 2 -and $contexts[0].state -eq '5') 'Product is not exclusively per-user unmanaged'
-    Equal (Product-Info $product 2 'AssignmentType') '0' 'MSI assignment is not per-user'
+    $assignment = Product-Info $product 2 'AssignmentType'
+    Equal $assignment '0' 'MSI assignment is not per-user'
     Equal (Product-Info $product 2 'InstalledProductName') 'BroTypist' 'Registered name differs'
     Equal (Product-Info $product 2 'VersionString') $Package.version 'Registered version differs'
     Equal ((Product-Info $product 2 'InstallLocation').TrimEnd('\')) $installDirectory.TrimEnd('\') 'Default per-user install directory differs'
+    # Preserve the native ownership facts before a contradictory registry guard
+    # can throw. Explicit views distinguish a real key from provider/path effects.
+    Observe-RegistrationScope $Package $product $contexts $assignment
     Require (-not (Test-Path -LiteralPath "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$product")) 'Machine ARP registration exists'
     Require (-not (Test-Path -LiteralPath "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$product")) '32-bit machine ARP registration exists'
     $arpKeys = @(Arp-Keys $product | Where-Object { Test-Path -LiteralPath $_ })
