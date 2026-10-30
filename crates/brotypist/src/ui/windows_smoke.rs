@@ -457,7 +457,10 @@ fn exercise(output: &Path, receipt: &mut Value) -> Result<bool> {
             screenshot(&shell, output, "welcome-model-unavailable", receipt)?;
             return Ok(false);
         };
-        let model = model.canonicalize()?;
+        // Keep the Shell-facing DOS spelling: Windows canonicalization adds a
+        // verbatim filesystem prefix which common dialog UI need not interpret.
+        let model = std::path::absolute(model)?;
+        let model_identity = model.canonicalize()?;
         modal(
             &mut shell,
             &clipboard,
@@ -466,8 +469,13 @@ fn exercise(output: &Path, receipt: &mut Value) -> Result<bool> {
             Some(model.clone()),
             |s, c| click(s, MODEL_IMPORT, c),
         )?;
+        let selected_model = shell
+            .draft
+            .value("model_path")
+            .and_then(Value::as_str)
+            .context("The real native import dialog did not select a model.")?;
         ensure!(
-            shell.draft.value("model_path").and_then(Value::as_str) == model.to_str(),
+            Path::new(selected_model).canonicalize()? == model_identity,
             "The real native import dialog did not return the selected GGUF."
         );
         ensure!(
@@ -776,14 +784,18 @@ fn modal<T>(
     });
     let result = action(shell, clipboard);
     done.store(true, Ordering::Release);
-    let responded = responder
+    let response = responder
         .join()
-        .map_err(|_| anyhow::anyhow!("The owned dialog responder failed."))?;
+        .map_err(|_| anyhow::anyhow!("The owned dialog responder failed."));
+    // Preserve a real picker/action failure rather than replacing it with a
+    // secondary missing-dialog assertion.
+    let result = result?;
+    let responded = response?;
     ensure!(
         responded,
         "The expected owned native dialog did not complete."
     );
-    result
+    Ok(result)
 }
 struct Capture {
     dc: HDC,
