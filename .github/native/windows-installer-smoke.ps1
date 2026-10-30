@@ -259,7 +259,7 @@ function Msi-Transaction([string]$Stage, [string[]]$Arguments, [switch]$Expected
     else { Require ($code -in @(0, 3010)) 'MSI transaction failed' }
     return $code
 }
-function Cli([string]$Executable, [string[]]$Arguments, [string]$Stage, [int]$Timeout = 30) {
+function Invoke-NativeCli([string]$Executable, [string[]]$Arguments, [string]$Stage, [int]$Timeout = 30) {
     $stdout = Join-Path $Work ($Stage + '.stdout.log')
     $stderr = Join-Path $Work ($Stage + '.stderr.log')
     $logs.Add($stdout); $logs.Add($stderr)
@@ -291,8 +291,8 @@ function Cli([string]$Executable, [string[]]$Arguments, [string]$Stage, [int]$Ti
 }
 function Probe-Cli([string]$Directory, $Package, [string]$Stage) {
     $app = Join-Path $Directory 'BroTypist-cli.exe'
-    Equal ((Cli $app @('--version') ($Stage + '-version')).Trim()) ('BroTypist ' + $Package.version) 'Actual CLI version differs'
-    $doctor = Cli $app @('--paused', 'doctor') ($Stage + '-doctor') | ConvertFrom-Json
+    Equal ((Invoke-NativeCli $app @('--version') ($Stage + '-version')).Trim()) ('BroTypist ' + $Package.version) 'Actual CLI version differs'
+    $doctor = Invoke-NativeCli $app @('--paused', 'doctor') ($Stage + '-doctor') | ConvertFrom-Json
     Equal $doctor.version $Package.version 'Doctor version differs'
     Equal $doctor.platform 'windows' 'Doctor platform differs'
     Equal $doctor.runtime 'Rust' 'Doctor runtime differs'
@@ -507,7 +507,7 @@ public static class BroTypistInstallerNative {
         $workerOutput = Join-Path $Work 'tiny-worker'
         [Environment]::SetEnvironmentVariable('INKLOW_HOME', $workerHome, 'Process')
         try {
-            [void](Cli $input.worker @('--app', (Join-Path $installDirectory 'BroTypist-cli.exe'), '--output', $workerOutput, '--preset', 'tiny', '--model-path', $input.model, '--timeout-seconds', '180') 'installed-tiny-worker' 1200)
+            [void](Invoke-NativeCli $input.worker @('--app', (Join-Path $installDirectory 'BroTypist-cli.exe'), '--output', $workerOutput, '--preset', 'tiny', '--model-path', $input.model, '--timeout-seconds', '180') 'installed-tiny-worker' 1200)
             $workerReceipt = Get-Content -LiteralPath (Join-Path $workerOutput 'worker-smoke.json') -Raw | ConvertFrom-Json
             Equal $workerReceipt.passed $true 'Canonical installed Tiny worker smoke failed'
             Observe 'installed_tiny_worker' @{ passed = $true; preset = 'tiny'; canonical_worker_receipt = 'tiny-worker/worker-smoke.json'; model_verified_by_canonical_smoke = $true }

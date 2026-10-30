@@ -21,6 +21,7 @@
 - Resolve first-party notice manifests relative to Cargo's verified workspace spelling, preserving canonical identity and symlink/outside-root refusal across macOS aliases and Windows path namespaces.
 - Separate MSI transaction observations from verified uninstall evidence, and adapt paths at WiX/MSI native boundaries while retaining artifact hashes, per-user ownership and data-preservation checks.
 - Pass an explicit native-null current-user SID to MSI registration queries instead of PowerShell's empty-string coercion, retaining fail-closed status checks and bounded diagnostics.
+- Avoid PowerShell's built-in `cli` alias when invoking actual portable/installed diagnostics and workers; retain the system alias table and bounded child-process checks.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
 
 ## 0.4.13 — macOS Electron safety fixes
