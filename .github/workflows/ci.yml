@@ -41,12 +41,8 @@ jobs:
         shell: pwsh
     env:
       CARGO_TERM_COLOR: never
-      CARGO_TARGET_DIR: ${{ runner.temp }}/brotypist-native-target
       CARGO_BUILD_JOBS: '3'
       CMAKE_BUILD_PARALLEL_LEVEL: '3'
-      INKLOW_HOME: ${{ runner.temp }}/brotypist-native-profile
-      NATIVE_REPORTS: ${{ runner.temp }}/brotypist-native-reports
-      NATIVE_PORTABLE: ${{ runner.temp }}/brotypist-native-portable
       NATIVE_TARGET: ${{ matrix.target }}
       RUSTFLAGS: ${{ matrix.rustflags }}
       RUST_BACKTRACE: '1'
@@ -59,6 +55,13 @@ jobs:
           persist-credentials: false
       - name: Prepare isolated native evidence directories
         run: |
+          $env:CARGO_TARGET_DIR = Join-Path $env:RUNNER_TEMP 'brotypist-native-target'
+          $env:INKLOW_HOME = Join-Path $env:RUNNER_TEMP 'brotypist-native-profile'
+          $env:NATIVE_REPORTS = Join-Path $env:RUNNER_TEMP 'brotypist-native-reports'
+          $env:NATIVE_PORTABLE = Join-Path $env:RUNNER_TEMP 'brotypist-native-portable'
+          foreach ($name in @('CARGO_TARGET_DIR', 'INKLOW_HOME', 'NATIVE_REPORTS', 'NATIVE_PORTABLE')) {
+            "$name=$([Environment]::GetEnvironmentVariable($name))" >> $env:GITHUB_ENV
+          }
           New-Item -ItemType Directory -Force -Path $env:INKLOW_HOME, $env:NATIVE_REPORTS, $env:NATIVE_PORTABLE | Out-Null
       - name: Select pinned Xcode 27.1
         if: runner.os == 'macOS'
@@ -118,7 +121,7 @@ jobs:
         timeout-minutes: 30
         run: ./.github/native/checks.ps1 -Phase portable
       - name: Retain actual native logs and smoke evidence
-        if: ${{ always() }}
+        if: ${{ always() && env.NATIVE_REPORTS != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: native-evidence-${{ matrix.platform }}
@@ -126,7 +129,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Retain development portable binaries and provenance
-        if: ${{ always() }}
+        if: ${{ always() && env.NATIVE_PORTABLE != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: development-portable-${{ matrix.platform }}-not-for-ota
