@@ -19,6 +19,8 @@ struct NativeLibraries {
     source_kind: String,
     library_dir: PathBuf,
     libraries: Vec<PathBuf>,
+    #[serde(default)]
+    windows_crt: Value,
 }
 
 pub fn build(root: &Path, output: &Path, replace: bool, development: bool) -> Result<PathBuf> {
@@ -259,6 +261,11 @@ fn assemble(
         architecture: arch().into(),
     };
     let mut provenance = json!({"schema":1,"runtime":"rust","target":target,"llama_revision":manifest.llama_revision,"source_kind":manifest.source_kind,"libraries":libraries.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>(),"source":source,"release_eligible":!development && !source.dirty});
+    if os == "win32" {
+        // The native DLLs share /MD; their authenticated app-local Microsoft
+        // runtime remains distinct from the pinned llama.cpp source receipt.
+        provenance["windows_crt"] = manifest.windows_crt;
+    }
     if os == "darwin" {
         compile_mac_icons(root, &resources, &mut provenance)?;
         write_mac_info(&bundle, &version)?;

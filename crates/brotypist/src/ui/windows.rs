@@ -1847,7 +1847,10 @@ impl Shell {
             PERMISSIONS=>crate::system::open_permissions("accessibility")?,SOURCE=>open_url("https://github.com/renan-brasilio/brotypist")?,
             SETTINGS_FOLDER=>open_settings_folder()?,
             UPDATE_CHECK=>self.updates.start_check()?,UPDATE_DOWNLOAD=>{let now=self.updates.snapshot();ensure!(now==self.update_intent,"Update identity changed. Review its status before requesting Download again.");self.updates.start_download()?;},UPDATE_INSTALL=>{let now=self.updates.snapshot();ensure!(now==self.update_intent,"Update identity changed.");anyhow::bail!("Windows OTA installation is held. No package is installed or launched. Use a separately verified Windows release when publication is approved.");},UPDATE_CANCEL=>self.updates.cancel(),
-            W_BACK=>self.next_welcome(true)?,W_NEXT=>self.next_welcome(false)?,W_LANGUAGE=>self.seed_preview(),W_WORD=>self.accept_preview(false)?,W_ALL=>self.accept_preview(true)?,_=>{}
+            W_BACK=>self.next_welcome(true)?,W_NEXT=>self.next_welcome(false)?,
+            // Combo focus/dropdown notifications must not replace owned writing.
+            W_LANGUAGE if notification==CBN_SELCHANGE as u16=>self.seed_preview(),
+            W_WORD=>self.accept_preview(false)?,W_ALL=>self.accept_preview(true)?,_=>{}
         }
         Ok(())
     }

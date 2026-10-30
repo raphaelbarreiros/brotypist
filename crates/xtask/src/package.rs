@@ -195,6 +195,7 @@ pub fn inspect(root: &Path, bundle: &Path, development: bool) -> Result<Value> {
         }
     }
     if os == "win32" {
+        audit_windows_crt(&provenance["windows_crt"], &lib_dir, &library_names)?;
         audit_windows_links(&binary, &library_names)?;
         audit_windows_links(&bundle.join("BroTypist-cli.exe"), &library_names)?;
         for name in &library_names {
@@ -302,6 +303,45 @@ fn audit_linux_links(binary: &Path) -> Result<()> {
     Ok(())
 }
 
+fn audit_windows_crt(receipt: &Value, directory: &Path, libraries: &BTreeSet<&str>) -> Result<()> {
+    ensure!(
+        receipt["source_kind"] == "visual-studio-redistributable"
+            && receipt["architecture"] == "x64"
+            && receipt["authenticode"] == "valid-microsoft",
+        "missing authenticated app-local Visual Studio CRT provenance"
+    );
+    let files = receipt["files"]
+        .as_array()
+        .context("missing VC CRT inventory")?;
+    ensure!(!files.is_empty(), "app-local VC CRT inventory is empty");
+    let mut runtime_names = BTreeSet::new();
+    for file in files {
+        let name = file["name"].as_str().context("VC CRT basename missing")?;
+        ensure!(
+            safe_relative(Path::new(name))
+                && Path::new(name).components().count() == 1
+                && name.to_ascii_lowercase().ends_with(".dll")
+                && runtime_names.insert(name.to_ascii_lowercase())
+                && libraries.contains(name),
+            "unsafe, duplicate or unbundled VC CRT inventory entry"
+        );
+        ensure!(
+            file["sha256"].as_str() == Some(hash(&directory.join(name))?.as_str()),
+            "app-local VC CRT differs from authenticated Visual Studio source: {name}"
+        );
+    }
+    for name in libraries {
+        let lower = name.to_ascii_lowercase();
+        ensure!(
+            lower.starts_with("llama.")
+                || lower.starts_with("ggml")
+                || runtime_names.contains(&lower),
+            "Windows native DLL has no engine/CRT provenance: {name}"
+        );
+    }
+    Ok(())
+}
+
 fn audit_windows_links(binary: &Path, libraries: &BTreeSet<&str>) -> Result<()> {
     let output = run(Command::new("dumpbin").arg("/DEPENDENTS").arg(binary))?;
     let system =
@@ -314,10 +354,18 @@ fn audit_windows_links(binary: &Path, libraries: &BTreeSet<&str>) -> Result<()> 
             continue;
         }
         ensure!(
-            !dependency.starts_with("vcruntime")
-                && !dependency.starts_with("msvcp")
-                && !dependency.starts_with("libomp"),
-            "undeclared dynamic CRT/OpenMP dependency {dependency}; release requires static CRT"
+            !dependency.starts_with("libomp") && !dependency.starts_with("vcomp"),
+            "undeclared OpenMP dependency {dependency}"
+        );
+        let vc_runtime = dependency.starts_with("vcruntime")
+            || dependency.starts_with("msvcp")
+            || dependency.starts_with("concrt")
+            || dependency.starts_with("vccorlib");
+        // A hosted runner's globally installed CRT must never hide a missing
+        // portable/MSI payload. All native and CRT DLLs are audited recursively.
+        ensure!(
+            !vc_runtime || bundled.contains(&dependency),
+            "VC runtime must be bundled app-locally: {dependency}"
         );
         ensure!(
             bundled.contains(&dependency)

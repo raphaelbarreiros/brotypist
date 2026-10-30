@@ -79,7 +79,7 @@ cargo run --locked -p brotypist --bin BroTypist -- --settings
 cargo test --locked --workspace
 ```
 
-Build on the target OS and architecture. macOS packaging requires full Xcode 27.1; Windows requires the MSVC developer environment and Windows SDK; Linux uses GTK 3, AT-SPI, Pango/Cairo, session D-Bus, X11 and the explicitly selected KDE input-method transport. The [native CI workflow](.github/workflows/ci.yml) records the dependencies and separates development artifacts from releasable installers.
+Build on the target OS and architecture. macOS packaging requires full Xcode 27.1. Windows requires native MSVC Developer PowerShell and the Windows SDK, including the selected installation's `VCINSTALLDIR` and `VCToolsRedistDir`; native llama/ggml DLLs share the dynamic CRT and bundles carry authenticated app-local Microsoft redistributables. Linux uses GTK 3, AT-SPI, Pango/Cairo, session D-Bus, X11 and the explicitly selected KDE input-method transport. The [native CI workflow](.github/workflows/ci.yml) records the dependencies and separates development artifacts from releasable installers.
 
 Use an absolute, disposable `INKLOW_HOME` for experiments. It isolates settings/history, not the shared model cache. Existing profile paths, the internal `inklow` identity and OS credential-store names are retained.
 

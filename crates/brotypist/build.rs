@@ -58,11 +58,12 @@ fn main() {
             );
         }
         if target == "windows" {
-            // Match packaged Rust binaries' -C target-feature=+crt-static.
-            // This covers both cmake's compiler flags and CMake target policy.
+            // llama.dll passes FILE* streams to/from ggml-base.dll. They must
+            // share the CRT's descriptor table; separate /MT runtimes cannot
+            // resolve each other's model-file descriptors on Windows.
             native
-                .static_crt(true)
-                .define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreaded");
+                .static_crt(false)
+                .define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreadedDLL");
         }
         native
             .define("BUILD_SHARED_LIBS", "ON")
@@ -195,6 +196,14 @@ fn write_native_manifest(
             .is_some_and(|name| name.starts_with("libllama.") || name.starts_with("llama."))),
         "Native manifest cannot omit the llama runtime library"
     );
+    let windows_crt = if target_os == "windows" {
+        let (runtime, files) = stage_windows_crt(path.parent().expect("Native output directory"));
+        libraries.extend(files);
+        libraries.sort();
+        runtime
+    } else {
+        serde_json::Value::Null
+    };
     let manifest = serde_json::json!({
         "schema": 1,
         "llama_revision": LLAMA_REVISION,
@@ -203,6 +212,7 @@ fn write_native_manifest(
         "source_kind": source_kind,
         "library_dir": library_dir,
         "libraries": libraries,
+        "windows_crt": windows_crt,
     });
     // Packaging consumes this invocation's Cargo build-script-executed OUT_DIR,
     // never a glob or a previously selected target-cache directory. A failed
@@ -218,6 +228,129 @@ fn write_native_manifest(
         .expect("Completing native artifact manifest");
     file.sync_all()
         .expect("Persisting native artifact manifest");
+}
+
+// Use only the redistributables of the selected Visual Studio installation.
+// Never harvest runner-installed System32/PATH DLLs or debug/nonredist files.
+fn stage_windows_crt(output: &Path) -> (serde_json::Value, Vec<PathBuf>) {
+    for name in ["VCINSTALLDIR", "VCToolsRedistDir"] {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
+    assert_eq!(
+        env::var("CARGO_CFG_TARGET_ARCH").as_deref(),
+        Ok("x86_64"),
+        "App-local VC runtime staging currently supports the native x64 Windows target"
+    );
+    let vc = PathBuf::from(
+        env::var_os("VCINSTALLDIR").expect("Use the selected Visual Studio developer environment"),
+    )
+    .join("Redist")
+    .canonicalize()
+    .expect("Visual Studio redistributable root");
+    let redist = PathBuf::from(
+        env::var_os("VCToolsRedistDir").expect("Visual Studio must provide VCToolsRedistDir"),
+    )
+    .canonicalize()
+    .expect("Selected VC redistributable directory");
+    assert!(
+        redist.starts_with(&vc),
+        "VC redistributables must belong to the selected Visual Studio installation"
+    );
+    let mut candidates = Vec::new();
+    for entry in fs::read_dir(redist.join("x64")).expect("Selected x64 VC redistributables") {
+        let entry = entry.expect("VC redistributable entry");
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        if entry
+            .file_type()
+            .expect("VC redistributable entry type")
+            .is_dir()
+            && name.starts_with("microsoft.vc")
+            && name.ends_with(".crt")
+        {
+            candidates.push(entry.path());
+        }
+    }
+    assert_eq!(
+        candidates.len(),
+        1,
+        "Expected exactly one selected x64 release VC CRT directory"
+    );
+    let source = candidates
+        .pop()
+        .unwrap()
+        .canonicalize()
+        .expect("VC CRT source");
+    assert!(
+        source.starts_with(&redist),
+        "VC CRT source escaped selected redistributables"
+    );
+    println!("cargo:rerun-if-changed={}", source.display());
+    let powershell = PathBuf::from(env::var_os("SystemRoot").expect("Windows system root"))
+        .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+    let inspected = Command::new(powershell)
+        .args(["-NoProfile", "-NonInteractive", "-Command", r#"
+$ErrorActionPreference = 'Stop'
+$files = @(Get-ChildItem -LiteralPath $env:BROTYPIST_VC_RUNTIME_SOURCE -Filter '*.dll' -File | Sort-Object Name | ForEach-Object {
+    $signature = Get-AuthenticodeSignature -LiteralPath $_.FullName
+    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch '(^|,\s*)O=Microsoft Corporation(,|$)') {
+        throw 'VC runtime must have a valid Microsoft Authenticode signature.'
+    }
+    [pscustomobject]@{
+        name = $_.Name
+        sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        file_version = $_.VersionInfo.FileVersion
+    }
+})
+if ($files.Count -eq 0) { throw 'Selected VC CRT directory contains no runtime DLLs.' }
+[pscustomobject]@{source_kind='visual-studio-redistributable'; architecture='x64'; authenticode='valid-microsoft'; files=$files} | ConvertTo-Json -Depth 4 -Compress
+"#])
+        .env("BROTYPIST_VC_RUNTIME_SOURCE", &source)
+        .output().expect("Inspecting authentic Visual Studio CRT redistributables");
+    assert!(
+        inspected.status.success(),
+        "Cannot authenticate selected Visual Studio CRT redistributables: {}",
+        String::from_utf8_lossy(&inspected.stderr)
+    );
+    let mut receipt: serde_json::Value =
+        serde_json::from_slice(&inspected.stdout).expect("VC redistributable inspection receipt");
+    receipt["source_directory"] = serde_json::json!(source);
+    let staged = output.join("vc-runtime");
+    if staged.exists() {
+        fs::remove_dir_all(&staged).expect("Removing this build's previous VC runtime staging");
+    }
+    fs::create_dir(&staged).expect("Creating fresh app-local VC runtime staging");
+    let mut libraries = Vec::new();
+    for file in receipt["files"]
+        .as_array()
+        .expect("VC redistributable inventory")
+    {
+        let name = file["name"].as_str().expect("VC runtime basename");
+        assert!(
+            Path::new(name).components().count() == 1
+                && name.to_ascii_lowercase().ends_with(".dll"),
+            "Invalid VC runtime basename"
+        );
+        let lower = name.to_ascii_lowercase();
+        assert!(
+            lower != "ucrtbase.dll"
+                && !lower.starts_with("api-ms-")
+                && !lower.starts_with("ext-ms-"),
+            "The Windows OS UCRT/API sets must not be bundled"
+        );
+        let original = source
+            .join(name)
+            .canonicalize()
+            .expect("VC runtime source file");
+        assert!(
+            original.parent() == Some(source.as_path()),
+            "VC runtime source escaped authenticated directory"
+        );
+        println!("cargo:rerun-if-changed={}", original.display());
+        let destination = staged.join(name);
+        fs::copy(original, &destination).expect("Staging authentic app-local VC runtime");
+        libraries.push(destination);
+    }
+    (receipt, libraries)
 }
 
 fn windows_resources() {

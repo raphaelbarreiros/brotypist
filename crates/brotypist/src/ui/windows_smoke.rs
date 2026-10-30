@@ -514,6 +514,29 @@ fn exercise(output: &Path, receipt: &mut Value) -> Result<bool> {
             "real-selected-gguf-inference-native-inline-visible-prefix-and-exact-owned-readback",
         );
         let language = reveal(&mut shell, W_LANGUAGE, &clipboard)?;
+        // Merely tabbing through the language combo sends CBN_SETFOCUS and
+        // CBN_KILLFOCUS, not a language selection. Neither may reset writing.
+        unsafe {
+            SetFocus(Some(language))?;
+        }
+        pump(&mut shell, &clipboard)?;
+        ensure!(
+            text(shell.h(W_EDIT)) == after,
+            "Focusing the preview language combo reset the owned writing."
+        );
+        unsafe {
+            SetFocus(Some(shell.h(W_EDIT)))?;
+        }
+        pump(&mut shell, &clipboard)?;
+        ensure!(
+            text(shell.h(W_EDIT)) == after
+                && shell.preview.as_mut().unwrap().poll()["accepted"] == preview["accepted"],
+            "Leaving the preview language combo reset writing or acceptance readback."
+        );
+        passed(
+            receipt,
+            "preview-language-focus-notifications-preserve-owned-writing",
+        );
         set_selection(language, 1);
         unsafe {
             SendMessageW(

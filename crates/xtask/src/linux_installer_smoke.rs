@@ -651,9 +651,11 @@ mod native {
                         .join(".config/inklow/settings.json")
                         .to_string_lossy()
                         .as_ref()
-                && doctor["native"]
-                    .as_str()
-                    .is_some_and(|s| s.starts_with("Linux AT-SPI/X11 ready.")),
+                && doctor["global_enabled"] == false
+                && doctor["native"]["platform"] == "linux"
+                && doctor["native"]["available"] == true
+                && doctor["native"]["accessibility"] == true
+                && doctor["native"]["hook"].is_null(),
             "native doctor identity/readiness/isolation mismatch"
         );
         receipt[format!("{label}-cli")] =
