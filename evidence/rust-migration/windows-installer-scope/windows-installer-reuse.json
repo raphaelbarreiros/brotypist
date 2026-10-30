@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "tool": "windows-installer-artifact-reuse",
+  "passed": false,
+  "publication": "held; no publication, signing or OTA",
+  "rebuilt": false,
+  "full_installer_matrix_passed": false,
+  "physical_typing_verified": false,
+  "requested_artifact_run": "41127270547",
+  "probe_checkout_commit": "d07de3bf23e6c45d1394cd82e4b3e837a7398d8b",
+  "scope": "existing canonical MSI/ZIP under current native probe; package source is not probe source",
+  "installed_tiny_worker": "not_exercised; canonical package artifact does not contain worker_smoke.exe",
+  "diagnostics": [
+    "Native installer core assertions failed; inspect retained native receipt"
+  ],
+  "trigger": "push",
+  "artifact": {
+    "archive_sha256_verified": true,
+    "run_head_commit": "b6b417322bed8486556284c949954f956f95b441",
+    "repository": "renan-brasilio/brotypist",
+    "size": 26498776,
+    "id": 13013166134,
+    "run_id": "41127270547",
+    "name": "installer-packages-windows-x86_64-not-published",
+    "digest": "sha256:09fb6b55637951c0001eebd05284a9ba75558b314f53a7cbdbbbc36b665b95e1"
+  },
+  "raw_package_receipt_sha256": "5ed0f00f32ae1cc6184fc7bbad9e334e3d6ffb6d019c1a66174be9547e386454",
+  "package_source_commit": "6b0a7111dafc9decd12b37fa3bd4a27a087bc193",
+  "package_source_digest": "1979e70c407f10377e4e839215c6bc73e8d919307088b4b3e91d9acc7a76169d",
+  "package_version": "0.4.13",
+  "package_source_binding": "authenticated same-repo PR base/head merge parents",
+  "package_source_parents": [
+    "6eaeed5fe56e1ea8dcf878b1b7498f922c26fd59",
+    "b6b417322bed8486556284c949954f956f95b441"
+  ],
+  "package_artifacts": {
+    "msi": {
+      "rebased_basename": "BroTypist-0.4.13-windows-x86_64.msi",
+      "original_path": "\\\\?\\D:\\a\\_temp\\brotypist-native-packages\\BroTypist-0.4.13-windows-x86_64.msi",
+      "sha256": "b590eccd297943deb975b350912a78f9496e1ea42a8cfe9e47684425e66caf1e",
+      "size": 20040445
+    },
+    "zip": {
+      "rebased_basename": "BroTypist-0.4.13-windows-x86_64.zip",
+      "original_path": "\\\\?\\D:\\a\\_temp\\brotypist-native-packages\\BroTypist-0.4.13-windows-x86_64.zip",
+      "sha256": "537cb32247d3435ea3064ba65db7a103e876efeb83cc72f090690e9469a3af21",
+      "size": 12892497
+    }
+  },
+  "portable_exact_payload_verified": true,
+  "tiny_model": {
+    "sha256": "e3131339bf4e8065265593d4fd8f7bb7ff2d3abff1edb5618aa1197b89cad9f5",
+    "size": 101016128,
+    "acquisition": "canonical immutable catalogue URL into private work; default cache untouched",
+    "installed_worker_exercised": false,
+    "preset": "tiny",
+    "verified": true
+  },
+  "input_adapter": {
+    "probe_only": true,
+    "sha256": "2707b3eeef251a9b56d62ae69fbd4e1eba62249dd9fa8e5dd0549b37f4382e01",
+    "changed_fields": [
+      "package.artifacts.msi.path",
+      "package.artifacts.zip.path"
+    ],
+    "schema": "package, previous, worker, model (canonical xtask contract)",
+    "original_receipt_unchanged": true
+  },
+  "msi_system_read": "non-secret MSI leaf only; no inherited profile/cache grants",
+  "probe_core_sha256": "bfe740a8c631f5fa6360c3419d962f51f15f3b96a96e498931aa8f916197be1b",
+  "probe_adapter_sha256": "78381ac9b6a19adc934e2673856edfa039302e96b15a7eefa8efaf7237607bf9",
+  "native_exit_code": 1,
+  "native_output": "Windows core installer smoke failed; see redacted observations\r\n",
+  "stage": "existing_guarded_native_core"
+}

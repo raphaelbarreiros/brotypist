@@ -3,7 +3,7 @@
 name: Native Rust checks
 on:
   push:
-    branches: [main, migration/rust-native]
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -18,11 +18,11 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: native-checks-${{ github.workflow }}-${{ github.ref }}${{ ((github.event_name == 'workflow_dispatch' && inputs.installer_artifact_run != '') || (github.event_name == 'push' && github.ref == 'refs/heads/migration/rust-native')) && '-installer-reuse' || '' }}
+  group: native-checks-${{ github.workflow }}-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.installer_artifact_run != '' && '-installer-reuse' || '' }}
   cancel-in-progress: true
 jobs:
   native:
-    if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/migration/rust-native') && (github.event_name != 'workflow_dispatch' || inputs.installer_artifact_run == '') }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.installer_artifact_run == '' }}
     name: Native ${{ matrix.platform }}
     strategy:
       fail-fast: false
@@ -185,8 +185,7 @@ jobs:
           retention-days: 14
   windows-installer-reuse:
     name: Windows installer artifact reuse (no build/publication)
-    if: >-
-      ${{ (github.event_name == 'workflow_dispatch' && inputs.installer_artifact_run != '') || (github.event_name == 'push' && github.ref == 'refs/heads/migration/rust-native' && startsWith(github.event.head_commit.message, 'probe-windows-installer: ')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.installer_artifact_run != '' }}
     runs-on: windows-2025
     timeout-minutes: 30
     permissions:
@@ -197,7 +196,6 @@ jobs:
         shell: pwsh
     env:
       INSTALLER_ARTIFACT_RUN: ${{ inputs.installer_artifact_run }}
-      INSTALLER_PROBE_MESSAGE: ${{ github.event.head_commit.message }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -208,11 +206,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NATIVE_REPORTS: ${{ runner.temp }}/brotypist-installer-reuse-reports
         run: |
-          if ([string]::IsNullOrEmpty($env:INSTALLER_ARTIFACT_RUN)) {
-            $request = [regex]::Match($env:INSTALLER_PROBE_MESSAGE, '^probe-windows-installer: ([1-9][0-9]{0,19})(?:\r?\n|$)')
-            if (-not $request.Success) { throw 'Explicit installer artifact run ID is missing from the Git trigger.' }
-            $env:INSTALLER_ARTIFACT_RUN = $request.Groups[1].Value
-          }
           ./.github/native/windows-installer-reuse.ps1 -ArtifactRun $env:INSTALLER_ARTIFACT_RUN -Work (Join-Path $env:RUNNER_TEMP 'brotypist-installer-reuse-work') -Reports $env:NATIVE_REPORTS
       - name: Retain bounded reuse provenance and native diagnostics
         if: ${{ always() }}

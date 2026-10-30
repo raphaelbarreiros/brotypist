@@ -26,7 +26,7 @@
 - Restore the compact macOS action menu; remove battery cards, percentages, charging decoration and verbose diagnostic/model dashboard rows from menu/status-item presentation while retaining Battery settings and power policy.
 - Restore native grouped Settings rows, titlebar clearance, appearance-aware sidebar selection, bounded status text and viewport-based scrolling/resizing without replacing retained editors or dropping controls.
 - Add a nonactivating, service-free native Settings layout capture mode for visual inspection; keep the full macOS desktop smoke CI-only.
-- Add a build-free authenticated Windows installer artifact-reuse diagnostic lane, keeping original package source separate from probe checkout and preserving full canonical gates. Record exact native registry-view observations before per-user ownership failures.
+- Add a build-free authenticated Windows installer artifact-reuse diagnostic lane, keeping original package source separate from probe checkout and preserving full canonical gates. Retain compact native-context/registry-presence evidence; do not relax the blocked per-user ARP ownership gate.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
 
 ## 0.4.13 — macOS Electron safety fixes
