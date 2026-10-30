@@ -761,20 +761,32 @@ unsafe extern "system" fn dialog(hwnd: HWND, param: LPARAM) -> BOOL {
             );
         }
         if let Some(path) = &request.path {
+            let Ok(combo) = GetDlgItem(Some(hwnd), cmb13 as i32) else {
+                return BOOL(1);
+            };
+            request.filename_combo_present = true;
+            // ComboBoxEx exposes its real filename Edit through this SDK message;
+            // changing only the container caption does not enter a selected path.
+            let edit = HWND(SendMessageW(combo, CBEM_GETEDITCONTROL, None, None).0 as *mut _);
+            if owned(edit).is_err()
+                || !IsWindowVisible(edit).as_bool()
+                || !IsWindowEnabled(edit).as_bool()
+            {
+                return BOOL(1);
+            }
+            request.filename_edit_present = true;
+            SendMessageW(edit, EM_SETSEL, Some(WPARAM(0)), Some(LPARAM(-1)));
             SendMessageW(
-                hwnd,
-                CDM_SETCONTROLTEXT,
-                Some(WPARAM(cmb13 as usize)),
+                edit,
+                EM_REPLACESEL,
+                Some(WPARAM(1)),
                 Some(LPARAM(path.as_ptr() as isize)),
             );
             let expected = String::from_utf16_lossy(&path[..path.len() - 1]);
-            if let Ok(control) = GetDlgItem(Some(hwnd), edt1 as i32) {
-                request.filename_edit_present = true;
-                request.filename_edit_matches = text(control) == expected;
-            }
-            if let Ok(control) = GetDlgItem(Some(hwnd), cmb13 as i32) {
-                request.filename_combo_present = true;
-                request.filename_combo_matches = text(control) == expected;
+            request.filename_edit_matches = text(edit) == expected;
+            request.filename_combo_matches = text(combo) == expected;
+            if !request.filename_edit_matches {
+                return BOOL(1);
             }
         }
         if let Ok(control) = GetDlgItem(Some(hwnd), request.button) {
