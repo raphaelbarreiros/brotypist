@@ -378,8 +378,8 @@ fn write_mac_info(bundle: &Path, version: &str) -> Result<()> {
 fn compile_mac_icons(root: &Path, resources: &Path, provenance: &mut Value) -> Result<()> {
     let version = run(Command::new("/usr/bin/xcodebuild").arg("-version"))?;
     ensure!(
-        version.lines().next() == Some("Xcode 27.1"),
-        "Icon Composer requires pinned Xcode 27.1; older hosted actool only supported macOS15.5 and failed deployment26 compilation; select compatible DEVELOPER_DIR"
+        matches!(version.lines().next(), Some("Xcode 27.1" | "Xcode 27.2")),
+        "Icon Composer requires supported Xcode 27.1 or 27.2; select a compatible DEVELOPER_DIR"
     );
     let partial = resources.join("icon-info.plist");
     run(Command::new("/usr/bin/xcrun")

@@ -13,6 +13,7 @@
 - Keep Windows model streams within one shared native CRT and bundle authenticated Visual Studio redistributables app-locally; reject undeclared CRT/OpenMP imports. Preserve owned preview writing when its language selector only gains or loses focus.
 - Validate installed Linux diagnostics by structured readiness, paused state and absent doctor-created input hooks rather than obsolete status wording.
 - Preserve the baseline's Unicode 15 full case folding across rules, history, choices, archive collision checks and installer identities, without rewriting authored text. Share one allocation-free iterator across the app, updater and tools.
+- Support native Icon Composer packaging with verified Xcode 27.1 and 27.2, retaining the pinned CI toolchain and recording the actual compiler in bundle provenance.
 - Complete the candidate source cutover: remove obsolete first-party Python runtime/tests, launchers, PyInstaller specification and build/tool dependency paths. Preserve the full immutable baseline externally and useful corpus/assets/evidence; no Python compatibility sidecar is shipped.
 - Add native macOS/Windows/Linux CI, real model-worker probes, owned-window UI checks and guarded installer continuity probes. Published releases and the normal installed application remain unchanged.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
