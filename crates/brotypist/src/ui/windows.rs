@@ -1703,20 +1703,20 @@ impl Shell {
         if let Some(p) = &mut self.preview {
             p.dismiss();
         }
-        set_text(
-            self.h(W_EDIT),
-            if selection(self.h(W_LANGUAGE)) == 1 {
-                "Amanhã vamos nos encontrar para"
-            } else {
-                "Tomorrow we will meet to"
-            },
-        );
+        let seed = if selection(self.h(W_LANGUAGE)) == 1 {
+            "Amanhã vamos nos encontrar para"
+        } else {
+            "Tomorrow we will meet to"
+        };
+        set_text(self.h(W_EDIT), seed);
+        // A -1 start only removes the current selection; it does not move a fresh Edit's caret.
+        let end = seed.encode_utf16().count();
         unsafe {
             SendMessageW(
                 self.h(W_EDIT),
                 EM_SETSEL,
-                Some(WPARAM(usize::MAX)),
-                Some(LPARAM(-1)),
+                Some(WPARAM(end)),
+                Some(LPARAM(end as isize)),
             );
             let _ = SetFocus(Some(self.h(W_EDIT)));
         }

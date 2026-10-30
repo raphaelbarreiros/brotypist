@@ -15,7 +15,8 @@
 - Preserve the baseline's Unicode 15 full case folding across rules, history, choices, archive collision checks and installer identities, without rewriting authored text. Share one allocation-free iterator across the app, updater and tools.
 - Support native Icon Composer packaging with verified Xcode 27.1 and 27.2, retaining the pinned CI toolchain and recording the actual compiler in bundle provenance.
 - Complete the candidate source cutover: remove obsolete first-party Python runtime/tests, launchers, PyInstaller specification and build/tool dependency paths. Preserve the full immutable baseline externally and useful corpus/assets/evidence; no Python compatibility sidecar is shipped.
-- Add native macOS/Windows/Linux CI, real model-worker probes, owned-window UI checks and guarded installer continuity probes. Published releases and the normal installed application remain unchanged.
+- Add native macOS/Windows/Linux CI, real model-worker probes, owned-window UI checks and guarded installer continuity probes. Published releases remain unchanged; an explicitly authorized signed local Mac candidate preserves the original bundle and profile.
+- Place the Windows owned-preview caret explicitly at the UTF-16 seed end rather than only deselecting the old selection; retain bilingual caret/readback assertions and bounded failure metadata.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
 
 ## 0.4.13 — macOS Electron safety fixes

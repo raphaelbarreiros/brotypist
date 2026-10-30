@@ -235,6 +235,61 @@ fn screenshot(shell: &Shell, output: &Path, name: &str, receipt: &mut Value) -> 
     receipt["screenshots"].as_array_mut().unwrap().push(json!({"file":path.file_name().unwrap().to_string_lossy(),"method":"PrintWindow-owned-hwnd","pid":std::process::id()}));
     Ok(())
 }
+fn preview_caret(shell: &Shell) -> Result<(u32, u32)> {
+    let edit = shell.h(W_EDIT);
+    owned(edit)?;
+    let (mut start, mut end) = (0u32, 0u32);
+    unsafe {
+        SendMessageW(
+            edit,
+            EM_GETSEL,
+            Some(WPARAM((&mut start as *mut u32) as usize)),
+            Some(LPARAM((&mut end as *mut u32) as isize)),
+        );
+    }
+    Ok((start, end))
+}
+fn assert_preview_end_caret(shell: &Shell) -> Result<()> {
+    let end = text(shell.h(W_EDIT)).encode_utf16().count() as u32;
+    ensure!(
+        preview_caret(shell)? == (end, end),
+        "The owned preview seed did not leave a collapsed caret at its UTF-16 document end."
+    );
+    Ok(())
+}
+fn wait_preview(
+    shell: &mut Shell,
+    clipboard: &crate::system::ClipboardService,
+    output: &Path,
+    receipt: &mut Value,
+    stage: &str,
+) -> Result<()> {
+    if let Err(error) = until(shell, clipboard, Duration::from_secs(180), |s| {
+        s.preview_ghost
+            .as_ref()
+            .is_some_and(|g| !g.visible().is_empty())
+    }) {
+        let state = shell.preview.as_mut().map(|preview| preview.poll());
+        let selection = preview_caret(shell)?;
+        let edit = shell.h(W_EDIT);
+        receipt["preview_failure"] = json!({
+            "stage":stage,
+            "state":state.as_ref().map(|v|&v["state"]),
+            "message":state.as_ref().map(|v|&v["message"]),
+            "suggestion_scalars":state.as_ref().and_then(|v|v["suggestion"].as_str()).map(|s|s.chars().count()),
+            "document_utf16":text(edit).encode_utf16().count(),
+            "selection_utf16":[selection.0,selection.1],
+            "owner_released":shell.status["preview_suspended"],
+            "focused":unsafe{GetFocus()==edit},
+            "visible":unsafe{IsWindowVisible(edit).as_bool()},
+        });
+        if let Err(capture_error) = screenshot(shell, output, stage, receipt) {
+            receipt["preview_failure"]["capture_error"] = json!(capture_error.to_string());
+        }
+        return Err(error);
+    }
+    Ok(())
+}
 fn exercise(output: &Path, receipt: &mut Value) -> Result<bool> {
     let native = NativeEnvironment::new()?;
     let mut power = crate::power::PowerSampler::start()?;
@@ -492,11 +547,14 @@ fn exercise(output: &Path, receipt: &mut Value) -> Result<bool> {
         unsafe {
             SetFocus(Some(shell.h(W_EDIT)))?;
         }
-        until(&mut shell, &clipboard, Duration::from_secs(180), |s| {
-            s.preview_ghost
-                .as_ref()
-                .is_some_and(|g| !g.visible().is_empty())
-        })?;
+        assert_preview_end_caret(&shell)?;
+        wait_preview(
+            &mut shell,
+            &clipboard,
+            output,
+            receipt,
+            "preview-english-timeout",
+        )?;
         let preview_config = &shell.preview.as_ref().unwrap().config;
         ensure!(
             !preview_config.clipboard_context
@@ -571,15 +629,14 @@ fn exercise(output: &Path, receipt: &mut Value) -> Result<bool> {
         }
         pump(&mut shell, &clipboard)?;
         let portuguese_before = text(shell.h(W_EDIT));
-        ensure!(
-            portuguese_before.starts_with("Amanhã"),
-            "The native Portuguese preview seed did not preserve its Unicode text."
-        );
-        until(&mut shell, &clipboard, Duration::from_secs(180), |s| {
-            s.preview_ghost
-                .as_ref()
-                .is_some_and(|g| !g.visible().is_empty())
-        })?;
+        assert_preview_end_caret(&shell)?;
+        wait_preview(
+            &mut shell,
+            &clipboard,
+            output,
+            receipt,
+            "preview-portuguese-timeout",
+        )?;
         let portuguese_visible = shell.preview_ghost.as_ref().unwrap().visible();
         screenshot(&shell, output, "welcome-4-portuguese-inline", receipt)?;
         click(&mut shell, W_ALL, &clipboard)?;

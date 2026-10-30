@@ -8,7 +8,7 @@ BroTypist suggests the next words directly beside your cursor, in the apps you a
 
 [Download](https://github.com/renan-brasilio/brotypist/releases) · [Changelog](CHANGELOG.md) · [Report an issue](https://github.com/renan-brasilio/brotypist/issues)
 
-This branch is the Rust/native migration, with Rust-only first-party runtime and build entrypoints. The immutable Python baseline is retained externally and in Git history, not as a shipped fallback. Published release assets and the normal installation are unchanged. See the [implementation plan and current evidence](docs/rust-migration/README.md) and [feature-preservation register](docs/rust-migration/parity.md); source cutover and historical receipts do not establish completed Rust parity.
+This branch is the Rust/native migration, with Rust-only first-party runtime and build entrypoints. The immutable Python baseline is retained externally and in Git history, not as a shipped fallback. Published release assets are unchanged; a backed-up local macOS candidate was installed only after explicit authorization. See the [implementation plan and current evidence](docs/rust-migration/README.md) and [feature-preservation register](docs/rust-migration/parity.md); source cutover and historical receipts do not establish completed Rust parity.
 
 ## Why BroTypist?
 
