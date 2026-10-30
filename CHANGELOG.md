@@ -20,6 +20,7 @@
 - Preserve canonical Windows build identity while using DOS drive-path spelling at the Cargo/CMake/MSBuild boundary and separate short private compiler scratch space. Retain failed diagnostics, owner-only staging, and real command-directory/permissions regressions without changing OS long-path policy.
 - Resolve first-party notice manifests relative to Cargo's verified workspace spelling, preserving canonical identity and symlink/outside-root refusal across macOS aliases and Windows path namespaces.
 - Separate MSI transaction observations from verified uninstall evidence, and adapt paths at WiX/MSI native boundaries while retaining artifact hashes, per-user ownership and data-preservation checks.
+- Pass an explicit native-null current-user SID to MSI registration queries instead of PowerShell's empty-string coercion, retaining fail-closed status checks and bounded diagnostics.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
 
 ## 0.4.13 — macOS Electron safety fixes

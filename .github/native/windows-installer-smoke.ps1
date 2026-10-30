@@ -163,13 +163,14 @@ function Validate-Msi($Package) {
 }
 function Product-Info([string]$Product, [uint32]$Context, [string]$Name) {
     [uint32]$length = 0
-    $code = [BroTypistInstallerNative]::MsiGetProductInfoExW($Product, $null, $Context, $Name, $null, [ref]$length)
+    # A PowerShell $null string binds as empty; MSI requires a native NULL SID.
+    $code = [BroTypistInstallerNative]::MsiGetProductInfoExW($Product, [System.Management.Automation.Language.NullString]::Value, $Context, $Name, $null, [ref]$length)
     if ($code -eq 1605) { return $null }
-    Require ($code -in @(0, 234)) 'MSI product query failed'
+    Require ($code -in @(0, 234)) "MSI product query failed (code=$code; context=$Context; property=$Name; stage=size)"
     $value = [Text.StringBuilder]::new([int]$length + 1)
     $length = [uint32]$value.Capacity
-    $code = [BroTypistInstallerNative]::MsiGetProductInfoExW($Product, $null, $Context, $Name, $value, [ref]$length)
-    Equal $code ([uint32]0) 'MSI product query failed'
+    $code = [BroTypistInstallerNative]::MsiGetProductInfoExW($Product, [System.Management.Automation.Language.NullString]::Value, $Context, $Name, $value, [ref]$length)
+    Equal $code ([uint32]0) "MSI product query failed (code=$code; context=$Context; property=$Name; stage=value)"
     return $value.ToString()
 }
 function Contexts([string]$Product) {
