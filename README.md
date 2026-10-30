@@ -29,7 +29,7 @@ This describes the current source. Check each release's notes for its packaged f
 | --- | --- |
 | macOS 15+, Apple Silicon | Primary target; native AppKit interface. |
 | Linux x86-64 | Experimental test builds. Packaging, local inference and UI are tested; native typing compatibility remains limited. |
-| Windows | Port and new releases are on hold. |
+| Windows x86-64 | Rust/Win32 migration in native verification; published releases remain on hold. |
 
 **Not every text field is supported.** BroTypist needs reliable focus, text, caret and insertion information. Password fields, active text composition and unsafe or unobservable targets are excluded. It stays silent rather than substituting a popup. Linux Wayland inline support is not yet ready for general use; see the [compatibility evidence](evidence/VERIFICATION.md).
 

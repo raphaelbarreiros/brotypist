@@ -287,9 +287,10 @@ fn stage_windows_crt(output: &Path) -> (serde_json::Value, Vec<PathBuf>) {
     println!("cargo:rerun-if-changed={}", source.display());
     let powershell = PathBuf::from(env::var_os("SystemRoot").expect("Windows system root"))
         .join("System32/WindowsPowerShell/v1.0/powershell.exe");
-    let inspected = Command::new(powershell)
+    let inspected = Command::new(&powershell)
         .args(["-NoProfile", "-NonInteractive", "-Command", r#"
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
 $files = @(Get-ChildItem -LiteralPath $env:BROTYPIST_VC_RUNTIME_SOURCE -Filter '*.dll' -File | Sort-Object Name | ForEach-Object {
     $signature = Get-AuthenticodeSignature -LiteralPath $_.FullName
     if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch '(^|,\s*)O=Microsoft Corporation(,|$)') {
@@ -304,6 +305,9 @@ $files = @(Get-ChildItem -LiteralPath $env:BROTYPIST_VC_RUNTIME_SOURCE -Filter '
 if ($files.Count -eq 0) { throw 'Selected VC CRT directory contains no runtime DLLs.' }
 [pscustomobject]@{source_kind='visual-studio-redistributable'; architecture='x64'; authenticode='valid-microsoft'; files=$files} | ConvertTo-Json -Depth 4 -Compress
 "#])
+        // A Developer PowerShell 7 parent exposes incompatible modules to the
+        // system Windows PowerShell 5.1 host unless its module search is isolated.
+        .env("PSModulePath", powershell.parent().expect("System PowerShell directory").join("Modules"))
         .env("BROTYPIST_VC_RUNTIME_SOURCE", &source)
         .output().expect("Inspecting authentic Visual Studio CRT redistributables");
     assert!(
