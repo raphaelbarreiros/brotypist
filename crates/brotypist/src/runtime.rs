@@ -361,8 +361,16 @@ impl Controller {
     }
     pub fn native_event_source(&self) -> Option<(i32, bool)> { self.engine.borrow().bridge.as_ref().and_then(|bridge| bridge.native_event_source()) }
     pub fn bind_native_ui(&self, callback: Option<Arc<dyn Fn(String) + Send + Sync>>) { self.engine.borrow_mut().bind_native_ui(callback); }
-    pub fn show_native_menu(&self, rows: Vec<(String, String, bool)>) -> Result<bool> { self.engine.borrow_mut().bridge.as_mut().map_or(Ok(false), |bridge| bridge.show_native_menu(rows)) }
-    pub fn present_native(&self, anchor: &str, text: &str, paused: bool) -> Result<bool> { self.engine.borrow_mut().bridge.as_mut().map_or(Ok(false), |bridge| bridge.present_native(anchor, text, paused)) }
+    pub fn show_native_menu(&self, rows: Vec<(String, String, bool)>) -> Result<bool> {
+        let mut engine = self.engine.borrow_mut();
+        if !engine.native_ready { return Ok(false); }
+        engine.bridge.as_mut().map_or(Ok(false), |bridge| bridge.show_native_menu(rows))
+    }
+    pub fn present_native(&self, anchor: &str, text: &str, paused: bool) -> Result<bool> {
+        let mut engine = self.engine.borrow_mut();
+        if !engine.native_ready { return Ok(false); }
+        engine.bridge.as_mut().map_or(Ok(false), |bridge| bridge.present_native(anchor, text, paused))
+    }
     pub fn hide_native(&self) -> Result<()> { self.engine.borrow_mut().bridge.as_mut().map_or(Ok(()), |bridge| bridge.hide_native()) }
 }
 
@@ -470,7 +478,7 @@ impl Engine {
             context_prefetched: None,
             preview: false, shortcuts_suspended: false, stopping: false, done: BTreeSet::new() };
         if recording_configured(&engine.config) { let result = locked(&engine.storage).unlock(); if result.is_err() { engine.error = "Encrypted history could not be unlocked.".into(); } }
-        if !engine.hooks_started { engine.fail("Native shortcuts startup; check permissions and retry"); }
+        if !engine.hooks_started { engine.error = engine.native_unavailable_reason.clone(); }
         engine.refresh_arming(); Ok(engine)
     }
     fn bind_native_ui(&mut self, callback: Option<Arc<dyn Fn(String) + Send + Sync>>) {
@@ -1128,8 +1136,8 @@ impl Engine {
         if self.download.as_ref().is_some_and(|d| d.thread.is_finished()) { if let Some(d) = self.download.take() { let _ = d.thread.join(); } }
     }
     fn refresh_docs(&mut self, info: Option<platform::Foreground>) {
-        let revision = self.bridge.input_revision();
-        let eligible = info.as_ref().is_some_and(|_| self.active() && self.bridge.secure_input_enabled() == Some(false));
+        let Some(revision) = self.native_input_revision() else { self.clear_docs(); return; };
+        let eligible = info.as_ref().is_some_and(|_| self.active() && self.secure_input() == Some(false));
         if self.docs.as_ref().is_some_and(|(_, old, rev)| !eligible || info.as_ref().is_none_or(|i| i.app_id != old.app_id || i.domain != old.domain || i.window_id != old.window_id || i.window_pid != old.window_pid || i.document_id != old.document_id) || *rev != revision) {
             self.clear_docs(); self.docs_after = self.docs_after.max(self.now() + Duration::from_secs(2));
         }
@@ -1137,9 +1145,9 @@ impl Engine {
         if self.now() < self.docs_after { return; }
         self.docs_after = self.now() + Duration::from_secs(2);
         let Some(before) = info else { return; };
-        let hint = self.bridge.docs_hint().ok().flatten();
+        let hint = self.bridge.as_mut().and_then(|bridge| bridge.docs_hint().ok().flatten());
         let after = self.foreground();
-        if self.bridge.input_revision() != revision || self.bridge.secure_input_enabled() != Some(false)
+        if self.native_input_revision() != Some(revision) || self.secure_input() != Some(false)
             || after.as_ref().is_none_or(|i| i.app_id != before.app_id || i.domain != before.domain || i.window_id != before.window_id || i.window_pid != before.window_pid || i.document_id != before.document_id) { self.clear_docs(); return; }
         if let Some(hint) = hint.filter(|h| h.get("token").and_then(Value::as_str).is_some_and(|t| !t.is_empty()) && h.get("support").and_then(Value::as_str) == Some("unknown") && h.get("app_id").and_then(Value::as_str) == Some(before.app_id.as_str())) {
             if self.docs.as_ref().is_none_or(|(old,_,_)| *old != hint) { self.emit(json!({"type":"docs_help","hint":hint})); }
@@ -1150,16 +1158,16 @@ impl Engine {
         let info = self.foreground(); let mut result = json!({"status":"unknown","diagnostic":"stale-capability","help_url":""});
         if let Some((hint, old, revision)) = self.docs.take() {
             self.emit(json!({"type":"docs_help","hint":null}));
-            if self.active() && self.bridge.secure_input_enabled() == Some(false) && self.bridge.input_revision() == revision
+            if self.active() && self.secure_input() == Some(false) && self.native_input_revision() == Some(revision)
                 && hint.get("token").and_then(Value::as_str) == Some(token)
                 && info.as_ref().is_some_and(|i| i.app_id == old.app_id && i.domain == old.domain && i.window_id == old.window_id && i.window_pid == old.window_pid && i.document_id == old.document_id) {
-                if let Ok(value) = self.bridge.enable_docs_accessibility(token) { if value.get("status").and_then(Value::as_str).is_some_and(|s| ["enabled","already_enabled","unknown"].contains(&s)) { result = value; } }
+                if let Some(Ok(value)) = self.bridge.as_mut().map(|bridge| bridge.enable_docs_accessibility(token)) { if value.get("status").and_then(Value::as_str).is_some_and(|s| ["enabled","already_enabled","unknown"].contains(&s)) { result = value; } }
             }
         }
         self.capture_after = self.now(); self.emit(json!({"type":"docs_result","result":result}));
     }
     pub fn tick(&mut self) {
-        if self.bridge.pump_events().is_err() { self.fail("Native event transport"); }
+        if self.bridge.as_mut().is_some_and(|bridge| bridge.pump_events().is_err()) { self.fail("Native event transport"); }
         self.consume_download(); self.reap_spelling();
         if self.stopping { let _ = self.shutdown_step(); return; }
         self.run_inputs(); let now = self.now();
@@ -1167,10 +1175,11 @@ impl Engine {
         if now >= self.power_after { self.power_after = now + Duration::from_secs(5); let power = self.readers.power(); self.on_battery = power.available && power.has_battery && power.on_battery; }
         let previous = self.temporary.len(); self.temporary.retain(|_, (_, at)| now < *at);
         if previous != self.temporary.len() { self.clear(true, true); self.candidate = None; self.attempted = None; self.configure_native(); }
-        let revision = self.bridge.input_revision();
-        if revision != self.input_revision || self.input_pending.swap(false, Ordering::AcqRel) { self.input_revision = revision; self.capture_after = now; self.disarm(); }
+        if let Some(revision) = self.native_input_revision() {
+            if revision != self.input_revision || self.input_pending.swap(false, Ordering::AcqRel) { self.input_revision = revision; self.capture_after = now; self.disarm(); }
+        }
         let foreground = self.foreground();
-        if !self.active() || foreground.is_none() || self.bridge.secure_input_enabled() != Some(false) { self.observe(None); self.clear_docs(); }
+        if !self.active() || foreground.is_none() || self.secure_input() != Some(false) { self.observe(None); self.clear_docs(); }
         else if now >= self.capture_after {
             let snapshot = self.capture(); self.observe(snapshot); self.capture_after = now + if self.request.is_some() || self.preparing.is_some() || now.duration_since(self.candidate_since) < Duration::from_secs(2) { Duration::from_millis(50) } else { Duration::from_millis(100) };
         }
@@ -1181,7 +1190,7 @@ impl Engine {
     }
     pub fn status(&self) -> Value {
         let mut status = self.worker.status(); if !status.is_object() { status = json!({}); }
-        if !self.native_ready { status["state"] = json!("error"); status["message"] = json!("Native input is unavailable. Check permissions and keyboard settings, then retry."); }
+        if !self.native_ready { status["state"] = json!("error"); status["message"] = json!(if self.native_unavailable_reason.is_empty() { "Native input is unavailable. Check permissions and keyboard settings, then retry." } else { &self.native_unavailable_reason }); }
         else if !self.active() { status["state"] = json!("paused"); status["message"] = json!(if self.config.global_enabled { "Typing suggestions are paused." } else { "Typing suggestions are disabled." }); }
         else if !self.error.is_empty() { status["state"] = json!("error"); status["message"] = json!(self.error); }
         let temporary = [format!("domain:{}", self.host), format!("app:{}", self.app)].into_iter().find_map(|scope| self.temporary.get(&scope).filter(|(_, at)| self.now() < *at).map(|(_, at)| (scope, at.saturating_duration_since(self.now()).as_secs_f64())));
@@ -1189,9 +1198,11 @@ impl Engine {
             "inline_message":if self.candidate.as_ref().is_some_and(Snapshot::inline_safe) {"Verified same-line completion is available."} else {"This field does not expose verified same-line rendering; ordinary completion is silent."},
             "context_status":self.context_status,"context_message":context_message(&self.context_status),"current_app_enabled":self.allowed(&self.app,&self.host,""),
             "current_recording":self.record_allowed(&self.app,&self.host),"current_tab_enabled":rule_bool(&self.config,&self.app,&self.host,"tab_enabled",true),
-            "secure_input":self.bridge.secure_input_enabled() != Some(false),"temporary_scope":temporary.as_ref().map(|(scope,_)|scope.as_str()).unwrap_or(""),
+            "secure_input":self.secure_input() != Some(false),"temporary_scope":temporary.as_ref().map(|(scope,_)|scope.as_str()).unwrap_or(""),
             "temporary_remaining":temporary.map(|(_,seconds)|seconds),"escape_suppressed":!self.escape_app.is_empty() && self.escape_app == self.app,
-            "native_status":self.bridge.status(),"current_app":self.app,"current_domain":self.host,"paused_remaining":self.paused_until.saturating_duration_since(self.now()).as_secs_f64(),
+            "native_status":self.bridge.as_ref().map(|bridge| bridge.status()).unwrap_or_else(||json!({"state":"unavailable","available":false,"message":self.native_unavailable_reason})),
+            "native_available":self.bridge.is_some(),"native_unavailable_reason":self.native_unavailable_reason,
+            "current_app":self.app,"current_domain":self.host,"paused_remaining":self.paused_until.saturating_duration_since(self.now()).as_secs_f64(),
             "on_battery":self.on_battery,"download":self.download_status,"preview":self.preview,
             "native_started":self.native_ready,"native_hooks_started":self.hooks_started,"preview_suspended":self.preview && status.get("release_complete").and_then(Value::as_bool) == Some(true)
                 && status.get("worker_pid").is_none_or(Value::is_null) && status.get("terminating").and_then(Value::as_bool) != Some(true),
@@ -1200,15 +1211,16 @@ impl Engine {
     }
     fn suspend_shortcuts(&mut self, suspended: bool) {
         self.shortcuts_suspended = suspended; self.disarm();
-        if suspended { self.bridge.set_shortcuts_enabled(false); }
-        else { self.configure_native(); self.bridge.set_shortcuts_enabled(self.native_ready && !self.stopping); self.redraw_pending = self.native_ready; self.capture_after = self.now(); }
+        if suspended { self.set_native_shortcuts(false); }
+        else { self.configure_native(); self.set_native_shortcuts(self.native_ready && !self.stopping); self.redraw_pending = self.native_ready; self.capture_after = self.now(); }
         self.refresh_arming();
     }
     pub fn begin_shutdown(&mut self) {
         if self.stopping { return; }
         self.finish_session(); self.stopping = true; self.bump_epoch(); self.preparer.request_stop();
-        self.bridge.set_input_callback(None); self.bridge.set_shortcuts_enabled(false); self.clear(true, true); self.candidate = None; self.pending_edit = None;
-        while let Ok(input) = self.inputs.try_recv() { if input.transaction || input.action == Action::Bypass { let _ = self.bridge.finish_input(false); } }
+        if let Some(bridge) = &mut self.bridge { bridge.set_input_callback(None); bridge.bind_native_ui(None); bridge.set_shortcuts_enabled(false); }
+        self.native_ui_callback = None; self.clear(true, true); self.candidate = None; self.pending_edit = None;
+        while let Ok(input) = self.inputs.try_recv() { if input.transaction || input.action == Action::Bypass { let _ = self.finish_input(false); } }
         if let Some(d) = &self.download { d.cancel.set(); }
         if let Some(s) = self.spelling.take() { self.spawn_spelling_cleanup(s); }
     }
@@ -1225,7 +1237,7 @@ impl Engine {
     }
     pub fn shutdown_step(&mut self) -> Result<bool> {
         self.begin_shutdown(); let mut failed = false;
-        if !self.done.contains("bridge") { match self.bridge.stop() { Ok(()) => { self.done.insert("bridge"); }, Err(_) => failed = true } }
+        if !self.done.contains("bridge") { match self.bridge.as_mut().map_or(Ok(()), |bridge| bridge.stop()) { Ok(()) => { self.done.insert("bridge"); }, Err(_) => failed = true } }
         if !self.done.contains("worker_signal") { match self.worker.request_stop() { Ok(()) => { self.done.insert("worker_signal"); }, Err(_) => failed = true } }
         if self.worker.is_stopped() { self.done.insert("worker"); }
         self.preparer.request_stop(); if self.preparer.is_stopped() { self.done.insert("preparer"); }
@@ -1241,17 +1253,34 @@ impl Engine {
 }
 impl Engine {
     fn retry_native(&mut self) -> Result<()> {
-        self.native_ready = false; self.bridge.set_shortcuts_enabled(false);
+        self.native_ready = false; self.set_native_shortcuts(false);
         self.clear(true, true); self.candidate = None; self.attempted = None;
         let config = self.native_config();
-        if self.bridge.configure(&config).is_err() { self.fail("Native configuration"); return Err(anyhow!("Native configuration could not be applied.")); }
-        if !self.hooks_started { self.hooks_started = self.bridge.start_shortcuts(self.shortcut_callback.clone()).is_ok(); }
+        if self.bridge.is_none() {
+            match (self.native_factory)(&config) {
+                Ok(bridge) => { self.bridge = Some(bridge); self.hooks_started = false; }
+                Err(error) => {
+                    self.native_unavailable_reason = error.to_string();
+                    self.emit(json!({"type":"native_started","started":false,"reason":self.native_unavailable_reason}));
+                    return Err(anyhow!("Native input is unavailable."));
+                }
+            }
+        }
+        let Some(bridge) = &mut self.bridge else { return Err(anyhow!("Native input is unavailable.")); };
+        bridge.set_input_callback(Some(self.input_callback.clone()));
+        bridge.bind_native_ui(self.native_ui_callback.clone());
+        if bridge.configure(&config).is_err() {
+            self.native_unavailable_reason = "Native configuration could not be applied.".into();
+            self.fail("Native configuration"); return Err(anyhow!("Native configuration could not be applied."));
+        }
+        if !self.hooks_started { self.hooks_started = bridge.start_shortcuts(self.shortcut_callback.clone()).is_ok(); }
         self.native_ready = self.hooks_started;
-        self.bridge.set_shortcuts_enabled(self.native_ready && !self.shortcuts_suspended && !self.stopping);
+        self.set_native_shortcuts(self.native_ready && !self.shortcuts_suspended && !self.stopping);
         self.capture_after = self.now();
-        self.emit(json!({"type":"native_started","started":self.hooks_started}));
-        if self.hooks_started { self.error.clear(); Ok(()) }
-        else { self.fail("Native shortcuts startup; check permissions and retry"); Err(anyhow!("Native shortcuts could not start.")) }
+        if self.native_ready { self.native_unavailable_reason.clear(); self.error.clear(); }
+        else { self.native_unavailable_reason = "Native shortcuts could not start. Check permissions, then retry.".into(); }
+        self.emit(json!({"type":"native_started","started":self.native_ready,"reason":self.native_unavailable_reason}));
+        if self.native_ready { Ok(()) } else { Err(anyhow!("Native shortcuts could not start.")) }
     }
 }
 impl Engine {
@@ -1377,6 +1406,7 @@ mod tests {
     struct NativeState {
         snapshot: Option<Snapshot>, revision: u64, secure: Option<bool>, hook: Option<ShortcutHandler>,
         wake: Option<Arc<dyn Fn() + Send + Sync>>, outcome: Outcome, edits: Vec<String>, finished: Vec<bool>,
+        ui_callback: Option<Arc<dyn Fn(String) + Send + Sync>>,
         capture_count: usize, stop_calls: usize, stop_failures: usize, shortcuts: bool,
         start_failures: usize, start_calls: usize, configure_failures: usize,
         docs: Option<Value>, docs_reads: usize, metadata: Option<Foreground>, enables: usize, configured: Config,
@@ -1406,6 +1436,7 @@ mod tests {
         fn start_shortcuts(&mut self,callback:ShortcutHandler)->Result<()>{let mut s=self.0.borrow_mut();s.hook=Some(callback);s.start_calls+=1;if s.start_failures>0{s.start_failures-=1;Err(anyhow!("private native startup"))}else{Ok(())}}
         fn set_shortcuts_enabled(&mut self,enabled:bool){self.0.borrow_mut().shortcuts=enabled;}
         fn set_input_callback(&mut self,callback:Option<Arc<dyn Fn()+Send+Sync>>){self.0.borrow_mut().wake=callback;}
+        fn bind_native_ui(&mut self,callback:Option<Arc<dyn Fn(String)+Send+Sync>>){self.0.borrow_mut().ui_callback=callback;}
         fn finish_input(&mut self,accepted:bool)->Result<()>{self.0.borrow_mut().finished.push(accepted);Ok(())}
         fn input_revision(&self)->u64{self.0.borrow().revision}
         fn user_input_revision(&self)->u64{self.0.borrow().revision}
@@ -1488,14 +1519,27 @@ mod tests {
             window_revision:"document-1".into(),window_pid:42,..Default::default()}
     }
     fn harness(config:Config,spelling:Option<Arc<dyn Spelling>>)->Harness{harness_start(config,spelling,0)}
+    fn native_state(config:&Config,start_failures:usize)->Rc<RefCell<NativeState>>{
+        Rc::new(RefCell::new(NativeState{snapshot:Some(field("The update")),revision:1,secure:Some(false),hook:None,wake:None,ui_callback:None,
+            outcome:Outcome::Applied,edits:Vec::new(),finished:Vec::new(),capture_count:0,stop_calls:0,stop_failures:0,shortcuts:false,start_failures,start_calls:0,configure_failures:0,docs:None,docs_reads:0,metadata:None,enables:0,configured:config.clone()}))
+    }
     fn harness_start(config:Config,spelling:Option<Arc<dyn Spelling>>,start_failures:usize)->Harness{
-        let native=Rc::new(RefCell::new(NativeState{snapshot:Some(field("The update")),revision:1,secure:Some(false),hook:None,wake:None,
-            outcome:Outcome::Applied,edits:Vec::new(),finished:Vec::new(),capture_count:0,stop_calls:0,stop_failures:0,shortcuts:false,start_failures:0,start_calls:0,configure_failures:0,docs:None,docs_reads:0,metadata:None,enables:0,configured:config.clone()}));
-        native.borrow_mut().start_failures=start_failures;
+        let native=native_state(&config,start_failures);
+        harness_native(config,spelling,native,None)
+    }
+    fn harness_native(config:Config,spelling:Option<Arc<dyn Spelling>>,native:Rc<RefCell<NativeState>>,factory:Option<NativeFactory>)->Harness{
         let worker=Rc::new(RefCell::new(WorkerState::default()));let preparation=Rc::new(RefCell::new(PreparationQueue::default()));
         let storage=Arc::new(Mutex::new(Stored::default()));let time=Rc::new(RefCell::new(Instant::now()));let power=Rc::new(RefCell::new(system::PowerStatus::default()));
-        let engine=Engine::new(config,Box::new(Native(native.clone())),Box::new(Inference(worker.clone())),Arc::new(Mutex::new(Box::new(Memory(storage.clone())))),
-            Box::new(PreparationConsumer(preparation.clone())),spelling,Box::new(Services(power.clone())),Box::new(Time(time.clone())),Arc::new(AtomicU64::new(1))).unwrap();
+        let storage_owner:SharedStorage=Arc::new(Mutex::new(Box::new(Memory(storage.clone()))));
+        let worker_owner:Box<dyn Worker>=Box::new(Inference(worker.clone()));
+        let preparation_owner:Box<dyn Preparer>=Box::new(PreparationConsumer(preparation.clone()));
+        let readers:Box<dyn Readers>=Box::new(Services(power.clone()));
+        let clock:Box<dyn Clock>=Box::new(Time(time.clone()));
+        let epoch=Arc::new(AtomicU64::new(1));
+        let engine=match factory {
+            Some(factory)=>Engine::with_native_factory(config,worker_owner,storage_owner,preparation_owner,spelling,readers,clock,epoch,factory),
+            None=>Engine::new(config,Box::new(Native(native.clone())),worker_owner,storage_owner,preparation_owner,spelling,readers,clock,epoch),
+        }.unwrap();
         Harness{engine,native,worker,preparation,storage,time,power}
     }
     impl Harness {
@@ -1770,9 +1814,81 @@ mod tests {
     #[test]
     fn native_startup_failure_retains_settings_and_shutdown_then_explicit_retry_recovers(){
         let mut h=harness_start(Config::default(),None,1);assert_eq!(h.engine.status()["state"],"error");h.engine.tick();assert_eq!(h.native.borrow().capture_count,0);
+        assert!(!h.engine.drain_events().iter().any(|e|e["type"]=="error"));
         h.engine.command(Command::Action(Action::Settings));assert!(h.engine.drain_events().iter().any(|e|e["type"]=="settings"));assert!(!h.native.borrow().shortcuts);
         h.engine.command(Command::RetryNative);h.observe();assert_eq!(h.engine.status()["native_started"],true);assert!(h.native.borrow().capture_count>0);assert_eq!(h.native.borrow().start_calls,2);
         h.worker.borrow_mut().stopped=true;h.preparation.borrow_mut().stopped=true;assert!(h.engine.shutdown_step().unwrap());
+    }
+    #[test]
+    fn unavailable_factory_keeps_settings_data_and_owned_preview_without_modal_startup_error(){
+        let mut config=Config::default();config.typo_suppression=false;config.typo_fixes=false;
+        let native=native_state(&config,0);let calls=Rc::new(RefCell::new(0usize));let attempts=calls.clone();
+        let reason="Wayland input method is not available; select the input method and retry.";
+        let factory:NativeFactory=Box::new(move |_|{*attempts.borrow_mut()+=1;Err(anyhow!(reason))});
+        let h=harness_native(config,None,native,Some(factory));let mut controller=Controller::with_engine(h.engine).unwrap();
+        assert_eq!(controller.status()["native_available"],false);assert_eq!(controller.status()["native_started"],false);
+        assert_eq!(controller.status()["state"],"error");assert_eq!(controller.status()["message"],reason);
+        assert_eq!(controller.status()["native_status"]["message"],reason);assert_eq!(controller.status()["native_unavailable_reason"],reason);
+        assert!(controller.native_event_source().is_none());assert!(!controller.present_native("missing","hidden",false).unwrap());
+        assert!(!controller.show_native_menu(vec![("settings".into(),"Settings".into(),true)]).unwrap());controller.hide_native().unwrap();
+        for _ in 0..3 {
+            *h.time.borrow_mut()+=Duration::from_millis(200);
+            let events=controller.poll();assert!(!events.iter().any(|e|e["type"]=="error"));
+        }
+        assert_eq!(*calls.borrow(),1);assert_eq!(h.native.borrow().capture_count,0);
+        for action in [Action::Force,Action::All,Action::Alternatives,Action::Synonyms] {controller.send(Command::Action(action)).unwrap();}
+        controller.send(Command::Action(Action::Settings)).unwrap();controller.send(Command::Action(Action::Quit)).unwrap();
+        controller.send(Command::HistoryInfo).unwrap();controller.send(Command::HistoryCounts{unlock:false}).unwrap();
+        controller.send(Command::Statistics{period:"all".into(),group_by:"app".into()}).unwrap();
+        let events=controller.poll();
+        for kind in ["settings","quit","history_info","history_counts","statistics"] {assert!(events.iter().any(|e|e["type"]==kind));}
+        assert_eq!(events.iter().filter(|e|e["type"]=="action_result"&&e["handled"]==false).count(),4);
+        assert_eq!(h.native.borrow().capture_count,0);assert!(h.native.borrow().edits.is_empty());assert!(h.worker.borrow().submitted.is_empty());
+        let mut updated=controller.config();updated.statistics_enabled=false;
+        controller.send(Command::ApplyConfig{config:updated,persist:false}).unwrap();controller.poll();
+        assert!(!controller.config().statistics_enabled);assert_eq!(*calls.borrow(),2);assert_eq!(controller.status()["native_unavailable_reason"],reason);
+        controller.send(Command::SuspendForPreview).unwrap();controller.poll();assert_eq!(controller.status()["preview_suspended"],true);
+        let preview_worker=Rc::new(RefCell::new(WorkerState::default()));
+        let mut preview=crate::preview::PreviewSession::with_worker(controller.config(),Box::new(Inference(preview_worker.clone())),Box::new(Time(h.time.clone()))).unwrap();
+        preview.set_owner_released(controller.status()["preview_suspended"].as_bool().unwrap());preview.update("Dear team",9,0).unwrap();
+        *h.time.borrow_mut()+=Duration::from_secs(1);preview.poll();
+        assert_eq!(preview_worker.borrow().submitted.len(),1);
+        let options=preview_worker.borrow().submitted[0].3.clone();assert!(options.context.is_empty()&&options.personalization.is_empty());
+        preview_worker.borrow_mut().events.extend([
+            WorkerEvent{id:1,kind:"ready".into(),text:String::new(),final_:false,model_loaded:true,message:String::new()},
+            WorkerEvent{id:1,kind:"result".into(),text:", thank you".into(),final_:true,model_loaded:true,message:String::new()},
+        ]);
+        assert_eq!(preview.poll()["suggestion"],", thank you");assert_eq!(preview.accept_visible(true,", thank you"),", thank you");
+        preview.update("Dear team, thank you",20,0).unwrap();assert_eq!(preview.poll()["accepted"],1);
+        preview_worker.borrow_mut().stopped=true;assert!(preview.close().unwrap());
+        {let saved=locked(&h.storage);assert!(saved.records.is_empty()&&saved.stats.is_empty());}
+        assert_eq!(h.native.borrow().capture_count,0);assert_eq!(*calls.borrow(),2);
+        assert!(!controller.shutdown().unwrap());h.worker.borrow_mut().stopped=true;h.preparation.borrow_mut().stopped=true;
+        assert!(controller.shutdown().unwrap());assert_eq!(h.native.borrow().stop_calls,0);assert_eq!(*calls.borrow(),2);
+    }
+    #[test]
+    fn explicit_factory_retry_restores_retained_ui_binding_only_then_arms_real_hooks(){
+        let mut config=Config::default();config.typo_suppression=false;config.typo_fixes=false;
+        let native=native_state(&config,1);let result=native.clone();
+        let calls=Rc::new(RefCell::new(0usize));let attempts=calls.clone();
+        let factory:NativeFactory=Box::new(move |_|{
+            *attempts.borrow_mut()+=1;
+            if *attempts.borrow()==1 {Err(anyhow!("No supported native input service."))} else {Ok(Box::new(Native(result.clone())))}
+        });
+        let h=harness_native(config,None,native,Some(factory));let mut controller=Controller::with_engine(h.engine).unwrap();
+        let (sender,receiver)=mpsc::channel();controller.bind_native_ui(Some(Arc::new(move |action|{let _=sender.send(action);})));
+        assert!(h.native.borrow().ui_callback.is_none());assert!(!controller.poll().iter().any(|e|e["type"]=="error"));assert_eq!(*calls.borrow(),1);
+        controller.send(Command::RetryNative).unwrap();controller.poll();
+        assert_eq!(*calls.borrow(),2);assert_eq!(controller.status()["native_available"],true);assert_eq!(controller.status()["native_started"],false);
+        assert_eq!(h.native.borrow().capture_count,0);assert!(!h.native.borrow().shortcuts);assert!(h.native.borrow().wake.is_some());
+        h.native.borrow().ui_callback.clone().unwrap()("settings".into());assert_eq!(receiver.try_recv().unwrap(),"settings");
+        assert!(!controller.present_native("missing","hidden",false).unwrap());
+        controller.send(Command::RetryNative).unwrap();controller.poll();
+        assert_eq!(*calls.borrow(),2);assert_eq!(controller.status()["native_started"],true);assert_eq!(controller.status()["native_unavailable_reason"],"");
+        assert!(h.native.borrow().capture_count>0);assert!(h.native.borrow().shortcuts);assert_eq!(h.native.borrow().start_calls,2);
+        assert_eq!(h.native.borrow().configured.global_enabled,controller.config().global_enabled);
+        h.worker.borrow_mut().stopped=true;h.preparation.borrow_mut().stopped=true;assert!(controller.shutdown().unwrap());
+        assert!(h.native.borrow().ui_callback.is_none());assert_eq!(h.native.borrow().stop_calls,1);
     }
     #[test]
     fn failed_policy_reconfiguration_never_reads_under_the_previous_policy(){

@@ -133,10 +133,17 @@ fn exercise(bundle: &Path, assets: &Path, work: &Path, mount: &Path, attached: &
     let profile = work.join("profile"); fs::create_dir(&profile)?;
     let home = work.join("home"); fs::create_dir(&home)?;
     let temporary = work.join("tmp"); fs::create_dir(&temporary)?;
+    let model = PathBuf::from(std::env::var_os("BROTYPIST_INSTALLER_SMOKE_MODEL_PATH")
+        .context("Nonactivating GUI smoke requires an explicit cached Tiny model to avoid first-run Welcome")?);
+    ensure!(model.is_absolute(), "The installer GUI smoke model path must be absolute");
+    regular(&model)?;
+    let model = model.canonicalize()?;
+    let model_path = model.to_str().context("The installer GUI smoke model path must be Unicode")?;
     let settings = profile.join("settings.json");
     json_new(&settings, &json!({"setup_completed":true,"global_enabled":false,"launch_at_login":false,
         "check_updates_automatically":false,"clipboard_context":false,"screen_context":false,"screenshot_context":false,
-        "record_history":false,"record_unaccepted":false,"statistics_enabled":false,"show_accessory":false,"model_path":""}))?;
+        "record_history":false,"record_unaccepted":false,"statistics_enabled":false,"show_accessory":false,
+        "model_path":model_path,"model_id":"","prompt_style":"continuation"}))?;
     let environment = isolated_environment(&profile, &home, &temporary);
     let executable = installed.join("Contents/MacOS/BroTypist");
     let version = capture(command(&executable, &environment).arg("--version"), COMMAND_TIMEOUT)?;
@@ -510,7 +517,7 @@ mod native {
     }
     pub fn gui(bundle:&Path, environment:&BTreeMap<String,String>, evidence:&mut Value)->Result<()> {
         *evidence = json!({"passed":false,"launch":"NSWorkspace exact bundle URL, new instance, without activation",
-            "arguments":["--background","--paused","--no-tray"],"normal_quit":"NSRunningApplication.terminate (OS Quit AppleEvent)",
+            "arguments":["--background","--paused"],"normal_quit":"NSRunningApplication.terminate (OS Quit AppleEvent)",
             "exit_status_source":"owned PID kqueue NOTE_EXIT | NOTE_EXITSTATUS","physical_menu_or_key":"not exercised",
             "visible_window":"not asserted for background launch","typing":"not exercised",
             "failure_cleanup_policy":"attempt normal Quit, then only exact disposable executable PID TERM/KILL; payload preserved on failure"});
@@ -535,7 +542,7 @@ mod native {
         let env = msg!(class(b"NSMutableDictionary\0"),"dictionary" => Id);
         for (key,value) in environment { let key = string(key)?; let value = string(value)?; msg!(env,"setObject:forKey:" => (),value => Id,key => Id); }
         let arguments = msg!(class(b"NSMutableArray\0"),"array" => Id);
-        for argument in ["--background","--paused","--no-tray"] { let value = string(argument)?; msg!(arguments,"addObject:" => (),value => Id); }
+        for argument in ["--background","--paused"] { let value = string(argument)?; msg!(arguments,"addObject:" => (),value => Id); }
         let configuration = msg!(class(b"NSMutableDictionary\0"),"dictionary" => Id);
         msg!(configuration,"setObject:forKey:" => (),env => Id,NSWorkspaceLaunchConfigurationEnvironment => Id);
         msg!(configuration,"setObject:forKey:" => (),arguments => Id,NSWorkspaceLaunchConfigurationArguments => Id);

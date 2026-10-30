@@ -10,8 +10,29 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($installation)) {
 }
 $developerCommand = Join-Path $installation 'Common7/Tools/VsDevCmd.bat'
 if (!(Test-Path -LiteralPath $developerCommand)) { throw 'Installed Visual Studio has no VsDevCmd.bat.' }
-$variables = & $env:ComSpec /d /s /c "`"`"$developerCommand`" -no_logo -arch=x64 -host_arch=x64 && set`""
-if ($LASTEXITCODE -ne 0) { throw 'VsDevCmd.bat failed.' }
+# Pass cmd.exe its documented raw /s /c command line. PowerShell's native
+# argument escaping otherwise adds a second quote layer around Program Files.
+$start = [Diagnostics.ProcessStartInfo]::new()
+$start.FileName = $env:ComSpec
+$start.Arguments = '/d /s /c ""' + $developerCommand + '" -no_logo -arch=x64 -host_arch=x64 >nul && set"'
+$start.UseShellExecute = $false
+$start.RedirectStandardOutput = $true
+$start.RedirectStandardError = $true
+$process = [Diagnostics.Process]::Start($start)
+try {
+    $stdout = $process.StandardOutput.ReadToEndAsync()
+    $stderr = $process.StandardError.ReadToEndAsync()
+    if (!$process.WaitForExit(120000)) {
+        $process.Kill($true)
+        $process.WaitForExit()
+        throw 'Installed MSVC environment initialization exceeded its deadline.'
+    }
+    $variables = $stdout.GetAwaiter().GetResult() -split "\r?\n"
+    $null = $stderr.GetAwaiter().GetResult()
+    if ($process.ExitCode -ne 0) { throw "VsDevCmd.bat failed with exit code $($process.ExitCode)." }
+} finally {
+    $process.Dispose()
+}
 foreach ($line in $variables) {
     if ($line -match '^([^=]+)=(.*)$') {
         $name, $value = $Matches[1], $Matches[2]

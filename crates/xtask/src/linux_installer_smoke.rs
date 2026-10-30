@@ -464,6 +464,7 @@ mod native {
                     let has=|bit:usize|states.get(bit/32).is_some_and(|v|v&(1u32<<(bit%32))!=0);
                     // Stable AT-SPI role/state constants: BUTTON=43; ENABLED=8.
                     ensure!(role==43&&[8,24,25,30].into_iter().all(has),"owned Quit must be a visible/showing/enabled/sensitive native push button");
+                    drop(proxy);
                     return Ok(Some(object));
                 }
                 let children:Vec<Accessible>=proxy.call("GetChildren",&())?;
