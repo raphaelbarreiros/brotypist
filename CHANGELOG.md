@@ -17,7 +17,7 @@
 - Complete the candidate source cutover: remove obsolete first-party Python runtime/tests, launchers, PyInstaller specification and build/tool dependency paths. Preserve the full immutable baseline externally and useful corpus/assets/evidence; no Python compatibility sidecar is shipped.
 - Add native macOS/Windows/Linux CI, real model-worker probes, owned-window UI checks and guarded installer continuity probes. Published releases remain unchanged; an explicitly authorized signed local Mac candidate preserves the original bundle and profile.
 - Place the Windows owned-preview caret explicitly at the UTF-16 seed end rather than only deselecting the old selection; retain bilingual caret/readback assertions and bounded failure metadata.
-- Preserve canonical Windows build identity while using DOS drive-path spelling at the Cargo/CMake/MSBuild command boundary; exercise a real command working directory containing spaces and Unicode.
+- Preserve canonical Windows build identity while using DOS drive-path spelling at the Cargo/CMake/MSBuild boundary and separate short private compiler scratch space. Retain failed diagnostics, owner-only staging, and real command-directory/permissions regressions without changing OS long-path policy.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
 
 ## 0.4.13 — macOS Electron safety fixes

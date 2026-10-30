@@ -292,16 +292,18 @@ pub fn ensure_destination(path: &Path, replace: bool, platform: &str) -> Result<
 }
 pub fn stage(parent: &Path, label: &str) -> Result<PathBuf> {
     fs::create_dir_all(parent)?;
-    let path = parent.join(format!(".inklow-{label}-{}", uuid::Uuid::new_v4()));
-    let mut builder = fs::DirBuilder::new();
+    let prefix = format!(".inklow-{label}-");
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(&prefix).rand_bytes(22);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::DirBuilderExt;
-        builder.mode(0o700);
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o700));
     }
-    builder.create(&path)?;
+    let temporary = builder.tempdir_in(parent)?;
     #[cfg(windows)]
     {
+        let path = temporary.path();
         let user = run(Command::new("whoami").args(["/user", "/fo", "csv", "/nh"]))?;
         let sid = user
             .trim()
@@ -317,11 +319,11 @@ pub fn stage(parent: &Path, label: &str) -> Result<PathBuf> {
             "invalid current user SID"
         );
         run(Command::new("icacls")
-            .arg(&path)
+            .arg(path)
             .args(["/inheritance:r", "/grant:r"])
             .arg(format!("*{sid}:(OI)(CI)F")))?;
     }
-    Ok(path)
+    Ok(temporary.keep())
 }
 pub fn write_new(path: &Path, data: &[u8]) -> Result<()> {
     let mut options = OpenOptions::new();
@@ -649,6 +651,15 @@ pub fn source_state(root: &Path) -> Result<SourceState> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    #[test]
+    fn retained_stage_excludes_group_and_other_access() {
+        use std::os::unix::fs::PermissionsExt;
+        let parent = tempfile::tempdir().unwrap();
+        fs::set_permissions(parent.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        let stage = stage(parent.path(), "private").unwrap();
+        assert_eq!(fs::metadata(stage).unwrap().permissions().mode() & 0o077, 0);
+    }
     #[test]
     fn version_change_keeps_locked_workspace_resolution() {
         let temp = tempfile::tempdir().unwrap();

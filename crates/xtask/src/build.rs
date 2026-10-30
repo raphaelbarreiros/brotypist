@@ -52,15 +52,25 @@ pub fn build(root: &Path, output: &Path, replace: bool, development: bool) -> Re
     lock.try_lock_exclusive()
         .context("another builder owns this destination")?;
     let work = stage(output.parent().unwrap(), "build")?;
-    let result = assemble(root, &work, &output, replace, os, development);
+    // MSBuild FileTracker still rejects long paths even when Windows permits them.
+    let target_dir = if os == "win32" {
+        stage(&std::env::temp_dir(), "c")?
+    } else {
+        work.join("cargo-target")
+    };
+    let result = assemble(root, &work, &target_dir, &output, replace, os, development);
     match result {
         Ok(()) => {
+            if os == "win32" {
+                fs::remove_dir_all(&target_dir)?;
+            }
             fs::remove_dir_all(&work)?;
             Ok(output)
         }
         Err(error) => Err(error.context(format!(
-            "staging retained at {}; previous backup, if any, is its sibling",
-            work.display()
+            "staging retained at {}; compiler staging at {}; previous backup, if any, is the bundle staging's sibling",
+            work.display(),
+            target_dir.display()
         ))),
     }
 }
@@ -87,6 +97,7 @@ fn external_tool_path(path: &Path) -> Cow<'_, Path> {
 fn assemble(
     root: &Path,
     work: &Path,
+    target_dir: &Path,
     output: &Path,
     replace: bool,
     os: &str,
@@ -98,7 +109,6 @@ fn assemble(
         "dirty source cannot produce a release build"
     );
     let target = native_target()?;
-    let target_dir = work.join("cargo-target");
     let mut cargo = Command::new("cargo");
     cargo
         .current_dir(&*external_tool_path(root))
@@ -116,7 +126,7 @@ fn assemble(
         ])
         .arg(&target)
         .arg("--target-dir")
-        .arg(&*external_tool_path(&target_dir));
+        .arg(&*external_tool_path(target_dir));
     cargo
         .env_remove("BROTYPIST_LLAMA_LIB_DIR")
         .env_remove("CARGO_BUILD_TARGET")
