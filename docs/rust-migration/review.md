@@ -7,7 +7,7 @@ Baseline: `6eaeed5fe56e1ea8dcf878b1b7498f922c26fd59` (`main`, version 0.4.13).
 
 The baseline phase used five bounded read-only reviews covering runtime/features/spelling, inference/models/workers, macOS native integration, Windows/Linux/Wayland, and UI/data/updater/packaging. The integration owner independently exercised the old application and selected findings before implementation. This is a broad engineering review, not exhaustive vulnerability certification. Subsequent Rust implementation and independent review are recorded separately below; the normal installed application, profile, permissions and releases remain unchanged.
 
-Tracked implementation contains 24,614 lines across `src/inklow` Python/C/header files. The indexed source graph contains 2,975 nodes and 32,023 edges across 99 parsed files. Its controller trace misresolved an explicit anchor and its file-level test queries returned no matches despite existing tests; graph output was not treated as proof of coverage.
+The baseline implementation contained 24,614 lines across `src/inklow` Python/C/header files. All Python paths in this baseline review refer to commit `6eaeed5fe56e1ea8dcf878b1b7498f922c26fd59` or the immutable external oracle, not the Rust-only candidate checkout. The old indexed graph contained 2,975 nodes and 32,023 edges across 99 parsed files. Its controller trace misresolved an explicit anchor and its file-level test queries returned no matches despite existing tests; graph output was not treated as proof of coverage.
 
 Observed locally:
 

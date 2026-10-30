@@ -10,6 +10,7 @@
 - Preserve transaction-first shortcut authority, non-browser Mac window context, visible completion acceptance during alternatives, and terminal append readback through stable session identity and one-use mutable evidence.
 - Keep streaming inactivity timeouts separate from preparation deadlines, preserve the direct native benchmark's tokenizer/sampler/raw-stream/RSS diagnostics, and keep version changes compatible with locked Cargo builds. Include authentic, source-bound dependency notices without inventing a first-party license.
 - Restore portable Models/Welcome and explicit-background settings navigation, retain diagnostic output when native initialization is unavailable, and preserve offline saved-output review labels in an independently linked Rust executable.
+- Complete the candidate source cutover: remove obsolete first-party Python runtime/tests, launchers, PyInstaller specification and build/tool dependency paths. Preserve the full immutable baseline externally and useful corpus/assets/evidence; no Python compatibility sidecar is shipped.
 - Add native macOS/Windows/Linux CI, real model-worker probes, owned-window UI checks and guarded installer continuity probes. Published releases and the normal installed application remain unchanged.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
 
