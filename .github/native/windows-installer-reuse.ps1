@@ -156,15 +156,17 @@ try {
         $source = Get-Api "commits/$($package.source_commit)"
         Require ($source.sha -ceq $package.source_commit) 'Package source commit cannot be authenticated'
         $sourceBound = $package.source_commit -ceq $run.head_sha
-        if (-not $sourceBound -and $run.event -ceq 'pull_request' -and @($source.parents).Count -eq 2) {
-            $matches = @($run.pull_requests | Where-Object { $_.head.sha -ceq $run.head_sha -and $_.head.repo.id -eq $run.repository.id -and $_.base.repo.id -eq $run.repository.id -and $_.base.sha -ceq $source.parents[0].sha -and $_.head.sha -ceq $source.parents[1].sha })
-            $sourceBound = $matches.Count -eq 1
+        # The run's head_sha is immutable; its embedded PR head follows later pushes.
+        if (-not $sourceBound -and $run.event -ceq 'pull_request' -and @($source.parents).Count -eq 2 -and $source.parents[1].sha -ceq $run.head_sha) {
+            $bindings = @($run.pull_requests | Where-Object { $_.head.repo.id -eq $run.repository.id -and $_.base.repo.id -eq $run.repository.id -and $_.base.sha -ceq $source.parents[0].sha })
+            $sourceBound = $bindings.Count -eq 1
         }
         Require $sourceBound 'Package source is neither the authenticated run head nor its exact same-repo PR merge'
         $metadata.package_source_commit = $package.source_commit
         $metadata.package_source_digest = $provenance.source.source_digest
         $metadata.package_version = $package.version
         $metadata.package_source_binding = if ($package.source_commit -ceq $run.head_sha) { 'exact run head' } else { 'authenticated same-repo PR base/head merge parents' }
+        $metadata.package_source_parents = @($source.parents | ForEach-Object { $_.sha })
         $metadata.package_artifacts = [ordered]@{}
         Require (@($package.artifacts.PSObject.Properties).Count -eq 2) 'Unexpected package artifact kinds'
         foreach ($kind in @('msi', 'zip')) {
