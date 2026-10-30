@@ -35,6 +35,14 @@ struct Ghost {
     snapshot: Option<Snapshot>,
     visible: String,
 }
+impl Ghost {
+    fn visible_for(&self, current: &Snapshot) -> Option<&str> {
+        (current.selection_length == 0
+            && !self.visible.is_empty()
+            && self.snapshot.as_ref().is_some_and(|s| s.same_key(current)))
+        .then_some(self.visible.as_str())
+    }
+}
 struct EditorState {
     queue: Rc<RefCell<UiQueue>>,
     active: Cell<bool>,
@@ -81,25 +89,20 @@ define_class!(
                     unsafe { let _: () = msg_send![self, setNeedsDisplay: true]; }
                     return;
                 }
-                if let Ok(current) = read_editor(self.as_ref()) {
-                    if native_focus(self.as_ref()) && current.selection_length == 0 && !marked(self.as_ref()) {
-                        let ghost = state.ghost.borrow();
-                        let offered = !ghost.visible.is_empty() && ghost.snapshot.as_ref().is_some_and(|s| s.same_key(&current));
-                        let shortcuts = state.shortcuts.borrow();
-                        let full = if !chord.is_empty() && shortcuts.get("word") == Some(&chord) { Some(false) }
-                            else if !chord.is_empty() && shortcuts.get("all") == Some(&chord) { Some(true) }
-                            else { None };
-                        if offered {
-                            if let Some(full) = full {
-                                *state.queued_accept.borrow_mut() = Some((current, ghost.visible.clone()));
-                                state.action(UiAction::PreviewAccept(full));
-                                drop(shortcuts);
-                                drop(ghost);
-                                state.clear();
-                                unsafe { let _: () = msg_send![self, setNeedsDisplay: true]; }
-                                return;
-                            }
-                        }
+                if let Some(current) = self.acceptance_snapshot() {
+                    let ghost = state.ghost.borrow();
+                    let shortcuts = state.shortcuts.borrow();
+                    let full = if !chord.is_empty() && shortcuts.get("word") == Some(&chord) { Some(false) }
+                        else if !chord.is_empty() && shortcuts.get("all") == Some(&chord) { Some(true) }
+                        else { None };
+                    if let (Some(visible), Some(full)) = (ghost.visible_for(&current), full) {
+                        *state.queued_accept.borrow_mut() = Some((current, visible.into()));
+                        state.action(UiAction::PreviewAccept(full));
+                        drop(shortcuts);
+                        drop(ghost);
+                        state.clear();
+                        unsafe { let _: () = msg_send![self, setNeedsDisplay: true]; }
+                        return;
                     }
                 }
                 state.clear();
@@ -136,6 +139,14 @@ define_class!(
     }
 );
 impl WelcomePreviewTextView {
+    fn acceptance_snapshot(&self) -> Option<Snapshot> {
+        if !self.ivars().state.active.get() || !native_focus(self.as_ref()) || marked(self.as_ref())
+        {
+            return None;
+        }
+        let current = read_editor(self.as_ref()).ok()?;
+        (current.selection_length == 0).then_some(current)
+    }
     fn revoke_selection(&self, selected: NSRange) {
         if selected.length != 0 && self.ivars().state.active.replace(false) {
             self.ivars().state.clear();
@@ -355,7 +366,7 @@ fn owned_snapshot(text: impl Into<String>, range: NSRange) -> Result<Snapshot> {
     snapshot.selection_length = selection_length;
     Ok(snapshot)
 }
-fn read_editor(editor: &AnyObject) -> Result<Snapshot> {
+pub(super) fn read_editor(editor: &AnyObject) -> Result<Snapshot> {
     let range: NSRange = unsafe { msg_send![editor, selectedRange] };
     owned_snapshot(string(editor), range)
 }
@@ -617,6 +628,18 @@ impl Welcome {
             _ => {}
         }
         Ok(std::mem::take(&mut self.commands))
+    }
+    #[cfg(feature = "native-smoke")]
+    pub(super) fn preview_offer(&self) -> Option<(Snapshot, String, String)> {
+        if self.step != 4 || self.stopping || self.closing {
+            return None;
+        }
+        let current = self.editor.as_ref()?.acceptance_snapshot()?;
+        let ghost = self.state.ghost.borrow();
+        let visible = ghost.visible_for(&current)?.to_owned();
+        // The smoke observes the same native focus/IME/caret and draw acknowledgment
+        // used by keyDown, not accessibilityHelp's unbounded generated candidate.
+        Some((current, ghost.text.clone(), visible))
     }
     pub(super) fn preview_accept(&mut self, full: bool) -> Result<()> {
         let Some(editor) = self.editor.as_ref() else {
@@ -1784,6 +1807,27 @@ mod tests {
             assert!(visible.chars().count() <= width);
             assert!(text.is_char_boundary(visible.len()));
         }
+    }
+    #[test]
+    fn only_drawn_text_for_the_current_native_snapshot_is_an_offer() {
+        let current = owned_snapshot("Hello", NSRange::new(5, 0)).unwrap();
+        let mut ghost = Ghost {
+            text: " world tomorrow".into(),
+            snapshot: Some(current.clone()),
+            visible: String::new(),
+        };
+        assert_eq!(ghost.visible_for(&current), None);
+        ghost.visible = " world".into();
+        assert_eq!(ghost.visible_for(&current), Some(" world"));
+        for changed in [
+            owned_snapshot("Hello!", NSRange::new(5, 0)).unwrap(),
+            owned_snapshot("Hello", NSRange::new(4, 0)).unwrap(),
+            owned_snapshot("Hello", NSRange::new(4, 1)).unwrap(),
+        ] {
+            assert_eq!(ghost.visible_for(&changed), None);
+        }
+        ghost.snapshot = None;
+        assert_eq!(ghost.visible_for(&current), None);
     }
     #[test]
     fn native_ranges_reject_surrogates_and_preserve_scalar_selection() {

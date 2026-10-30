@@ -823,10 +823,11 @@ mod native {
                 ("GDK_BACKEND", "x11"),
             ]);
             daemon.call::<_, _, ()>("UpdateActivationEnvironment", &(activation))?;
+            // The launcher exports Bus and Status on the same session-bus object.
             let status = Proxy::new(
                 &connection,
                 "org.a11y.Bus",
-                "/org/a11y/status",
+                "/org/a11y/bus",
                 "org.a11y.Status",
             )?;
             status.set_property("IsEnabled", true)?;

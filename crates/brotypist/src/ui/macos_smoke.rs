@@ -237,6 +237,29 @@ fn insert_owned(editor: &AnyObject, text: &str) -> Result<()> {
     Ok(())
 }
 
+fn preview_word_expectation(
+    before: &crate::core::Snapshot,
+    generated: &str,
+    visible: &str,
+    config: &Config,
+) -> Option<(String, crate::core::Snapshot)> {
+    let mut suggestion = crate::core::SuggestionState {
+        snapshot: Some(before.clone()),
+        text: generated.into(),
+        ..Default::default()
+    };
+    // Model wording is not an oracle. Derive the exact native insertion from the
+    // configured consumer contract, including its terminal-word trailing space.
+    let insertion = suggestion.accept(
+        before,
+        false,
+        config.trailing_space,
+        crate::features::include_punctuation(&config.punctuation_mode, false),
+        Some(visible),
+    )?;
+    Some((insertion, suggestion.snapshot?))
+}
+
 struct ModalState {
     expected: String,
     button: String,
@@ -741,25 +764,22 @@ fn welcome(shell: &mut Shell, receipt: &mut Value, output: &Path) -> Result<()> 
         }
         insert_owned(&editor, prefix)?;
         let deadline = Instant::now() + Duration::from_secs(30);
-        let mut offered = String::new();
+        let config = shell.config();
+        let mut offered = None;
         while Instant::now() < deadline {
             pump(shell, deadline)?;
-            unsafe {
-                let help: *mut NSString = msg_send![&*editor, accessibilityHelp];
-                if !help.is_null() {
-                    let text = (&*help).to_string();
-                    if let Some(value) = text.strip_prefix("Suggestion: ").filter(|s| !s.is_empty())
-                    {
-                        offered = value.into();
-                        break;
-                    }
+            if let Some((before, generated, visible)) = shell.welcome.preview_offer() {
+                if let Some((insertion, expected)) =
+                    preview_word_expectation(&before, &generated, &visible, &config)
+                {
+                    offered = Some((before, generated, visible, insertion, expected));
+                    break;
                 }
             }
         }
-        ensure!(
-            !offered.is_empty(),
-            "Actual {language} preview did not expose a visible suggestion before its deadline"
-        );
+        let (before, generated, visible, insertion, expected) = offered.with_context(|| {
+            format!("Actual {language} preview did not expose a drawn, word-acceptable suggestion before its deadline")
+        })?;
         snapshot(
             shell,
             receipt,
@@ -773,13 +793,14 @@ fn welcome(shell: &mut Shell, receipt: &mut Value, output: &Path) -> Result<()> 
             let _: () = msg_send![&*editor,keyDown:key];
         }
         settle(shell)?;
-        let actual = string(&editor);
-        let inserted = actual.strip_prefix(prefix).unwrap_or("");
+        let actual = macos_welcome::read_editor(&editor)?;
         assert_record(
             receipt,
             &format!("welcome.preview_acceptance.{language}"),
-            !inserted.is_empty() && offered.starts_with(inserted),
-            json!({"before":prefix,"accessible_offer":offered,"actual_widget_readback":actual,"event":"NSEvent sent only to the owned canonical preview NSTextView"}),
+            before.text.as_ref() == prefix
+                && before.caret == prefix.chars().count()
+                && expected.same_key(&actual),
+            json!({"before":prefix,"generated_offer":generated,"rendered_offer":visible,"expected_word_insertion":insertion,"expected_widget_readback":expected.text.as_ref(),"expected_caret":expected.caret,"actual_widget_readback":actual.text.as_ref(),"actual_caret":actual.caret,"actual_selection_length":actual.selection_length,"event":"NSEvent sent only to the owned canonical preview NSTextView"}),
         )?;
     }
     action(shell, "inklow.welcome.back")?;
@@ -948,4 +969,76 @@ pub(super) fn run(output: &Path) -> Result<i32> {
     cleanup?;
     cleanup_assert?;
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::Snapshot;
+
+    #[test]
+    fn preview_word_expectation_includes_configured_terminal_space() {
+        let before = Snapshot {
+            text: "I was thinking we could".into(),
+            caret: 23,
+            ..Default::default()
+        };
+        for (trailing_space, insertion) in [(true, " make "), (false, " make")] {
+            let config = Config {
+                trailing_space,
+                ..Config::default()
+            };
+            let (actual, expected) =
+                preview_word_expectation(&before, " make", " make", &config).unwrap();
+            assert_eq!(actual, insertion);
+            assert_eq!(
+                expected.text.as_ref(),
+                format!("{}{insertion}", before.text.as_ref())
+            );
+            assert_eq!(expected.caret, before.caret + insertion.chars().count());
+            assert_eq!(expected.selection_length, 0);
+        }
+    }
+
+    #[test]
+    fn preview_word_expectation_preserves_punctuation_and_clipping_policy() {
+        let before = Snapshot {
+            text: "Hello".into(),
+            caret: 5,
+            ..Default::default()
+        };
+        let config = Config::default();
+        for (generated, visible, insertion) in [
+            (" world tomorrow", " world", Some(" world ")),
+            (" world.", " world.", Some(" world")),
+            (" world tomorrow", " wo", None),
+            (" world", "", None),
+        ] {
+            assert_eq!(
+                preview_word_expectation(&before, generated, visible, &config)
+                    .map(|(text, _)| text),
+                insertion.map(str::to_owned)
+            );
+        }
+    }
+
+    #[test]
+    fn preview_word_expectation_checks_unicode_caret_and_existing_suffix() {
+        let before = Snapshot {
+            text: "Olá 😀 fim".into(),
+            caret: 6,
+            ..Default::default()
+        };
+        let (insertion, expected) =
+            preview_word_expectation(&before, "ação ", "ação ", &Config::default()).unwrap();
+        assert_eq!(insertion, "ação ");
+        assert_eq!(expected.text.as_ref(), "Olá 😀 ação fim");
+        assert_eq!(expected.caret, 11);
+        let mut wrong_caret = expected.clone();
+        wrong_caret.caret -= 1;
+        assert!(!expected.same_key(&wrong_caret));
+        let mut wrong_selection = expected.clone();
+        wrong_selection.selection_length = 1;
+        assert!(!expected.same_key(&wrong_selection));
+    }
 }
