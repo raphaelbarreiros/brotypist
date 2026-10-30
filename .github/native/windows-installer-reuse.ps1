@@ -100,7 +100,11 @@ function Redact([string]$Text) {
 
 try {
     Require ($IsWindows -and [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [Runtime.InteropServices.Architecture]::X64) 'Native Windows x86_64 required'
-    Require ($env:CI -ceq 'true' -and $env:GITHUB_ACTIONS -ceq 'true' -and $env:RUNNER_ENVIRONMENT -ceq 'github-hosted' -and $env:RUNNER_OS -ceq 'Windows' -and $env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch') 'Disposable manual GitHub-hosted probe required'
+    Require ($env:CI -ceq 'true' -and $env:GITHUB_ACTIONS -ceq 'true' -and $env:RUNNER_ENVIRONMENT -ceq 'github-hosted' -and $env:RUNNER_OS -ceq 'Windows') 'Disposable GitHub-hosted probe required'
+    $gitRequest = [regex]::Match([string]$env:INSTALLER_PROBE_MESSAGE, '^probe-windows-installer: ([1-9][0-9]{0,19})(?:\r?\n|$)')
+    $gitTrigger = $env:GITHUB_EVENT_NAME -ceq 'push' -and $env:GITHUB_REF -ceq 'refs/heads/migration/rust-native' -and $gitRequest.Success -and $gitRequest.Groups[1].Value -ceq $ArtifactRun
+    Require ($env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch' -or $gitTrigger) 'Explicit manual input or migration-branch Git probe request required'
+    $metadata.trigger = $env:GITHUB_EVENT_NAME
     Assert-TemporaryPath $Work; Assert-TemporaryPath $Reports
     $Work = [IO.Path]::GetFullPath($Work); $Reports = [IO.Path]::GetFullPath($Reports)
     Require ($Work -ine $Reports -and -not $Work.StartsWith($Reports + '\', [StringComparison]::OrdinalIgnoreCase) -and -not $Reports.StartsWith($Work + '\', [StringComparison]::OrdinalIgnoreCase)) 'Evidence and private working paths must be separate'
