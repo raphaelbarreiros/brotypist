@@ -50,7 +50,7 @@ impl Accessory {
                 WINDOW_EX_STYLE(0),
                 w!("STATIC"),
                 w!("B ···"),
-                WS_CHILD | WS_VISIBLE | WINDOW_STYLE((SS_NOTIFY | SS_CENTER).0),
+                WS_CHILD | WS_VISIBLE | WINDOW_STYLE(SS_NOTIFY.0 | SS_CENTER.0),
                 1,
                 3,
                 32,

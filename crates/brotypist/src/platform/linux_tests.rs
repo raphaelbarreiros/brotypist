@@ -114,13 +114,13 @@ impl Accessibility for Fixture {
             _ => None,
         })
     }
-    fn app_identity(&self, _: &Object) -> Result<(i32, String, String)> {
+    fn app_identity(&self, _: &Object) -> Result<Option<(i32, String, String)>> {
         self.identity_reads.set(self.identity_reads.get() + 1);
-        Ok((
+        Ok(Some((
             std::process::id() as i32 + 1,
             "Editor".into(),
             "/fixture/editor".into(),
-        ))
+        )))
     }
     fn text(&self, _: &Object, reject_selection: bool) -> Result<Option<TextRead>> {
         self.reads.set(self.reads.get() + 1);

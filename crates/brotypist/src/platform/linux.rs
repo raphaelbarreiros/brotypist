@@ -61,7 +61,7 @@ fn focused(
 ) -> Result<Option<Focus>> {
     let mut remaining = 2000;
     for app in api.children(&api.root(), 256)? {
-        let Ok((pid, name, executable)) = api.app_identity(&app) else {
+        let Ok(Some((pid, name, executable))) = api.app_identity(&app) else {
             continue;
         };
         let id = if executable.is_empty() {

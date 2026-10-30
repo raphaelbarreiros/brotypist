@@ -89,7 +89,7 @@ jobs:
             libcairo2-dev libdbus-1-dev libwayland-dev libxkbcommon-dev wayland-protocols \
             libssl-dev libsecret-1-dev libgl1-mesa-dev dbus-x11 at-spi2-core xvfb xauth \
             fonts-dejavu-core fonts-noto-color-emoji patchelf desktop-file-utils \
-            dpkg-dev dbus-user-session x11-utils libatk-adaptor \
+            dpkg-dev dbus-user-session x11-utils libatk-adaptor librsvg2-common shared-mime-info \
             2>&1 | tee "$NATIVE_REPORTS/linux-dependencies.log"
       - name: Configure installed MSVC and Windows SDK
         if: runner.os == 'Windows'

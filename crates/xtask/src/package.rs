@@ -608,7 +608,7 @@ fn linux_dependencies(app: &Path, work: &Path) -> Result<String> {
     );
     // Session bus and dlopen services cannot all be derived from DT_NEEDED.
     Ok(format!(
-        "{dependencies}, libc6 (>= 2.39), at-spi2-core (>= 2.52), dbus-user-session, libsecret-1-0, libgtk-3-0 (>= 3.24), libwayland-client0, libxkbcommon0"
+        "{dependencies}, libc6 (>= 2.39), at-spi2-core (>= 2.52), dbus-user-session, libsecret-1-0, libgtk-3-0 (>= 3.24), librsvg2-common, shared-mime-info, libwayland-client0, libxkbcommon0"
     ))
 }
 pub fn write_tar(root: &Path, output: &Path) -> Result<()> {

@@ -106,7 +106,7 @@ pub(super) trait Accessibility {
     fn children(&self, o: &Object, limit: usize) -> Result<Vec<Object>>;
     fn metadata(&self, o: &Object) -> Result<Metadata>;
     fn parent(&self, o: &Object) -> Result<Option<Object>>;
-    fn app_identity(&self, o: &Object) -> Result<(i32, String, String)>;
+    fn app_identity(&self, o: &Object) -> Result<Option<(i32, String, String)>>;
     fn text(&self, o: &Object, reject_selection: bool) -> Result<Option<TextRead>>;
     fn static_text(&self, o: &Object, max: usize) -> Result<String>;
     fn extents(&self, o: &Object) -> Result<Rect>;
@@ -189,7 +189,7 @@ impl Accessibility for Atspi {
         let value = Self::reference(self.proxy(o, "Accessible")?.get_property("Parent")?);
         Ok(value.valid().then_some(value))
     }
-    fn app_identity(&self, o: &Object) -> Result<(i32, String, String)> {
+    fn app_identity(&self, o: &Object) -> Result<Option<(i32, String, String)>> {
         let dbus = Proxy::new(
             &self.connection,
             "org.freedesktop.DBus",
@@ -197,14 +197,16 @@ impl Accessibility for Atspi {
             "org.freedesktop.DBus",
         )?;
         let pid: u32 = dbus.call("GetConnectionUnixProcessID", &(o.bus.as_str(),))?;
-        if pid == 0 || pid > i32::MAX as u32 {
-            bail!("Invalid AT-SPI process identity");
-        }
+        // The GTK accessibility bridge services application properties on its owner thread.
+        // Reject self before a synchronous request that would block that same thread.
+        let Some(pid) = external_process_id(pid)? else {
+            return Ok(None);
+        };
         let name: String = self.proxy(o, "Accessible")?.get_property("Name")?;
         let executable = std::fs::read_link(format!("/proc/{pid}/exe"))
             .map(|v| v.to_string_lossy().into_owned())
             .unwrap_or_default();
-        Ok((pid as i32, name, executable))
+        Ok(Some((pid, name, executable)))
     }
     fn text(&self, o: &Object, reject_selection: bool) -> Result<Option<TextRead>> {
         // Requiring EditableText is checked without invoking an edit or obtaining text.
@@ -274,5 +276,29 @@ impl Accessibility for Atspi {
     }
     fn set_caret(&self, o: &Object, caret: i32) -> Result<bool> {
         Ok(self.proxy(o, "Text")?.call("SetCaretOffset", &(caret,))?)
+    }
+}
+
+fn external_process_id(pid: u32) -> Result<Option<i32>> {
+    if pid == 0 || pid > i32::MAX as u32 {
+        bail!("Invalid AT-SPI process identity");
+    }
+    if pid == std::process::id() {
+        return Ok(None);
+    }
+    Ok(Some(pid as i32))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn process_identity_rejects_self_before_application_property_requests() {
+        assert_eq!(external_process_id(std::process::id()).unwrap(), None);
+        assert!(external_process_id(0).is_err());
+        assert!(external_process_id(i32::MAX as u32 + 1).is_err());
+        let other = if std::process::id() == 1 { 2 } else { 1 };
+        assert_eq!(external_process_id(other).unwrap(), Some(other as i32));
     }
 }

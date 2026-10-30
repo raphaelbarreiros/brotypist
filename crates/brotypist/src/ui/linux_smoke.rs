@@ -2,6 +2,7 @@
 use super::*;
 use anyhow::{bail, ensure};
 use glib::translate::IntoGlib;
+use std::cell::Cell;
 use std::{
     fs::{self, OpenOptions},
     io::Write,
@@ -9,8 +10,124 @@ use std::{
     path::{Path, PathBuf},
 };
 
+fn rendered_snapshot(window: &gtk::Window) -> Result<gtk::gdk_pixbuf::Pixbuf> {
+    use gdk::prelude::WindowExtManual;
+
+    ensure!(
+        window.is_visible() && window.is_mapped(),
+        "Screenshot requires the mapped canonical GTK window."
+    );
+    let clock = window
+        .frame_clock()
+        .context("Mapped GTK window has no frame clock.")?;
+    let loop_ = glib::MainLoop::new(None, false);
+    let painted = Rc::new(Cell::new(false));
+    let ready = painted.clone();
+    let done = loop_.clone();
+    let handler = clock.connect_after_paint(move |_| {
+        ready.set(true);
+        done.quit();
+    });
+    let expired = Rc::new(Cell::new(false));
+    let timed_out = expired.clone();
+    let done = loop_.clone();
+    let timeout = glib::timeout_add_local_once(Duration::from_secs(5), move || {
+        timed_out.set(true);
+        done.quit();
+    });
+    // GTK allocates during the frame's layout phase. A positive allocated size alone
+    // does not make gtk_widget_draw valid after a pane, label or control changed.
+    window.queue_draw();
+    clock.request_phase(gdk::FrameClockPhase::AFTER_PAINT);
+    loop_.run();
+    clock.disconnect(handler);
+    if !expired.get() {
+        timeout.remove();
+    }
+    ensure!(
+        painted.get() && !expired.get(),
+        "GTK did not render the requested frame."
+    );
+    let width = window.allocated_width();
+    let height = window.allocated_height();
+    ensure!(width > 0 && height > 0, "Native widget has no allocation.");
+    // Read the actual server-side window after paint, not a newly-created blank surface.
+    let native = gtk::prelude::WidgetExt::window(window)
+        .context("Mapped GTK window has no native drawable.")?;
+    let pixels = native
+        .pixbuf(0, 0, width, height)
+        .context("Cannot read the rendered native GTK window.")?;
+    ensure!(
+        image_has_content(
+            pixels.read_pixel_bytes().as_ref(),
+            pixels.width() as usize,
+            pixels.height() as usize,
+            pixels.rowstride() as usize,
+            pixels.n_channels() as usize,
+        ),
+        "Native screenshot is blank or transparent rather than rendered controls."
+    );
+    Ok(pixels)
+}
+
+fn image_has_content(
+    bytes: &[u8],
+    width: usize,
+    height: usize,
+    stride: usize,
+    channels: usize,
+) -> bool {
+    if width == 0 || height == 0 || !matches!(channels, 3 | 4) {
+        return false;
+    }
+    let Some(row_bytes) = width.checked_mul(channels) else {
+        return false;
+    };
+    if stride < row_bytes {
+        return false;
+    }
+    let mut background = None::<[u8; 3]>;
+    let mut contrasting = 0usize;
+    for y in 0..height {
+        let Some(start) = y.checked_mul(stride) else {
+            return false;
+        };
+        let Some(end) = start.checked_add(row_bytes) else {
+            return false;
+        };
+        let Some(row) = bytes.get(start..end) else {
+            return false;
+        };
+        for pixel in row.chunks_exact(channels) {
+            if channels == 4 && pixel[3] < 128 {
+                continue;
+            }
+            let base = *background.get_or_insert([pixel[0], pixel[1], pixel[2]]);
+            if (0..3).any(|channel| pixel[channel].abs_diff(base[channel]) >= 16) {
+                contrasting += 1;
+            }
+        }
+    }
+    let Some(area) = width.checked_mul(height) else {
+        return false;
+    };
+    contrasting >= (area / 1000).max(32)
+}
+
+fn cancel_owned_dialogs() {
+    // This executable owns only the disposable fixture's GTK objects. In particular,
+    // unwind Dialog::run even if the expected title/parent did not match the real modal.
+    for dialog in gtk::Window::list_toplevels()
+        .into_iter()
+        .filter_map(|window| window.downcast::<gtk::Dialog>().ok())
+    {
+        dialog.response(gtk::ResponseType::Cancel);
+    }
+}
+
 struct Scenario {
     step: u32,
+    reported_step: Option<u32>,
     entered: Instant,
     started: Instant,
     output: PathBuf,
@@ -19,8 +136,9 @@ struct Scenario {
     before: String,
     completed: bool,
     failure: Option<String>,
-    cleanup_at: Option<Instant>,
+    cleanup_at: Rc<Cell<Option<Instant>>>,
     prompt_error: Rc<RefCell<Option<String>>>,
+    answered_prompts: Rc<Cell<u32>>,
 }
 impl Scenario {
     fn next(&mut self) {
@@ -42,52 +160,81 @@ impl Scenario {
         Ok(ready)
     }
     fn capture(&mut self, window: &gtk::Window, name: &str) -> Result<()> {
-        ensure!(
-            window.is_visible() && window.is_mapped(),
-            "Screenshot requires the mapped canonical GTK window."
-        );
-        let width = window.allocated_width();
-        let height = window.allocated_height();
-        ensure!(width > 0 && height > 0, "Native widget has no allocation.");
-        let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, width, height)?;
-        let context = cairo::Context::new(&surface)?;
-        window.draw(&context);
-        context.status()?;
-        surface.flush();
+        let pixels = rendered_snapshot(window)?;
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
             .open(self.output.join(name))?;
-        surface.write_to_png(&mut file)?;
+        file.write_all(&pixels.save_to_bufferv("png", &[])?)?;
         file.sync_all()?;
         self.images.push(name.into());
+        eprintln!(
+            "[native-linux-smoke] captured {name} ({}x{})",
+            pixels.width(),
+            pixels.height()
+        );
         Ok(())
     }
     fn answer(&self, parent: &gtk::Window, title: &str, response: gtk::ResponseType) {
+        eprintln!(
+            "[native-linux-smoke] stage={} awaiting modal {title:?}, parent={:?}",
+            self.step,
+            parent.title()
+        );
         let parent = parent.clone();
         let title = title.to_owned();
         let failure = self.prompt_error.clone();
+        let answered = self.answered_prompts.clone();
         let deadline = Instant::now() + Duration::from_secs(10);
+        // Dialog::run does not hide its window, and Window::close queues an idle
+        // delete event. Consecutive same-title consents can briefly coexist.
+        let existing = gtk::Window::list_toplevels()
+            .into_iter()
+            .filter_map(|window| window.downcast::<gtk::Dialog>().ok())
+            .collect::<Vec<_>>();
         glib::timeout_add_local(Duration::from_millis(10), move || {
             let dialog = gtk::Window::list_toplevels()
                 .into_iter()
-                .filter_map(|w| w.downcast::<gtk::Dialog>().ok())
-                .find(|d| d.is_visible() && d.transient_for().as_ref() == Some(&parent));
+                .filter_map(|window| window.downcast::<gtk::Dialog>().ok())
+                .find(|dialog| {
+                    !existing.contains(dialog) && dialog.is_visible() && dialog.is_mapped()
+                });
             if let Some(dialog) = dialog {
-                if dialog.title().as_deref() == Some(title.as_str()) {
-                    dialog.response(response);
+                let actual_parent = dialog.transient_for();
+                if dialog.title().as_deref() == Some(title.as_str())
+                    && actual_parent.as_ref() == Some(&parent)
+                {
+                    let button = dialog
+                        .widget_for_response(response)
+                        .and_then(|widget| widget.downcast::<gtk::Button>().ok())
+                        .filter(|button| button.is_visible() && button.is_sensitive());
+                    if let Some(button) = button {
+                        eprintln!(
+                            "[native-linux-smoke] answering actual modal {title:?}: {response:?}"
+                        );
+                        button.clicked();
+                        answered.set(answered.get() + 1);
+                    } else {
+                        *failure.borrow_mut() = Some(format!(
+                            "Expected actual GTK modal response button is unavailable: {title}, {response:?}"
+                        ));
+                        cancel_owned_dialogs();
+                    }
                 } else {
                     *failure.borrow_mut() = Some(format!(
-                        "Unexpected owned modal title: {}",
-                        dialog.title().unwrap_or_default()
+                        "Unexpected owned GTK modal: title={:?}, parent={:?}; expected {title:?}, parent={:?}",
+                        dialog.title(),
+                        actual_parent.and_then(|window| window.title()),
+                        parent.title(),
                     ));
-                    dialog.response(gtk::ResponseType::Cancel);
+                    cancel_owned_dialogs();
                 }
                 glib::ControlFlow::Break
             } else if Instant::now() >= deadline {
                 *failure.borrow_mut() =
                     Some(format!("Expected actual GTK modal was not shown: {title}"));
+                cancel_owned_dialogs();
                 glib::ControlFlow::Break
             } else {
                 glib::ControlFlow::Continue
@@ -95,6 +242,10 @@ impl Scenario {
         });
     }
     fn tick(&mut self, s: &mut Shell) -> Result<()> {
+        if self.reported_step != Some(self.step) {
+            self.reported_step = Some(self.step);
+            eprintln!("[native-linux-smoke] entering stage={}", self.step);
+        }
         if let Some(error) = self.prompt_error.borrow_mut().take() {
             bail!(error);
         }
@@ -197,7 +348,7 @@ impl Scenario {
                 )?;
                 s.settings.show_pane("Privacy");
                 self.answer(
-                    &s.settings.window,
+                    &s.parent(),
                     "Enable encrypted local learning?",
                     gtk::ResponseType::Cancel,
                 );
@@ -227,6 +378,10 @@ impl Scenario {
                         && s.settings.draft.borrow().value("screen_context") == Some(&json!(false)),
                     "clipboard consent is independent of Accessibility context",
                 )?;
+                self.check(
+                    self.answered_prompts.get() == 3,
+                    "consecutive same-title clipboard dialogs receive distinct Cancel and Continue button responses",
+                )?;
                 self.next();
             }
             13 => {
@@ -252,7 +407,7 @@ impl Scenario {
                 s.settings.show_pane("General");
                 s.settings.smoke_control("debounce_ms", json!(800))?;
                 self.answer(
-                    &s.settings.window,
+                    &s.parent(),
                     "Save before closing?",
                     gtk::ResponseType::Cancel,
                 );
@@ -267,7 +422,7 @@ impl Scenario {
                     "Cancel on dirty-window close keeps the resident controls and draft",
                 )?;
                 self.answer(
-                    &s.settings.window,
+                    &s.parent(),
                     "Save before quitting?",
                     gtk::ResponseType::Cancel,
                 );
@@ -489,11 +644,7 @@ impl Scenario {
                     !s.welcome.window.is_visible() && s.settings.window.is_visible() && !s.quitting,
                     "Welcome Finish without a tray returns to visible Settings, not a hidden loop",
                 )?;
-                self.answer(
-                    &s.settings.window,
-                    "Quit BroTypist?",
-                    gtk::ResponseType::Cancel,
-                );
+                self.answer(&s.parent(), "Quit BroTypist?", gtk::ResponseType::Cancel);
                 s.settings.window.close();
                 self.next();
             }
@@ -502,8 +653,13 @@ impl Scenario {
                     s.settings.window.is_visible() && !s.quitting,
                     "no-tray window-close Cancel retains visible recovery controls",
                 )?;
+                self.check(
+                    self.answered_prompts.get() == 7,
+                    "all seven consent, dirty-draft and no-tray prompts were answered through their actual native buttons",
+                )?;
                 self.completed = true;
                 click_button(&s.settings.window, "Quit BroTypist")?;
+                self.cleanup_at.set(Some(Instant::now()));
                 self.next();
             }
             _ => {}
@@ -664,18 +820,48 @@ pub(super) fn run(output: &Path) -> Result<i32> {
         display.type_().name().contains("X11"),
         "This smoke requires the explicitly owned X11 GTK display."
     );
+    let started = Instant::now();
+    let cleanup_at = Rc::new(Cell::new(None::<Instant>));
+    let prompt_error = Rc::new(RefCell::new(None::<String>));
+    let shutdown_started = cleanup_at.clone();
+    let failure = prompt_error.clone();
+    // Unlike the scenario and resident timers, this callback does not borrow Shell.
+    // Dialog::run holds that borrow while dispatching a nested GLib loop.
+    let watchdog = glib::timeout_add_local(Duration::from_millis(50), move || {
+        if started.elapsed() >= Duration::from_secs(210) && shutdown_started.get().is_none() {
+            *failure.borrow_mut() =
+                Some("Native UI smoke exceeded its bounded scenario deadline.".into());
+            shutdown_started.set(Some(Instant::now()));
+        }
+        if let Some(at) = shutdown_started.get() {
+            cancel_owned_dialogs();
+            if at.elapsed() >= Duration::from_secs(20) {
+                let mut failure = failure.borrow_mut();
+                if failure.is_none() {
+                    *failure = Some(
+                        "Canonical Quit did not complete its bounded ownership cleanup.".into(),
+                    );
+                }
+                eprintln!("[native-linux-smoke] cleanup deadline expired");
+                gtk::main_quit();
+            }
+        }
+        glib::ControlFlow::Continue
+    });
     let state = Rc::new(RefCell::new(Scenario {
         step: 0,
+        reported_step: None,
         entered: Instant::now(),
-        started: Instant::now(),
+        started,
         output: output.into(),
         checks: Vec::new(),
         images: Vec::new(),
         before: String::new(),
         completed: false,
         failure: None,
-        cleanup_at: None,
-        prompt_error: Rc::new(RefCell::new(None)),
+        cleanup_at,
+        prompt_error,
+        answered_prompts: Rc::new(Cell::new(0)),
     }));
     let scenario = state.clone();
     let weak = Rc::downgrade(&shell);
@@ -697,35 +883,32 @@ pub(super) fn run(output: &Path) -> Result<i32> {
             return glib::ControlFlow::Break;
         }
         if scenario.failure.is_none() {
-            let result = if scenario.started.elapsed() > Duration::from_secs(210) {
-                Err(anyhow::anyhow!(
-                    "Native UI smoke exceeded its bounded scenario deadline."
-                ))
-            } else {
-                scenario.tick(&mut s)
-            };
+            let result = scenario.tick(&mut s);
             if let Err(error) = result {
                 scenario.failure = Some(error.to_string());
-                scenario.cleanup_at = Some(Instant::now());
+                if scenario.cleanup_at.get().is_none() {
+                    scenario.cleanup_at.set(Some(Instant::now()));
+                }
+                eprintln!(
+                    "[native-linux-smoke] stage={} failed: {error}",
+                    scenario.step
+                );
                 s.settings.smoke_revert();
                 let _ = s.sender.send(UiAction::Quit);
             }
         }
-        if scenario
-            .cleanup_at
-            .is_some_and(|at| at.elapsed() > Duration::from_secs(20))
-        {
-            running.set(false);
-            gtk::main_quit();
-            return glib::ControlFlow::Break;
-        }
         glib::ControlFlow::Continue
     });
     let result = run_shell(shell.clone());
+    watchdog.remove();
     if alive.get() {
         source.remove();
     }
     let mut scenario = state.borrow_mut();
+    if scenario.failure.is_none() {
+        let error = scenario.prompt_error.borrow_mut().take();
+        scenario.failure = error;
+    }
     let s = shell.borrow();
     let clean = s.stopped
         && s.controller.status()["shutdown_complete"] == true
@@ -736,7 +919,7 @@ pub(super) fn run(output: &Path) -> Result<i32> {
         scenario.checks.push("actual canonical Quit completed controller, preview, clipboard and power ownership cleanup and exited GTK".into());
     }
     let passed = result.is_ok() && scenario.completed && scenario.failure.is_none() && clean;
-    let receipt = json!({"schema":1,"platform":"linux","ui":"GTK3 native canonical resident shell","passed":passed,"outcome":if passed{"passed"}else{"failed"},"error":scenario.failure,"assertions":scenario.checks,"screenshots":scenario.images,"clean_exit":clean,"elapsed_ms":scenario.started.elapsed().as_millis(),"profile":profile,"model":model.file_name().map(|s|s.to_string_lossy().into_owned()),"native_status":s.controller.status()["native_status"],"input":"GTK owned-widget event dispatch; no global synthetic input","limits":["Not physical keyboard or external host-edit proof","Not a real KWin/Wayland compositor scenario","Does not register login, change permissions, read history/credentials, download models or install updates"]});
+    let receipt = json!({"schema":1,"platform":"linux","ui":"GTK3 native canonical resident shell","passed":passed,"outcome":if passed{"passed"}else{"failed"},"error":scenario.failure,"last_stage":scenario.step,"modal_responses":scenario.answered_prompts.get(),"assertions":scenario.checks,"screenshots":scenario.images,"clean_exit":clean,"elapsed_ms":scenario.started.elapsed().as_millis(),"profile":profile,"model":model.file_name().map(|s|s.to_string_lossy().into_owned()),"native_status":s.controller.status()["native_status"],"input":"GTK owned-widget event dispatch; no global synthetic input","limits":["Not physical keyboard or external host-edit proof","Not a real KWin/Wayland compositor scenario","Does not register login, change permissions, read history/credentials, download models or install updates"]});
     write_receipt(output, &receipt)?;
     result?;
     ensure!(
@@ -755,4 +938,35 @@ fn write_receipt(output: &Path, receipt: &Value) -> Result<()> {
     file.write_all(b"\n")?;
     file.sync_all()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_screenshot_requires_visible_rendered_content() {
+        let mut pixels = vec![0; 32 * 32 * 3];
+        assert!(!image_has_content(&pixels, 32, 32, 96, 3));
+        pixels.fill(255);
+        assert!(!image_has_content(&pixels, 32, 32, 96, 3));
+        pixels[96..192].fill(0);
+        assert!(image_has_content(&pixels, 32, 32, 96, 3));
+        assert!(!image_has_content(&pixels[..100], 32, 32, 96, 3));
+    }
+
+    #[test]
+    fn transparent_or_padding_bytes_do_not_count_as_controls() {
+        let mut transparent = vec![0; 32 * 32 * 4];
+        transparent[..256].fill(255);
+        for alpha in transparent.iter_mut().skip(3).step_by(4) {
+            *alpha = 0;
+        }
+        assert!(!image_has_content(&transparent, 32, 32, 128, 4));
+        let mut padded = vec![0; 100 * 32];
+        for padding in padded.chunks_exact_mut(100) {
+            padding[96..].fill(255);
+        }
+        assert!(!image_has_content(&padded, 32, 32, 100, 3));
+    }
 }

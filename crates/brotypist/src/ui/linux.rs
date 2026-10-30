@@ -134,6 +134,7 @@ pub(super) fn error(parent: Option<&gtk::Window>, message: impl std::fmt::Displa
     );
     dialog.set_title("BroTypist could not apply this change");
     dialog.run();
+    dialog.hide();
     dialog.close();
 }
 pub(super) fn confirm(parent: Option<&gtk::Window>, title: &str, message: &str) -> bool {
@@ -152,6 +153,8 @@ pub(super) fn confirm(parent: Option<&gtk::Window>, title: &str, message: &str) 
     ]);
     dialog.set_default_response(gtk::ResponseType::Cancel);
     let accepted = dialog.run() == gtk::ResponseType::Accept;
+    // close() queues a delete event; hide synchronously before another consent can open.
+    dialog.hide();
     dialog.close();
     accepted
 }
@@ -273,6 +276,7 @@ impl Shell {
         ]);
         dialog.set_default_response(gtk::ResponseType::Cancel);
         let choice = dialog.run();
+        dialog.hide();
         dialog.close();
         let decision = match choice {
             gtk::ResponseType::Reject => DraftDecision::Discard,
@@ -914,11 +918,15 @@ fn create_shell(config: Config, options: LaunchOptions) -> Result<Rc<RefCell<She
     }
     {
         let mut s = shell.borrow_mut();
-        if !tray_available || options.pane.is_some() {
-            s.show_settings(options.pane.as_deref().unwrap_or("General"));
-        }
-        if !config.setup_completed || !model_selected(&config) {
+        if options.pane.as_deref() == Some("welcome") {
             s.show_welcome();
+        } else {
+            if !tray_available || options.pane.is_some() {
+                s.show_settings(options.pane.as_deref().unwrap_or("General"));
+            }
+            if !config.setup_completed || !model_selected(&config) {
+                s.show_welcome();
+            }
         }
         if config.check_updates_automatically {
             let _ = s.updates.start_automatic_check();

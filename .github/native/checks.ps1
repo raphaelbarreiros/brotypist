@@ -128,6 +128,25 @@ switch ($Phase) {
         Invoke-Logged 'cli-version.log' $app @('--version')
         Invoke-Logged 'cli-help.log' $app @('--help')
         Invoke-DesktopEnvironment 'doctor-before.log' $app @('doctor')
+        if ($IsLinux) {
+            $savedDisplay = $env:DISPLAY
+            $savedWayland = $env:WAYLAND_DISPLAY
+            $savedSocket = $env:WAYLAND_SOCKET
+            try {
+                [Environment]::SetEnvironmentVariable('DISPLAY', $null, 'Process')
+                [Environment]::SetEnvironmentVariable('WAYLAND_DISPLAY', $null, 'Process')
+                [Environment]::SetEnvironmentVariable('WAYLAND_SOCKET', $null, 'Process')
+                Invoke-Logged 'doctor-unavailable.log' $app @('doctor')
+                $unavailable = Get-Content -LiteralPath (Join-Path $env:NATIVE_REPORTS 'doctor-unavailable.log') -Raw | ConvertFrom-Json -AsHashtable
+                if ($unavailable['native']['available'] -ne $false -or !$unavailable.Contains('version') -or !$unavailable.Contains('settings') -or !$unavailable.Contains('model_file_exists')) {
+                    throw 'Headless doctor lost readiness metadata or reported native authority.'
+                }
+            } finally {
+                [Environment]::SetEnvironmentVariable('DISPLAY', $savedDisplay, 'Process')
+                [Environment]::SetEnvironmentVariable('WAYLAND_DISPLAY', $savedWayland, 'Process')
+                [Environment]::SetEnvironmentVariable('WAYLAND_SOCKET', $savedSocket, 'Process')
+            }
+        }
         Invoke-Logged 'model-download.log' $app @('model', 'download', '--preset', 'tiny', '--no-select')
     }
     worker {

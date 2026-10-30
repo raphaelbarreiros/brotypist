@@ -239,7 +239,16 @@ fn dispatch(args: Cli) -> Result<i32> {
 }
 
 fn doctor(config: &Config) -> Result<i32> {
-    let mut bridge = crate::platform::create_bridge(config)?;
+    let (mut bridge, native) = match crate::platform::create_bridge(config) {
+        Ok(bridge) => {
+            let status = bridge.status();
+            (Some(bridge), status)
+        }
+        Err(error) => (
+            None,
+            serde_json::json!({"available":false,"readiness":"unavailable","reason":error.to_string()}),
+        ),
+    };
     let output = serde_json::json!({
         "platform": std::env::consts::OS,
         "runtime": "Rust",
@@ -250,11 +259,11 @@ fn doctor(config: &Config) -> Result<i32> {
         "shell": if cfg!(target_os="macos") { "AppKit" } else if cfg!(target_os="windows") { "Win32" } else { "GTK native utility" },
         "idle_release_seconds": config.idle_release_seconds,
         "model_file_exists": !config.model_path.is_empty() && expanded_model_path(&config.model_path).is_file(),
-        "native": bridge.status(),
+        "native": native,
         "global_enabled": config.global_enabled,
     });
     let printed = serde_json::to_writer_pretty(io::stdout().lock(), &output);
-    let stopped = bridge.stop();
+    let stopped = bridge.as_mut().map_or(Ok(()), |bridge| bridge.stop());
     printed?;
     println!();
     stopped?;

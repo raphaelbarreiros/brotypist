@@ -294,9 +294,11 @@ impl Shell {
             if !options.no_tray {
                 s.tray = s.install_tray();
             }
-            if !s.controller.config().setup_completed && !options.login_startup {
+            if options.pane.as_deref() == Some("welcome")
+                || !s.controller.config().setup_completed && !options.login_startup
+            {
                 s.show_welcome()?;
-            } else if !options.background || !s.tray {
+            } else if options.pane.is_some() || !options.background || !s.tray {
                 let _ = ShowWindow(window, SW_SHOW);
             }
             if s.last_config.check_updates_automatically {

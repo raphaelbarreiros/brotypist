@@ -1028,6 +1028,7 @@ impl SettingsWindow {
         self.recording.get()
     }
     pub fn show_pane(&self, pane: &str) {
+        let pane = if pane == "models" { "AI Models" } else { pane };
         let pane = PANES
             .iter()
             .find(|p| p.eq_ignore_ascii_case(pane))

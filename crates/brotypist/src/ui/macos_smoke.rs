@@ -1,6 +1,7 @@
 //! Feature-gated verification of the real resident shell and its owned AppKit views.
 //! No external Accessibility query, global input injection, permission request, or download.
 use super::*;
+use objc2_app_kit::{NSAccessibilityPressAction, NSAccessibilityUnignoredDescendant};
 use objc2_foundation::NSRange;
 use sha2::{Digest, Sha256};
 use std::{
@@ -108,7 +109,7 @@ fn state(control: &AnyObject) -> isize {
 fn is_enabled(control: &AnyObject) -> bool {
     unsafe { msg_send![control, isEnabled] }
 }
-fn press(control: &AnyObject) -> Result<()> {
+fn press(kit: &Kit, control: &AnyObject) -> Result<()> {
     ensure!(
         is_enabled(control),
         "Native control is disabled: {}",
@@ -117,19 +118,40 @@ fn press(control: &AnyObject) -> Result<()> {
     unsafe {
         let bounds: NSRect = msg_send![control, bounds];
         let _: bool = msg_send![control,scrollRectToVisible:bounds];
-        let supported: bool = msg_send![control,respondsToSelector:sel!(accessibilityPerformPress)];
-        if supported {
-            let accepted: bool = msg_send![control, accessibilityPerformPress];
-            ensure!(
-                accepted,
-                "Owned native accessibility press was refused: {}",
+        // A view is not necessarily the element exposed to assistive clients:
+        // single-cell AppKit controls may expose their cell instead. In addition,
+        // NSObject responds to accessibilityPerformPress even when that method
+        // does not implement this control's AXPress action. Resolve the exposed
+        // element and use AppKit's advertised action dispatcher, not selector
+        // presence or a performClick fallback.
+        let element = NSAccessibilityUnignoredDescendant(control).with_context(|| {
+            format!(
+                "Native control has no unique exposed accessibility element: {}",
                 native_id(control)
-            );
-        } else {
-            let supported: bool = msg_send![control,respondsToSelector:sel!(performClick:)];
-            ensure!(supported, "Owned control has no native press action");
-            let _: () = msg_send![control,performClick:std::ptr::null::<AnyObject>()];
-        }
+            )
+        })?;
+        let actions: *mut AnyObject = msg_send![&*element, accessibilityActionNames];
+        ensure!(
+            !actions.is_null(),
+            "Native accessibility element advertises no actions: {}",
+            native_id(control)
+        );
+        let supported: bool = msg_send![actions,containsObject:NSAccessibilityPressAction];
+        ensure!(
+            supported,
+            "Native accessibility element does not advertise AXPress: {}",
+            native_id(control)
+        );
+        let queued = kit.queue.borrow().pending.len();
+        let _: () = msg_send![&*element,accessibilityPerformAction:NSAccessibilityPressAction];
+        // The public legacy dispatcher returns void. Success therefore requires
+        // the real native target/action callback, not an invented acknowledgment.
+        // Canonical actions must enqueue once; shell state is asserted after tick.
+        ensure!(
+            kit.queue.borrow().pending.len() == queued + 1,
+            "Owned native AXPress did not dispatch exactly one captured intent: {}",
+            native_id(control)
+        );
     }
     Ok(())
 }
@@ -168,7 +190,7 @@ fn settle(shell: &mut Shell) -> Result<()> {
 }
 fn action_unchecked(shell: &mut Shell, id: &str) -> Result<()> {
     let control = control(shell, id)?;
-    press(&control)?;
+    press(&shell.kit, &control)?;
     settle(shell)
 }
 fn action(shell: &mut Shell, id: &str) -> Result<()> {
@@ -371,6 +393,57 @@ fn snapshot(shell: &Shell, receipt: &mut Value, output: &Path, id: &str, name: &
 }
 fn navigate(shell: &mut Shell, pane: &str) -> Result<()> {
     action(shell, &format!("inklow.sidebar.{pane}"))
+}
+fn sidebar_press_contract(shell: &mut Shell, receipt: &mut Value) -> Result<()> {
+    let id = "inklow.sidebar.setup";
+    let setup = control(shell, id)?;
+    let element = unsafe { NSAccessibilityUnignoredDescendant(&setup) }
+        .context("Canonical Setup has no unique exposed accessibility element")?;
+    receipt["accessibility_press"] = json!({
+        "action": "AXPress",
+        "dispatch": "accessibilityPerformAction: on NSAccessibilityUnignoredDescendant",
+        "setup_view_is_exposed_element": std::ptr::eq(&*setup, &*element),
+        "success_requires": "exactly one real native target/action intent and scenario state readback",
+        "perform_click_fallback": false
+    });
+    ensure!(
+        is_enabled(&setup),
+        "Canonical Setup control must be enabled"
+    );
+    let queued = shell.kit.queue.borrow().pending.len();
+    unsafe {
+        let _: () = msg_send![&*setup,setEnabled:false];
+    }
+    let disabled = press(&shell.kit, &setup);
+    // Restore the real control before recording a failing assertion as well.
+    unsafe {
+        let _: () = msg_send![&*setup,setEnabled:true];
+    }
+    let unchanged = shell.kit.queue.borrow().pending.len() == queued;
+    assert_record(
+        receipt,
+        "accessibility.disabled_press_rejected",
+        disabled.is_err() && unchanged,
+        json!({"refused":disabled.is_err(),"captured_intents_unchanged":unchanged}),
+    )?;
+    for name in [
+        "accessibility.setup_press",
+        "accessibility.setup_repeat_press",
+    ] {
+        // Exercise the canonical control through its exposed AXPress action.
+        // Repeat selection must dispatch again and leave the sidebar selected,
+        // not acknowledge an inherited no-op or toggle the current pane off.
+        action(shell, id)?;
+        let setup = control(shell, id)?;
+        let title = string(&*control(shell, "inklow.settings.paneTitle")?);
+        assert_record(
+            receipt,
+            name,
+            shell.settings.pane() == "setup" && title == "Setup" && state(&setup) == 1,
+            json!({"pane":shell.settings.pane(),"native_title":title,"selected_state":state(&setup),"dispatch":"advertised AXPress on unignored native element; exactly one captured intent"}),
+        )?;
+    }
+    Ok(())
 }
 fn navigate_panes(shell: &mut Shell, receipt: &mut Value, output: &Path) -> Result<()> {
     for (index, (pane, title)) in [
@@ -838,6 +911,7 @@ pub(super) fn run(output: &Path) -> Result<i32> {
     let startup_result = startup_guard.finish();
     shell.controller.borrow().suspend_shortcuts(true)?;
     let result = startup_result.and_then(|_| {
+        sidebar_press_contract(&mut shell, &mut receipt)?;
         navigate_panes(&mut shell, &mut receipt, output)?;
         drafts(&mut shell, &mut receipt, output)?;
         privacy(&mut shell, &mut receipt, output)?;

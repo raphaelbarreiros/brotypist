@@ -52,16 +52,23 @@ fn check_receipt(receipt: &Value, version: &str, commit: &str) -> Result<()> {
         passed(receipt),
         "only passed native installer receipts can seal release assets"
     );
-    if let Some(observed) = receipt.get("version") {
-        ensure!(observed == version, "installer receipt version mismatch");
-    }
-    if let Some(observed) = receipt.get("source_commit") {
-        ensure!(observed == commit, "installer receipt source mismatch");
-    }
+    let native_identity = receipt.get("identity");
     ensure!(
-        receipt.get("development").and_then(Value::as_bool) != Some(true),
-        "development receipt is not release evidence"
+        native_identity.is_none_or(Value::is_object),
+        "native installer receipt identity must be an object"
     );
+    for metadata in std::iter::once(receipt).chain(native_identity) {
+        if let Some(observed) = metadata.get("version") {
+            ensure!(observed == version, "installer receipt version mismatch");
+        }
+        if let Some(observed) = metadata.get("source_commit") {
+            ensure!(observed == commit, "installer receipt source mismatch");
+        }
+        ensure!(
+            metadata.get("development").and_then(Value::as_bool) != Some(true),
+            "development receipt is not release evidence"
+        );
+    }
     Ok(())
 }
 fn asset_row(path: &Path) -> Result<Value> {
@@ -398,6 +405,23 @@ pub fn prepare(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn canonical_native_identity_cannot_seal_another_build() {
+        let source = "a".repeat(40);
+        for identity in [
+            json!({"version":"0.4.12","source_commit":source}),
+            json!({"version":"0.4.13","source_commit":"b".repeat(40)}),
+        ] {
+            assert!(
+                check_receipt(
+                    &json!({"passed":true,"identity":identity}),
+                    "0.4.13",
+                    &source
+                )
+                .is_err()
+            );
+        }
+    }
     #[test]
     fn native_boolean_installer_receipts_and_conflicting_failures() {
         let source = "a".repeat(40);

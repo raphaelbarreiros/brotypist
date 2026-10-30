@@ -3,7 +3,6 @@ use std::{cell::Cell, io::Read};
 pub(super) struct ModelWindow {
     pub window: gtk::Window,
     catalog: gtk::ComboBoxText,
-    description: gtk::Label,
     current: gtk::Label,
     status: gtk::Label,
     progress: gtk::ProgressBar,
@@ -181,7 +180,6 @@ impl ModelWindow {
         Self {
             window,
             catalog,
-            description,
             current,
             status,
             progress,
