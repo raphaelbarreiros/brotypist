@@ -828,6 +828,12 @@ fn windows_package(
         command.arg("-d").arg(define);
     }
     run(&mut command)?;
+    // Exclusive hard-link publication retains the private staging DACL.
+    // Only the non-secret MSI needs read access from the SYSTEM installer service.
+    regular(&msi)?;
+    run(Command::new("icacls")
+        .arg(&*external_tool_path(&msi))
+        .args(["/grant:r", "*S-1-5-18:R"]))?;
     write_zip(bundle, &zip)?;
     Ok(vec![msi, zip])
 }
