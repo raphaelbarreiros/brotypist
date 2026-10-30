@@ -9,7 +9,7 @@ Depends: @DEPENDS@
 Conflicts: inklow
 Replaces: inklow
 Description: Local-first predictive typing for supported desktop text inputs
- Private writing assistance with frozen Python, Qt and AT-SPI bindings.
+ Private writing assistance with native Rust, GTK and AT-SPI integration.
  Supports Ubuntu 24.04+ and Debian 13+ amd64 with X11, and compatible KDE
  Wayland text inputs after explicit input-method selection. Other Wayland
  compositors are unsupported. Requires AVX2, FMA and F16C. Models download

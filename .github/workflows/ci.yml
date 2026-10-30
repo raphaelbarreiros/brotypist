@@ -1,129 +1,141 @@
-# Build and retain native macOS/Linux artifacts and receipts; this workflow
-# does not publish GitHub releases or access the publisher signing key.
-name: macOS and Linux checks
+# Native compile/runtime evidence and development portable binaries only.
+# No installer, publisher signing, notarization, OTA, release or deployment claims.
+name: Native Rust checks
 on:
   push:
   pull_request:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Validate this version and build macOS/Linux installers; Windows publication remains held'
+        description: 'Optional v-prefixed version to validate with Rust xtask (does not publish)'
         required: false
         type: string
 permissions:
   contents: read
 concurrency:
-  group: checks-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: false
+  group: native-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  metadata:
-    runs-on: ubuntu-24.04
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
-    steps:
-      - uses: actions/checkout@v6
-      - name: Validate release version
-        id: version
-        env:
-          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-          RELEASE_BRANCH: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/') && github.ref_name || '' }}
-        run: |
-          if [ -n "$RELEASE_BRANCH" ]; then REQUESTED_TAG="v${RELEASE_BRANCH#release/}"; fi
-          python3 tools/release_assets.py version --tag "$REQUESTED_TAG"
-  verify:
-    needs: metadata
+  native:
+    name: Native ${{ matrix.platform }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-15
-            target: macos-arm64
+          - os: xcode-27
+            platform: macos-arm64
+            target: aarch64-apple-darwin
+            rustflags: ''
           - os: ubuntu-24.04
-            target: linux-x86_64
+            platform: linux-x86_64
+            target: x86_64-unknown-linux-gnu
+            rustflags: ''
+          - os: windows-2025
+            platform: windows-x86_64
+            target: x86_64-pc-windows-msvc
+            rustflags: '-C target-feature=+crt-static'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
     env:
-      QT_QPA_PLATFORM: offscreen
-      INKLOW_VERSION: ${{ needs.metadata.outputs.version }}
+      CARGO_TERM_COLOR: never
+      CARGO_TARGET_DIR: ${{ runner.temp }}/brotypist-native-target
+      CARGO_BUILD_JOBS: '3'
+      CMAKE_BUILD_PARALLEL_LEVEL: '3'
+      INKLOW_HOME: ${{ runner.temp }}/brotypist-native-profile
+      NATIVE_REPORTS: ${{ runner.temp }}/brotypist-native-reports
+      NATIVE_PORTABLE: ${{ runner.temp }}/brotypist-native-portable
+      NATIVE_TARGET: ${{ matrix.target }}
+      RUSTFLAGS: ${{ matrix.rustflags }}
+      RUST_BACKTRACE: '1'
+      REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+      RELEASE_BRANCH: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/') && github.ref_name || '' }}
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - name: Install native Linux accessibility, build and desktop dependencies
-        if: runner.os == 'Linux'
+          submodules: recursive
+          persist-credentials: false
+      - name: Prepare isolated native evidence directories
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends python3-gi python3-gi-cairo python3-pyatspi build-essential cmake ninja-build pkg-config libwayland-dev libxkbcommon-dev wayland-protocols gir1.2-atspi-2.0 gir1.2-pango-1.0 gir1.2-gtk-3.0 libglib2.0-bin libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 dbus-x11 xvfb xauth x11-utils xdotool dpkg-dev patchelf desktop-file-utils
-          echo 'CMAKE_ARGS=-DGGML_NATIVE=OFF -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_CUDA=OFF -DGGML_BLAS=OFF' >> "$GITHUB_ENV"
-      - name: Install desktop, local inference, and test dependencies
-        run: python -m pip install -e ".[dev,local,build]"
-      - name: Check syntax on every platform module
-        run: python -m compileall -q src tools
-      - name: Run deterministic safety regressions
-        run: python -m pytest -q --junitxml=test-results.xml
-      - name: Report native capabilities
-        run: brotypist doctor
-      - name: Acquire checksum-verified lightweight CI model
-        run: brotypist model download --preset tiny
-      - name: Exercise real local inference
-        run: python tools/smoke_bundle.py --source-worker
-      - name: Launch real native settings utility
-        timeout-minutes: 1
+          New-Item -ItemType Directory -Force -Path $env:INKLOW_HOME, $env:NATIVE_REPORTS, $env:NATIVE_PORTABLE | Out-Null
+      - name: Select pinned Xcode 27.1
+        if: runner.os == 'macOS'
+        timeout-minutes: 2
         run: |
-          if [ "$RUNNER_OS" = Linux ]; then
-            dbus-run-session -- xvfb-run -a python tools/smoke_desktop.py
-          else
-            python tools/smoke_desktop.py
-          fi
-      - name: Build installable wheel
-        run: python -m pip wheel --no-deps . --wheel-dir dist
-      - name: Build native desktop application
-        run: python tools/build_app.py
-      - name: Exercise packaged local inference
-        run: python tools/smoke_bundle.py
-      - name: Package macOS disk image and portable application
-        if: runner.os == 'macOS'
-        run: python tools/package_macos.py --bundle dist/BroTypist.app --output release --version "$INKLOW_VERSION"
-      - name: Mount and exercise actual macOS installer
-        if: runner.os == 'macOS'
-        run: python tools/smoke_macos_dmg.py --dmg "release/BroTypist-$INKLOW_VERSION-macos-arm64.dmg" --version "$INKLOW_VERSION" --require-gui
-      - name: Package Linux Debian and portable installers
+          $developer = '/Applications/Xcode_27.1.app/Contents/Developer'
+          if (!(Test-Path -LiteralPath $developer)) { throw 'The xcode-27 image must provide Xcode 27.1.' }
+          "DEVELOPER_DIR=$developer" >> $env:GITHUB_ENV
+          'MACOSX_DEPLOYMENT_TARGET=15.0' >> $env:GITHUB_ENV
+      - name: Install Linux native build and desktop dependencies
         if: runner.os == 'Linux'
-        run: python tools/package_linux.py --bundle dist/BroTypist --output release --version "$INKLOW_VERSION"
-      - name: Install, exercise visible Quit and remove actual Linux package
-        if: runner.os == 'Linux'
-        run: dbus-run-session -- xvfb-run -a python tools/smoke_linux_installer.py --deb "release/BroTypist-$INKLOW_VERSION-linux-amd64.deb" --archive "release/BroTypist-$INKLOW_VERSION-linux-amd64.tar.gz" --version "$INKLOW_VERSION"
-      # Seal provenance only after that platform's installer smoke has passed.
-      - name: Seal successful native asset provenance
         shell: bash
+        timeout-minutes: 10
         run: |
-          if [ "$RUNNER_OS" = Linux ]; then receipt=reports/linux-installer-smoke.json; else receipt=reports/macos-dmg-smoke.json; fi
-          python tools/release_assets.py manifest --assets release --target "${{ matrix.target }}" --commit "${{ github.sha }}" --receipt "$receipt"
-      - uses: actions/upload-artifact@v7
-        with:
-          name: release-${{ matrix.target }}
-          path: release/
-          if-no-files-found: error
-          retention-days: 14
-      - uses: actions/upload-artifact@v7
-        if: ${{ !cancelled() }}
-        with:
-          name: checks-${{ matrix.target }}
-          path: |
-            test-results.xml
-            dist/*.whl
-            worker-smoke.json
-            reports/
-          retention-days: 14
-      - name: Preserve failed installer payloads for native diagnosis
-        if: failure()
+          sudo apt-get update 2>&1 | tee "$NATIVE_REPORTS/apt-update.log"
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config libgtk-3-dev libpango1.0-dev \
+            libcairo2-dev libdbus-1-dev libwayland-dev libxkbcommon-dev wayland-protocols \
+            libssl-dev libsecret-1-dev libgl1-mesa-dev dbus-x11 xvfb xauth \
+            fonts-dejavu-core fonts-noto-color-emoji patchelf desktop-file-utils \
+            2>&1 | tee "$NATIVE_REPORTS/linux-dependencies.log"
+      - name: Configure installed MSVC and Windows SDK
+        if: runner.os == 'Windows'
+        timeout-minutes: 3
+        run: ./.github/native/msvc.ps1
+      - name: Install repository-pinned Rust toolchain
+        timeout-minutes: 10
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal 2>&1 | Tee-Object -FilePath "$env:NATIVE_REPORTS/rustup-install.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain installation failed.' }
+          rustup target add $env:NATIVE_TARGET --toolchain 1.99.1 2>&1 | Tee-Object -FilePath "$env:NATIVE_REPORTS/rustup-target.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Native Rust target installation failed.' }
+          rustc --version --verbose | Tee-Object -FilePath "$env:NATIVE_REPORTS/rustc.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Rust compiler is unavailable.' }
+      - name: Validate native version and pinned source prerequisites
+        timeout-minutes: 5
+        run: ./.github/native/checks.ps1 -Phase prerequisites
+      - name: Type-check locked native workspace and all targets
+        timeout-minutes: 20
+        run: ./.github/native/checks.ps1 -Phase check
+      - name: Run locked native workspace tests
+        timeout-minutes: 20
+        run: ./.github/native/checks.ps1 -Phase test
+      - name: Build locked native binaries and smoke executables
+        timeout-minutes: 25
+        run: ./.github/native/checks.ps1 -Phase build
+      - name: Exercise native CLI and checksum-verified tiny model download
+        timeout-minutes: 10
+        run: ./.github/native/checks.ps1 -Phase cli
+      - name: Exercise real native worker protocol and local inference
+        timeout-minutes: 8
+        run: ./.github/native/checks.ps1 -Phase worker
+      - name: Exercise canonical native desktop and capture PNG and JSON evidence
+        timeout-minutes: 5
+        run: ./.github/native/checks.ps1 -Phase desktop
+      - name: Assemble and inspect development portable binaries (not installers or OTA)
+        timeout-minutes: 30
+        run: ./.github/native/checks.ps1 -Phase portable
+      - name: Retain actual native logs and smoke evidence
+        if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
-          name: failed-packages-${{ matrix.target }}
-          path: release/
-          if-no-files-found: ignore
-          retention-days: 7
+          name: native-evidence-${{ matrix.platform }}
+          path: ${{ env.NATIVE_REPORTS }}/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain development portable binaries and provenance
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: development-portable-${{ matrix.platform }}-not-for-ota
+          # Explicit payload paths exclude retained failed Cargo staging trees.
+          # Hidden development markers are mandatory non-release provenance.
+          path: |
+            ${{ env.NATIVE_PORTABLE }}/BroTypist.app/
+            ${{ env.NATIVE_PORTABLE }}/BroTypist/
+            ${{ env.NATIVE_PORTABLE }}/*.tar.gz
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14

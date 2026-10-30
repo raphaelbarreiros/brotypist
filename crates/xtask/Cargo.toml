@@ -1,0 +1,32 @@
+[package]
+name = "xtask"
+version = "0.4.13"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+plist = "1"
+toml = "0.8"
+uuid = { version = "1", features = ["v4", "v5"] }
+zip = { version = "4", default-features = false, features = ["deflate"] }
+tar = "0.4"
+flate2 = "1"
+base64 = "0.22"
+ed25519-dalek = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+fs2 = "0.4"
+
+unicode-casefold = "0.2"
+unicode-normalization = "0.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
+
+[dev-dependencies]
+tempfile = "3"

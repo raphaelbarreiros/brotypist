@@ -1,0 +1,63 @@
+# Rust migration: source review and baseline
+
+Reviewed 2026-10-30. Repository: `renan-brasilio/brotypist`.
+Baseline: `6eaeed5fe56e1ea8dcf878b1b7498f922c26fd59` (`main`, version 0.4.13).
+
+## Scope and evidence
+
+Five bounded read-only reviews covered runtime/features/spelling, inference/models/workers, macOS native integration, Windows/Linux/Wayland, and UI/data/updater/packaging. The integration owner independently exercised the current application and selected findings. This is a broad engineering review, not exhaustive vulnerability certification. No application implementation, installed application, normal profile, permissions, remote branch, release, or OS integration was changed.
+
+Tracked implementation contains 24,614 lines across `src/inklow` Python/C/header files. The indexed source graph contains 2,975 nodes and 32,023 edges across 99 parsed files. Its controller trace misresolved an explicit anchor and its file-level test queries returned no matches despite existing tests; graph output was not treated as proof of coverage.
+
+Observed locally:
+
+- `uv sync --python 3.12 --extra dev`, then `uv run pytest -q --junitxml=/tmp/brotypist-review-baseline-20261030.xml`: **1,524 passed, 22 skipped in 27.54 seconds**.
+- Isolated-profile `brotypist --version`, `doctor`, and `model list`: exit 0. Doctor reported Accessibility available and Input Monitoring required for the source host. No global input hook was started.
+- Existing cached Tiny/SmolLM2 GGUF, CPU, actual `tools/smoke_bundle.py --source-worker`: `loading -> ready -> result -> done`, four cumulative updates, ` interest in the`, worker exit 0. The 6,850.43-ms harness interval is not desktop typing latency.
+- Existing cached Gemma 4 E2B, auto/Metal, actual CLI writing completion: `Amanhã vamos nos encontrar para` -> ` discutir os próximos passos.`, exit 0. One sample is not a quality score or cross-runtime equivalence proof.
+- Disposable probes reproduced R1, R2, R3, R4, and R12 below. They changed only synthetic process state/temporary files.
+
+The model cache is shared even with `INKLOW_HOME`; these checks read existing weights and wrote only a disposable profile. No model download or normal-profile/keychain change was required.
+
+## Findings
+
+“Static” means the source path was inspected, not that the defect was observed in a real host application. Preserve intended functionality, not these defects. Fixes require explicit behavioral cases in their owning migration package; do not silently change unrelated policy.
+
+| ID | Priority | Finding and source | Evidence / disposition |
+|---|---|---|---|
+| R1 | P1 | Secure Input detector fails open when Carbon is unavailable or raises: `src/inklow/native/macos.py:83-89`; field capture gates on it at `488-494`. | Disposable actual-function probe returned `false` for both unavailable and throwing detector. Other field protections still exist; no private-content exposure was observed. Model permission state as allowed/blocked/unknown; unknown must block. The appearance detector already uses conservative behavior (`macos_vision.py:113-125`). |
+| R2 | P1 | Windows memory discovery calls `os.sysconf` without handling its absence: `models.py:156-178`; catalog consumed by `runtime.py:2045-2054`. | Simulated Windows API availability in an isolated process: actual function raised `AttributeError`. Not a live Windows run. Use the native Windows capacity API; unknown capacity must remain supported. |
+| R3 | P2 | JSON-decoded choices bypass output safety: raw utility screening precedes decoding (`providers.py:323-332`), while `features.py:179-215` rejects decoded Cc/Cf but not structural markers or Zl/Zp separators. | Actual pipeline accepted wire escapes as `good\u2028next` and `<think>reason`. Choice consumers pass decoded strings directly to native insertion (`runtime.py:1479-1504`). Validate decoded insertion strings, not only wire bytes. |
+| R4 | P2 | Interrupted developer `--replace` promotion can lose the previous build: `tools/build_app.py:107-122,149-198`. | Injected KeyboardInterrupt on second rename inside real TemporaryDirectory lifecycle: destination absent, zero retained old payloads after cleanup. This affects the developer builder, not proof of an OTA rollback defect. Retain previous build outside disposable cleanup until promotion commits. |
+| R5 | P2 | Window-only authority changes do not invalidate in-flight output: `core.py:163-167`; `runtime.py:568-591,959-961,1135-1169`. | Static. Submission checks window identity but result consumption checks only the text/policy key. Carry a separate window/document authority lease through results/presentation; geometry movement alone must not regenerate text. |
+| R6 | P2 | Passthrough dismissal records completion/correction attempt regardless of actual tool: `runtime.py:1564-1573`, contrasted with emoji/synonym/correction scheduling at `1394-1432`. | Static. Unchanged emoji/synonym/correction may reappear on the next cycle. Store dismissed tool plus exact field authority; cover bypass separately. |
+| R7 | P2 | Explicit completion can be discarded while spelling is pending and never retried: `runtime.py:1068-1075,1154-1169,1429-1432`. | Static. Final output clears the request while the existing attempt blocks rescheduling. Specify pending-verdict/result ownership before porting scheduling. |
+| R8 | P2 | Windows native message/input dispatch is treated as accepted text without host readback: `native/windows.py:493-511,532-582`; accounting at `runtime.py:1541-1549`. macOS has an analogous documented dispatch/readback distinction. | Static; no Windows host rejection reproduced. EM_REPLACESEL has no success return, and queued SendInput events do not prove applied text. Use explicit dispatched/applied/rejected/indeterminate outcomes; never retry an uncertain edit automatically. |
+| R9 | P2 | Windows suppresses consumed shortcut presses but forwards their releases: `native/windows.py:595-614`. | Static. Target applications can observe unmatched edges. Preserve injected-event/AltGr refusal and pair consumed key events. Native Windows acceptance remains required. |
+| R10 | P2 | Current Wayland smoke harness targets removed inline state: `tools/wayland_smoke_fixture.py:274-291,569-584`; current bridge `native/wayland.py:130-139,552-566`. | Static mismatch: harness reads nonexistent `_panel_text` and expects suggestion-bearing panels, while production deliberately refuses nonempty inline presentation. Replace obsolete smoke expectations with current manual/refusal scenarios; do not restore unsafe inline behavior to satisfy the harness. |
+| R11 | P2 | Native synonym grammar requires 3-5 choices while prompt permits `[]`: `providers.py:514-517`; `features.py:168-173`. | Direct source contradiction. Permit safe abstention; never fabricate choices to meet a count. |
+| R12 | P3 | macOS CLI rejects `--pane models` despite an AI Models settings pane: `__main__.py:19-21,44`. | Actual CLI exited 2 with invalid-choice error. Preserve the Models destination in the replacement CLI. |
+| R13 | P3 | Terminal diagnostics can contain arbitrary conversion error strings: `native/macos_terminal.py:532,628,723-725`, published at `458-460`. | Static. `int()` ValueError text can include native-provided strings. Use fixed diagnostic codes, not arbitrary exception messages. No personal text was collected. |
+
+Additional investigation gate: updater timeout rollback swaps back and relaunches the previous app without explicitly stopping a still-starting replacement (`update_install.py:796-816,872-890`). Delayed-child/process ownership needs a controlled runtime scenario before claiming healthy rollback. This is not a demonstrated exploit or established data loss.
+
+No tracked LICENSE/COPYING/NOTICE file was found by scoped repository discovery, although DESIGN.md describes the app as MIT licensed. Clarify first-party licensing before redistribution; do not invent a license grant. Model and dependency licenses remain independent.
+
+## Existing CI failures and evidence gaps
+
+Latest inspected run: [40875674239](https://github.com/renan-brasilio/brotypist/actions/runs/40875674239), same baseline revision; both platform jobs failed.
+
+- Linux: actual source worker emitted `loading`, then EOF (`tools/smoke_bundle.py:67`). Root cause is **not established** by the available log. Source tests passing does not close it.
+- macOS: actool reported only macOS 15.5 compilation support while native icons request deployment 26.0; build raised `actool did not produce the native app icon and its bundle metadata` (`tools/generate_icons.py:380-406`). Pin/select a compatible icon toolchain; runtime minimum and asset compiler version are separate constraints.
+- CI matrix has macOS and Ubuntu only (`.github/workflows/ci.yml:35-43`), no Windows lane. Linux GUI smoke uses Xvfb, not KWin. Neither cross-compilation nor synthetic protocol peers certifies live OS behavior.
+- Latest GitHub stable was freshly observed as [v0.4.13](https://github.com/renan-brasilio/brotypist/releases/tag/v0.4.13). The checked-in changelog/verification record has historical candidate language; do not attribute earlier receipts to new binaries.
+
+## What must not be reported as missing functionality
+
+Already implemented protections include bounded/cycle-safe/protected descendant geometry, UTF-16 field-local mapping, Electron append-only capability, visible-presentation acknowledgments, input replay gates, cancellation epochs, model preparation privacy barriers, signed update manifests, and transactional offline installation. Historical Electron review findings were remediated in this baseline; do not reopen their old source locations as current bugs.
+
+Current limitations are part of the safety contract: ordinary KDE Wayland inline is disabled; Linux X11 arbitrary range replacement is refused; Windows publication is held; Docs accessibility setup is not Docs typing support; terminal writing is narrowly pinned to one verified signed Codex renderer. Rust alone does not change those OS capabilities.
+
+## Migration prerequisites
+
+Use [the parity inventory](parity.md) as the acceptance register and [the implementation plan](README.md) as the work/dependency contract. Rust/Cargo were not installed/on PATH and no rustup toolchain was found in the usual user locations; Xcode 27.1, Clang, Swift and CMake are available. Toolchain installation and frontend strategy must be settled before implementation builds. No Rust application or migrated behavior is claimed by this review.

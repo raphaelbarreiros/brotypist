@@ -2,6 +2,14 @@
 
 # Changelog
 
+## Unreleased — native Rust migration
+
+- Introduce a Rust application/worker with OS-native AppKit, Win32 and GTK interfaces, retaining the pinned llama.cpp engine and the complete existing model catalogue rather than substituting inference backends.
+- Preserve configuration and OS identity, independent context/history consent, scalar-indexed authored text, encrypted SQLite formats and credential-store addressing. Keep a separately linked offline updater and Rust-native build/distribution tooling.
+- Correct review findings in authority leases, decoded choices, pending spelling, consumed-key pairing, secure-input refusal and interrupted build promotion instead of preserving unsafe legacy behavior.
+- Add native macOS/Windows/Linux CI, real model-worker probes, owned-window UI checks and guarded installer continuity probes. Published releases and the normal installed application remain unchanged.
+- Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
+
 ## 0.4.13 — macOS Electron safety fixes
 
 - Resolve delegated text geometry only through bounded, cycle-safe Accessibility traversal and an exact field-local UTF-16 mapping. Reject protected, hidden, nested-editable, ambiguous and unrelated descendants rather than guessing an inline anchor.

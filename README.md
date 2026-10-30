@@ -8,6 +8,8 @@ BroTypist suggests the next words directly beside your cursor, in the apps you a
 
 [Download](https://github.com/renan-brasilio/brotypist/releases) · [Changelog](CHANGELOG.md) · [Report an issue](https://github.com/renan-brasilio/brotypist/issues)
 
+This branch is the Rust/native migration. Published release assets are unchanged. See the [implementation plan and current evidence](docs/rust-migration/README.md) and [feature-preservation register](docs/rust-migration/parity.md); historical release receipts do not establish Rust parity.
+
 ## Why BroTypist?
 
 Writing assistance should fit your workflow, not become another editor. BroTypist lives in the menu bar or system tray, runs local models, and lets you decide where it helps and what context it can see.
@@ -66,26 +68,37 @@ Opt-in history uses encryption backed by the OS credential store, with no plaint
 
 ## Develop
 
-Use **Python 3.12**, [uv](https://docs.astral.sh/uv/) and a native C/C++ toolchain:
+Use **Rust 1.99.1** and a native C/C++ toolchain. The application, worker, updater and build tooling are Rust; inference uses the pinned native llama.cpp submodule, not Python bindings.
 
 ```sh
-git clone https://github.com/renan-brasilio/brotypist.git
+git clone --recurse-submodules https://github.com/renan-brasilio/brotypist.git
 cd brotypist
-uv sync --python 3.12 --extra dev --extra local --extra build
-uv run brotypist doctor
-uv run brotypist --settings
-uv run pytest -q
-uv run python tools/build_app.py
+cargo build --locked --workspace --bins
+cargo run --locked -p brotypist --bin BroTypist-cli -- doctor
+cargo run --locked -p brotypist --bin BroTypist -- --settings
+cargo test --locked --workspace
 ```
 
-Build on the target OS and architecture. Mac packaging needs full Xcode; Linux needs GI/AT-SPI and Qt dependencies. The [CI workflow](.github/workflows/ci.yml) records the native prerequisites. Use `INKLOW_HOME=<disposable-directory>` for manual experiments; it isolates settings/history, but not the shared model cache.
+Build on the target OS and architecture. macOS packaging requires full Xcode 27.1; Windows requires the MSVC developer environment and Windows SDK; Linux uses GTK 3, AT-SPI, Pango/Cairo, session D-Bus, X11 and the explicitly selected KDE input-method transport. The [native CI workflow](.github/workflows/ci.yml) records the dependencies and separates development artifacts from releasable installers.
 
-- `src/inklow/runtime.py`, `core.py`: prediction and acceptance lifecycle.
-- `providers.py`, `writing.py`, `process_*.py`: inference, prompts and worker ownership.
-- `appkit_*.py`, `qt_ui.py`, `native/`: interfaces and platform integration.
-- `tests/`, `tools/`, `packaging/`: regressions, native smoke checks and installers.
+Use an absolute, disposable `INKLOW_HOME` for experiments. It isolates settings/history, not the shared model cache. Existing profile paths, the internal `inklow` identity and OS credential-store names are retained.
 
-The internal `inklow` name is retained to preserve existing data and OS permissions.
+```sh
+cargo run --locked -p xtask -- version
+# Development bundle only; never eligible for OTA or release sealing.
+INKLOW_CODESIGN_IDENTITY=- cargo run --locked -p xtask -- build --development
+cargo run --locked -p xtask -- verify --development --bundle dist/BroTypist.app
+```
+
+The signing variable and `.app` path above are macOS-specific; Linux/Windows bundles use `dist/BroTypist`. Production signing, release assembly and installation over an existing application are separate operations.
+
+- `crates/brotypist/src/runtime.rs`, `core.rs`: prediction, authorization and acceptance lifecycle.
+- `providers.rs`, `writing.rs`, `worker.rs`, `process_client.rs`: native inference, prompts and owned worker processes.
+- `ui/`, `platform/`: AppKit, Win32 and GTK shells and platform integration.
+- `config.rs`, `storage.rs`, `models.rs`, `system.rs`: compatible preferences, encrypted data and system services.
+- `crates/brotypist-updater/`, `crates/xtask/`: independent updater and native build/distribution tooling.
+- `crates/brotypist/examples/`: real worker and owned-window smoke tools; desktop checks require the explicit `native-smoke` build feature and a fresh private profile.
+
 
 ## Contribute
 

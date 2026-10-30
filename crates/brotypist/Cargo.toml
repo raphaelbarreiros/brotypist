@@ -1,0 +1,93 @@
+[package]
+name = "brotypist"
+version = "0.4.13"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Local-first native predictive typing"
+autobins = false
+
+[[bin]]
+name = "BroTypist"
+path = "src/main.rs"
+
+[[bin]]
+name = "BroTypist-cli"
+path = "src/bin/BroTypist-cli.rs"
+
+[[example]]
+name = "native_desktop_smoke"
+path = "examples/native_desktop_smoke.rs"
+required-features = ["native-smoke"]
+
+[features]
+native-smoke = ["dep:png"]
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+url = "2"
+idna = "1"
+caseless = "0.2"
+unicode-normalization = "0.1"
+unicode-general-category = "1"
+unicode-casefold = "0.2"
+regex = "1"
+sha2 = "0.10"
+base64 = "0.22"
+aes-gcm = "0.10"
+rand = "0.8"
+zeroize = "1"
+rusqlite = { version = "0.38", features = ["bundled"] }
+chrono = { version = "0.4", features = ["clock", "serde"] }
+tempfile = "3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "blocking"] }
+tokio = { version = "1", features = ["rt", "net", "time", "sync", "macros", "io-util"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+fs2 = "0.4"
+libc = "0.2"
+blake2 = "0.10"
+ed25519-dalek = "2"
+zip = { version = "4", default-features = false, features = ["deflate"] }
+tar = "0.4"
+flate2 = "1"
+plist = "1"
+subtle = "2"
+unicode-bidi = "0.3"
+clap = { version = "4", features = ["derive"] }
+
+[build-dependencies]
+cc = "1"
+cmake = "0.1"
+serde_json = "1"
+winresource = "0.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+objc2 = "=0.6.5"
+objc2-foundation = "0.3.2"
+objc2-app-kit = "0.3.2"
+objc2-core-text = "0.3.2"
+objc2-core-foundation = "0.3.2"
+objc2-core-graphics = "0.3.2"
+objc2-quartz-core = "0.3.2"
+block2 = "0.6"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+png = { version = "0.18", optional = true }
+windows = { version = "0.62.2", features = ["Win32_System_SystemInformation", "Win32_Foundation", "Win32_UI_Accessibility", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Input_Ime", "Win32_UI_HiDpi", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_Graphics_Gdi", "Win32_Security", "Win32_UI_Controls", "Win32_UI_Shell", "Win32_UI_Controls_Dialogs", "Win32_Storage_Xps"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus-secret-service = { version = "4.1", features = ["crypto-rust"] }
+dbus = { version = "0.9", features = ["vendored"] }
+zbus = { version = "5", features = ["blocking-api"] }
+x11rb = "0.13"
+pango = "0.18.3"
+pangocairo = "0.18"
+cairo-rs = { version = "0.18.5", features = ["png"] }
+gtk = { version = "0.18.2", features = ["v3_24"] }
+gdk = "0.18.2"
+glib = "0.18.5"
+gio = "0.18.4"

@@ -22,3 +22,4 @@ native-assets/
 published/
 test-results.xml
 src/inklow/native/libinklow_wayland.so
+/target/

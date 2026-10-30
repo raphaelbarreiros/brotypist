@@ -1,6 +1,6 @@
 # BroTypist — Design Specification (Direction A: "Ghost Caret")
 
-The source of truth for visuals, copy and behavior. Units are points (pt). "Light / Dark" values give both appearances. Hex values are sRGB.
+Visual direction and interaction examples. Units are points (pt). "Light / Dark" values give both appearances. Hex values are sRGB. Current implemented behavior, privacy constraints and compatibility contracts take precedence over forward-looking examples below. References to MLX, Sparkle or an MIT license are historical proposals, not implemented dependencies or a first-party license grant.
 
 ---
 

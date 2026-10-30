@@ -1,0 +1,25 @@
+//! Shared native application behavior and services. OS effects remain outside pure decisions.
+pub mod config;
+pub mod core;
+pub mod features;
+pub mod models;
+pub mod paths;
+pub mod shortcuts;
+pub mod spelling;
+pub mod storage;
+pub mod inference_native;
+pub mod providers;
+pub mod writing;
+pub mod worker;
+pub mod process_client;
+pub mod update_keys;
+pub mod updates;
+pub mod update_install;
+pub mod platform;
+pub mod system;
+pub mod power;
+pub mod instance;
+pub mod runtime;
+pub mod preview;
+pub mod ui;
+pub mod cli;
