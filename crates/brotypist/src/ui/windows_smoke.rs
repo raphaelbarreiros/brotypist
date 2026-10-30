@@ -682,6 +682,33 @@ struct DialogRequest {
     path: Option<Vec<u16>>,
     responded: bool,
     emergency: bool,
+    owned_dialog_seen: bool,
+    matched_dialog: bool,
+    foreground: bool,
+    button_enabled: bool,
+    filename_edit_present: bool,
+    filename_combo_present: bool,
+    filename_edit_matches: bool,
+    filename_combo_matches: bool,
+    controls: Vec<(i32, String, bool, bool)>,
+}
+unsafe extern "system" fn observe_dialog_control(hwnd: HWND, param: LPARAM) -> BOOL {
+    unsafe {
+        let controls = &mut *(param.0 as *mut Vec<(i32, String, bool, bool)>);
+        let mut pid = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == std::process::id() && controls.len() < 256 {
+            let mut class = [0u16; 64];
+            let n = GetClassNameW(hwnd, &mut class);
+            controls.push((
+                GetDlgCtrlID(hwnd),
+                String::from_utf16_lossy(&class[..n.max(0) as usize]),
+                IsWindowVisible(hwnd).as_bool(),
+                IsWindowEnabled(hwnd).as_bool(),
+            ));
+        }
+        BOOL(i32::from(controls.len() < 256))
+    }
 }
 unsafe extern "system" fn dialog(hwnd: HWND, param: LPARAM) -> BOOL {
     unsafe {
@@ -711,6 +738,7 @@ unsafe extern "system" fn dialog(hwnd: HWND, param: LPARAM) -> BOOL {
         if String::from_utf16_lossy(&class[..n.max(0) as usize]) != "#32770" {
             return BOOL(1);
         }
+        request.owned_dialog_seen = true;
         if request.emergency {
             for button in [IDCANCEL.0, IDNO.0, IDOK.0] {
                 if let Ok(control) = GetDlgItem(Some(hwnd), button) {
@@ -723,6 +751,15 @@ unsafe extern "system" fn dialog(hwnd: HWND, param: LPARAM) -> BOOL {
         if request.responded || text(hwnd) != request.title {
             return BOOL(1);
         }
+        request.matched_dialog = true;
+        request.foreground = GetForegroundWindow() == hwnd;
+        if request.controls.is_empty() {
+            let _ = EnumChildWindows(
+                Some(hwnd),
+                Some(observe_dialog_control),
+                LPARAM((&mut request.controls as *mut Vec<(i32, String, bool, bool)>) as isize),
+            );
+        }
         if let Some(path) = &request.path {
             SendMessageW(
                 hwnd,
@@ -730,8 +767,18 @@ unsafe extern "system" fn dialog(hwnd: HWND, param: LPARAM) -> BOOL {
                 Some(WPARAM(0x480)),
                 Some(LPARAM(path.as_ptr() as isize)),
             );
+            let expected = String::from_utf16_lossy(&path[..path.len() - 1]);
+            if let Ok(control) = GetDlgItem(Some(hwnd), 0x480) {
+                request.filename_edit_present = true;
+                request.filename_edit_matches = text(control) == expected.as_ref();
+            }
+            if let Ok(control) = GetDlgItem(Some(hwnd), 0x47c) {
+                request.filename_combo_present = true;
+                request.filename_combo_matches = text(control) == expected.as_ref();
+            }
         }
         if let Ok(control) = GetDlgItem(Some(hwnd), request.button) {
+            request.button_enabled = IsWindowEnabled(control).as_bool();
             let _ = PostMessageW(Some(control), BM_CLICK, WPARAM(0), LPARAM(0));
             request.responded = true;
         }
@@ -761,6 +808,15 @@ fn modal<T>(
             path,
             responded: false,
             emergency: false,
+            owned_dialog_seen: false,
+            matched_dialog: false,
+            foreground: false,
+            button_enabled: false,
+            filename_edit_present: false,
+            filename_combo_present: false,
+            filename_edit_matches: false,
+            filename_combo_matches: false,
+            controls: Vec::new(),
         };
         let deadline = Instant::now() + Duration::from_secs(15);
         while !stop.load(Ordering::Acquire) {
@@ -776,11 +832,11 @@ fn modal<T>(
             }
             if request.emergency {
                 std::thread::sleep(Duration::from_millis(100));
-                return false;
+                return request;
             }
             std::thread::sleep(Duration::from_millis(15));
         }
-        request.responded
+        request
     });
     let result = action(shell, clipboard);
     done.store(true, Ordering::Release);
@@ -790,10 +846,24 @@ fn modal<T>(
     // Preserve a real picker/action failure rather than replacing it with a
     // secondary missing-dialog assertion.
     let result = result?;
-    let responded = response?;
+    let response = response?;
     ensure!(
-        responded,
-        "The expected owned native dialog did not complete."
+        response.responded && !response.emergency,
+        "The expected owned native dialog did not complete: {}",
+        json!({
+            "expected_dialog": response.title,
+            "owned_dialog_seen": response.owned_dialog_seen,
+            "matched_dialog": response.matched_dialog,
+            "foreground": response.foreground,
+            "button_enabled": response.button_enabled,
+            "click_dispatched": response.responded,
+            "deadline": response.emergency,
+            "filename_edit_present": response.filename_edit_present,
+            "filename_combo_present": response.filename_combo_present,
+            "filename_edit_matches": response.filename_edit_matches,
+            "filename_combo_matches": response.filename_combo_matches,
+            "controls_id_class_visible_enabled": response.controls,
+        })
     );
     Ok(result)
 }
