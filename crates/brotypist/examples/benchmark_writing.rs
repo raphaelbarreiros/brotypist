@@ -16,6 +16,8 @@ mod evaluation;
 mod native_details;
 #[path = "benchmark_writing/runner.rs"]
 mod runner;
+#[path = "../src/unicode_compat.rs"]
+mod unicode_compat;
 
 use anyhow::{Context, Result, ensure};
 use brotypist::{config::Config, features::length_profile};

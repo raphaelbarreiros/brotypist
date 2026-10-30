@@ -1,12 +1,12 @@
 //! Mechanical insertion safety and ungraded review evidence; never a quality oracle.
 use super::corpus::Case;
+use crate::unicode_compat::UnicodeCaseFold;
 use anyhow::Result;
 use brotypist::features::parse_choices;
 use regex::Regex;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
-use unicode_casefold::UnicodeCaseFold;
 use unicode_general_category::{GeneralCategory as G, get_general_category};
 
 const MARKERS: &[&str] = &[
@@ -442,6 +442,42 @@ mod tests {
             mechanical(&Case::default(), &"界".repeat(513), true, false)["checks"]["bounded_display_length"],
             false
         );
+    }
+    #[test]
+    fn unicode15_utilities_reject_case_replays_without_rewriting_insertions() {
+        for (original, replay) in [
+            (
+                "\u{10570}\u{10571}\u{10572}\u{10573}",
+                "\u{10597}\u{10598}\u{10599}\u{1059a}",
+            ),
+            ("ᲐᲑᲒᲓ", "აბგდ"),
+            ("Ꞔustom", "ꞔustom"),
+        ] {
+            let alternatives = Case {
+                kind: "alternatives".into(),
+                prefix: "We need".into(),
+                boundary: "unspaced".into(),
+                anchor: original.into(),
+                ..Case::default()
+            };
+            let text = serde_json::to_string(&[replay]).unwrap();
+            assert_eq!(choices(&text), [replay]);
+            assert_eq!(
+                mechanical(&alternatives, &text, true, false)["checks"]["distinct_choices_without_anchor_replay"],
+                false
+            );
+            let synonyms = Case {
+                kind: "synonyms".into(),
+                selection: original.into(),
+                ..Case::default()
+            };
+            let text = serde_json::to_string(&[replay, "different", "another"]).unwrap();
+            assert_eq!(choices(&text), [replay, "different", "another"]);
+            assert_eq!(
+                mechanical(&synonyms, &text, true, false)["checks"]["selected_word_not_repeated"],
+                false
+            );
+        }
     }
     #[test]
     fn missing_and_failed_counterparts_do_not_create_paired_timings() {

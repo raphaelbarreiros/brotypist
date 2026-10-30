@@ -19,13 +19,13 @@ use regex::Regex;
 use rusqlite::{Connection, OpenFlags, params};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use unicode_casefold::UnicodeCaseFold;
 use unicode_general_category::{GeneralCategory, get_general_category};
 use unicode_normalization::UnicodeNormalization;
 use zeroize::Zeroizing;
 
 use crate::config::normalize_domain;
 use crate::paths;
+use crate::unicode_compat::UnicodeCaseFold;
 
 const AAD: &[u8] = b"inklow-history-v1";
 const MAX_AUTHORSHIP_SPANS: usize = 1024;
@@ -1976,6 +1976,39 @@ mod tests {
             }
         }
         assert!(evidence.windows(2).all(|values| values[0] == values[1]));
+    }
+
+    #[test]
+    fn unicode15_history_vocabulary_merges_case_without_changing_authored_spans() {
+        let (_temporary, mut store) = store();
+        let before = "😀 e\u{301} generated introduction. ";
+        let body = format!(
+            "{TEXT} \u{10570}\u{10571}\u{10572}\u{10573} \u{10597}\u{10598}\u{10599}\u{1059a} ᲐᲑᲒᲓ აბგდ Ꞔustom ꞔustom."
+        );
+        let text = format!("{before}{body} Generated ending.");
+        let spans = [(
+            before.chars().count(),
+            before.chars().count() + body.chars().count(),
+        )];
+        assert!(
+            store
+                .record_identified_at("unicode15", "writer", "", &text, &spans, now())
+                .unwrap()
+        );
+        let rows = store.records(None, None, 10).unwrap();
+        assert_eq!(rows[0].text, text);
+        assert_eq!(rows[0].authored_spans, spans);
+        assert_eq!(
+            authored_fragments(&rows[0].text, &rows[0].authored_spans),
+            [body.as_str()]
+        );
+        let learned: Value = serde_json::from_str(&learn(&store)).unwrap();
+        let vocabulary = learned["vocabulary"].as_array().unwrap();
+        // Each spelling occurs once: only case-insensitive aggregation reaches
+        // the two-occurrence threshold for personalized vocabulary.
+        for word in ["\u{10597}\u{10598}\u{10599}\u{1059a}", "აბგდ", "ꞔustom"] {
+            assert!(vocabulary.contains(&json!(word)), "{word}: {vocabulary:?}");
+        }
     }
 
     #[test]

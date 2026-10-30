@@ -4,6 +4,8 @@
 
 Production workspace will use one application crate at `crates/brotypist`, organized into the boundaries in README.md rather than empty per-boundary crates. Root Cargo workspace and public module registration are integration-owned. Edition 2024, `anyhow::Result<T>` for service errors, serde JSON compatibility, standard platform cfgs. No Python sidecar in final runtime. Source baseline remains immutable while migration is in progress.
 
+Derived caseless matching uses **Unicode 15.0.0 default-full, non-Turkic case folding**, matching the immutable CPython 3.12 baseline. The canonical `unicode_compat` iterator is shared by the app, independent updater and tools; no direct Unicode 9 folding remains in consumers. It does not normalize or rewrite authored text. Caller-owned NFC boundaries remain explicit. Exhaustive scalar folding equivalence does not certify normalization, category or regex-table equivalence.
+
 ## Independent first implementation packets
 
 These do not require unproven UI/model bindings. Each owner writes complete owned modules plus relevant behavior tests, no builds/tests/formatters mid-flight. Dependency requirements go to parent; no Cargo edits.

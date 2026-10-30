@@ -1,3 +1,4 @@
+use crate::unicode_compat::UnicodeCaseFold;
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -9,7 +10,6 @@ use std::{
     path::{Component, Path, PathBuf},
     process::{Command, Output},
 };
-use unicode_casefold::UnicodeCaseFold;
 use unicode_normalization::UnicodeNormalization;
 
 pub use crate::update_keys::APP_ID;
@@ -738,6 +738,24 @@ mod tests {
             && fs::read_dir(temp.path()).unwrap().count() == 2
         {
             assert!(inventory(temp.path()).is_err());
+        }
+    }
+    #[test]
+    fn unicode15_payload_collisions_are_refused_after_nfc() {
+        for (upper, lower) in [
+            ("\u{10570}", "\u{10597}"),
+            ("\u{1c90}", "\u{10d0}"),
+            ("\u{a7c4}", "\u{a794}"),
+            ("é\u{10570}", "e\u{301}\u{10597}"),
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            fs::write(temp.path().join(upper), b"x").unwrap();
+            assert_eq!(inventory(temp.path()).unwrap().len(), 1);
+            fs::write(temp.path().join(lower), b"y").unwrap();
+            // A case-insensitive filesystem may already coalesce the two spellings.
+            if fs::read_dir(temp.path()).unwrap().count() == 2 {
+                assert!(inventory(temp.path()).is_err());
+            }
         }
     }
     #[test]

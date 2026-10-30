@@ -2,6 +2,8 @@
 //! Unit coverage lives in the application library; this binary has a separate relocation smoke.
 #[path = "../../brotypist/src/paths.rs"]
 pub mod paths;
+#[path = "../../brotypist/src/unicode_compat.rs"]
+pub mod unicode_compat;
 #[path = "../../brotypist/src/update_install.rs"]
 pub mod update_install;
 #[path = "../../brotypist/src/update_keys.rs"]

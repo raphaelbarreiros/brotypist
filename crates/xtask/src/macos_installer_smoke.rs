@@ -1,5 +1,5 @@
 //! Disposable native DMG/ZIP continuity proof. Never installs into /Applications.
-use crate::{common::*, package};
+use crate::{common::*, package, unicode_compat::UnicodeCaseFold};
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
 use std::{
@@ -11,7 +11,6 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use unicode_casefold::UnicodeCaseFold;
 use unicode_normalization::UnicodeNormalization;
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
@@ -1326,6 +1325,39 @@ mod tests {
             )
             .is_err()
         );
+    }
+    #[test]
+    fn zip_preflight_refuses_unicode15_collisions_after_nfc() {
+        let root = tempfile::tempdir().unwrap();
+        for (upper, lower) in [
+            ("\u{10570}", "\u{10597}"),
+            ("\u{1c90}", "\u{10d0}"),
+            ("\u{a7c4}", "\u{a794}"),
+            ("é\u{10570}", "e\u{301}\u{10597}"),
+        ] {
+            let path = root.path().join("collision.zip");
+            // Both exact paths are owned, so only their folded collision rejects them.
+            let rows: Vec<_> = [upper, lower]
+                .into_iter()
+                .map(|name| Row {
+                    path: format!("Contents/Resources/{name}"),
+                    size: 1,
+                    sha256: String::new(),
+                })
+                .collect();
+            let mut zip = zip::ZipWriter::new(File::create(&path).unwrap());
+            for row in &rows {
+                zip.start_file(
+                    format!("BroTypist.app/{}", row.path),
+                    zip::write::SimpleFileOptions::default(),
+                )
+                .unwrap();
+                zip.write_all(b"x").unwrap();
+            }
+            zip.finish().unwrap();
+            let error = validate_zip(&path, &rows).unwrap_err();
+            assert_eq!(error.to_string(), "duplicate/case-folded ZIP path refused");
+        }
     }
     #[test]
     fn diagnostics_are_bounded_and_sensitive_lines_are_removed() {

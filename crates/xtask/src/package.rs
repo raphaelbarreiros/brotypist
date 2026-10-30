@@ -1,4 +1,4 @@
-use crate::{build::linux_entries, common::*};
+use crate::{build::linux_entries, common::*, unicode_compat::UnicodeCaseFold};
 use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -9,7 +9,6 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
 };
-use unicode_casefold::UnicodeCaseFold;
 
 pub fn verify_binary(path: &Path, os: &str, architecture: &str) -> Result<()> {
     regular(path)?;
@@ -883,6 +882,70 @@ mod tests {
             identifier("cmp_", "straße.png"),
             identifier("cmp_", "STRASSE.PNG")
         );
+    }
+    #[test]
+    fn installer_identities_match_immutable_python15_uuid5_and_sha256() {
+        // tools/package_windows.py at 6eaeed5, CPython 3.12.14 / Unicode 15.0.0.
+        for (identity, expected) in [
+            ("upgrade", "5CE4B9DD-FD8B-5FAA-AFBE-9BD3B68A916A"),
+            ("registration", "B926F7AB-4B1A-5F3D-9D27-59B191DEC647"),
+            ("product/0.4.13", "ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88"),
+            ("file/straße.png", "C4C40439-3D75-5BBE-8918-13CF2700CF2B"),
+        ] {
+            assert_eq!(stable_guid(identity), expected, "{identity}");
+        }
+        for (upper, lower, guid, component) in [
+            (
+                "\u{10570}.png",
+                "\u{10597}.png",
+                "76373C51-C89D-5A0D-B778-80AF7CE8239C",
+                "cmp_7d5200ce3b6da9eb17cb7479786e5bf7",
+            ),
+            (
+                "\u{1c90}.png",
+                "\u{10d0}.png",
+                "4CFE2C0D-CC55-5037-8175-442EB5C4CF17",
+                "cmp_88a7e60b7693fa8f7367fbc25dc990ec",
+            ),
+            (
+                "\u{a7c4}.png",
+                "\u{a794}.png",
+                "3BF99AA4-C604-5485-B270-70FE2B92974C",
+                "cmp_8364e15adcff59155b388853e505e9dc",
+            ),
+        ] {
+            for relative in [upper, lower] {
+                assert_eq!(stable_guid(&format!("file/{relative}")), guid, "{relative}");
+                assert_eq!(identifier("cmp_", relative), component, "{relative}");
+                let files = [Row {
+                    path: relative.into(),
+                    size: 1,
+                    sha256: "a".repeat(64),
+                }];
+                let source = payload_source(Path::new("C:/Build"), &files).unwrap();
+                assert!(source.contains(&format!("Guid=\"{guid}\"")), "{relative}");
+                assert!(
+                    source.contains(&format!("Id=\"{component}\"")),
+                    "{relative}"
+                );
+            }
+        }
+        // Installer identity folds only: adding NFC here would change existing identities.
+        for (relative, guid, component) in [
+            (
+                "é.png",
+                "DFE1DD3B-3934-5889-A594-8F5B1D049840",
+                "cmp_001c0a7aface380b082b3fa75e03705e",
+            ),
+            (
+                "e\u{301}.png",
+                "607BA584-6B19-5854-8BC6-BA076CCAE1FE",
+                "cmp_40aeae4f3d629ea3e753baa9a798f43d",
+            ),
+        ] {
+            assert_eq!(stable_guid(&format!("file/{relative}")), guid, "{relative}");
+            assert_eq!(identifier("cmp_", relative), component, "{relative}");
+        }
     }
     #[test]
     fn pe_architecture_rejects_truncation_and_arm() {

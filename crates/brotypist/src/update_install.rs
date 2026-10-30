@@ -1043,7 +1043,7 @@ fn link_target(path: &Path, link: &str, root: &str) -> Result<PathBuf> {
     Ok(parts.iter().collect())
 }
 fn fold_path(path: &Path) -> String {
-    use unicode_casefold::UnicodeCaseFold;
+    use crate::unicode_compat::UnicodeCaseFold;
     use unicode_normalization::UnicodeNormalization;
     path.to_string_lossy().nfc().case_fold().collect()
 }
@@ -2887,6 +2887,41 @@ mod tests {
             }
             zip.finish().unwrap();
             assert!(zip_members(&path, "BroTypist.app").is_err());
+        }
+    }
+    #[test]
+    fn unicode15_archive_collisions_are_refused_after_nfc() {
+        let f = fixture();
+        for (upper, lower) in [
+            ("\u{10570}", "\u{10597}"),
+            ("\u{1c90}", "\u{10d0}"),
+            ("\u{a7c4}", "\u{a794}"),
+            ("é\u{10570}", "e\u{301}\u{10597}"),
+        ] {
+            let path = f.root.join("collision.zip");
+            let mut zip = zip::ZipWriter::new(File::create(&path).unwrap());
+            for name in [upper, lower] {
+                zip.start_file(
+                    format!("BroTypist.app/{name}"),
+                    zip::write::SimpleFileOptions::default().unix_permissions(0o644),
+                )
+                .unwrap();
+                zip.write_all(b"x").unwrap();
+            }
+            zip.finish().unwrap();
+            assert!(zip_members(&path, "BroTypist.app").is_err());
+
+            let path = f.root.join("collision.tar.gz");
+            let upper = format!("BroTypist/{upper}");
+            let lower = format!("BroTypist/{lower}");
+            tar_file(
+                &path,
+                &[
+                    (&upper, tar::EntryType::Regular, b"x", None),
+                    (&lower, tar::EntryType::Regular, b"y", None),
+                ],
+            );
+            assert!(tar_members(&path, "BroTypist").is_err());
         }
     }
     #[test]

@@ -205,7 +205,18 @@ fn edit(
     clipboard: &crate::system::ClipboardService,
 ) -> Result<()> {
     let hwnd = reveal(shell, field_id(key)?, clipboard)?;
-    set_text(hwnd, value);
+    // WM_SETTEXT omits EN_CHANGE for multiline Edit controls. Use their actual
+    // replacement transaction so canonical draft handling receives the native notification.
+    let value_wide = wide(value);
+    unsafe {
+        SendMessageW(hwnd, EM_SETSEL, Some(WPARAM(0)), Some(LPARAM(-1)));
+        SendMessageW(
+            hwnd,
+            EM_REPLACESEL,
+            Some(WPARAM(1)),
+            Some(LPARAM(value_wide.as_ptr() as isize)),
+        );
+    }
     pump(shell, clipboard)?;
     ensure!(
         text(hwnd) == value,
@@ -292,7 +303,11 @@ fn exercise(output: &Path, receipt: &mut Value) -> Result<bool> {
             &clipboard,
         )?;
         ensure!(
-            shell.draft.is_dirty() && shell.controller.config().custom_instructions.is_empty(),
+            shell.draft.is_dirty(),
+            "The native edit did not reach the settings draft."
+        );
+        ensure!(
+            shell.controller.config().custom_instructions.is_empty(),
             "Editing unexpectedly applied an unsaved draft."
         );
         pane(&mut shell, 0, &clipboard)?;

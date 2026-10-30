@@ -18,6 +18,7 @@ pub mod spelling;
 pub mod storage;
 pub mod system;
 pub mod ui;
+pub mod unicode_compat;
 pub mod update_install;
 pub mod update_keys;
 pub mod updates;

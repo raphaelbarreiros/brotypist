@@ -1,11 +1,11 @@
 //! Scalar-indexed observations and pure suggestion proposals; no native edit effects.
+use crate::unicode_compat::UnicodeCaseFold;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     fmt,
     ops::Deref,
     sync::{Arc, OnceLock},
 };
-use unicode_casefold::UnicodeCaseFold;
 use unicode_general_category::{GeneralCategory as G, get_general_category};
 
 pub type Rect = [f64; 4];
@@ -706,6 +706,16 @@ mod tests {
             caret,
             ..Default::default()
         }
+    }
+    #[test]
+    fn unicode15_choice_deduplication_preserves_authored_spelling() {
+        let original = "\u{10570}ᲐꟄraft e\u{301} 😀";
+        let duplicate = "\u{10597}აꞔraft e\u{301} 😀";
+        let choices = serde_json::to_string(&[original, duplicate, "different"]).unwrap();
+        assert_eq!(
+            crate::features::parse_choices(&choices, 5),
+            [original, "different"]
+        );
     }
     #[test]
     fn exact_unicode_offsets_and_immutable_revision() {

@@ -3,10 +3,10 @@ use super::Action;
 use crate::{
     config::Config,
     shortcuts::{Chord, parse_shortcut},
+    unicode_compat::UnicodeCaseFold,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
-use unicode_casefold::UnicodeCaseFold;
 
 type Rule = BTreeMap<String, Value>;
 const CHROMIUM: &[&str] = &[
@@ -299,6 +299,28 @@ mod tests {
             &[],
             false
         ));
+    }
+    #[test]
+    fn unicode15_exclusions_block_case_variants_before_observation() {
+        for (excluded, observed) in [
+            (
+                "\u{10570}\u{10571}\u{10572}\u{10573}",
+                "\u{10597}\u{10598}\u{10599}\u{1059a}",
+            ),
+            ("ᲐᲑᲒᲓ", "აბგდ"),
+            ("Ꞔustom", "ꞔustom"),
+        ] {
+            for (excluded, observed) in [(excluded, observed), (observed, excluded)] {
+                let mut config = Config::default();
+                config.excluded_apps.push(excluded.into());
+                let policy = ObservationPolicy::new(&config).unwrap();
+                let app_id = format!("org.example.{observed}.editor");
+                let app_name = format!("{observed} Editor");
+                assert!(!policy.allowed(&app_id, "", &[], false));
+                assert!(!policy.allowed("ordinary.editor", "", &[&app_name], false));
+                assert!(policy.allowed("ordinary.editor", "", &["Unrelated Editor"], false));
+            }
+        }
     }
     #[test]
     fn native_host_rules_keep_python_idna_and_mixed_case_executable_identity() {

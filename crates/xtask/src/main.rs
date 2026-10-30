@@ -7,6 +7,8 @@ mod macos_installer_smoke;
 mod notices;
 mod package;
 mod release;
+#[path = "../../brotypist/src/unicode_compat.rs"]
+mod unicode_compat;
 #[path = "../../brotypist/src/update_keys.rs"]
 mod update_keys;
 #[cfg(target_os = "windows")]
