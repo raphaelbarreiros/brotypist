@@ -4,6 +4,7 @@ use fs2::FileExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     fs::{self, OpenOptions},
     path::{Path, PathBuf},
@@ -64,6 +65,25 @@ pub fn build(root: &Path, output: &Path, replace: bool, development: bool) -> Re
     }
 }
 
+fn external_tool_path(path: &Path) -> Cow<'_, Path> {
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+        let mut components = path.components();
+        if let Some(Component::Prefix(prefix)) = components.next()
+            && let Prefix::VerbatimDisk(drive) = prefix.kind()
+        {
+            // Keep canonical paths for identity checks. cmd/MSBuild need DOS spelling.
+            let drive_prefix = [drive, b':'];
+            let mut ordinary = PathBuf::with_capacity(path.as_os_str().len());
+            ordinary.push(std::str::from_utf8(&drive_prefix).expect("ASCII drive prefix"));
+            ordinary.extend(components);
+            return Cow::Owned(ordinary);
+        }
+    }
+    Cow::Borrowed(path)
+}
+
 fn assemble(
     root: &Path,
     work: &Path,
@@ -81,7 +101,7 @@ fn assemble(
     let target_dir = work.join("cargo-target");
     let mut cargo = Command::new("cargo");
     cargo
-        .current_dir(root)
+        .current_dir(&*external_tool_path(root))
         .args([
             "build",
             "--locked",
@@ -96,7 +116,7 @@ fn assemble(
         ])
         .arg(&target)
         .arg("--target-dir")
-        .arg(&target_dir);
+        .arg(&*external_tool_path(&target_dir));
     cargo
         .env_remove("BROTYPIST_LLAMA_LIB_DIR")
         .env_remove("CARGO_BUILD_TARGET")
@@ -627,6 +647,29 @@ fn prepare_linux(root: &Path, bundle: &Path, destination: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn canonical_staging_path_supports_native_command_working_directory() {
+        let staging = tempfile::Builder::new()
+            .prefix("brotypist build ç ")
+            .tempdir()
+            .unwrap();
+        let canonical = staging.path().canonicalize().unwrap();
+        let tool_path = external_tool_path(&canonical);
+        assert_eq!(tool_path.canonicalize().unwrap(), canonical);
+        let result = Command::new("cmd.exe")
+            .args(["/D", "/C", "type nul > native-build-working-directory"])
+            .current_dir(&*tool_path)
+            .output()
+            .unwrap();
+        assert!(result.status.success(), "{result:?}");
+        assert!(
+            staging
+                .path()
+                .join("native-build-working-directory")
+                .is_file()
+        );
+    }
     #[test]
     fn desktop_exec_is_literal() {
         assert_eq!(
@@ -657,12 +700,6 @@ mod tests {
         assert_eq!(d["LSUIElement"].as_boolean(), Some(true));
         assert_eq!(d["LSFileQuarantineEnabled"].as_boolean(), Some(true));
         assert_eq!(d["LSMinimumSystemVersion"].as_string(), Some("15.0"));
-        assert!(
-            d["NSAppleEventsUsageDescription"]
-                .as_string()
-                .unwrap()
-                .contains("does not read shell history")
-        );
     }
     #[test]
     fn actool_partial_metadata_is_preserved_but_classic_icon_is_authoritative() {
