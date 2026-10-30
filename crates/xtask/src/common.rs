@@ -153,29 +153,14 @@ pub fn set_version(root: &Path, version: &str) -> Result<()> {
     ] {
         let path = root.join(relative);
         let original = fs::read_to_string(&path)?;
-        let mut section = false;
-        let mut changed = false;
-        let mut output = String::new();
-        for line in original.lines() {
-            if line.starts_with('[') {
-                section = line.trim() == "[package]";
-            }
-            if section && line.trim_start().starts_with("version =") {
-                ensure!(!changed, "multiple package version declarations");
-                output.push_str(&format!("version = \"{version}\"\n"));
-                changed = true;
-            } else {
-                output.push_str(line);
-                output.push('\n');
-            }
-        }
+        let mut document: toml_edit::DocumentMut = original.parse()?;
         ensure!(
-            changed,
+            document["package"]["version"].as_str().is_some(),
             "package has no explicit version: {}",
             path.display()
         );
-        let _: toml::Value = toml::from_str(&output)?;
-        changes.push((path.clone(), output));
+        document["package"]["version"] = toml_edit::value(version);
+        changes.push((path.clone(), document.to_string()));
         originals.push((path, original));
     }
     let outcome = (|| -> Result<()> {
@@ -675,7 +660,7 @@ mod tests {
             fs::write(directory.join("src/lib.rs"), "pub fn versioned() {}\n").unwrap();
             fs::write(
                 directory.join("Cargo.toml"),
-                format!("[package]\nname = \"{name}\"\nversion = \"0.4.13\"\nedition = \"2024\"\n"),
+                format!("[package]\nname=\"{name}\"\nversion=\"0.4.13\" # valid compact TOML\nedition=\"2024\"\n"),
             )
             .unwrap();
         }
