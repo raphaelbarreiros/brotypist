@@ -55,6 +55,11 @@ fn present_window(window: &AnyObject, activate: bool) {
 pub fn smoke(output: &std::path::Path) -> Result<i32> {
     objc2::rc::autoreleasepool(|_| macos_smoke::run(output))
 }
+/// Render canonical Settings without starting services, acquiring input, or activating the app.
+#[cfg(feature = "native-smoke")]
+pub fn capture_layout(output: &std::path::Path) -> Result<i32> {
+    objc2::rc::autoreleasepool(|_| macos_smoke::capture_layout(output))
+}
 pub(super) fn rect(x: f64, y: f64, w: f64, h: f64) -> NSRect {
     NSRect::new(NSPoint::new(x, y), NSSize::new(w, h))
 }
@@ -277,15 +282,6 @@ impl Kit {
             super_frame_font(&result, frame, size, bold);
             result
         }
-    }
-    pub(super) fn section(&self, title: &str, frame: NSRect) -> Obj {
-        let result = self.label(&title.to_uppercase(), frame, 11.0, true);
-        unsafe {
-            let color: *mut AnyObject =
-                msg_send![AnyClass::get(c"NSColor").unwrap(), secondaryLabelColor];
-            let _: () = msg_send![&*result,setTextColor:color];
-        }
-        result
     }
     pub(super) fn button(&self, title: &str, id: &str, frame: NSRect, action: UiAction) -> Obj {
         let result = obj("NSButton");
@@ -676,10 +672,11 @@ fn main_menu(kit: &Kit, app: &AnyObject) -> Obj {
 struct Menus {
     resident: Obj,
     field: Obj,
-    header: Obj,
-    model: Obj,
     toggle: Obj,
     pause: Obj,
+    pause_hour: Obj,
+    pause_tomorrow: Obj,
+    resume: Obj,
     current: Obj,
     record: Obj,
     tab: Obj,
@@ -687,12 +684,8 @@ struct Menus {
     update: Obj,
 }
 impl Menus {
-    fn new(kit: &Kit, power: &mut PowerUi) -> Self {
+    fn new(kit: &Kit) -> Self {
         let resident = menu(kit, "BroTypist");
-        let header = item(kit, &resident, "BroTypist", "inklow.menu.status", "", None);
-        separator(&resident);
-        let model = item(kit, &resident, "Local model", "inklow.menu.model", "", None);
-        separator(&resident);
         let toggle = item(
             kit,
             &resident,
@@ -703,7 +696,7 @@ impl Menus {
         );
         let pause = item(kit, &resident, "Pause", "inklow.menu.pause", "", None);
         let pause_menu = menu(kit, "Pause");
-        item(
+        let pause_hour = item(
             kit,
             &pause_menu,
             "For 1 hour",
@@ -711,7 +704,7 @@ impl Menus {
             "",
             Some(UiAction::Pause(60)),
         );
-        item(
+        let pause_tomorrow = item(
             kit,
             &pause_menu,
             "Until tomorrow",
@@ -719,7 +712,7 @@ impl Menus {
             "",
             Some(UiAction::PauseTomorrow),
         );
-        item(
+        let resume = item(
             kit,
             &pause_menu,
             "Resume now",
@@ -742,12 +735,6 @@ impl Menus {
                 domain: String::new(),
             }),
         );
-        separator(&resident);
-        let power_item = item(kit, &resident, "Power", "inklow.menu.power", "", None);
-        let card = power.make_card("menu", true);
-        unsafe {
-            let _: () = msg_send![&*power_item,setView:&*card];
-        }
         separator(&resident);
         item(
             kit,
@@ -823,11 +810,12 @@ impl Menus {
         Self {
             resident,
             field,
-            header,
-            model,
             toggle,
             pause,
             current,
+            pause_hour,
+            pause_tomorrow,
+            resume,
             record,
             tab,
             docs,
@@ -847,7 +835,7 @@ impl Menus {
         let name = if app.is_empty() {
             "Current App".into()
         } else {
-            app_name(app)
+            menu_scope_name(&app_name(app), 24)
         };
         let scoped = if domain.is_empty() {
             name.clone()
@@ -855,26 +843,6 @@ impl Menus {
             domain.into()
         };
         let scope = scope_key(app, domain);
-        native_title(
-            &self.header,
-            &format!(
-                "BroTypist · {}",
-                status["message"].as_str().unwrap_or("Ready")
-            ),
-        );
-        let model = if config.backend == "gguf" {
-            crate::models::get_preset(&config.model_id)
-                .map(|m| m.label.clone())
-                .unwrap_or_else(|_| {
-                    std::path::Path::new(&config.model_path)
-                        .file_name()
-                        .map(|s| s.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| "Choose a local model".into())
-                })
-        } else {
-            format!("{} · local server", config.model)
-        };
-        native_title(&self.model, &model);
         kit.rebind(
             &self.toggle,
             UiAction::Set("global_enabled".into(), json!(!config.global_enabled)),
@@ -883,10 +851,13 @@ impl Menus {
         unsafe {
             let _: () = msg_send![&*self.toggle,setState:isize::from(config.global_enabled)];
         }
-        enabled(
-            &self.pause,
-            config.global_enabled || status["paused_remaining"].as_f64().unwrap_or(0.) > 0.,
-        );
+        let paused = status["paused_remaining"].as_f64().unwrap_or(0.) > 0.;
+        enabled(&self.pause_hour, config.global_enabled);
+        enabled(&self.pause_tomorrow, config.global_enabled);
+        unsafe {
+            let _: () = msg_send![&*self.resume,setHidden:!paused];
+        }
+        enabled(&self.pause, config.global_enabled || paused);
         native_title(&self.current, &format!("Predictions in {name}"));
         kit.rebind(
             &self.current,
@@ -898,7 +869,7 @@ impl Menus {
         );
         enabled(&self.current, !app.is_empty());
         unsafe {
-            let _: () = msg_send![&*self.current,setState:isize::from(status["current_app_enabled"].as_bool().unwrap_or(config.enabled))];
+            let _: () = msg_send![&*self.current,setState:isize::from(!app.is_empty() && status["current_app_enabled"].as_bool().unwrap_or(config.enabled))];
             let current: *mut AnyObject = msg_send![&*self.field,itemAtIndex:0isize];
             native_title(&*current, &format!("Completions in {name}"));
             enabled(&*current, !app.is_empty());
@@ -956,6 +927,15 @@ impl Menus {
             ),
         );
     }
+}
+fn menu_scope_name(name: &str, limit: usize) -> String {
+    let mut chars = name.chars();
+    let mut display: String = chars.by_ref().take(limit).collect();
+    if chars.next().is_some() {
+        display.pop();
+        display.push('…');
+    }
+    display
 }
 fn scope_key(app: &str, domain: &str) -> Option<String> {
     if app.is_empty() {
@@ -1066,14 +1046,14 @@ impl Shell {
                 }
             })));
         let mut power = PowerUi::new()?;
-        let menus = Menus::new(&kit, &mut power);
+        let menus = Menus::new(&kit);
         let main = main_menu(&kit, &app);
         let mut overlay = OverlayOwner::new()?;
         let menu_ref =
             unsafe { &*(&*menus.field as *const AnyObject as *const objc2_app_kit::NSMenu) };
         overlay.set_field_menu(menu_ref);
         let mut settings = Settings::new(kit.clone());
-        let card = power.make_card("pane", false);
+        let card = power.make_card("pane");
         let card = unsafe {
             Retained::retain(&*card as *const objc2_app_kit::NSView as *mut AnyObject).unwrap()
         };
@@ -1098,7 +1078,7 @@ impl Shell {
                         let _: () = msg_send![&**item,setBehavior:0usize];
                         let _: () = msg_send![&**item,setVisible:true];
                         identify(&*button, "inklow.statusItem", "BroTypist, active");
-                        power.configure_status_button(Some(
+                        power.set_help_anchor(Some(
                             &*(button as *const objc2_app_kit::NSStatusBarButton),
                         ));
                         item.clone().into()
@@ -1120,7 +1100,6 @@ impl Shell {
                     if visible {
                         power.dismiss_help();
                     }
-                    power.set_visibility(Some(visible), None);
                 }
             })));
         let mut this = Self {
@@ -1506,10 +1485,9 @@ impl Shell {
             &crate::system::power_status(),
             !self.quitting && self.kit.queue.borrow().tracking == 0,
         );
-        self.power.borrow_mut().set_visibility(
-            None,
-            Some(self.settings.visible() && self.settings.pane() == "battery"),
-        );
+        self.power
+            .borrow_mut()
+            .set_pane_visible(self.settings.visible() && self.settings.pane() == "battery");
         self.power.borrow_mut().tick();
         self.refresh_icon()?;
         Ok(())
@@ -1541,17 +1519,21 @@ impl Shell {
             self.images.insert(state.into(), status_image(state));
         }
         let image = &self.images[state];
-        let power = macos_power::power_presentation(&crate::system::power_status());
         unsafe {
             let button: *mut AnyObject = msg_send![&**item, button];
             let _: () = msg_send![button,setImage:&**image];
             let _: () = msg_send![button,setTitle:&*NSString::from_str("")];
-            let subtitle = self.status["message"].as_str().unwrap_or(state);
-            let label = NSString::from_str(&format!(
-                "BroTypist, {}. {subtitle}. {}",
-                if attention { "Needs attention" } else { state },
-                power.title
-            ));
+            let description = if attention || !self.shutdown_error.is_empty() {
+                "Needs attention"
+            } else {
+                match state {
+                    "paused" => "Paused",
+                    "off" => "Off",
+                    "loading" => "Loading",
+                    _ => "Active",
+                }
+            };
+            let label = NSString::from_str(&format!("BroTypist, {description}"));
             let _: () = msg_send![button,setAccessibilityLabel:&*label];
             let _: () = msg_send![button,setToolTip:&*label];
             let visible: bool = msg_send![&**item, isVisible];

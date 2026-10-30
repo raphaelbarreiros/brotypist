@@ -1,0 +1,169 @@
+{
+  "error": null,
+  "limits": "Native NSView rasterization does not prove WindowServer vibrancy/compositing or external-host typing. Visual review of images is required.",
+  "menu": [
+    {
+      "id": "inklow.menu.toggle",
+      "title": "Enable predictions"
+    },
+    {
+      "id": "inklow.menu.pause",
+      "title": "Pause"
+    },
+    {
+      "id": "inklow.menu.currentApp",
+      "title": "Predictions in Current App"
+    },
+    {
+      "id": "",
+      "title": ""
+    },
+    {
+      "id": "inklow.menu.settings",
+      "title": "Settings…"
+    },
+    {
+      "id": "inklow.menu.checkUpdates",
+      "title": "Check for Updates…"
+    },
+    {
+      "id": "",
+      "title": ""
+    },
+    {
+      "id": "inklow.menu.quit",
+      "title": "Quit BroTypist"
+    }
+  ],
+  "passed": true,
+  "safety": {
+    "controller_started": false,
+    "external_screen_capture": false,
+    "foreground_activation_allowed": false,
+    "input_hooks_started": false,
+    "profile_loaded": false
+  },
+  "schema": "brotypist-macos-layout-capture/1",
+  "scope": "Canonical owned native Settings controls and theme frame; synthetic preferences/status, no runtime services. Native menu inspected without opening it.",
+  "screenshots": [
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "general-baseline.png",
+      "height": 1280,
+      "sha256": "72029938b9f521e716b58972e7ae57c3cafb302cb2c6ce2a22cf04717f847557",
+      "width": 1800
+    },
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "general-baseline-bottom.png",
+      "height": 1280,
+      "sha256": "39587aa9445a39b520ecda7cdaeb0ebb10b0b3505b600f50450106174821e625",
+      "width": 1800
+    },
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "setup-baseline.png",
+      "height": 1280,
+      "sha256": "9869c051c7448c74c6b6706a9696536f6c99295fc37f872c5bb16e5200ce4cfe",
+      "width": 1800
+    },
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "models-baseline.png",
+      "height": 1280,
+      "sha256": "433901a4be6620f25e80547273a5d6db15ac958b7983f506729df963aaf827c8",
+      "width": 1800
+    },
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "context-baseline.png",
+      "height": 1280,
+      "sha256": "19c8892062c30d1aa132578f225d6ab0f0748d422c02de4716f3d4937228db61",
+      "width": 1800
+    },
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "personalization-baseline.png",
+      "height": 1280,
+      "sha256": "82f9f4971ee29f43f6e25cfe8ceb3f135548496c64b6864e96b6149a839986d6",
+      "width": 1800
+    },
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "emoji-baseline.png",
+      "height": 1280,
+      "sha256": "ff656c6abb878ec9e8bf11cea410e804123e856cf3341d0adac54f1b8248e876",
+      "width": 1800
+    },
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "shortcuts-baseline.png",
+      "height": 1280,
+      "sha256": "7576e777818322041a5538f0ea23593a711b8192299e9041a510644f7a87ef4e",
+      "width": 1800
+    },
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "battery-baseline.png",
+      "height": 1280,
+      "sha256": "5faefeed619b6585ef4cdecde84107c9ff659fc29a92f3a9e9dfe74ac99c3dbe",
+      "width": 1800
+    },
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "appSettings-baseline.png",
+      "height": 1280,
+      "sha256": "fb91e4c2a4bde9d77bf9aea0c22693154241e0a0e0f74a19d89934dac406fcc7",
+      "width": 1800
+    },
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "labs-baseline.png",
+      "height": 1280,
+      "sha256": "8b503378e7eda610541c5047a92e2cbb9f73a23347c0179dc5e89a49313ec144",
+      "width": 1800
+    },
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "statistics-baseline.png",
+      "height": 1280,
+      "sha256": "e436cb4f464c829d7d40b6bc2d698e19e9915b72b823e334ed0babc93eb3bbfc",
+      "width": 1800
+    },
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "about-baseline.png",
+      "height": 1280,
+      "sha256": "3bccf8c9a7dcb5030350db2d44142e9afde35a7adb10db877aeefb1964a720c5",
+      "width": 1800
+    },
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "general-minimum.png",
+      "height": 1120,
+      "sha256": "5af3e4fcf50c009faf918d4b5707d6e8ec03fd0cea9aa8a98877e94040d6b6f8",
+      "width": 1520
+    },
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "general-minimum-bottom.png",
+      "height": 1120,
+      "sha256": "082093b802966183b0ebfe2d1b70035686aebabf5a25206e04caecd40c29a71b",
+      "width": 1520
+    },
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "general-resized.png",
+      "height": 1480,
+      "sha256": "372c074ff7accf14d61cdf8b27f7c3f1e0e870f22b9e0d379197b19b49ef51df",
+      "width": 2000
+    },
+    {
+      "capture": "in-process owned NSView bitmap; not compositor or external-screen capture",
+      "file": "general-resized-bottom.png",
+      "height": 1480,
+      "sha256": "ab1d1e89b97efa8e5369243b3c8b5126803859ab6781f84d2296737e2f25e24c",
+      "width": 2000
+    }
+  ]
+}

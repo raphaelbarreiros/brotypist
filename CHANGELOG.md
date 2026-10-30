@@ -23,6 +23,9 @@
 - Pass an explicit native-null current-user SID to MSI registration queries instead of PowerShell's empty-string coercion, retaining fail-closed status checks and bounded diagnostics.
 - Avoid PowerShell's built-in `cli` alias when invoking actual portable/installed diagnostics and workers; retain the system alias table and bounded child-process checks.
 - Allow the Windows Installer service to read produced MSI artifacts without broadening private profile/build-directory access or changing package bytes.
+- Restore the compact macOS action menu; remove battery cards, percentages, charging decoration and verbose diagnostic/model dashboard rows from menu/status-item presentation while retaining Battery settings and power policy.
+- Restore native grouped Settings rows, titlebar clearance, appearance-aware sidebar selection, bounded status text and viewport-based scrolling/resizing without replacing retained editors or dropping controls.
+- Add a nonactivating, service-free native Settings layout capture mode for visual inspection; keep the full macOS desktop smoke CI-only.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
 
 ## 0.4.13 — macOS Electron safety fixes

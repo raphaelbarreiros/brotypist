@@ -366,9 +366,21 @@ fn write_new(path: &Path, data: &[u8]) -> Result<()> {
     file.sync_all()?;
     Ok(())
 }
-fn screenshot(app: &AnyObject, window_id: &str, output: &Path, name: &str) -> Result<Value> {
+fn screenshot(
+    app: &AnyObject,
+    window_id: &str,
+    output: &Path,
+    name: &str,
+    theme_frame: bool,
+) -> Result<Value> {
     let window = window(app, window_id)?;
-    let view = content(&window)?;
+    let content = content(&window)?;
+    let view = if theme_frame {
+        let parent: *mut AnyObject = unsafe { msg_send![&*content, superview] };
+        unsafe { Retained::retain(parent).context("Owned window has no native theme frame")? }
+    } else {
+        content
+    };
     unsafe {
         let _: () = msg_send![&*view, layoutSubtreeIfNeeded];
         let _: () = msg_send![&*window, displayIfNeeded];
@@ -389,9 +401,9 @@ fn screenshot(app: &AnyObject, window_id: &str, output: &Path, name: &str) -> Re
             (33..=50 * 1024 * 1024).contains(&length),
             "PNG encoding has invalid size"
         );
-        let bytes: *const u8 = msg_send![data, bytes];
+        let bytes: *const std::ffi::c_void = msg_send![data, bytes];
         ensure!(!bytes.is_null(), "PNG encoding has no data");
-        let bytes = std::slice::from_raw_parts(bytes, length);
+        let bytes = std::slice::from_raw_parts(bytes.cast::<u8>(), length);
         ensure!(
             &bytes[..8] == b"\x89PNG\r\n\x1a\n" && &bytes[12..16] == b"IHDR",
             "AppKit did not produce a PNG"
@@ -406,8 +418,203 @@ fn screenshot(app: &AnyObject, window_id: &str, output: &Path, name: &str) -> Re
         )
     }
 }
+/// Bounded rendering only: no Shell, Controller, profile, input hooks, services or activation.
+pub(super) fn capture_layout(output: &Path) -> Result<i32> {
+    ensure!(
+        output.is_absolute() && !output.exists(),
+        "Layout output must be a new absolute directory"
+    );
+    crate::paths::private_directory(output)?;
+    let mtm = MainThreadMarker::new().context("Layout capture requires the main AppKit thread")?;
+    let app: Obj = unsafe {
+        let raw: *mut AnyObject =
+            msg_send![AnyClass::get(c"NSApplication").unwrap(), sharedApplication];
+        Retained::retain(raw).context("AppKit is unavailable")?
+    };
+    unsafe {
+        let _: bool = msg_send![&*app,setActivationPolicy:1isize];
+    }
+    let kit = Kit::new(mtm, true);
+    let config = Config {
+        global_enabled: false,
+        enabled: false,
+        check_updates_automatically: false,
+        record_history: false,
+        record_unaccepted: false,
+        statistics_enabled: false,
+        screen_context: false,
+        clipboard_context: false,
+        screenshot_context: false,
+        screenshot_appearance: false,
+        ..Config::default()
+    };
+    let status = json!({
+        "state":"paused", "model_name":"Gemma 4 E2B", "current_app":"",
+        "message":"This field does not expose verified same-line rendering; ordinary completion is silent.",
+        "paused_remaining":0, "permissions":{}
+    });
+    let menus = Menus::new(&kit);
+    menus.refresh(&kit, &config, &status, &json!({}), None);
+    let mut menu_items = Vec::new();
+    unsafe {
+        let count: isize = msg_send![&*menus.resident, numberOfItems];
+        ensure!(count == 8, "Resident menu regained dashboard rows");
+        for index in 0..count {
+            let item: *mut AnyObject = msg_send![&*menus.resident,itemAtIndex:index];
+            let custom: *mut AnyObject = msg_send![item, view];
+            ensure!(
+                custom.is_null(),
+                "Resident menu contains a custom dashboard view"
+            );
+            let title: *mut NSString = msg_send![item, title];
+            let title = (&*title).to_string();
+            ensure!(
+                !title.to_lowercase().contains("battery") && !title.contains('%'),
+                "Battery presentation returned to the resident menu"
+            );
+            menu_items.push(json!({"id":native_id(&*item),"title":title}));
+        }
+        let hidden: bool = msg_send![&*menus.resume, isHidden];
+        ensure!(
+            hidden && !is_enabled(&menus.pause_hour),
+            "Inactive pause controls changed"
+        );
+    }
+    let mut power = PowerUi::new()?;
+    let card = power.make_card("pane");
+    let card = unsafe {
+        Retained::retain(&*card as *const objc2_app_kit::NSView as *mut AnyObject)
+            .context("Battery pane card disappeared")?
+    };
+    let mut settings = Settings::new(kit);
+    settings.set_power_card(card);
+    let mut captures = Vec::new();
+    let result = (|| -> Result<()> {
+        for (appearance, panes, width, height, suffix) in [
+            (
+                "NSAppearanceNameDarkAqua",
+                &[
+                    "general",
+                    "setup",
+                    "models",
+                    "context",
+                    "personalization",
+                    "emoji",
+                    "shortcuts",
+                    "battery",
+                    "appSettings",
+                    "labs",
+                    "statistics",
+                    "about",
+                ][..],
+                900.,
+                640.,
+                "baseline",
+            ),
+            (
+                "NSAppearanceNameDarkAqua",
+                &["general"][..],
+                760.,
+                560.,
+                "minimum",
+            ),
+            (
+                "NSAppearanceNameAqua",
+                &["general"][..],
+                1000.,
+                740.,
+                "resized",
+            ),
+        ] {
+            unsafe {
+                let appearance: *mut AnyObject = msg_send![AnyClass::get(c"NSAppearance").unwrap(),appearanceNamed:&*NSString::from_str(appearance)];
+                ensure!(!appearance.is_null(), "Native appearance is unavailable");
+                let _: () = msg_send![&*app,setAppearance:appearance];
+            }
+            for pane in panes {
+                settings.prepare(pane, &config, &status, &json!([]), &json!({}))?;
+                let owned = window(&app, "inklow.settings")?;
+                unsafe {
+                    let _: () = msg_send![&*owned,setContentSize:NSSize::new(width,height)];
+                    let _: () = msg_send![&*owned,orderBack:std::ptr::null::<AnyObject>()];
+                }
+                settings.reflow();
+                unsafe {
+                    let _: () = msg_send![&*app, updateWindows];
+                    let active: bool = msg_send![&*app, isActive];
+                    ensure!(
+                        !active,
+                        "Layout capture unexpectedly activated the application"
+                    );
+                }
+                captures.push(screenshot(
+                    &app,
+                    "inklow.settings",
+                    output,
+                    &format!("{pane}-{suffix}"),
+                    true,
+                )?);
+                if *pane == "general" {
+                    let root = content(&owned)?;
+                    let last = descendants(&root)?
+                        .into_iter()
+                        .filter(|view| native_id(view).starts_with("inklow.general."))
+                        .last()
+                        .context("General has no native setting controls")?;
+                    unsafe {
+                        let bounds: NSRect = msg_send![&*last, bounds];
+                        let scroll: *mut AnyObject = msg_send![&*last, enclosingScrollView];
+                        ensure!(
+                            !scroll.is_null(),
+                            "General is not inside its native scroll view"
+                        );
+                        let document: *mut AnyObject = msg_send![scroll, documentView];
+                        let document_bounds: NSRect = msg_send![document, bounds];
+                        let bottom = rect(
+                            0.,
+                            document_bounds.size.height - 1.,
+                            document_bounds.size.width,
+                            1.,
+                        );
+                        let _: bool = msg_send![document,scrollRectToVisible:bottom];
+                        let visible: NSRect = msg_send![&*last, visibleRect];
+                        ensure!(
+                            visible.size.width >= bounds.size.width - 1.
+                                && visible.size.height >= bounds.size.height - 1.,
+                            "The last General control is not fully reachable by scrolling"
+                        );
+                    }
+                    captures.push(screenshot(
+                        &app,
+                        "inklow.settings",
+                        output,
+                        &format!("{pane}-{suffix}-bottom"),
+                        true,
+                    )?);
+                }
+            }
+        }
+        Ok(())
+    })();
+    settings.close();
+    power.close()?;
+    let receipt = json!({
+        "schema":"brotypist-macos-layout-capture/1", "passed":result.is_ok(),
+        "scope":"Canonical owned native Settings controls and theme frame; synthetic preferences/status, no runtime services. Native menu inspected without opening it.",
+        "safety":{"controller_started":false,"profile_loaded":false,"input_hooks_started":false,"foreground_activation_allowed":false,"external_screen_capture":false},
+        "limits":"Native NSView rasterization does not prove WindowServer vibrancy/compositing or external-host typing. Visual review of images is required.",
+        "menu":menu_items,"screenshots":captures,
+        "error":result.as_ref().err().map(|error|format!("{error:#}"))
+    });
+    write_new(
+        &output.join("receipt.json"),
+        &serde_json::to_vec_pretty(&receipt)?,
+    )?;
+    result?;
+    Ok(0)
+}
 fn snapshot(shell: &Shell, receipt: &mut Value, output: &Path, id: &str, name: &str) -> Result<()> {
-    let evidence = objc2::rc::autoreleasepool(|_| screenshot(&shell.app, id, output, name))?;
+    let evidence = objc2::rc::autoreleasepool(|_| screenshot(&shell.app, id, output, name, false))?;
     receipt["screenshots"]
         .as_array_mut()
         .unwrap()

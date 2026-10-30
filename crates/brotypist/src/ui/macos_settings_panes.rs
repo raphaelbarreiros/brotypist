@@ -10,13 +10,19 @@ struct Row {
     detail: Option<Obj>,
     control: Option<Obj>,
     control_width: f64,
+    divider: Option<Obj>,
 }
-pub(super) struct Block {
-    pub view: Obj,
-    pub height: f64,
-    row: Option<Row>,
-    note: bool,
-    actions: Vec<Obj>,
+struct Group {
+    heading: Option<Obj>,
+    box_view: Obj,
+    content: Obj,
+    rows: Vec<Row>,
+}
+enum Block {
+    Group(Group),
+    Note(Obj),
+    Custom { view: Obj, height: f64 },
+    Actions { view: Obj, actions: Vec<Obj> },
 }
 pub(super) struct Form {
     pub root: Obj,
@@ -26,73 +32,77 @@ pub(super) struct Form {
 impl Form {
     pub fn new(kit: &Kit) -> Self {
         Self {
-            root: kit.view(rect(0., 0., 600., 600.)),
+            root: kit.view(rect(0., 0., 690., 588.)),
             blocks: Vec::new(),
-            width: 600.,
+            width: 690.,
         }
     }
     pub fn custom(&mut self, view: Obj, height: f64) {
         add(&self.root, &view);
-        self.blocks.push(Block {
-            view,
-            height,
-            row: None,
-            note: false,
-            actions: Vec::new(),
-        });
+        self.blocks.push(Block::Custom { view, height });
     }
     pub fn section(&mut self, kit: &Kit, title: &str) {
-        self.custom(kit.section(title, rect(0., 0., 550., 30.)), 34.);
+        let heading = if title.is_empty() {
+            None
+        } else {
+            let heading = kit.label(&title.to_uppercase(), rect(0., 0., 550., 18.), 11.5, true);
+            secondary(&heading);
+            add(&self.root, &heading);
+            Some(heading)
+        };
+        let box_view = obj("NSBox");
+        let content = kit.view(rect(0., 0., 550., 0.));
+        unsafe {
+            let _: () = msg_send![&*box_view,setBoxType:4usize];
+            let _: () = msg_send![&*box_view,setBorderType:0usize];
+            let color: *mut AnyObject =
+                msg_send![AnyClass::get(c"NSColor").unwrap(), controlBackgroundColor];
+            let _: () = msg_send![&*box_view,setFillColor:color];
+            let _: () = msg_send![&*box_view,setCornerRadius:10.0f64];
+            let _: () = msg_send![&*box_view,setContentViewMargins:NSSize::new(0.,0.)];
+            let _: () = msg_send![&*box_view,setContentView:&*content];
+        }
+        add(&self.root, &box_view);
+        self.blocks.push(Block::Group(Group {
+            heading,
+            box_view,
+            content,
+            rows: Vec::new(),
+        }));
     }
     pub fn note(&mut self, kit: &Kit, text: &str) {
-        let view = kit.label(text, rect(0., 0., 550., 40.), 11., false);
+        let view = kit.label(text, rect(0., 0., 550., 40.), 11.5, false);
         secondary(&view);
         add(&self.root, &view);
-        self.blocks.push(Block {
-            view,
-            height: 40.,
-            row: None,
-            note: true,
-            actions: Vec::new(),
-        });
+        self.blocks.push(Block::Note(view));
     }
     pub fn actions(&mut self, kit: &Kit, actions: Vec<Obj>) {
-        let view = kit.view(rect(0., 0., 550., 36.));
+        let view = kit.view(rect(0., 0., 550., 28.));
         for action in &actions {
             add(&view, action);
         }
         add(&self.root, &view);
-        self.blocks.push(Block {
-            view,
-            height: 36.,
-            row: None,
-            note: false,
-            actions,
-        });
+        self.blocks.push(Block::Actions { view, actions });
     }
     pub fn row(&mut self, kit: &Kit, title: &str, detail: &str, control: Option<Obj>) {
-        let view = kit.view(rect(0., 0., 550., 70.));
-        let label = kit.label(title, rect(12., 10., 300., 23.), 13., false);
-        add(&view, &label);
+        if !matches!(self.blocks.last(), Some(Block::Group(_))) {
+            self.section(kit, "");
+        }
+        let Some(Block::Group(group)) = self.blocks.last_mut() else {
+            unreachable!("a form row always belongs to a group");
+        };
+        let label = kit.label(title, rect(0., 0., 300., 18.), 13., false);
+        add(&group.content, &label);
         let detail = if detail.is_empty() {
             None
         } else {
-            let label = kit.label(detail, rect(12., 35., 300., 40.), 11., false);
+            let label = kit.label(detail, rect(0., 0., 500., 18.), 11.5, false);
             secondary(&label);
-            add(&view, &label);
+            add(&group.content, &label);
             Some(label)
         };
         if let Some(control) = &control {
-            add(&view, control);
-        }
-        unsafe {
-            let _: () = msg_send![&*view,setWantsLayer:true];
-            let layer: *mut AnyObject = msg_send![&*view, layer];
-            let color: *mut AnyObject =
-                msg_send![AnyClass::get(c"NSColor").unwrap(), controlBackgroundColor];
-            let cg: *mut std::ffi::c_void = msg_send![color, CGColor];
-            let _: () = msg_send![layer,setBackgroundColor:cg];
-            let _: () = msg_send![layer,setCornerRadius:8.0f64];
+            add(&group.content, control);
         }
         let control_width = control
             .as_ref()
@@ -101,113 +111,149 @@ impl Form {
                 if bounds.size.width > 0. && bounds.size.width < 400. {
                     bounds.size.width
                 } else {
-                    230.
+                    220.
                 }
             })
-            .unwrap_or(230.);
-        add(&self.root, &view);
-        self.blocks.push(Block {
-            view,
-            height: 70.,
-            row: Some(Row {
-                title: label,
-                detail,
-                control,
-                control_width,
-            }),
-            note: false,
-            actions: Vec::new(),
+            .unwrap_or(220.);
+        let divider = if group.rows.is_empty() {
+            None
+        } else {
+            let divider = obj("NSBox");
+            unsafe {
+                let _: () = msg_send![&*divider,setBoxType:2usize];
+            }
+            add(&group.content, &divider);
+            Some(divider)
+        };
+        group.rows.push(Row {
+            title: label,
+            detail,
+            control,
+            control_width,
+            divider,
         });
     }
     pub fn reflow(&mut self, width: f64, viewport: f64) {
         self.width = width;
-        let inner = (width - 48.).max(200.);
-        let mut y = 16.;
+        let inner = (width - 48.).max(1.);
+        let mut y = 24.;
         for block in &mut self.blocks {
-            let hidden: bool = unsafe { msg_send![&*block.view, isHidden] };
-            if hidden {
-                continue;
-            }
-            if let Some(row) = &block.row {
-                let inline = row.control.is_some() && inner >= row.control_width + 240.;
-                let control_width = if inline {
-                    row.control_width
-                } else {
-                    inner - 24.
-                };
-                let text_width = if inline {
-                    inner - control_width - 40.
-                } else {
-                    inner - 24.
-                };
-                let title_height =
-                    text_height(&row.title, text_width).max(if string(&row.title).is_empty() {
-                        0.
-                    } else {
-                        20.
-                    });
-                frame(&row.title, &rect(12., 10., text_width, title_height));
-                let mut bottom = 10. + title_height;
-                if let Some(detail) = &row.detail {
-                    let height = text_height(detail, text_width).max(18.);
-                    frame(detail, &rect(12., bottom + 4., text_width, height));
-                    bottom += height + 4.;
-                }
-                if let Some(control) = &row.control {
-                    let control_y = if inline {
-                        ((bottom + 12. - 28.) / 2.).max(12.)
-                    } else {
-                        bottom + 10.
-                    };
-                    frame(
-                        control,
-                        &rect(
-                            if inline {
-                                inner - control_width - 12.
+            match block {
+                Block::Group(group) => {
+                    if let Some(heading) = &group.heading {
+                        let height = text_height(heading, inner - 8.);
+                        frame(heading, &rect(28., y, inner - 8., height));
+                        y += height + 7.;
+                    }
+                    let mut row_y = 0.;
+                    for row in &group.rows {
+                        let control_width = row.control_width.min(inner - 28.);
+                        let stacked = row.control.is_some() && inner - control_width - 42. < 180.;
+                        let text_width = if stacked || row.control.is_none() {
+                            inner - 28.
+                        } else {
+                            inner - control_width - 42.
+                        };
+                        let title_height = text_height(&row.title, text_width);
+                        frame(
+                            &row.title,
+                            &rect(14., row_y + 11., text_width, title_height),
+                        );
+                        let mut bottom = row_y + 11. + title_height;
+                        if let Some(control) = &row.control {
+                            let is_label: bool = unsafe {
+                                let text_field: bool = msg_send![&**control,isKindOfClass:AnyClass::get(c"NSTextField").unwrap()];
+                                let editable: bool = if text_field {
+                                    msg_send![&**control, isEditable]
+                                } else {
+                                    false
+                                };
+                                text_field && !editable
+                            };
+                            let control_height = if is_label {
+                                text_height(control, control_width)
                             } else {
-                                12.
-                            },
-                            control_y,
-                            control_width,
-                            28.,
-                        ),
-                    );
-                    bottom = bottom.max(control_y + 28.);
-                }
-                block.height = bottom + 12.;
-            } else if block.note {
-                block.height = text_height(&block.view, inner) + 8.;
-            } else if !block.actions.is_empty() {
-                let mut x = 0.;
-                let mut row_y = 0.;
-                for action in &block.actions {
-                    unsafe {
-                        let hidden: bool = msg_send![&**action, isHidden];
-                        if hidden {
-                            continue;
+                                27.
+                            };
+                            let control_y = if stacked { bottom + 7. } else { row_y + 8. };
+                            frame(
+                                control,
+                                &rect(
+                                    if stacked {
+                                        14.
+                                    } else {
+                                        inner - 14. - control_width
+                                    },
+                                    control_y,
+                                    control_width,
+                                    control_height,
+                                ),
+                            );
+                            bottom = bottom.max(control_y + control_height);
                         }
-                        let _: () = msg_send![&**action, sizeToFit];
-                        let bounds: NSRect = msg_send![&**action, frame];
-                        let action_width = (bounds.size.width + 18.).max(100.).min(inner);
-                        if x > 0. && x + action_width > inner {
-                            x = 0.;
-                            row_y += 36.;
+                        if let Some(detail) = &row.detail {
+                            let height = text_height(detail, inner - 28.);
+                            frame(detail, &rect(14., bottom + 6., inner - 28., height));
+                            bottom += height + 6.;
                         }
-                        frame(action, &rect(x, row_y, action_width, 28.));
-                        x += action_width + 8.;
+                        if let Some(divider) = &row.divider {
+                            frame(divider, &rect(14., row_y, inner - 28., 1.));
+                        }
+                        row_y += (bottom - row_y + 11.).max(46.);
+                    }
+                    frame(&group.box_view, &rect(24., y, inner, row_y));
+                    frame(&group.content, &rect(0., 0., inner, row_y));
+                    if row_y > 0. {
+                        y += row_y + 22.;
                     }
                 }
-                block.height = row_y + 34.;
-            } else {
-                let label: bool = unsafe {
-                    msg_send![&*block.view,respondsToSelector:sel!(attributedStringValue)]
-                };
-                if label {
-                    block.height = block.height.max(text_height(&block.view, inner));
+                Block::Note(view) => {
+                    let height = text_height(view, inner - 8.);
+                    frame(view, &rect(28., y, inner - 8., height));
+                    y += height + 12.;
+                }
+                Block::Actions { view, actions } => {
+                    let mut x = 0.;
+                    let mut row_y = 0.;
+                    for action in actions {
+                        unsafe {
+                            let hidden: bool = msg_send![&**action, isHidden];
+                            if hidden {
+                                continue;
+                            }
+                            let _: () = msg_send![&**action, sizeToFit];
+                            let bounds: NSRect = msg_send![&**action, frame];
+                            let action_width = (bounds.size.width + 18.).max(100.).min(inner);
+                            if x > 0. && x + action_width > inner {
+                                x = 0.;
+                                row_y += 36.;
+                            }
+                            frame(action, &rect(x, row_y, action_width, 28.));
+                            x += action_width + 8.;
+                        }
+                    }
+                    let height = row_y + 28.;
+                    frame(view, &rect(24., y, inner, height));
+                    y += height + 16.;
+                }
+                Block::Custom { view, height } => {
+                    let hidden: bool = unsafe { msg_send![&**view, isHidden] };
+                    if hidden {
+                        continue;
+                    }
+                    let label: bool = unsafe {
+                        msg_send![&**view,respondsToSelector:sel!(attributedStringValue)]
+                    };
+                    let height = if label {
+                        (*height).max(text_height(view, inner))
+                    } else {
+                        *height
+                    };
+                    frame(view, &rect(24., y, inner, height));
+                    fit_scroll_document(view);
+                    y += height + 16.;
                 }
             }
-            frame(&block.view, &rect(24., y, inner, block.height));
-            y += block.height + 8.;
         }
         frame(&self.root, &rect(0., 0., width, y.max(viewport)));
     }
@@ -217,7 +263,29 @@ fn text_height(label: &AnyObject, width: f64) -> f64 {
         let text: *mut AnyObject = msg_send![label, attributedStringValue];
         let bounds: NSRect =
             msg_send![text,boundingRectWithSize:NSSize::new(width.max(1.),10000.),options:3usize];
-        bounds.size.height.ceil() + 3.
+        (bounds.size.height.ceil() + 2.).max(18.)
+    }
+}
+
+/// Keep embedded editors fitted to their actual clip width, including legacy scrollbars.
+fn fit_scroll_document(view: &AnyObject) {
+    unsafe {
+        let is_scroll: bool = msg_send![view,isKindOfClass:AnyClass::get(c"NSScrollView").unwrap()];
+        if !is_scroll {
+            return;
+        }
+        let document: *mut AnyObject = msg_send![view, documentView];
+        if document.is_null() {
+            return;
+        }
+        let is_editor: bool =
+            msg_send![document,isKindOfClass:AnyClass::get(c"NSTextView").unwrap()];
+        if is_editor {
+            let clip: *mut AnyObject = msg_send![view, contentView];
+            let viewport: NSRect = msg_send![clip, bounds];
+            let bounds: NSRect = msg_send![document, frame];
+            let _: () = msg_send![document,setFrameSize:NSSize::new(viewport.size.width,bounds.size.height.max(viewport.size.height))];
+        }
     }
 }
 
@@ -414,6 +482,8 @@ pub(super) fn scroll(document: &AnyObject, height: f64) -> Obj {
     frame(&scroll, &rect(0., 0., 550., height));
     unsafe {
         let _: () = msg_send![&*scroll,setHasVerticalScroller:true];
+        let _: () = msg_send![&*scroll,setAutohidesScrollers:true];
+        let _: () = msg_send![&*scroll,setAutomaticallyAdjustsContentInsets:false];
         let _: () = msg_send![&*scroll,setBorderType:2usize];
         let _: () = msg_send![&*scroll,setDocumentView:document];
     }

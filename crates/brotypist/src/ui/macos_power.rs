@@ -22,7 +22,6 @@ pub struct PowerPresentation {
     pub state: String,
     pub title: String,
     pub detail: String,
-    pub compact: String,
     pub symbol: String,
 }
 pub fn power_presentation(reading: &PowerStatus) -> PowerPresentation {
@@ -30,12 +29,11 @@ pub fn power_presentation(reading: &PowerStatus) -> PowerPresentation {
     let level = percent
         .map(|p| format!("{p}%"))
         .unwrap_or_else(|| "Battery level unavailable".into());
-    let (state, title, detail, compact, symbol) = if !reading.available {
+    let (state, title, detail, symbol) = if !reading.available {
         (
             "unknown",
             "Power status unavailable".into(),
             "Waiting for a verified power reading.",
-            "?".into(),
             "questionmark.circle",
         )
     } else if !reading.has_battery {
@@ -43,7 +41,6 @@ pub fn power_presentation(reading: &PowerStatus) -> PowerPresentation {
             "absent",
             "No battery".into(),
             "This Mac reports no battery. Battery-only options are inactive.",
-            "AC".into(),
             "powerplug",
         )
     } else if reading.on_battery {
@@ -52,9 +49,6 @@ pub fn power_presentation(reading: &PowerStatus) -> PowerPresentation {
             if low { "low" } else { "battery" },
             format!("{level} · On battery"),
             "Running on battery. Your battery preferences apply now.",
-            percent
-                .map(|p| format!("{p}% ↓"))
-                .unwrap_or_else(|| "? ↓".into()),
             if low {
                 "battery.25percent"
             } else {
@@ -66,9 +60,6 @@ pub fn power_presentation(reading: &PowerStatus) -> PowerPresentation {
             "charging",
             format!("{level} · Charging"),
             "Plugged in and charging. A little energy for your next idea.",
-            percent
-                .map(|p| format!("{p}% ⚡"))
-                .unwrap_or_else(|| "⚡".into()),
             "bolt.batteryblock",
         )
     } else if reading.charging == Some(false) {
@@ -81,13 +72,6 @@ pub fn power_presentation(reading: &PowerStatus) -> PowerPresentation {
             ),
             "Connected to power; not charging. Battery-only options are inactive.",
             if full {
-                "100%".into()
-            } else {
-                percent
-                    .map(|p| format!("{p}% · AC"))
-                    .unwrap_or_else(|| "AC".into())
-            },
-            if full {
                 "battery.100percent"
             } else {
                 "powerplug"
@@ -98,9 +82,6 @@ pub fn power_presentation(reading: &PowerStatus) -> PowerPresentation {
             "external_unknown",
             format!("{level} · External power"),
             "Connected to power; charging status is unavailable.",
-            percent
-                .map(|p| format!("{p}% · AC"))
-                .unwrap_or_else(|| "AC".into()),
             "powerplug",
         )
     };
@@ -108,7 +89,6 @@ pub fn power_presentation(reading: &PowerStatus) -> PowerPresentation {
         state: state.into(),
         title,
         detail: detail.into(),
-        compact,
         symbol: symbol.into(),
     }
 }
@@ -224,12 +204,11 @@ pub struct PowerUi {
     observer: Retained<PowerObserver>,
     workspace: Retained<NSWorkspace>,
     policy: LowBatteryHelpPolicy,
-    status: Option<Retained<NSStatusBarButton>>,
+    help_anchor_button: Option<Retained<NSStatusBarButton>>,
     cards: BTreeMap<String, Card>,
     presentation: PowerPresentation,
     reading: PowerStatus,
     flags: DisplayPreferences,
-    menu_visible: bool,
     pane_visible: bool,
     help: Option<Retained<PassivePanel>>,
     help_deadline: Option<Instant>,
@@ -270,12 +249,11 @@ impl PowerUi {
             observer,
             workspace,
             policy: LowBatteryHelpPolicy::new(),
-            status: None,
+            help_anchor_button: None,
             cards: BTreeMap::new(),
             presentation: power_presentation(&reading),
             reading,
             flags: DisplayPreferences::default(),
-            menu_visible: false,
             pane_visible: false,
             help: None,
             help_deadline: None,
@@ -286,15 +264,15 @@ impl PowerUi {
         this.read_preferences();
         Ok(this)
     }
-    pub fn configure_status_button(&mut self, button: Option<&NSStatusBarButton>) {
-        self.stop_motion();
-        self.status = button.map(|button| unsafe {
-            Retained::retain(button as *const _ as *mut _).expect("borrowed status button")
+    pub fn set_help_anchor(&mut self, button: Option<&NSStatusBarButton>) {
+        self.dismiss_help();
+        self.help_anchor_button = button.map(|button| unsafe {
+            Retained::retain(button as *const _ as *mut _).expect("borrowed help anchor")
         });
     }
-    pub fn make_card(&mut self, name: &str, compact: bool) -> Retained<NSView> {
+    pub fn make_card(&mut self, name: &str) -> Retained<NSView> {
         self.release_card(name);
-        let h = if compact { 46. } else { 84. };
+        let h = 84.;
         let box_view = NSBox::initWithFrame(NSBox::alloc(self.mtm), frame(0., 0., 300., h));
         box_view.setBoxType(NSBoxType::Custom);
         box_view.setContentViewMargins(NSSize::new(0., 0.));
@@ -312,7 +290,6 @@ impl PowerUi {
         title.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable);
         let detail = label(self.mtm, "", frame(50., 9., 236., 36.), true);
         detail.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable);
-        detail.setHidden(compact);
         box_view.addSubview(&icon);
         box_view.addSubview(&title);
         box_view.addSubview(&detail);
@@ -422,27 +399,17 @@ impl PowerUi {
         })));
         layer.addAnimation_forKey(&animation, Some(&NSString::from_str("inklow.charge")));
     }
-    pub fn set_visibility(&mut self, menu: Option<bool>, pane: Option<bool>) {
-        if let Some(menu) = menu {
-            self.menu_visible = menu;
-        }
-        if let Some(pane) = pane {
-            self.pane_visible = pane;
-            if !pane {
-                if let Some(view) = &self.arrival {
-                    if let Some(layer) = view.layer() {
-                        layer.removeAnimationForKey(&NSString::from_str("inklow.arrival"));
-                    }
+    pub fn set_pane_visible(&mut self, visible: bool) {
+        self.pane_visible = visible;
+        if !visible {
+            if let Some(view) = &self.arrival {
+                if let Some(layer) = view.layer() {
+                    layer.removeAnimationForKey(&NSString::from_str("inklow.arrival"));
                 }
             }
         }
-        for (name, card) in &self.cards {
-            let shown = if name == "menu" {
-                self.menu_visible
-            } else {
-                self.pane_visible
-            };
-            if !shown {
+        for card in self.cards.values() {
+            if !visible {
                 if let Some(layer) = card.icon.layer() {
                     layer.removeAllAnimations();
                 }
@@ -465,25 +432,12 @@ impl PowerUi {
                 self.render_card(name);
             }
         }
-        if let Some(button) = &self.status {
-            button.setTitle(&NSString::from_str(""));
-            button.setImagePosition(NSCellImagePosition::ImageOnly);
-        }
         if previous != self.presentation
             && self.presentation.state == "charging"
             && previous.state != "charging"
         {
-            if let Some(button) = &self.status {
-                if button.window().is_some_and(|w| w.isVisible()) {
-                    self.charge_motion(button);
-                }
-            }
-            for (name, card) in &self.cards {
-                if if name == "menu" {
-                    self.menu_visible
-                } else {
-                    self.pane_visible
-                } {
+            for card in self.cards.values() {
+                if self.pane_visible {
                     self.charge_motion(&card.icon);
                 }
             }
@@ -504,7 +458,7 @@ impl PowerUi {
         if self.closed || !self.observer.ivars().active.get() || !session_eligible() {
             return None;
         }
-        let button = self.status.as_ref()?;
+        let button = self.help_anchor_button.as_ref()?;
         let window = button.window()?;
         if !window.isVisible() {
             return None;
@@ -646,11 +600,6 @@ impl PowerUi {
         layer.addAnimation_forKey(&animation, Some(&NSString::from_str("inklow.arrival")));
     }
     pub fn stop_motion(&self) {
-        if let Some(button) = &self.status {
-            if let Some(layer) = button.layer() {
-                layer.removeAnimationForKey(&NSString::from_str("inklow.charge"));
-            }
-        }
         for card in self.cards.values() {
             if let Some(layer) = card.icon.layer() {
                 layer.removeAllAnimations();
@@ -707,7 +656,7 @@ impl PowerUi {
                     .removeObserver(&self.observer);
             }
             self.cards.clear();
-            self.status = None;
+            self.help_anchor_button = None;
             self.arrival = None;
             if let Some(panel) = self.help.take() {
                 panel.close();

@@ -6,7 +6,7 @@ use anyhow::Result;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject};
 use objc2::{msg_send, sel};
-use objc2_foundation::{NSRect, NSSize, NSString};
+use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 #[path = "macos_settings_panes.rs"]
@@ -44,6 +44,7 @@ pub(super) struct Settings {
     window: Option<Obj>,
     root: Option<Obj>,
     sidebar: Option<Obj>,
+    sidebar_scroll: Option<Obj>,
     title: Option<Obj>,
     scroll: Option<Obj>,
     form: Option<Form>,
@@ -60,6 +61,7 @@ pub(super) struct Settings {
     sidebar_material: Option<Obj>,
     sidebar_status: Option<Obj>,
     sidebar_badge: Option<Obj>,
+    sidebar_selection: Option<Obj>,
     sidebar_buttons: BTreeMap<String, Obj>,
     config_values: Value,
     statistics_snapshot: Value,
@@ -79,6 +81,7 @@ impl Settings {
             window: None,
             root: None,
             sidebar: None,
+            sidebar_scroll: None,
             title: None,
             scroll: None,
             form: None,
@@ -95,6 +98,7 @@ impl Settings {
             sidebar_material: None,
             sidebar_status: None,
             sidebar_badge: None,
+            sidebar_selection: None,
             sidebar_buttons: BTreeMap::new(),
             config_values: Value::Null,
             statistics_snapshot: Value::Null,
@@ -127,10 +131,34 @@ impl Settings {
         }
         add(&sidebar, &material);
         self.sidebar_material = Some(material);
-        let brand = wordmark(&self.kit, 180., 34., 21.);
-        frame(&brand, &rect(15., 16., 180., 34.));
-        add(&sidebar, &brand);
-        let mut y = 66.;
+        // Match the source-list baseline: navigation starts below the traffic lights.
+        let navigation = self.kit.view(rect(0., 0., 194., 0.));
+        let sidebar_scroll = obj("NSScrollView");
+        frame(&sidebar_scroll, &rect(8., 50., 194., 470.));
+        unsafe {
+            let _: () = msg_send![&*sidebar_scroll,setDrawsBackground:false];
+            let _: () = msg_send![&*sidebar_scroll,setHasVerticalScroller:true];
+            let _: () = msg_send![&*sidebar_scroll,setAutohidesScrollers:true];
+            let _: () = msg_send![&*sidebar_scroll,setScrollerStyle:1isize];
+            let _: () = msg_send![&*sidebar_scroll,setDocumentView:&*navigation];
+        }
+        add(&sidebar, &sidebar_scroll);
+        self.sidebar_scroll = Some(sidebar_scroll);
+        let mut y = 0.;
+        let selection = obj("NSBox");
+        unsafe {
+            let _: () = msg_send![&*selection,setBoxType:4usize];
+            let _: () = msg_send![&*selection,setBorderType:0usize];
+            let _: () = msg_send![&*selection,setTitlePosition:0usize];
+            let _: () = msg_send![&*selection,setCornerRadius:6.0f64];
+            let color: *mut AnyObject = msg_send![
+                AnyClass::get(c"NSColor").unwrap(),
+                unemphasizedSelectedContentBackgroundColor
+            ];
+            let _: () = msg_send![&*selection,setFillColor:color];
+        }
+        add(&navigation, &selection);
+        self.sidebar_selection = Some(selection);
         for (key, title) in PANES {
             if ["general", "labs", "about"].contains(key) {
                 y += 12.;
@@ -143,7 +171,7 @@ impl Settings {
             let button = self.kit.button(
                 title,
                 &format!("inklow.sidebar.{key}"),
-                rect(8., y, 194., 30.),
+                rect(0., y, 194., 30.),
                 action,
             );
             sidebar_symbol(&button, key);
@@ -152,11 +180,12 @@ impl Settings {
                 let _: () = msg_send![&*button,setAlignment:0isize];
                 let _: () = msg_send![&*button,setButtonType:1usize];
             }
-            add(&sidebar, &button);
+            add(&navigation, &button);
             self.sidebar_buttons.insert((*key).into(), button);
-            y += 34.;
+            y += 31.;
         }
-        let badge = self.kit.label("●", rect(179., 73., 12., 18.), 10., false);
+        frame(&navigation, &rect(0., 0., 194., y));
+        let badge = self.kit.label("●", rect(171., 7., 12., 18.), 10., false);
         identify(
             &badge,
             "inklow.sidebar.setup.pending",
@@ -167,23 +196,28 @@ impl Settings {
                 msg_send![AnyClass::get(c"NSColor").unwrap(), systemOrangeColor];
             let _: () = msg_send![&*badge,setTextColor:color];
         }
-        add(&sidebar, &badge);
+        add(&navigation, &badge);
         self.sidebar_badge = Some(badge);
         identify(&sidebar, "inklow.sidebar", "Settings categories");
         let status = self.kit.label("", rect(20., 574., 174., 48.), 11., false);
         identify(&status, "inklow.sidebar.status", "BroTypist status");
         unsafe {
             let _: () = msg_send![&*status,setAutoresizingMask:8usize];
+            let _: () = msg_send![&*status,setMaximumNumberOfLines:1isize];
+            let _: () = msg_send![&*status,setLineBreakMode:4usize];
         }
         add(&sidebar, &status);
         self.sidebar_status = Some(status);
         let title = self.kit.label("", rect(234., 26., 630., 24.), 15., true);
         identify(&title, "inklow.settings.paneTitle", "Settings pane");
         let scroll = obj("NSScrollView");
+        frame(&scroll, &rect(210., 52., 690., 588.));
         unsafe {
             let _: () = msg_send![&*scroll,setHasVerticalScroller:true];
             let _: () = msg_send![&*scroll,setAutohidesScrollers:true];
             let _: () = msg_send![&*scroll,setDrawsBackground:false];
+            let _: () = msg_send![&*scroll,setHasHorizontalScroller:false];
+            let _: () = msg_send![&*scroll,setAutomaticallyAdjustsContentInsets:false];
             let _: () = msg_send![&*window,setContentView:&*root];
             let _: () = msg_send![&*window,setMinSize:NSSize::new(900.,640.)];
             let _: () = msg_send![&*window,setTitleVisibility:1isize];
@@ -199,6 +233,22 @@ impl Settings {
         self.scroll = Some(scroll);
     }
     pub(super) fn show(
+        &mut self,
+        pane: &str,
+        config: &Config,
+        status: &Value,
+        inventory: &Value,
+        update: &Value,
+    ) -> Result<()> {
+        self.prepare(pane, config, status, inventory, update)?;
+        if !pane.eq_ignore_ascii_case("support") {
+            super::present_window(self.window.as_ref().unwrap(), false);
+            self.reflow();
+        }
+        Ok(())
+    }
+    /// Build and refresh the canonical retained pane without ordering or activating its window.
+    pub(super) fn prepare(
         &mut self,
         pane: &str,
         config: &Config,
@@ -268,9 +318,12 @@ impl Settings {
             _ => self.about(config),
         }
         unsafe {
-            let _: () = msg_send![&**self.scroll.as_ref().unwrap(),setDocumentView:&*self.form.as_ref().unwrap().root];
+            let scroll = self.scroll.as_ref().unwrap();
+            let _: () = msg_send![&**scroll,setDocumentView:&*self.form.as_ref().unwrap().root];
+            let clip: *mut AnyObject = msg_send![&**scroll, contentView];
+            let _: () = msg_send![clip,scrollToPoint:NSPoint::new(0.,0.)];
+            let _: () = msg_send![&**scroll,reflectScrolledClipView:clip];
         }
-        super::present_window(self.window.as_ref().unwrap(), false);
         self.refresh(config, status, inventory, update)?;
         Ok(())
     }
@@ -361,11 +414,12 @@ impl Settings {
         }
     }
     fn content_width(&self) -> f64 {
-        self.root
+        self.scroll
             .as_ref()
-            .map(|r| {
-                let bounds: NSRect = unsafe { msg_send![&**r, bounds] };
-                (bounds.size.width - 210.).max(450.)
+            .map(|scroll| unsafe {
+                let clip: *mut AnyObject = msg_send![&**scroll, contentView];
+                let bounds: NSRect = msg_send![clip, bounds];
+                bounds.size.width
             })
             .unwrap_or(690.)
     }
@@ -376,6 +430,9 @@ impl Settings {
         let height = bounds.size.height;
         let content = (width - 210.).max(450.);
         frame(self.sidebar.as_ref().unwrap(), &rect(0., 0., 210., height));
+        if let Some(scroll) = &self.sidebar_scroll {
+            frame(scroll, &rect(8., 50., 194., (height - 120.).max(1.)));
+        }
         if let Some(footer) = &self.sidebar_status {
             frame(footer, &rect(20., height - 66., 174., 48.));
         }
@@ -387,20 +444,28 @@ impl Settings {
             self.scroll.as_ref().unwrap(),
             &rect(210., 52., content, (height - 52.).max(100.)),
         );
+        let scroll = self.scroll.as_ref().unwrap();
+        let clip: *mut AnyObject = unsafe { msg_send![&**scroll, contentView] };
+        let original: NSRect = unsafe { msg_send![clip, bounds] };
         if let Some(form) = &mut self.form {
-            form.reflow(content, (height - 52.).max(100.));
-        }
-        for instructions in self.editors.values() {
+            form.reflow(original.size.width, original.size.height);
+            // Legacy scrollers can change the clip width when the document grows.
+            let viewport: NSRect = unsafe { msg_send![clip, bounds] };
+            if viewport.size != original.size {
+                form.reflow(viewport.size.width, viewport.size.height);
+            }
             unsafe {
-                let old: NSRect = msg_send![&*instructions.editor, frame];
-                let _: () = msg_send![&*instructions.editor,setFrameSize:NSSize::new((content-68.).max(200.),old.size.height)];
+                let document: NSRect = msg_send![&*form.root, frame];
+                let maximum = (document.size.height - viewport.size.height).max(0.);
+                let _: () = msg_send![clip,scrollToPoint:NSPoint::new(0.,original.origin.y.max(0.).min(maximum))];
+                let _: () = msg_send![&**scroll,reflectScrolledClipView:clip];
             }
         }
         if let Some(chart) = &self.chart {
             chart.reflow();
         }
         if let Some(card) = &self.power_card {
-            frame(card, &rect(0., 0., content - 48., 84.));
+            frame(card, &rect(0., 0., self.content_width() - 48., 84.));
         }
     }
     fn section(&mut self, title: &str) {
@@ -422,7 +487,8 @@ impl Settings {
         let view = self.kit.label(text, rect(0., 0., 550., height), 13., false);
         identify(&view, id, text);
         self.live.insert(key.into(), view.clone());
-        self.custom(view, height);
+        // Live messages grow from measured text instead of reserving stale multi-line padding.
+        self.custom(view, 24.);
     }
     fn button(&mut self, title: &str, id: &str, action: UiAction) -> Obj {
         let view = self.kit.button(title, id, rect(0., 0., 530., 28.), action);
@@ -1663,7 +1729,14 @@ impl Settings {
         self.config_values = data;
         for (key, button) in &self.sidebar_buttons {
             unsafe {
-                let _: () = msg_send![&**button,setState:isize::from(key==&self.current_pane)];
+                let selected = key == &self.current_pane;
+                let _: () = msg_send![&**button,setState:isize::from(selected)];
+                if selected {
+                    if let Some(background) = &self.sidebar_selection {
+                        let bounds: NSRect = msg_send![&**button, frame];
+                        frame(background, &bounds);
+                    }
+                }
             }
         }
         if let Some(material) = &self.sidebar_material {
@@ -1676,7 +1749,7 @@ impl Settings {
                     let layer: *mut AnyObject = msg_send![&**sidebar, layer];
                     let color: *mut AnyObject =
                         msg_send![AnyClass::get(c"NSColor").unwrap(), windowBackgroundColor];
-                    let cg: *mut std::ffi::c_void = if solid {
+                    let cg: *mut objc2_core_graphics::CGColor = if solid {
                         msg_send![color, CGColor]
                     } else {
                         std::ptr::null_mut()
@@ -1705,14 +1778,24 @@ impl Settings {
                     &c.model
                 });
             let label = format!(
-                "{} · {active}\n{}",
+                "{} · {active}",
                 if status["enabled"].as_bool() == Some(true) {
                     "On"
                 } else {
                     "Paused"
                 },
-                status["message"].as_str().unwrap_or("")
             );
+            let diagnostic = status["message"].as_str().unwrap_or("");
+            let help = if diagnostic.is_empty() {
+                label.clone()
+            } else {
+                format!("{label}\n{diagnostic}")
+            };
+            unsafe {
+                let help = NSString::from_str(&help);
+                let _: () = msg_send![&**footer,setToolTip:&*help];
+                let _: () = msg_send![&**footer,setAccessibilityHelp:&*help];
+            }
             if string(footer) != label {
                 set_string(footer, &label);
             }

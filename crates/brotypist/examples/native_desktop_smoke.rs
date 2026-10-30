@@ -10,6 +10,10 @@ fn run() -> Result<i32> {
     if arguments == [std::ffi::OsString::from("_worker")] {
         return brotypist::cli::run(vec!["_worker".into()]);
     }
+    #[cfg(target_os = "macos")]
+    if arguments.len() == 2 && arguments[0] == "--layout-only" {
+        return brotypist::ui::macos::capture_layout(&PathBuf::from(&arguments[1]));
+    }
     ensure!(
         arguments.len() == 1,
         "Usage: native_desktop_smoke <absolute-output-directory>"
