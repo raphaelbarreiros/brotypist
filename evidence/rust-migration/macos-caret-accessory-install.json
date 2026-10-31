@@ -1,0 +1,17 @@
+{
+  "schema": "brotypist-caret-accessory-install/1",
+  "source_commit": "f240739b7c774fcde7970fe0072a6b757bc6c62d",
+  "application": "/Applications/BroTypist.app",
+  "signature": "identity-signed",
+  "candidate_installed_inventory_matches": true,
+  "original_requirement_matches": true,
+  "graceful_quit_locked_backup_atomic_swap": true,
+  "settings_history_unchanged_after_launch": true,
+  "eight_second_startup_no_exit": true,
+  "workspace_tests": 399,
+  "nested_child_invocations": 2,
+  "face_raster_1x_2x_visually_inspected": true,
+  "caret_gap_and_screen_bounds_regressions_passed": true,
+  "external_whatsapp_prediction_verified": false,
+  "blocker": "Actual GUI Setup Native input/Keyboard/Last ordinary field capture not yet supplied; observer AX and TextEdit automation unavailable. No speculative admission weakening."
+}
