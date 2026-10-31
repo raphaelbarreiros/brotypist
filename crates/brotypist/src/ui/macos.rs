@@ -1501,7 +1501,9 @@ impl Shell {
             self.status["state"].as_str(),
             Some("error" | "permission" | "empty")
         );
-        let state = if self.shutdown_started || !self.shutdown_error.is_empty() || attention {
+        let state = if !self.shutdown_error.is_empty() || attention {
+            "attention"
+        } else if self.shutdown_started {
             "off"
         } else if paused {
             "paused"
@@ -1511,7 +1513,14 @@ impl Shell {
             self.status["state"].as_str(),
             Some("loading" | "starting" | "warming")
         ) {
-            "loading"
+            thread_local! {
+                static ICON_EPOCH: Instant = Instant::now();
+            }
+            match ICON_EPOCH.with(|epoch| epoch.elapsed().as_millis() / 150 % 3) {
+                0 => "loading-1",
+                1 => "loading-2",
+                _ => "loading-3",
+            }
         } else {
             "active"
         };
@@ -1529,7 +1538,7 @@ impl Shell {
                 match state {
                     "paused" => "Paused",
                     "off" => "Off",
-                    "loading" => "Loading",
+                    "loading-1" | "loading-2" | "loading-3" => "Loading",
                     _ => "Active",
                 }
             };
@@ -2192,51 +2201,139 @@ fn input_dialog(title: &str, message: &str) -> Option<String> {
         (response == 1000).then(|| string(&field))
     }
 }
+// Native transcription of the first-party handoff's 18×16 menubar SVGs.
+// Authoritative originals: crates/brotypist/assets/menubar/menubar-*.svg,
+// copied verbatim from brotypist-handoff.zip's brotypist-handoff/design/icons/.
+// Keep SVG coordinates (including dash phases) and flip once into AppKit space.
 fn status_image(state: &str) -> Obj {
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Transform {
+        a: f64,
+        b: f64,
+        c: f64,
+        d: f64,
+        tx: f64,
+        ty: f64,
+    }
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGContextGetCTM(context: *mut std::ffi::c_void) -> Transform;
+        fn CGContextConcatCTM(context: *mut std::ffi::c_void, transform: Transform);
+    }
     unsafe {
         let class = AnyClass::get(c"NSImage").unwrap();
         let p: *mut AnyObject = msg_send![class, alloc];
         let p: *mut AnyObject = msg_send![p,initWithSize:NSSize::new(18.,16.)];
         let image = Retained::from_raw(p).unwrap();
-        let _: () = msg_send![&*image, lockFocus];
-        let black: *mut AnyObject = msg_send![AnyClass::get(c"NSColor").unwrap(), blackColor];
-        let _: () = msg_send![black, setFill];
+        let contexts = AnyClass::get(c"NSGraphicsContext").unwrap();
         let paths = AnyClass::get(c"NSBezierPath").unwrap();
-        let caret: *mut AnyObject = msg_send![paths,bezierPathWithRoundedRect:rect(2.,2.,2.4,12.),xRadius:1.2f64,yRadius:1.2f64];
-        let _: () = msg_send![caret, fill];
-        match state {
-            "paused" => {
-                for x in [9., 13.] {
-                    let path: *mut AnyObject = msg_send![paths,bezierPathWithRoundedRect:rect(x,5.,1.8,6.),xRadius:0.9f64,yRadius:0.9f64];
-                    let _: () = msg_send![path, fill];
+        for scale in [1isize, 2] {
+            let p: *mut AnyObject = msg_send![AnyClass::get(c"NSBitmapImageRep").unwrap(), alloc];
+            let p: *mut AnyObject = msg_send![p,
+                initWithBitmapDataPlanes:std::ptr::null_mut::<*mut u8>(),
+                pixelsWide:18 * scale, pixelsHigh:16 * scale,
+                bitsPerSample:8isize, samplesPerPixel:4isize,
+                hasAlpha:true, isPlanar:false,
+                colorSpaceName:&*NSString::from_str("NSDeviceRGBColorSpace"),
+                bytesPerRow:0isize, bitsPerPixel:0isize];
+            let rep = Retained::from_raw(p).expect("menu bitmap");
+            let bytes: *mut u8 = msg_send![&*rep, bitmapData];
+            let stride: isize = msg_send![&*rep, bytesPerRow];
+            std::ptr::write_bytes(bytes, 0, (stride * 16 * scale) as usize);
+            let _: () = msg_send![&*rep,setSize:NSSize::new(18.,16.)];
+            let context: *mut AnyObject =
+                msg_send![contexts,graphicsContextWithBitmapImageRep:&*rep];
+            let _: () = msg_send![contexts, saveGraphicsState];
+            let _: () = msg_send![contexts,setCurrentContext:context];
+            // AppKit can install a backing/density transform for bitmap contexts.
+            // Replace that CTM rather than stacking another scale on top of it.
+            let cg: *mut objc2_core_graphics::CGContext = msg_send![context, CGContext];
+            let cg = cg.cast::<std::ffi::c_void>();
+            let current = CGContextGetCTM(cg);
+            let determinant = current.a * current.d - current.b * current.c;
+            CGContextConcatCTM(
+                cg,
+                Transform {
+                    a: current.d / determinant,
+                    b: -current.b / determinant,
+                    c: -current.c / determinant,
+                    d: current.a / determinant,
+                    tx: (current.c * current.ty - current.d * current.tx) / determinant,
+                    ty: (current.b * current.tx - current.a * current.ty) / determinant,
+                },
+            );
+            // SVG origin is top-left. Map its complete 18×16 canvas directly
+            // into the representation's pixels, independent of display scale.
+            CGContextConcatCTM(
+                cg,
+                Transform {
+                    a: scale as f64,
+                    b: 0.,
+                    c: 0.,
+                    d: -(scale as f64),
+                    tx: 0.,
+                    ty: (16 * scale) as f64,
+                },
+            );
+            let black: *mut AnyObject = msg_send![AnyClass::get(c"NSColor").unwrap(), blackColor];
+            let color: *mut AnyObject =
+                msg_send![black,colorWithAlphaComponent:if state == "off" { 0.4f64 } else { 1f64 }];
+            let _: () = msg_send![color, setFill];
+            let _: () = msg_send![color, setStroke];
+            let flat = matches!(state, "paused" | "off");
+            let attention = state == "attention";
+            let eyes = if flat {
+                [(3.5, 4., 3.5, 2.), (10.5, 4., 3.5, 2.)]
+            } else if attention {
+                [(4.5, 2., 2., 6.), (11.5, 2., 2., 6.)]
+            } else {
+                [(4.5, 2., 2., 6.), (10.5, 4., 3.5, 2.)]
+            };
+            for (x, y, w, h) in eyes {
+                let path: *mut AnyObject = msg_send![paths,
+                    bezierPathWithRoundedRect:rect(x,y,w,h),xRadius:1f64,yRadius:1f64];
+                let _: () = msg_send![path, fill];
+            }
+            let mouth: *mut AnyObject = if attention {
+                msg_send![paths,bezierPathWithOvalInRect:rect(7.2,10.2,3.6,3.6)]
+            } else {
+                msg_send![paths, bezierPath]
+            };
+            let _: () = msg_send![mouth,setLineWidth:if attention { 1.5f64 } else { 1.8f64 }];
+            let _: () = msg_send![mouth,setLineCapStyle:1usize];
+            if flat {
+                let _: () = msg_send![mouth,moveToPoint:NSPoint::new(4.,11.5)];
+                let _: () = msg_send![mouth,lineToPoint:NSPoint::new(14.,11.5)];
+            } else if !attention {
+                let _: () = msg_send![mouth,moveToPoint:NSPoint::new(3.5,10.5)];
+                // Exact quadratic-to-cubic conversion of Q9 15 14.5 10.5.
+                let _: () = msg_send![mouth,curveToPoint:NSPoint::new(14.5,10.5),
+                    controlPoint1:NSPoint::new(3.5 + 11. / 3.,13.5),
+                    controlPoint2:NSPoint::new(14.5 - 11. / 3.,13.5)];
+                let phase = match state {
+                    "loading-1" => Some(0f64),
+                    "loading-2" => Some(-1.03f64),
+                    "loading-3" => Some(-2.06f64),
+                    _ => None,
+                };
+                if let Some(phase) = phase {
+                    let dash = [0.1f64, 3f64];
+                    let _: () = msg_send![mouth,setLineDash:dash.as_ptr(),count:2isize,phase:phase];
                 }
             }
-            "loading" => {
-                for (x, alpha) in [(8., 1.), (11.5, 0.6), (15., 0.3)] {
-                    let color: *mut AnyObject = msg_send![black,colorWithAlphaComponent:alpha];
-                    let _: () = msg_send![color, setFill];
-                    let path: *mut AnyObject =
-                        msg_send![paths,bezierPathWithOvalInRect:rect(x-1.3,6.7,2.6,2.6)];
-                    let _: () = msg_send![path, fill];
-                }
-            }
-            _ => {
-                let color: *mut AnyObject =
-                    msg_send![black,colorWithAlphaComponent:if state=="off"{0.45f64}else{0.5f64}];
-                let _: () = msg_send![color, setFill];
-                let path: *mut AnyObject = msg_send![paths,bezierPathWithRoundedRect:rect(7.,6.5,9.,3.),xRadius:1.5f64,yRadius:1.5f64];
-                if state == "off" {
-                    let _: () = msg_send![color, setStroke];
-                    let _: () = msg_send![path, stroke];
-                } else {
-                    let _: () = msg_send![path, fill];
-                }
-            }
+            let _: () = msg_send![mouth, stroke];
+            let _: () = msg_send![contexts, restoreGraphicsState];
+            let _: () = msg_send![&*image,addRepresentation:&*rep];
         }
-        let _: () = msg_send![&*image, unlockFocus];
         let _: () = msg_send![&*image,setTemplate:true];
         image
     }
+}
+/// Render only first-party menu artwork, without starting services or accessing hosts.
+#[cfg(feature = "native-smoke")]
+pub(super) fn capture_status_image(state: &str) -> Obj {
+    status_image(state)
 }
 fn record_event(event: &AnyObject) -> Result<Option<String>> {
     unsafe {

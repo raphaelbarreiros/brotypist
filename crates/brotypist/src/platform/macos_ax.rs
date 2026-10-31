@@ -351,6 +351,17 @@ impl AxValue {
     pub fn as_range(&self) -> Option<AxRange> {
         AxRange::from_native(self.native_value::<CfRange>(4)?)
     }
+    /// A marked-text range is a composition state, not an editable offset.
+    /// AX may use kCFNotFound for the location when no marked text exists.
+    /// Never admit that sentinel through `as_range`, which remains strict for
+    /// field-local selection, geometry and mutation offsets.
+    pub fn marked_text_clear(&self) -> Option<bool> {
+        let range = self.native_value::<CfRange>(4)?;
+        if range.length < 0 || range.location < -1 {
+            return None;
+        }
+        Some(range.length == 0)
+    }
     pub fn as_point(&self) -> Option<[f64; 2]> {
         let value = self.native_value::<Point>(1)?;
         Some([value.x, value.y])
@@ -839,6 +850,61 @@ mod tests {
                 length: 0
             })
             .is_none()
+        );
+    }
+    #[test]
+    fn inactive_marked_range_does_not_become_an_editable_offset() {
+        for location in [-1, 0, isize::MAX] {
+            let range = CfRange {
+                location,
+                length: 0,
+            };
+            let value =
+                unsafe { AxValue::from_owned(AXValueCreate(4, (&range as *const CfRange).cast())) }
+                    .unwrap();
+            assert_eq!(value.marked_text_clear(), Some(true));
+            if location == -1 {
+                assert_eq!(value.as_range(), None);
+            }
+        }
+        for (range, clear) in [
+            (
+                CfRange {
+                    location: 3,
+                    length: 2,
+                },
+                Some(false),
+            ),
+            (
+                CfRange {
+                    location: -1,
+                    length: 2,
+                },
+                Some(false),
+            ),
+            (
+                CfRange {
+                    location: 3,
+                    length: -1,
+                },
+                None,
+            ),
+            (
+                CfRange {
+                    location: -2,
+                    length: 0,
+                },
+                None,
+            ),
+        ] {
+            let value =
+                unsafe { AxValue::from_owned(AXValueCreate(4, (&range as *const CfRange).cast())) }
+                    .unwrap();
+            assert_eq!(value.marked_text_clear(), clear);
+        }
+        assert_eq!(
+            AxValue::string("not a range").unwrap().marked_text_clear(),
+            None
         );
     }
     #[test]

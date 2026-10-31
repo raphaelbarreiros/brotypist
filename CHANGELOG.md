@@ -29,6 +29,8 @@
 - Give Settings rows a bounded title/description column, a distinct control column centered on the whole text block, comfortable row padding and section spacing, and responsive stacking. Measure wrapped text with its actual AppKit cell so narrower descriptions remain fully readable; verify final content remains reachable.
 - Restyle Settings sidebar navigation with larger icon tiles, padded rounded selection, clearer icon/title separation and one appearance-aware highlight while retaining native full-row actions, destination state and narrow-height scrolling.
 - Replace the application artwork with the supplied Typing Buddy face across adaptive macOS layers, classic ICNS, Windows ICO and Linux runtime/desktop PNGs; preserve separate native template menu marks and application/data identities.
+- Replace macOS menu-bar caret/pill drawings with supplied template face states at native 1x/2x sizes.
+- Accept the typed zero-length macOS marked-text sentinel without admitting negative selection/mutation offsets; expose content-free GUI-owned capture-stage diagnostics for prediction failure diagnosis.
 - Add a nonactivating, service-free native Settings layout capture mode for visual inspection; keep the full macOS desktop smoke CI-only.
 - Add a build-free authenticated Windows installer artifact-reuse diagnostic lane, keeping original package source separate from probe checkout and preserving full canonical gates. Retain compact native-context/registry-presence evidence; do not relax the blocked per-user ARP ownership gate.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.

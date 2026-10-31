@@ -578,6 +578,83 @@ fn layout_draft_resize(
     }
     Ok(())
 }
+fn capture_menu_glyphs(output: &Path) -> Result<Vec<Value>> {
+    let mut glyphs = Vec::new();
+    for state in [
+        "active",
+        "paused",
+        "off",
+        "attention",
+        "loading-1",
+        "loading-2",
+        "loading-3",
+    ] {
+        let image = super::capture_status_image(state);
+        unsafe {
+            let template: bool = msg_send![&*image, isTemplate];
+            let size: NSSize = msg_send![&*image, size];
+            ensure!(
+                template && size == NSSize::new(18., 16.),
+                "Invalid menu template"
+            );
+            let reps: *mut AnyObject = msg_send![&*image, representations];
+            let count: usize = msg_send![reps, count];
+            ensure!(
+                count == 2,
+                "Menu artwork must have 1x and 2x representations"
+            );
+            let mut representations = Vec::new();
+            for index in 0..count {
+                let rep: *mut AnyObject = msg_send![reps,objectAtIndex:index];
+                let width: isize = msg_send![rep, pixelsWide];
+                let height: isize = msg_send![rep, pixelsHigh];
+                let scale = index + 1;
+                ensure!(
+                    width == 18 * scale as isize && height == 16 * scale as isize,
+                    "Invalid menu representation dimensions"
+                );
+                let properties = obj("NSDictionary");
+                let data: *mut AnyObject =
+                    msg_send![rep,representationUsingType:4usize,properties:&*properties];
+                ensure!(!data.is_null(), "AppKit refused menu PNG encoding");
+                let length: usize = msg_send![data, length];
+                ensure!(
+                    (33..=1024 * 1024).contains(&length),
+                    "Invalid menu PNG size"
+                );
+                let bytes: *const std::ffi::c_void = msg_send![data, bytes];
+                ensure!(!bytes.is_null(), "Menu PNG has no data");
+                let bytes = std::slice::from_raw_parts(bytes.cast::<u8>(), length);
+                ensure!(
+                    &bytes[..8] == b"\x89PNG\r\n\x1a\n" && &bytes[12..16] == b"IHDR",
+                    "Menu encoding is not PNG"
+                );
+                let png_width = u32::from_be_bytes(bytes[16..20].try_into()?);
+                let png_height = u32::from_be_bytes(bytes[20..24].try_into()?);
+                ensure!(
+                    png_width == width as u32 && png_height == height as u32,
+                    "Menu PNG dimensions differ from native representation"
+                );
+                let file = format!("menubar-{state}@{scale}x.png");
+                write_new(&output.join(&file), bytes)?;
+                representations.push(json!({
+                    "file":file, "scale":scale,
+                    "pixel_width":width, "pixel_height":height,
+                    "sha256":format!("{:x}", Sha256::digest(bytes))
+                }));
+            }
+            glyphs.push(json!({
+                "state":state, "isTemplate":template,
+                "logical_size":{"width":size.width,"height":size.height},
+                "source_svg":format!("crates/brotypist/assets/menubar/menubar-{state}.svg"),
+                "representations":representations,
+                "capture":"Actual in-process NSImage bitmap representations; no screen capture or activation"
+            }));
+        }
+    }
+    Ok(glyphs)
+}
+
 /// Bounded rendering only: no Shell, Controller, profile, input hooks, services or activation.
 pub(super) fn capture_layout(output: &Path) -> Result<i32> {
     ensure!(
@@ -802,20 +879,23 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
     })();
     settings.close();
     power.close()?;
+    let menu_glyphs = capture_menu_glyphs(output);
     let receipt = json!({
-        "schema":"brotypist-macos-layout-capture/3", "passed":result.is_ok(),
+        "schema":"brotypist-macos-layout-capture/3", "passed":result.is_ok() && menu_glyphs.is_ok(),
         "scope":"Canonical owned native Settings controls and theme frame; synthetic preferences/status, no runtime services. Native menu inspected without opening it.",
         "safety":{"controller_started":false,"profile_loaded":false,"input_hooks_started":false,"foreground_activation_allowed":false,"external_screen_capture":false},
         "limits":"Native geometry assertions and NSView rasterization do not prove WindowServer vibrancy/compositing or external-host typing. Visual review of images is required.",
         "menu":menu_items,"screenshots":captures,"geometry":geometry,
+        "menu_glyphs":menu_glyphs.as_ref().ok(),
         "draft_retention":draft_retention,
-        "error":result.as_ref().err().map(|error|format!("{error:#}"))
+        "error":result.as_ref().err().or_else(||menu_glyphs.as_ref().err()).map(|error|format!("{error:#}"))
     });
     write_new(
         &output.join("receipt.json"),
         &serde_json::to_vec_pretty(&receipt)?,
     )?;
     result?;
+    menu_glyphs?;
     Ok(0)
 }
 fn snapshot(shell: &Shell, receipt: &mut Value, output: &Path, id: &str, name: &str) -> Result<()> {

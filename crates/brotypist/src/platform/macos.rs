@@ -445,6 +445,7 @@ pub struct MacBridge {
     terminal: Option<Box<dyn TerminalIntegration>>,
     appearance: Option<Box<dyn AppearanceIntegration>>,
     docs: Option<docs::DocsHelper>,
+    capture_diagnostic: &'static str,
     not_send: PhantomData<Rc<()>>,
 }
 impl MacBridge {
@@ -484,6 +485,7 @@ impl MacBridge {
             terminal: None,
             appearance: None,
             docs: Some(docs::DocsHelper::new()),
+            capture_diagnostic: "not_observed",
             not_send: PhantomData,
         };
         bridge.refresh_main_state()?;
@@ -616,6 +618,7 @@ impl MacBridge {
             return Ok(None);
         }
         let Some((pid, app_id, executable, name)) = frontmost_application() else {
+            self.capture_diagnostic = "foreground_unavailable";
             return Ok(None);
         };
         let front = Foreground {
@@ -631,14 +634,19 @@ impl MacBridge {
             || secure_event_input_enabled() != Some(false)
             || !ax::trusted()
         {
+            if pid != std::process::id() as i32 {
+                self.capture_diagnostic = "foreground_policy_or_security_denied";
+            }
             self.input.set_foreground(front);
             return Ok(None);
         }
         let Some(app) = AxElement::application(pid) else {
+            self.capture_diagnostic = "foreground_ax_unavailable";
             return Ok(None);
         };
         let window = app.element("AXFocusedWindow");
         let Some(window_ref) = window.as_ref() else {
+            self.capture_diagnostic = "focused_window_unavailable";
             return Ok(None);
         };
         let document = window_ref.string("AXDocument");
@@ -661,7 +669,10 @@ impl MacBridge {
             // Keep browser metadata/AX-enablement available, but field_identity
             // still refuses all draft/context access without an HTTP(S) document.
             None if browser => (String::new(), String::new()),
-            None => return Ok(None),
+            None => {
+                self.capture_diagnostic = "window_identity_unverified";
+                return Ok(None);
+            }
         };
         let window_id = format!("{pid}:{}", window_ref.identity());
         let foreground = Foreground {
@@ -770,23 +781,29 @@ impl MacBridge {
         };
         let front = &session.foreground;
         if exact_member(&front.app_id, TERMINALS) {
+            self.capture_diagnostic = "terminal_adapter";
             return Ok(None);
         }
         let probe = exact_member(&front.app_id, CHAT_EDITORS);
         if !self.allowed(&session, probe) {
+            self.capture_diagnostic = "field_policy_denied";
             return Ok(None);
         }
         self.prepare_accessibility(&session);
         let Some(field) = session.app.element("AXFocusedUIElement") else {
+            self.capture_diagnostic = "focused_field_unavailable";
             return Ok(None);
         };
         if field.pid() != Some(front.window_pid) {
+            self.capture_diagnostic = "focused_field_process_mismatch";
             return Ok(None);
         }
         if field.element("AXWindow") != session.window {
+            self.capture_diagnostic = "focused_field_window_mismatch";
             return Ok(None);
         }
         if !field_is_ordinary_writable(&field, &self.secure_description) {
+            self.capture_diagnostic = "field_not_ordinary_writable";
             return Ok(None);
         }
         if probe
@@ -795,13 +812,16 @@ impl MacBridge {
                 .rule_bool(&front.app_id, "", "complete_in_code_editors", false)
         {
             let Some(description) = field.string("AXDescription") else {
+                self.capture_diagnostic = "editor_field_unverified";
                 return Ok(None);
             };
             if !stock_chat_description(&description) {
+                self.capture_diagnostic = "editor_field_not_chat";
                 return Ok(None);
             }
         }
         let Some(field_id) = self.field_identity(&field, &session) else {
+            self.capture_diagnostic = "field_identity_unverified";
             return Ok(None);
         };
         Ok(Some(Focused {
@@ -847,25 +867,32 @@ impl MacBridge {
         };
         let field = &focus.field;
         if !self.composition_clear(field) {
+            self.capture_diagnostic = "marked_text_or_input_source_unverified";
             return Ok(None);
         }
         let Some(native) = field.range("AXSelectedTextRange") else {
+            self.capture_diagnostic = "selection_range_unavailable";
             return Ok(None);
         };
         let Some(revalidated) = self.focused()? else {
+            self.capture_diagnostic = "focus_revalidation";
             return Ok(None);
         };
         if !focus.same(&revalidated) {
+            self.capture_diagnostic = "focus_changed_before_value";
             return Ok(None);
         }
         // Value is deliberately the last capability/privacy-gated read.
+        self.capture_diagnostic = "field_value_unavailable";
         let Some(text) = field.string("AXValue") else {
             return Ok(None);
         };
         if text.chars().count() > 1_000_000 {
+            self.capture_diagnostic = "field_value_too_large";
             return Ok(None);
         }
         let text: TextBuffer = text.into();
+        self.capture_diagnostic = "selection_utf16_invalid";
         let Some((caret, selection_length)) = text
             .index()
             .utf16_range_to_scalar(native.location, native.length)
@@ -880,6 +907,7 @@ impl MacBridge {
             native.location,
         );
         let field_rect = field.frame();
+        let mut geometry_diagnostic = "selection_active";
         let (render, evidence) = if native.length == 0 {
             geometry::inline_metrics(
                 field,
@@ -890,6 +918,7 @@ impl MacBridge {
                 caret_rect,
                 field_rect,
                 is_browser(&[&focus.session.foreground.app_id]),
+                &mut geometry_diagnostic,
             )
         } else {
             (None, None)
@@ -914,6 +943,17 @@ impl MacBridge {
             inline_render: render,
             ..Default::default()
         };
+        self.capture_diagnostic = if snapshot.inline_safe() {
+            "inline_ready"
+        } else if snapshot.caret_rect.is_none() {
+            "caret_geometry_unverified"
+        } else if snapshot.field_rect.is_none() {
+            "field_geometry_unverified"
+        } else if snapshot.selection_length != 0 {
+            "selection_active"
+        } else {
+            geometry_diagnostic
+        };
         if snapshot.inline_render.is_none() && self.config.screenshot_appearance {
             if let Some(evidence) = evidence {
                 if let Some(mut adapter) = self.appearance.take() {
@@ -921,14 +961,19 @@ impl MacBridge {
                     self.appearance = Some(adapter);
                     if let Some(styled) = styled? {
                         snapshot.inline_render = validate_appearance(&snapshot, &evidence, styled);
+                        if snapshot.inline_safe() {
+                            self.capture_diagnostic = "inline_ready";
+                        }
                     }
                 }
             }
         }
         let Some(after) = self.focused()? else {
+            self.capture_diagnostic = "focus_changed_after_capture";
             return Ok(None);
         };
         if !focus.same(&after) || !self.composition_clear(&after.field) {
+            self.capture_diagnostic = "focus_or_composition_changed_after_capture";
             return Ok(None);
         }
         self.focused_hash.store(field.identity(), Ordering::Relaxed);
@@ -1336,7 +1381,13 @@ impl NativeBridge for MacBridge {
         } else {
             "native_available"
         };
-        serde_json::json!({"platform":"macos","accessibility":trusted,"secure_input":secure,"input_source":source,"input":self.input.status(),"diagnostic":diagnostic,"stopped":self.stopped})
+        let input = self.input.status();
+        let keyboard = input["keyboard"].as_str().unwrap_or("unavailable");
+        let message = format!(
+            "Native input: {diagnostic}. Keyboard: {keyboard}. Last ordinary field capture: {}.",
+            self.capture_diagnostic
+        );
+        serde_json::json!({"platform":"macos","accessibility":trusted,"secure_input":secure,"input_source":source,"input":input,"diagnostic":diagnostic,"capture_diagnostic":self.capture_diagnostic,"message":message,"stopped":self.stopped})
     }
     fn stop(&mut self) -> Result<()> {
         self.owner()?;
@@ -1658,9 +1709,7 @@ fn snapshot_binding(salt: &[u8; 32], snapshot: &Snapshot) -> [u8; 16] {
 fn composition_clear_with_source(field: &AxElement, source: InputSourceKind) -> bool {
     match field.attribute("AXMarkedTextRange") {
         Ok(None) => source == InputSourceKind::Layout,
-        Ok(Some(value)) => value
-            .as_range()
-            .is_some_and(|range| range.length == 0 && range.end().is_some()),
+        Ok(Some(value)) => value.marked_text_clear() == Some(true),
         Err(_) => false,
     }
 }
