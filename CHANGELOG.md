@@ -25,6 +25,7 @@
 - Allow the Windows Installer service to read produced MSI artifacts without broadening private profile/build-directory access or changing package bytes.
 - Restore the compact macOS action menu; remove battery cards, percentages, charging decoration and verbose diagnostic/model dashboard rows from menu/status-item presentation while retaining Battery settings and power policy.
 - Restore native grouped Settings rows, titlebar clearance, appearance-aware sidebar selection, bounded status text and viewport-based scrolling/resizing without replacing retained editors or dropping controls.
+- Align Settings headings, rows, notes and editors to one content grid; size switches from AppKit instead of the obsolete 42-point allocation, align native control content edges and center headers, and resize compound controls within their actual row bounds. Verify intrinsic-size overflow and retained Unicode drafts through the native layout probe.
 - Add a nonactivating, service-free native Settings layout capture mode for visual inspection; keep the full macOS desktop smoke CI-only.
 - Add a build-free authenticated Windows installer artifact-reuse diagnostic lane, keeping original package source separate from probe checkout and preserving full canonical gates. Retain compact native-context/registry-presence evidence; do not relax the blocked per-user ARP ownership gate.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.

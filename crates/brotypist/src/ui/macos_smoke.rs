@@ -418,6 +418,133 @@ fn screenshot(
         )
     }
 }
+fn layout_rect(rect: NSRect) -> Value {
+    json!({
+        "x":rect.origin.x,"y":rect.origin.y,
+        "width":rect.size.width,"height":rect.size.height
+    })
+}
+fn layout_geometry(
+    settings: &Settings,
+    app: &AnyObject,
+    pane: &str,
+    size_case: &str,
+    phase: &str,
+) -> Result<Value> {
+    let owned = window(app, "inklow.settings")?;
+    let root = content(&owned)?;
+    unsafe {
+        let _: () = msg_send![&*root, layoutSubtreeIfNeeded];
+        let _: () = msg_send![app, updateWindows];
+        let active: bool = msg_send![app, isActive];
+        ensure!(
+            !active,
+            "Layout capture unexpectedly activated the application"
+        );
+        let frame: NSRect = msg_send![&*owned, frame];
+        let bounds: NSRect = msg_send![&*root, bounds];
+        let visible: NSRect = msg_send![&*root, visibleRect];
+        Ok(json!({
+            "pane":pane,"size_case":size_case,"phase":phase,
+            "window_frame":layout_rect(frame),
+            "content_bounds":layout_rect(bounds),
+            "content_visible_rect":layout_rect(visible),
+            "alignment":settings.alignment_report()?
+        }))
+    }
+}
+fn layout_draft_resize(
+    settings: &mut Settings,
+    app: &AnyObject,
+    output: &Path,
+    captures: &mut Vec<Value>,
+    geometry: &mut Vec<Value>,
+    receipt: &mut Value,
+) -> Result<()> {
+    let owned = window(app, "inklow.settings")?;
+    let root = content(&owned)?;
+    let id = "inklow.personalization.globalInstructions";
+    let editor = find(&root, id)?;
+    let draft = "Layout draft — amanhã 🦀\n日本語 • مرحبًا • café";
+    let selection = NSRange::new(
+        "Layout draft — ".encode_utf16().count(),
+        "amanhã 🦀".encode_utf16().count(),
+    );
+    insert_owned(&editor, draft)?;
+    unsafe {
+        let _: () = msg_send![&*editor,setSelectedRange:selection];
+    }
+    *receipt = json!({
+        "editor_id":id,"draft":draft,
+        "selection_utf16":{"location":selection.location,"length":selection.length},
+        "mutation":"Owned NSTextView insertText:replacementRange:; no save action or configuration reconstruction",
+        "observations":[]
+    });
+    // Keep the actual NSTextView alive across every reflow. In particular, never
+    // call prepare here: rebuilding from remembered text would hide lost state.
+    for (size_case, size) in [
+        ("before", None),
+        ("minimum", Some(NSSize::new(760., 560.))),
+        ("baseline", Some(NSSize::new(900., 640.))),
+        ("expanded", Some(NSSize::new(1000., 740.))),
+    ] {
+        if let Some(size) = size {
+            unsafe {
+                let _: () = msg_send![&*owned,setContentSize:size];
+            }
+            settings.reflow();
+        }
+        geometry.push(layout_geometry(
+            settings,
+            app,
+            "personalization",
+            size_case,
+            "retained-draft",
+        )?);
+        let resized = find(&root, id)?;
+        let same_editor = Retained::as_ptr(&resized) == Retained::as_ptr(&editor);
+        unsafe {
+            let scroll: *mut AnyObject = msg_send![&*resized, enclosingScrollView];
+            ensure!(
+                !scroll.is_null(),
+                "Instruction editor has no native scroll view"
+            );
+            let scroll_bounds: NSRect = msg_send![scroll, bounds];
+            let _: bool = msg_send![scroll,scrollRectToVisible:scroll_bounds];
+            let _: () = msg_send![&*root, layoutSubtreeIfNeeded];
+            let actual_selection: NSRange = msg_send![&*resized, selectedRange];
+            let actual_text = string(&resized);
+            let bounds: NSRect = msg_send![&*resized, bounds];
+            let visible: NSRect = msg_send![&*resized, visibleRect];
+            let scroll_frame: NSRect = msg_send![scroll, frame];
+            let scroll_visible: NSRect = msg_send![scroll, visibleRect];
+            let retained_selection = actual_selection.location == selection.location
+                && actual_selection.length == selection.length;
+            let readable = visible.size.width >= 300. && visible.size.height >= 80.;
+            receipt["observations"].as_array_mut().unwrap().push(json!({
+                "size_case":size_case,"same_native_editor":same_editor,
+                "native_editor_identity":format!("{:p}",Retained::as_ptr(&resized)),
+                "readback":actual_text,
+                "selection_utf16":{"location":actual_selection.location,"length":actual_selection.length},
+                "bounds":layout_rect(bounds),"visible_rect":layout_rect(visible),
+                "scroll_frame":layout_rect(scroll_frame),"scroll_visible_rect":layout_rect(scroll_visible),
+                "passed":same_editor && actual_text == draft && retained_selection && readable
+            }));
+            ensure!(
+                same_editor && actual_text == draft && retained_selection && readable,
+                "Native instruction editor lost identity, Unicode draft, selection or readable geometry during {size_case} reflow"
+            );
+        }
+        captures.push(screenshot(
+            app,
+            "inklow.settings",
+            output,
+            &format!("personalization-draft-{size_case}"),
+            true,
+        )?);
+    }
+    Ok(())
+}
 /// Bounded rendering only: no Shell, Controller, profile, input hooks, services or activation.
 pub(super) fn capture_layout(output: &Path) -> Result<i32> {
     ensure!(
@@ -489,6 +616,8 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
     let mut settings = Settings::new(kit);
     settings.set_power_card(card);
     let mut captures = Vec::new();
+    let mut geometry = Vec::new();
+    let mut draft_retention = Value::Null;
     let result = (|| -> Result<()> {
         for (appearance, panes, width, height, suffix) in [
             (
@@ -513,14 +642,14 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
             ),
             (
                 "NSAppearanceNameDarkAqua",
-                &["general"][..],
+                &["general", "setup", "personalization"][..],
                 760.,
                 560.,
                 "minimum",
             ),
             (
                 "NSAppearanceNameAqua",
-                &["general"][..],
+                &["general", "setup", "personalization"][..],
                 1000.,
                 740.,
                 "resized",
@@ -533,20 +662,14 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
             }
             for pane in panes {
                 settings.prepare(pane, &config, &status, &json!([]), &json!({}))?;
+                geometry.push(layout_geometry(&settings, &app, pane, suffix, "prepared")?);
                 let owned = window(&app, "inklow.settings")?;
                 unsafe {
                     let _: () = msg_send![&*owned,setContentSize:NSSize::new(width,height)];
                     let _: () = msg_send![&*owned,orderBack:std::ptr::null::<AnyObject>()];
                 }
                 settings.reflow();
-                unsafe {
-                    let _: () = msg_send![&*app, updateWindows];
-                    let active: bool = msg_send![&*app, isActive];
-                    ensure!(
-                        !active,
-                        "Layout capture unexpectedly activated the application"
-                    );
-                }
+                geometry.push(layout_geometry(&settings, &app, pane, suffix, "resized")?);
                 captures.push(screenshot(
                     &app,
                     "inklow.settings",
@@ -584,6 +707,13 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
                             "The last General control is not fully reachable by scrolling"
                         );
                     }
+                    geometry.push(layout_geometry(
+                        &settings,
+                        &app,
+                        pane,
+                        suffix,
+                        "scrolled-bottom",
+                    )?);
                     captures.push(screenshot(
                         &app,
                         "inklow.settings",
@@ -592,6 +722,16 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
                         true,
                     )?);
                 }
+                if *pane == "personalization" && suffix == "resized" {
+                    layout_draft_resize(
+                        &mut settings,
+                        &app,
+                        output,
+                        &mut captures,
+                        &mut geometry,
+                        &mut draft_retention,
+                    )?;
+                }
             }
         }
         Ok(())
@@ -599,11 +739,12 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
     settings.close();
     power.close()?;
     let receipt = json!({
-        "schema":"brotypist-macos-layout-capture/1", "passed":result.is_ok(),
+        "schema":"brotypist-macos-layout-capture/2", "passed":result.is_ok(),
         "scope":"Canonical owned native Settings controls and theme frame; synthetic preferences/status, no runtime services. Native menu inspected without opening it.",
         "safety":{"controller_started":false,"profile_loaded":false,"input_hooks_started":false,"foreground_activation_allowed":false,"external_screen_capture":false},
-        "limits":"Native NSView rasterization does not prove WindowServer vibrancy/compositing or external-host typing. Visual review of images is required.",
-        "menu":menu_items,"screenshots":captures,
+        "limits":"Native geometry assertions and NSView rasterization do not prove WindowServer vibrancy/compositing or external-host typing. Visual review of images is required.",
+        "menu":menu_items,"screenshots":captures,"geometry":geometry,
+        "draft_retention":draft_retention,
         "error":result.as_ref().err().map(|error|format!("{error:#}"))
     });
     write_new(

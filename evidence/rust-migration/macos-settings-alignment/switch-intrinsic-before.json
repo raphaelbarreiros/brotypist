@@ -1,0 +1,51 @@
+{
+  "draft_retention": null,
+  "error": "Switch allocation is smaller than AppKit's intrinsic content",
+  "geometry": [],
+  "limits": "Native geometry assertions and NSView rasterization do not prove WindowServer vibrancy/compositing or external-host typing. Visual review of images is required.",
+  "menu": [
+    {
+      "id": "inklow.menu.toggle",
+      "title": "Enable predictions"
+    },
+    {
+      "id": "inklow.menu.pause",
+      "title": "Pause"
+    },
+    {
+      "id": "inklow.menu.currentApp",
+      "title": "Predictions in Current App"
+    },
+    {
+      "id": "",
+      "title": ""
+    },
+    {
+      "id": "inklow.menu.settings",
+      "title": "Settings…"
+    },
+    {
+      "id": "inklow.menu.checkUpdates",
+      "title": "Check for Updates…"
+    },
+    {
+      "id": "",
+      "title": ""
+    },
+    {
+      "id": "inklow.menu.quit",
+      "title": "Quit BroTypist"
+    }
+  ],
+  "passed": false,
+  "safety": {
+    "controller_started": false,
+    "external_screen_capture": false,
+    "foreground_activation_allowed": false,
+    "input_hooks_started": false,
+    "profile_loaded": false
+  },
+  "schema": "brotypist-macos-layout-capture/2",
+  "scope": "Canonical owned native Settings controls and theme frame; synthetic preferences/status, no runtime services. Native menu inspected without opening it.",
+  "screenshots": []
+}

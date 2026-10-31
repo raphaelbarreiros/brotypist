@@ -28,6 +28,39 @@ const PANES: &[(&str, &str)] = &[
     ("about", "About"),
     ("support", "Support"),
 ];
+fn layout_status_action(container: &Obj, status: &Obj, button: &Obj) {
+    let bounds: NSRect = unsafe { msg_send![&**container, bounds] };
+    let button_width = 172.;
+    let gap = 8.;
+    frame(
+        status,
+        &rect(
+            0.,
+            (bounds.size.height - 20.) / 2.,
+            bounds.size.width - button_width - gap,
+            20.,
+        ),
+    );
+    frame(
+        button,
+        &rect(
+            bounds.size.width - button_width,
+            0.,
+            button_width,
+            bounds.size.height,
+        ),
+    );
+    unsafe {
+        // Flexible status width and leading button margin keep the action trailing.
+        // Flexible vertical margins keep both children centered in the row header.
+        let _: () = msg_send![&**status,setAutoresizingMask:42usize];
+        let _: () = msg_send![&**status,setMaximumNumberOfLines:1isize];
+        let _: () = msg_send![&**status,setLineBreakMode:4usize];
+        let _: () = msg_send![&**button,setAutoresizingMask:41usize];
+    }
+    add(container, status);
+    add(container, button);
+}
 struct Control {
     view: Obj,
     field: String,
@@ -208,7 +241,17 @@ impl Settings {
         }
         add(&sidebar, &status);
         self.sidebar_status = Some(status);
-        let title = self.kit.label("", rect(234., 26., 630., 24.), 15., true);
+        let title = self.kit.label(
+            "",
+            rect(
+                210. + panes::CONTENT_INSET,
+                26.,
+                690. - 2. * panes::CONTENT_INSET,
+                24.,
+            ),
+            15.,
+            true,
+        );
         identify(&title, "inklow.settings.paneTitle", "Settings pane");
         let scroll = obj("NSScrollView");
         frame(&scroll, &rect(210., 52., 690., 588.));
@@ -335,6 +378,13 @@ impl Settings {
     pub(super) fn pane(&self) -> &str {
         &self.current_pane
     }
+    #[cfg(feature = "native-smoke")]
+    pub(super) fn alignment_report(&self) -> anyhow::Result<serde_json::Value> {
+        self.form
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Settings form has not been built"))?
+            .alignment_report()
+    }
     pub(super) fn close(&mut self) {
         self.remember_drafts();
         if let Some(window) = &self.window {
@@ -370,9 +420,13 @@ impl Settings {
                 let _: () = msg_send![&*old, removeFromSuperview];
             }
         }
+        unsafe {
+            let _: () = msg_send![&*card,setAutoresizingMask:18usize];
+        }
         if let Some(slot) = self.live.get("powerCard") {
             add(slot, &card);
-            frame(&card, &rect(0., 0., self.content_width() - 48., 84.));
+            let bounds: NSRect = unsafe { msg_send![&**slot, bounds] };
+            frame(&card, &bounds);
         }
     }
     pub(super) fn apply_ui_action(&mut self, action: &UiAction) -> bool {
@@ -438,7 +492,12 @@ impl Settings {
         }
         frame(
             self.title.as_ref().unwrap(),
-            &rect(234., 26., content - 60., 24.),
+            &rect(
+                210. + panes::CONTENT_INSET,
+                26.,
+                content - 2. * panes::CONTENT_INSET,
+                24.,
+            ),
         );
         frame(
             self.scroll.as_ref().unwrap(),
@@ -464,8 +523,9 @@ impl Settings {
         if let Some(chart) = &self.chart {
             chart.reflow();
         }
-        if let Some(card) = &self.power_card {
-            frame(card, &rect(0., 0., self.content_width() - 48., 84.));
+        if let (Some(card), Some(slot)) = (&self.power_card, self.live.get("powerCard")) {
+            let bounds: NSRect = unsafe { msg_send![&**slot, bounds] };
+            frame(card, &bounds);
         }
     }
     fn section(&mut self, title: &str) {
@@ -502,7 +562,8 @@ impl Settings {
     fn toggle(&mut self, _config: &Config, field: &str, title: &str, detail: &str) {
         let id = format!("inklow.{}.{}", self.current_pane, field);
         let view = obj("NSSwitch");
-        frame(&view, &rect(0., 0., 42., 25.));
+        let size: NSSize = unsafe { msg_send![&*view, intrinsicContentSize] };
+        frame(&view, &rect(0., 0., size.width, size.height));
         unsafe {
             let _: () = msg_send![&*view,setState:isize::from(self.config_values[field].as_bool().unwrap_or(false))];
         }
@@ -747,9 +808,7 @@ impl Settings {
         self.live
             .insert(format!("setup.{key}.status"), status.clone());
         let button = self.button("Open Settings…", &format!("inklow.setup.{key}"), action);
-        frame(&button, &rect(158., 0., 172., 28.));
-        add(&container, &status);
-        add(&container, &button);
+        layout_status_action(&container, &status, &button);
         self.row(title, detail, Some(container));
     }
     fn general(&mut self, c: &Config, status: &Value) {
@@ -984,9 +1043,7 @@ impl Settings {
             "inklow.context.screenRecording",
             screen_action(status),
         );
-        frame(&button, &rect(158., 0., 172., 28.));
-        add(&container, &status_label);
-        add(&container, &button);
+        layout_status_action(&container, &status_label, &button);
         self.row("Screen & System Audio Recording","macOS permission required for screenshot options. macOS may show its recording indicator; granting access usually requires relaunch.",Some(container));
         self.note("Secure fields, excluded apps and blocked websites are skipped before reading any context. Context is never saved to history or sent to a remote service.");
         self.live_label(
@@ -1027,15 +1084,16 @@ impl Settings {
             kind: 3,
         });
         let container = self.kit.view(rect(0., 0., 280., 28.));
-        add(
-            &container,
-            &self.kit.label("Off", rect(0., 5., 30., 18.), 12., false),
-        );
+        let off = self.kit.label("Off", rect(0., 5., 30., 18.), 12., false);
+        let max = self.kit.label("Max", rect(248., 5., 32., 18.), 12., false);
+        unsafe {
+            let _: () = msg_send![&*off,setAutoresizingMask:40usize];
+            let _: () = msg_send![&*slider,setAutoresizingMask:42usize];
+            let _: () = msg_send![&*max,setAutoresizingMask:41usize];
+        }
+        add(&container, &off);
         add(&container, &slider);
-        add(
-            &container,
-            &self.kit.label("Max", rect(248., 5., 32., 18.), 12., false),
-        );
+        add(&container, &max);
         self.row("Personalize style and word choice","Bounded evidence from observed edits guides local suggestions. Off ignores learned evidence; explicit instructions and the draft’s language win.",Some(container));
         self.note("Learning never retrains model weights. It matches the app or exact website and confidently detected English, Portuguese, Spanish, French or German. Ambiguous language means no learned context.");
         self.note("Only new observed edits establish authorship, not existing drafts, bulk pastes, older history or BroTypist-generated text. Deletion forgets derived style and cancels suggestions using it.");
@@ -1225,6 +1283,8 @@ impl Settings {
         identify(&slot, "inklow.battery.powerCard", "Current power state");
         if let Some(card) = &self.power_card {
             add(&slot, card);
+            let bounds: NSRect = unsafe { msg_send![&*slot, bounds] };
+            frame(card, &bounds);
         }
         self.live.insert("powerCard".into(), slot.clone());
         self.custom(slot, 84.);
