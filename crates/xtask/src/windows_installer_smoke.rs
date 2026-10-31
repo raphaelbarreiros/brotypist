@@ -167,6 +167,21 @@ fn execute(bundle: &Path, assets: &Path, output: &Path, receipt: &mut Value) -> 
         receipt["required_gates"] = gates.clone();
     }
     receipt["observations"] = observed.clone();
+    receipt["portable_runtime_passed"] = json!(observed["portable_runtime_passed"] == true);
+    // Retain the canonical worker proof outside private staging even when the
+    // independent MSI registration gate fails afterwards.
+    for name in ["portable-tiny-worker", "tiny-worker"] {
+        let worker_report = work.join(name).join("worker-smoke.json");
+        if worker_report.try_exists()? {
+            regular(&worker_report)?;
+            ensure!(
+                fs::metadata(&worker_report)?.len() <= 256 * 1024,
+                "worker evidence exceeds limit"
+            );
+            let worker_observed: Value = serde_json::from_slice(&fs::read(&worker_report)?)?;
+            json_new(&output.join(format!("{name}.json")), &worker_observed)?;
+        }
+    }
     ensure!(
         status.success() && observed["passed"] == true,
         "native installer assertions failed"

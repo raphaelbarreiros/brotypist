@@ -7,6 +7,7 @@ $receipt = [ordered]@{
     schema = 1; tool = 'windows-core-installer-smoke'; passed = $false
     signing = 'unsigned'; publication = 'held; no Windows OTA/publication proof'
     full_installer_matrix_passed = $false; physical_typing_verified = $false
+    portable_runtime_passed = $false
     observations = [System.Collections.Generic.List[object]]::new()
     diagnostics = [System.Collections.Generic.List[string]]::new()
     required_gates = [ordered]@{
@@ -326,12 +327,31 @@ function Capture-Children([Diagnostics.Process]$Root, $Children) {
         }
     }
 }
-function Probe-Gui {
-    $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $installDirectory 'BroTypist.exe'))
+function Probe-TinyWorker([string]$Directory, [string]$Stage, [string]$OutputName, [string]$Worker, [string]$Model) {
+    if ([string]::IsNullOrWhiteSpace($Worker)) {
+        $receipt.observations.Add(@{ check = $Stage; status = 'not_exercised'; reason = 'explicit canonical worker executable and cached model QA environment variables not provided'; passed = $null })
+        return
+    }
+    # The canonical smoke verifies pinned Tiny bytes, owns its child profile,
+    # and exercises real inference and worker shutdown for this exact CLI.
+    $workerHome = Join-Path $root ($OutputName + '-root'); New-PrivateDirectory $workerHome
+    $workerOutput = Join-Path $Work $OutputName
+    [Environment]::SetEnvironmentVariable('INKLOW_HOME', $workerHome, 'Process')
+    try {
+        [void](Invoke-NativeCli $Worker @('--app', (Join-Path $Directory 'BroTypist-cli.exe'), '--output', $workerOutput, '--preset', 'tiny', '--model-path', $Model, '--timeout-seconds', '180') $OutputName 1200)
+        $workerReceipt = Get-Content -LiteralPath (Join-Path $workerOutput 'worker-smoke.json') -Raw | ConvertFrom-Json
+        Equal $workerReceipt.passed $true 'Canonical Tiny worker smoke failed'
+        Observe $Stage @{ passed = $true; preset = 'tiny'; canonical_worker_receipt = ($OutputName + '/worker-smoke.json'); model_verified_by_canonical_smoke = $true }
+    } finally { [Environment]::SetEnvironmentVariable('INKLOW_HOME', $profile, 'Process') }
+    Assert-Sentinels
+    Assert-Run
+}
+function Probe-Gui([string]$Directory, [string]$Stage) {
+    $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $Directory 'BroTypist.exe'))
     $start.UseShellExecute = $false; $start.WorkingDirectory = $profile
     foreach ($arg in @('--paused', '--settings', '--no-tray', '--pane', 'about')) { $start.ArgumentList.Add($arg) }
     $gui = [Diagnostics.Process]::new(); $gui.StartInfo = $start
-    Require ($gui.Start()) 'Could not start owned installed GUI'
+    Require ($gui.Start()) 'Could not start owned GUI'
     $owned.Add($gui)
     [void]$gui.Handle
     $children = [System.Collections.Generic.Dictionary[int,System.Diagnostics.Process]]::new()
@@ -361,7 +381,7 @@ function Probe-Gui {
     # those present when Settings first appeared.
     Capture-Children $gui $children
     foreach ($child in $children.Values) { Require ($child.HasExited) 'New GUI-owned child remained after Quit' }
-    Observe 'installed_native_settings_quit' @{ process_id = $gui.Id; window_class = 'BroTypist.Settings'; visible = $true; control_id = 13; action = 'BM_CLICK on visible owned native Quit BUTTON'; exit_code = $gui.ExitCode; child_process_ids = @($children.Keys); owned_children_exited = $true; worker_observation = if ($children.Count -eq 0) { 'paused GUI created no observable worker process; GUI controller exited cleanly' } else { 'observed GUI children exited after canonical Quit' } }
+    Observe $Stage @{ process_id = $gui.Id; window_class = 'BroTypist.Settings'; visible = $true; control_id = 13; action = 'BM_CLICK on visible owned native Quit BUTTON'; exit_code = $gui.ExitCode; child_process_ids = @($children.Keys); owned_children_exited = $true; worker_observation = if ($children.Count -eq 0) { 'paused GUI created no observable worker process; GUI controller exited cleanly' } else { 'observed GUI children exited after canonical Quit' } }
     Assert-Sentinels
     Assert-Run
 }
@@ -477,6 +497,12 @@ public static class BroTypistInstallerNative {
     Assert-Payload $relocated $package
     Probe-Cli $relocated $package 'relocated_portable_cli_doctor'
     Observe 'portable_zip_exact_relocation' @{ exact_manifest = $true; source_location_absent = $true; original_build_dll_path_removed = $true }
+    # Exercise the exact relocated canonical ZIP before MSI registration can
+    # fail. These observations never stand in for an installed-runtime gate.
+    Probe-TinyWorker $relocated 'portable_tiny_worker' 'portable-tiny-worker' $input.worker $input.model
+    Probe-Gui $relocated 'portable_native_settings_quit'
+    Assert-Payload $relocated $package
+    $receipt.portable_runtime_passed = @($receipt.observations | Where-Object { $_.check -eq 'portable_tiny_worker' -and $_.passed -eq $true }).Count -eq 1
     $installAttempted = $true
     [void](Msi-Transaction 'fresh_install' @('/i', ('"' + $package.artifacts.msi.path + '"')))
     Assert-Installed $package
@@ -504,20 +530,8 @@ public static class BroTypistInstallerNative {
     Assert-Installed $package
     Observe 'repair_restored_deleted_cli' @{ exact_payload_restored = $true; sentinels_unchanged = $true }
     Probe-Cli $installDirectory $package 'installed_cli_doctor'
-    if ($null -ne $input.worker) {
-        # worker_smoke verifies the pinned tiny catalogue bytes itself, creates
-        # its own child profile, and exercises real canonical worker shutdown.
-        $workerHome = Join-Path $root 'worker-root'; New-PrivateDirectory $workerHome
-        $workerOutput = Join-Path $Work 'tiny-worker'
-        [Environment]::SetEnvironmentVariable('INKLOW_HOME', $workerHome, 'Process')
-        try {
-            [void](Invoke-NativeCli $input.worker @('--app', (Join-Path $installDirectory 'BroTypist-cli.exe'), '--output', $workerOutput, '--preset', 'tiny', '--model-path', $input.model, '--timeout-seconds', '180') 'installed-tiny-worker' 1200)
-            $workerReceipt = Get-Content -LiteralPath (Join-Path $workerOutput 'worker-smoke.json') -Raw | ConvertFrom-Json
-            Equal $workerReceipt.passed $true 'Canonical installed Tiny worker smoke failed'
-            Observe 'installed_tiny_worker' @{ passed = $true; preset = 'tiny'; canonical_worker_receipt = 'tiny-worker/worker-smoke.json'; model_verified_by_canonical_smoke = $true }
-        } finally { [Environment]::SetEnvironmentVariable('INKLOW_HOME', $profile, 'Process') }
-    } else { $receipt.observations.Add(@{ check = 'installed_tiny_worker'; status = 'not_exercised'; reason = 'explicit canonical worker executable and cached model QA environment variables not provided'; passed = $null }) }
-    Probe-Gui
+    Probe-TinyWorker $installDirectory 'installed_tiny_worker' 'tiny-worker' $input.worker $input.model
+    Probe-Gui $installDirectory 'installed_native_settings_quit'
 } catch {
     $receipt.diagnostics.Add((Redact $_.Exception.Message))
 } finally {
