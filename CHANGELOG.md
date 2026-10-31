@@ -33,6 +33,7 @@
 - Replace the separate inline accessory template artwork with the supplied face and anchor it to the actual caret before field bounds, with a tighter two-point above-left gap and unchanged screen-edge refusal.
 - Accept the typed zero-length macOS marked-text sentinel without admitting negative selection/mutation offsets; expose content-free GUI-owned capture-stage diagnostics for prediction failure diagnosis.
 - Render the GUI Setup native-status object's message instead of treating the object as a string; verify the real owned label text and ink at each layout size.
+- Prepare permitted application compatibility accessibility before requiring its focused window, fixing a discovery-order dependency while retaining foreground/security/policy checks and strict window/field ownership validation.
 - Add a nonactivating, service-free native Settings layout capture mode for visual inspection; keep the full macOS desktop smoke CI-only.
 - Add a build-free authenticated Windows installer artifact-reuse diagnostic lane, keeping original package source separate from probe checkout and preserving full canonical gates. Retain compact native-context/registry-presence evidence; do not relax the blocked per-user ARP ownership gate.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.

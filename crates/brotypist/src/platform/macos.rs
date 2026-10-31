@@ -644,6 +644,17 @@ impl MacBridge {
             self.capture_diagnostic = "foreground_ax_unavailable";
             return Ok(None);
         };
+        // Some native applications expose their window tree only after the
+        // existing compatibility preparation. Do this after foreground/security
+        // authorization, before requiring that tree; ownership checks stay below.
+        if self.policy.allowed(
+            &app_id,
+            "",
+            &[&executable, &name],
+            exact_member(&app_id, CHAT_EDITORS),
+        ) {
+            self.prepare_accessibility(&front, &app);
+        }
         let window = app.element("AXFocusedWindow");
         let Some(window_ref) = window.as_ref() else {
             self.capture_diagnostic = "focused_window_unavailable";
@@ -741,8 +752,7 @@ impl MacBridge {
             editor_probe,
         )
     }
-    fn prepare_accessibility(&mut self, session: &MacSession) {
-        let front = &session.foreground;
+    fn prepare_accessibility(&mut self, front: &Foreground, app: &AxElement) {
         let enabled = self
             .policy
             .rule_bool(&front.app_id, "", "improve_compatibility", true);
@@ -761,7 +771,6 @@ impl MacBridge {
         if !enabled {
             return;
         }
-        let app = &session.app;
         if app.settable("AXManualAccessibility") && app.bool("AXManualAccessibility") == Some(false)
         {
             let _ = app.set_bool("AXManualAccessibility", true);
@@ -789,7 +798,7 @@ impl MacBridge {
             self.capture_diagnostic = "field_policy_denied";
             return Ok(None);
         }
-        self.prepare_accessibility(&session);
+        self.prepare_accessibility(&session.foreground, &session.app);
         let Some(field) = session.app.element("AXFocusedUIElement") else {
             self.capture_diagnostic = "focused_field_unavailable";
             return Ok(None);
