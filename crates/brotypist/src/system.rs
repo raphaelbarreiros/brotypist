@@ -107,6 +107,15 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     temporary.persist(path).map_err(|error| error.error)?;
     Ok(())
 }
+/// The GUI owner supplies only its fixed, content-free WhatsApp diagnostic type.
+pub(crate) fn export_whatsapp_runtime_diagnostic(value: &impl Serialize) -> Result<()> {
+    let path = crate::paths::config_dir()?
+        .join("diagnostics")
+        .join("runtime-whatsapp.json");
+    let mut bytes = serde_json::to_vec_pretty(value)?;
+    bytes.push(b'\n');
+    atomic_write(&path, &bytes)
+}
 fn owned_desktop(content: &str) -> bool {
     let mut in_desktop = false;
     content.lines().any(|line| {
