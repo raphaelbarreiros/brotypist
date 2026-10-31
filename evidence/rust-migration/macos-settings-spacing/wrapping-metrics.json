@@ -1,0 +1,28 @@
+{
+  "schema": "brotypist-macos-wrapping-metrics/1",
+  "measurement": "Standalone AppKit wrapping NSTextField at 11.5pt and 360pt width, without a window or profile",
+  "text": "When Accessibility text is unavailable, recognize text around the field in memory on this Mac. Images are never saved or uploaded.",
+  "native_observation": {
+    "cell": {
+      "width": 356.82763671875,
+      "height": 42
+    },
+    "intrinsic": {
+      "width": 358,
+      "height": 28
+    },
+    "attributed": {
+      "origin": {
+        "x": 0,
+        "y": 0
+      },
+      "size": {
+        "width": 357.56689453125,
+        "height": 26
+      }
+    },
+    "maximumLines": 0
+  },
+  "decision": "Use the actual text cell minimum display size for retained native row labels; attributed-string/intrinsic measurements undercount rendered word-wrapped lines.",
+  "source": "https://developer.apple.com/documentation/appkit/nscell/cellsize(forbounds:)"
+}

@@ -619,6 +619,9 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
     let mut geometry = Vec::new();
     let mut draft_retention = Value::Null;
     let result = (|| -> Result<()> {
+        // Keep all twelve baseline panes, then exercise the same representative
+        // forms at both size extremes. Geometry comes from alignment_report's
+        // current text/control contract rather than copied alignment thresholds.
         for (appearance, panes, width, height, suffix) in [
             (
                 "NSAppearanceNameDarkAqua",
@@ -642,14 +645,14 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
             ),
             (
                 "NSAppearanceNameDarkAqua",
-                &["general", "setup", "personalization"][..],
+                &["general", "setup", "models", "context", "personalization"][..],
                 760.,
                 560.,
                 "minimum",
             ),
             (
                 "NSAppearanceNameAqua",
-                &["general", "setup", "personalization"][..],
+                &["general", "setup", "models", "context", "personalization"][..],
                 1000.,
                 740.,
                 "resized",
@@ -677,21 +680,28 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
                     &format!("{pane}-{suffix}"),
                     true,
                 )?);
-                if *pane == "general" {
+                if matches!(
+                    *pane,
+                    "general" | "setup" | "models" | "context" | "personalization"
+                ) {
+                    // Verify the document's final content as well as its final
+                    // identified control, including trailing explanatory text.
                     let root = content(&owned)?;
+                    let prefix = format!("inklow.{pane}.");
                     let last = descendants(&root)?
                         .into_iter()
-                        .filter(|view| native_id(view).starts_with("inklow.general."))
+                        .filter(|view| native_id(view).starts_with(&prefix))
                         .last()
-                        .context("General has no native setting controls")?;
+                        .with_context(|| format!("{pane} has no native setting controls"))?;
                     unsafe {
                         let bounds: NSRect = msg_send![&*last, bounds];
                         let scroll: *mut AnyObject = msg_send![&*last, enclosingScrollView];
                         ensure!(
                             !scroll.is_null(),
-                            "General is not inside its native scroll view"
+                            "{pane} is not inside its native scroll view"
                         );
                         let document: *mut AnyObject = msg_send![scroll, documentView];
+                        ensure!(!document.is_null(), "{pane} has no scroll document");
                         let document_bounds: NSRect = msg_send![document, bounds];
                         let bottom = rect(
                             0.,
@@ -700,11 +710,17 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
                             1.,
                         );
                         let _: bool = msg_send![document,scrollRectToVisible:bottom];
+                        let document_visible: NSRect = msg_send![document, visibleRect];
+                        ensure!(
+                            document_visible.origin.y + document_visible.size.height
+                                >= document_bounds.origin.y + document_bounds.size.height - 1.,
+                            "The final {pane} content is not reachable by scrolling"
+                        );
                         let visible: NSRect = msg_send![&*last, visibleRect];
                         ensure!(
                             visible.size.width >= bounds.size.width - 1.
                                 && visible.size.height >= bounds.size.height - 1.,
-                            "The last General control is not fully reachable by scrolling"
+                            "The last {pane} control is not fully reachable by scrolling"
                         );
                     }
                     geometry.push(layout_geometry(

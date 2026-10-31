@@ -8,8 +8,16 @@ use std::rc::Rc;
 pub(super) const CONTENT_INSET: f64 = 38.;
 const GROUP_MARGIN: f64 = 24.;
 const ROW_INSET: f64 = CONTENT_INSET - GROUP_MARGIN;
-const CONTROL_GAP: f64 = 16.;
-const ROW_PADDING: f64 = 12.;
+const CONTROL_COLUMN: f64 = 220.;
+const CONTROL_GAP: f64 = 32.;
+const TEXT_MAX_WIDTH: f64 = 420.;
+const TEXT_MIN_WIDTH: f64 = 240.;
+const ROW_PADDING: f64 = 16.;
+const ROW_MIN_HEIGHT: f64 = 60.;
+const TITLE_DETAIL_GAP: f64 = 8.;
+const STACKED_CONTROL_GAP: f64 = 12.;
+const HEADING_GROUP_GAP: f64 = 12.;
+const SECTION_GAP: f64 = 32.;
 
 struct Row {
     title: Obj,
@@ -120,12 +128,12 @@ impl Form {
                     if bounds.size.width > 0. && bounds.size.width < 400. {
                         bounds.size.width
                     } else {
-                        220.
+                        CONTROL_COLUMN
                     },
                     bounds.size.height.max(1.),
                 )
             })
-            .unwrap_or(NSSize::new(220., 28.));
+            .unwrap_or(NSSize::new(CONTROL_COLUMN, 28.));
         let divider = if group.rows.is_empty() {
             None
         } else {
@@ -155,19 +163,34 @@ impl Form {
                     if let Some(heading) = &group.heading {
                         let height = text_height(heading, text_width);
                         frame(heading, &rect(CONTENT_INSET, y, text_width, height));
-                        y += height + 7.;
+                        y += height + HEADING_GROUP_GAP;
                     }
+                    // Reserve one column per group, including rows without a control.
+                    let control_column = group
+                        .rows
+                        .iter()
+                        .filter(|row| row.control.is_some())
+                        .map(|row| row.control_size.width)
+                        .fold(CONTROL_COLUMN, f64::max);
+                    let stacked = text_width - control_column - CONTROL_GAP < TEXT_MIN_WIDTH;
+                    let column_width = if stacked {
+                        text_width
+                    } else {
+                        text_width - control_column - CONTROL_GAP
+                    }
+                    .min(TEXT_MAX_WIDTH);
                     let mut row_y = 0.;
                     for row in &group.rows {
                         let control_width = row.control_size.width.min(text_width);
-                        let stacked = row.control.is_some()
-                            && text_width - control_width - CONTROL_GAP < 180.;
-                        let title_width = if stacked || row.control.is_none() {
-                            text_width
-                        } else {
-                            text_width - control_width - CONTROL_GAP
-                        };
-                        let title_height = text_height(&row.title, title_width);
+                        let title_height = text_height(&row.title, column_width);
+                        let detail_height = row
+                            .detail
+                            .as_ref()
+                            .map(|detail| text_height(detail, column_width));
+                        let text_block_height = title_height
+                            + detail_height
+                                .map(|height| TITLE_DETAIL_GAP + height)
+                                .unwrap_or(0.);
                         let control_height = row.control.as_ref().map(|control| unsafe {
                             let label: bool = msg_send![&**control,isKindOfClass:AnyClass::get(c"NSTextField").unwrap()];
                             let editable: bool = if label {
@@ -186,27 +209,39 @@ impl Form {
                                 }
                             }
                         });
-                        let header_height = if stacked {
-                            title_height
+                        let content_height = if stacked && row.control.is_some() {
+                            text_block_height + STACKED_CONTROL_GAP + control_height.unwrap()
                         } else {
-                            title_height.max(control_height.unwrap_or(0.))
+                            text_block_height.max(control_height.unwrap_or(0.))
+                        };
+                        let row_height = (content_height + 2. * ROW_PADDING).max(ROW_MIN_HEIGHT);
+                        let content_top = row_y + (row_height - content_height) / 2.;
+                        let text_top = if stacked {
+                            content_top
+                        } else {
+                            content_top + (content_height - text_block_height) / 2.
                         };
                         frame(
                             &row.title,
-                            &rect(
-                                ROW_INSET,
-                                row_y + ROW_PADDING + (header_height - title_height) / 2.,
-                                title_width,
-                                title_height,
-                            ),
+                            &rect(ROW_INSET, text_top, column_width, title_height),
                         );
-                        let mut bottom = row_y + ROW_PADDING + header_height;
+                        if let Some(detail) = &row.detail {
+                            frame(
+                                detail,
+                                &rect(
+                                    ROW_INSET,
+                                    text_top + title_height + TITLE_DETAIL_GAP,
+                                    column_width,
+                                    detail_height.unwrap(),
+                                ),
+                            );
+                        }
                         if let Some(control) = &row.control {
                             let height = control_height.unwrap();
                             let top = if stacked {
-                                bottom + 8.
+                                text_top + text_block_height + STACKED_CONTROL_GAP
                             } else {
-                                row_y + ROW_PADDING + (header_height - height) / 2.
+                                content_top + (content_height - height) / 2.
                             };
                             // Align native content, not frames that include shadow/bezel outsets.
                             let alignment = rect(
@@ -218,28 +253,22 @@ impl Form {
                             let bounds: NSRect =
                                 unsafe { msg_send![&**control,frameForAlignmentRect:alignment] };
                             frame(control, &bounds);
-                            bottom = bottom.max(top + height);
-                        }
-                        if let Some(detail) = &row.detail {
-                            let height = text_height(detail, text_width);
-                            frame(detail, &rect(ROW_INSET, bottom + 6., text_width, height));
-                            bottom += height + 6.;
                         }
                         if let Some(divider) = &row.divider {
                             frame(divider, &rect(ROW_INSET, row_y, text_width, 1.));
                         }
-                        row_y += (bottom - row_y + ROW_PADDING).max(46.);
+                        row_y += row_height;
                     }
                     frame(&group.box_view, &rect(GROUP_MARGIN, y, inner, row_y));
                     frame(&group.content, &rect(0., 0., inner, row_y));
                     if row_y > 0. {
-                        y += row_y + 22.;
+                        y += row_y + SECTION_GAP;
                     }
                 }
                 Block::Note(view) => {
                     let height = text_height(view, text_width);
                     frame(view, &rect(CONTENT_INSET, y, text_width, height));
-                    y += height + 12.;
+                    y += height + SECTION_GAP;
                 }
                 Block::Actions { view, actions } => {
                     let mut x = 0.;
@@ -268,7 +297,7 @@ impl Form {
                     }
                     let height = row_y + 28.;
                     frame(view, &rect(CONTENT_INSET, y, text_width, height));
-                    y += height + 16.;
+                    y += height + SECTION_GAP;
                 }
                 Block::Custom { view, height } => {
                     let hidden: bool = unsafe { msg_send![&**view, isHidden] };
@@ -285,7 +314,7 @@ impl Form {
                     };
                     frame(view, &rect(CONTENT_INSET, y, text_width, height));
                     fit_scroll_document(view);
-                    y += height + 16.;
+                    y += height + SECTION_GAP;
                 }
             }
         }
@@ -320,18 +349,65 @@ impl Form {
             ]
         };
         let mut rows = Vec::new();
+        let mut sections = Vec::new();
+        let mut block_gaps = Vec::new();
+        let mut previous_bottom: Option<f64> = None;
+        let mut next_block_gap = SECTION_GAP;
         for block in &self.blocks {
             if let Block::Group(group) = block {
-                if let Some(heading) = &group.heading {
+                let group_bounds = native_rect(&group.content, false)?;
+                let heading = group
+                    .heading
+                    .as_ref()
+                    .map(|view| native_rect(view, false))
+                    .transpose()?;
+                let heading_gap = heading
+                    .map(|bounds| group_bounds.origin.y - bounds.origin.y - bounds.size.height);
+                if let Some(bounds) = heading {
                     ensure!(
-                        (native_rect(heading, false)?.origin.x - leading).abs() <= 0.5,
+                        (bounds.origin.x - leading).abs() <= 0.5,
                         "Section heading escaped the text column"
                     );
+                    ensure!(
+                        (heading_gap.unwrap() - HEADING_GROUP_GAP).abs() <= 0.5,
+                        "Section heading is too close to its group"
+                    );
                 }
-                for row in &group.rows {
+                let section_top = heading.map_or(group_bounds.origin.y, |bounds| bounds.origin.y);
+                let section_gap = previous_bottom.map(|bottom| section_top - bottom);
+                if let Some(gap) = section_gap {
+                    ensure!(
+                        (gap - next_block_gap).abs() <= 0.5,
+                        "Section spacing does not match the shared rhythm"
+                    );
+                    block_gaps.push(gap);
+                }
+                let available_width = (trailing - leading).max(1.);
+                let control_column = group
+                    .rows
+                    .iter()
+                    .filter(|row| row.control.is_some())
+                    .map(|row| row.control_size.width)
+                    .fold(CONTROL_COLUMN, f64::max);
+                let stacked = available_width - control_column - CONTROL_GAP < TEXT_MIN_WIDTH;
+                let column_width = if stacked {
+                    available_width
+                } else {
+                    available_width - control_column - CONTROL_GAP
+                }
+                .min(TEXT_MAX_WIDTH);
+                sections.push(json!({
+                    "heading":group.heading.as_ref().map(|view| string(view)),
+                    "group_rect":packed(group_bounds),"heading_group_gap":heading_gap,
+                    "previous_block_gap":section_gap,"reserved_control_column":control_column,
+                    "text_column_width":column_width,"stacked":stacked
+                }));
+                let mut previous_content_bottom: Option<f64> = None;
+                for (index, row) in group.rows.iter().enumerate() {
                     let title = native_rect(&row.title, false)?;
                     ensure!(
-                        (title.origin.x - leading).abs() <= 0.5,
+                        (title.origin.x - leading).abs() <= 0.5
+                            && (title.size.width - column_width).abs() <= 0.5,
                         "Row title escaped the text column: {}",
                         string(&row.title)
                     );
@@ -349,8 +425,42 @@ impl Form {
                         .as_ref()
                         .map(|view| native_rect(view, false))
                         .transpose()?;
-                    let mut text_bottom = title.origin.y + title.size.height;
+                    for label in std::iter::once(&row.title).chain(row.detail.iter()) {
+                        let bounds = native_rect(label, false)?;
+                        let required: NSSize = unsafe {
+                            let cell: *mut AnyObject = msg_send![&**label, cell];
+                            msg_send![cell,cellSizeForBounds:rect(0.,0.,bounds.size.width,10000.)]
+                        };
+                        ensure!(
+                            bounds.size.height + 0.5 >= required.height,
+                            "Wrapped setting text is clipped: {}",
+                            string(label)
+                        );
+                    }
+                    let title_bottom = title.origin.y + title.size.height;
+                    let title_detail_gap = detail.map(|bounds| bounds.origin.y - title_bottom);
+                    if let Some(bounds) = detail {
+                        ensure!(
+                            (bounds.origin.x - title.origin.x).abs() <= 0.5
+                                && (bounds.size.width - title.size.width).abs() <= 0.5
+                                && (title_detail_gap.unwrap() - TITLE_DETAIL_GAP).abs() <= 0.5,
+                            "Description must share its title's bounded width and sit directly below it: {}",
+                            string(&row.title)
+                        );
+                    }
+                    let text_bottom =
+                        detail.map_or(title_bottom, |bounds| bounds.origin.y + bounds.size.height);
+                    let text_block = rect(
+                        title.origin.x,
+                        title.origin.y,
+                        title.size.width,
+                        text_bottom - title.origin.y,
+                    );
                     let mut centered = None;
+                    let mut horizontal_gap = None;
+                    let mut stacked_gap = None;
+                    let mut content_top = title.origin.y;
+                    let mut content_bottom = text_bottom;
                     if let Some(bounds) = control {
                         ensure!(
                             (bounds.origin.x + bounds.size.width - trailing).abs() <= 0.5,
@@ -361,18 +471,34 @@ impl Form {
                             bounds.origin.x >= leading - 0.5,
                             "Control clipped the leading inset"
                         );
-                        if bounds.origin.y < text_bottom - 0.5 {
-                            let error = ((title.origin.y + title.size.height / 2.)
+                        if stacked {
+                            let gap = bounds.origin.y - text_bottom;
+                            ensure!(
+                                (gap - STACKED_CONTROL_GAP).abs() <= 0.5,
+                                "Stacked control must follow the entire text block: {}",
+                                string(&row.title)
+                            );
+                            stacked_gap = Some(gap);
+                        } else {
+                            let gap = bounds.origin.x - title.origin.x - title.size.width;
+                            ensure!(
+                                gap + 0.5 >= CONTROL_GAP,
+                                "Control crowds the bounded text column: {}",
+                                string(&row.title)
+                            );
+                            let error = ((text_block.origin.y + text_block.size.height / 2.)
                                 - (bounds.origin.y + bounds.size.height / 2.))
                                 .abs();
                             ensure!(
                                 error <= 0.5,
-                                "Control is not centered with its label: {}",
+                                "Control is not centered with its entire text block: {}",
                                 string(&row.title)
                             );
+                            horizontal_gap = Some(gap);
                             centered = Some(error);
                         }
-                        text_bottom = text_bottom.max(bounds.origin.y + bounds.size.height);
+                        content_top = content_top.min(bounds.origin.y);
+                        content_bottom = content_bottom.max(bounds.origin.y + bounds.size.height);
                         let view = row.control.as_ref().context("Missing native row control")?;
                         let switch: bool = unsafe {
                             msg_send![&**view,isKindOfClass:AnyClass::get(c"NSSwitch").unwrap()]
@@ -408,19 +534,56 @@ impl Form {
                             }
                         }
                     }
-                    if let Some(bounds) = detail {
+                    let row_top = row
+                        .divider
+                        .as_ref()
+                        .map(|divider| native_rect(divider, false))
+                        .transpose()?
+                        .map_or(group_bounds.origin.y, |bounds| bounds.origin.y);
+                    let row_bottom = group
+                        .rows
+                        .get(index + 1)
+                        .and_then(|next| next.divider.as_ref())
+                        .map(|divider| native_rect(divider, false))
+                        .transpose()?
+                        .map_or(group_bounds.origin.y + group_bounds.size.height, |bounds| {
+                            bounds.origin.y
+                        });
+                    let top_padding = content_top - row_top;
+                    let bottom_padding = row_bottom - content_bottom;
+                    let row_separation = previous_content_bottom.map(|bottom| content_top - bottom);
+                    ensure!(
+                        row_bottom - row_top + 0.5 >= ROW_MIN_HEIGHT
+                            && top_padding + 0.5 >= ROW_PADDING
+                            && bottom_padding + 0.5 >= ROW_PADDING,
+                        "Row lost its comfortable height or vertical padding: {}",
+                        string(&row.title)
+                    );
+                    if let Some(gap) = row_separation {
                         ensure!(
-                            (bounds.origin.x - leading).abs() <= 0.5
-                                && bounds.origin.y >= text_bottom + 4.,
-                            "Description is misaligned or overlaps a control: {}",
+                            gap + 0.5 >= 2. * ROW_PADDING,
+                            "Adjacent row contents are too close: {}",
                             string(&row.title)
                         );
                     }
+                    previous_content_bottom = Some(content_bottom);
                     rows.push(json!({"title":string(&row.title),"title_rect":packed(title),
                         "detail_rect":detail.map(packed),"control_alignment_rect":control.map(packed),
-                        "control_intrinsic_size":intrinsic,
-                        "header_center_error":centered}));
+                        "control_intrinsic_size":intrinsic,"text_block_rect":packed(text_block),
+                        "text_block_center_error":centered,"horizontal_text_control_gap":horizontal_gap,
+                        "stacked_text_control_gap":stacked_gap,"title_detail_gap":title_detail_gap,
+                        "row_rect":packed(rect(leading,row_top,available_width,row_bottom-row_top)),
+                        "top_padding":top_padding,"bottom_padding":bottom_padding,
+                        "previous_row_content_gap":row_separation,"stacked":stacked}));
                 }
+                previous_bottom = Some(group_bounds.origin.y + group_bounds.size.height);
+                // A heading-only section introduces its following custom content:
+                // the heading-to-content gap was already checked above.
+                next_block_gap = if group.rows.is_empty() {
+                    0.
+                } else {
+                    SECTION_GAP
+                };
             } else {
                 let view = match block {
                     Block::Note(view)
@@ -430,23 +593,42 @@ impl Form {
                 };
                 let hidden: bool = unsafe { msg_send![&**view, isHidden] };
                 if !hidden {
+                    let bounds = native_rect(view, false)?;
+                    if let Some(bottom) = previous_bottom {
+                        let gap = bounds.origin.y - bottom;
+                        ensure!(
+                            (gap - next_block_gap).abs() <= 0.5,
+                            "Form block lost the shared section spacing"
+                        );
+                        block_gaps.push(gap);
+                    }
+                    previous_bottom = Some(bounds.origin.y + bounds.size.height);
+                    next_block_gap = SECTION_GAP;
                     ensure!(
-                        (native_rect(view, false)?.origin.x - leading).abs() <= 0.5,
+                        (bounds.origin.x - leading).abs() <= 0.5
+                            && (bounds.origin.x + bounds.size.width - trailing).abs() <= 0.5,
                         "Form block escaped the shared text column"
                     );
                 }
             }
         }
         Ok(json!({"text_leading":leading,"control_trailing":trailing,
-            "rows":rows,"source":"actual Cocoa-converted frames and native alignment rectangles"}))
+            "rows":rows,"sections":sections,"block_gaps":block_gaps,
+            "geometry_contract":{"minimum_control_column":CONTROL_COLUMN,"text_control_gap":CONTROL_GAP,
+                "maximum_text_width":TEXT_MAX_WIDTH,"minimum_side_by_side_text_width":TEXT_MIN_WIDTH,
+                "row_padding":ROW_PADDING,"minimum_row_height":ROW_MIN_HEIGHT,
+                "title_detail_gap":TITLE_DETAIL_GAP,"stacked_control_gap":STACKED_CONTROL_GAP,
+                "heading_group_gap":HEADING_GROUP_GAP,"section_gap":SECTION_GAP},
+            "source":"actual Cocoa-converted frames and native alignment rectangles"}))
     }
 }
 fn text_height(label: &AnyObject, width: f64) -> f64 {
     unsafe {
-        let text: *mut AnyObject = msg_send![label, attributedStringValue];
-        let bounds: NSRect =
-            msg_send![text,boundingRectWithSize:NSSize::new(width.max(1.),10000.),options:3usize];
-        (bounds.size.height.ceil() + 2.).max(18.)
+        // Measure the text cell's real word wrapping and drawing insets.
+        // Attributed-string bounds can undercount the lines drawn by NSTextField.
+        let cell: *mut AnyObject = msg_send![label, cell];
+        let size: NSSize = msg_send![cell,cellSizeForBounds:rect(0.,0.,width.max(1.),10000.)];
+        (size.height.ceil() + 2.).max(18.)
     }
 }
 
