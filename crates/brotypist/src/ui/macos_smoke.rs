@@ -76,11 +76,20 @@ fn window(app: &AnyObject, id: &str) -> Result<Obj> {
             count <= 128,
             "Unexpected number of application-owned windows"
         );
+        let mut hidden = None;
         for index in 0..count {
             let view: *mut AnyObject = msg_send![windows,objectAtIndex:index];
             if !view.is_null() && native_id(&*view) == id {
-                return Retained::retain(view).context("Owned window disappeared");
+                let retained = Retained::retain(view).context("Owned window disappeared")?;
+                let visible: bool = msg_send![view, isVisible];
+                if visible {
+                    return Ok(retained);
+                }
+                hidden = Some(retained);
             }
+        }
+        if let Some(window) = hidden {
+            return Ok(window);
         }
     }
     anyhow::bail!("Canonical window is missing: {id}")
@@ -855,6 +864,235 @@ fn capture_emoji_choices(app: &AnyObject, output: &Path) -> Result<Vec<Value>> {
     Ok(observations)
 }
 
+fn capture_owned_ghost(app: &AnyObject, output: &Path, name: &str) -> Result<Value> {
+    let panel = window(app, "inklow.suggestion")?;
+    let view = content(&panel)?;
+    unsafe {
+        let bounds: NSRect = msg_send![&*view, bounds];
+        let bitmap: *mut AnyObject = msg_send![&*view,bitmapImageRepForCachingDisplayInRect:bounds];
+        ensure!(!bitmap.is_null(), "Owned ghost has no bitmap");
+        let _: () = msg_send![&*view,cacheDisplayInRect:bounds,toBitmapImageRep:bitmap];
+        let width: isize = msg_send![bitmap, pixelsWide];
+        let height: isize = msg_send![bitmap, pixelsHigh];
+        ensure!(
+            (1..=4096).contains(&width) && (1..=1024).contains(&height),
+            "Owned ghost bitmap dimensions are invalid"
+        );
+        let mut ink_pixels = 0usize;
+        for y in 0..height {
+            for x in 0..width {
+                let color: *mut AnyObject = msg_send![bitmap,colorAtX:x,y:y];
+                ensure!(!color.is_null(), "Owned ghost bitmap has no pixel");
+                let alpha: f64 = msg_send![color, alphaComponent];
+                if alpha > 0.05 {
+                    ink_pixels += 1;
+                }
+            }
+        }
+        ensure!(
+            ink_pixels >= 20,
+            "Visible owned ghost has no rasterized glyph ink"
+        );
+        let properties = obj("NSDictionary");
+        let data: *mut AnyObject =
+            msg_send![bitmap,representationUsingType:4usize,properties:&*properties];
+        ensure!(!data.is_null(), "Owned ghost PNG encoding failed");
+        let length: usize = msg_send![data, length];
+        let bytes: *const std::ffi::c_void = msg_send![data, bytes];
+        ensure!(
+            !bytes.is_null() && (33..=1024 * 1024).contains(&length),
+            "Owned ghost PNG has invalid bytes"
+        );
+        let bytes = std::slice::from_raw_parts(bytes.cast::<u8>(), length);
+        let filename = format!("{name}.png");
+        write_new(&output.join(&filename), bytes)?;
+        let frame: NSRect = msg_send![&*panel, frame];
+        Ok(json!({
+            "file":filename,"sha256":format!("{:x}",Sha256::digest(bytes)),
+            "pixel_width":width,"pixel_height":height,"ink_pixels":ink_pixels,
+            "actual_frame":layout_rect(frame),
+            "capture":"actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing"
+        }))
+    }
+}
+
+fn capture_inline_ghosts(app: &AnyObject, output: &Path) -> Result<Vec<Value>> {
+    use crate::core::{InlineRender, Snapshot};
+    use objc2_app_kit::{NSFont, NSScreen};
+    let mtm = MainThreadMarker::new().context("Owned ghost smoke requires AppKit")?;
+    let screens = NSScreen::screens(mtm);
+    let screen = screens
+        .firstObject()
+        .context("Owned ghost smoke requires a screen")?;
+    let frame = screen.frame();
+    let visible = screen.visibleFrame();
+    ensure!(
+        visible.size.width >= 800. && visible.size.height >= 400.,
+        "Owned ghost smoke requires an 800x400-point visible screen"
+    );
+    let top = frame.origin.y + frame.size.height;
+    let base_x = visible.origin.x + 100.;
+    let base_y = top - visible.origin.y - visible.size.height + 100.;
+    let key_before: *mut AnyObject = unsafe { msg_send![app, keyWindow] };
+    let mut overlay = OverlayOwner::new()?;
+    overlay.configure(false, "Tab");
+    let mut observations = Vec::new();
+    let fonts = [
+        (
+            "system-13",
+            NSFont::systemFontOfSize_weight(13., 0.),
+            true,
+            0.,
+        ),
+        (
+            "system-15",
+            NSFont::systemFontOfSize_weight(15., 0.),
+            true,
+            0.,
+        ),
+        (
+            "system-medium",
+            NSFont::systemFontOfSize_weight(17., 0.23),
+            true,
+            0.23,
+        ),
+        (
+            "named-helvetica",
+            NSFont::fontWithName_size(&NSString::from_str("Helvetica"), 15.)
+                .context("Owned ghost named font is unavailable")?,
+            false,
+            0.,
+        ),
+    ];
+    for (font_case, font, system_font, system_weight) in fonts {
+        for (index, (fraction_x, fraction_y)) in [
+            (0., 0.),
+            (0.125, 0.875),
+            (0.25, 0.75),
+            (0.5, 0.5),
+            (0.75, 0.25),
+            (0.875, 0.125),
+            (0., 0.5),
+            (0.5, 0.),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let ascent = font.ascender();
+            let descent = -font.descender();
+            let caret = [
+                base_x + fraction_x,
+                base_y + fraction_y,
+                1.,
+                ascent + descent,
+            ];
+            let render = InlineRender {
+                font_name: font.fontName().to_string(),
+                font_size: font.pointSize(),
+                baseline: caret[1] + ascent,
+                clip_rect: [base_x - 20., base_y - 4., 600., ascent + descent + 10.],
+                ascent,
+                descent,
+                system_font,
+                system_weight,
+                source: if system_font {
+                    "macos-ax-caret-row"
+                } else {
+                    "macos-ax-attributed"
+                }
+                .into(),
+                ..InlineRender::default()
+            };
+            let snapshot = Snapshot {
+                app_id: "net.whatsapp.WhatsApp".into(),
+                field_id: "owned-inline-editor".into(),
+                caret_rect: Some(caret),
+                inline_render: Some(render.clone()),
+                native_inline: true,
+                ..Snapshot::default()
+            };
+            ensure!(
+                snapshot.inline_safe(),
+                "Synthetic owned inline geometry is not ready"
+            );
+            let text = " synthetic owned completion";
+            let event = json!({
+                "type":"suggestion","mode":"completion","inline":true,"text":text,
+                "advance":"","rect":caret,"render":render,
+                "key":snapshot.key(),"authority":snapshot.authority(),"revision":1
+            });
+            let acknowledgments = overlay.handle(&event)?;
+            ensure!(
+                acknowledgments.iter().any(|command| matches!(
+                    command,
+                    Command::PresentationResult { mode, visible_text, .. }
+                        if mode == "completion" && visible_text == text
+                )),
+                "Owned inline-ready ghost was rejected: font={font_case}, caret={caret:?}, diagnostic={}",
+                overlay.smoke_ghost_diagnostic()
+            );
+            let mut evidence =
+                capture_owned_ghost(app, output, &format!("ghost-{font_case}-{index}"))?;
+            let diagnostic = overlay.smoke_ghost_diagnostic();
+            let actual: [f64; 4] =
+                serde_json::from_value(diagnostic["geometry"]["actual_frame"].clone())?;
+            let offset: [f64; 2] =
+                serde_json::from_value(diagnostic["geometry"]["drawing_origin"].clone())?;
+            ensure!(
+                (actual[0] + offset[0] - caret[0]).abs() <= 0.000_001
+                    && (top - actual[1] - offset[1] - descent - render.baseline).abs() <= 0.000_001,
+                "Outward frame rounding moved the host glyph origin or baseline"
+            );
+            evidence["exact_glyph_origin_and_baseline_preserved"] = json!(true);
+            evidence["renderer_geometry"] = diagnostic["geometry"].clone();
+            evidence["font_case"] = json!(font_case);
+            evidence["font_name"] = json!(font.fontName().to_string());
+            evidence["caret"] = json!(caret);
+            evidence["inline_ready"] = json!(true);
+            evidence["acknowledged"] = json!(true);
+            let key_after: *mut AnyObject = unsafe { msg_send![app, keyWindow] };
+            ensure!(
+                key_before == key_after,
+                "Owned inline ghost stole the key window"
+            );
+            evidence["key_window_preserved"] = json!(true);
+            observations.push(evidence);
+            overlay.handle(&json!({"type":"clear","hide_accessory":true}))?;
+
+            // A valid inline row is not a promise that a whole word fits. Keep
+            // this distinct from font/quantization failures and never widen it.
+            let mut narrow = event;
+            narrow["render"]["clip_rect"] =
+                json!([caret[0], base_y - 4., 1., ascent + descent + 10.]);
+            let narrow_render: InlineRender = serde_json::from_value(narrow["render"].clone())?;
+            ensure!(
+                narrow_render.valid(Some(caret)),
+                "Narrow inline fixture is not ready"
+            );
+            let mut narrow_snapshot = snapshot.clone();
+            narrow_snapshot.inline_render = Some(narrow_render);
+            ensure!(
+                narrow_snapshot.inline_safe(),
+                "Narrow snapshot lost inline readiness"
+            );
+            let refused = overlay.handle(&narrow)?;
+            ensure!(
+                refused.iter().any(|command| matches!(
+                    command, Command::PresentationResult { mode, visible_text, .. }
+                        if mode == "completion" && visible_text.is_empty()
+                )),
+                "Narrow inline row incorrectly acknowledged invisible writing"
+            );
+            let panel = window(app, "inklow.suggestion")?;
+            let shown: bool = unsafe { msg_send![&*panel, isVisible] };
+            ensure!(!shown, "Refused inline ghost remained visible");
+            overlay.handle(&json!({"type":"clear","hide_accessory":true}))?;
+        }
+    }
+    overlay.close()?;
+    Ok(observations)
+}
+
 /// Bounded rendering only: no Shell, Controller, profile, input hooks, services or activation.
 pub(super) fn capture_layout(output: &Path) -> Result<i32> {
     ensure!(
@@ -1100,9 +1338,10 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
     power.close()?;
     let menu_glyphs = capture_menu_glyphs(output);
     let emoji = capture_emoji_choices(&app, output);
+    let ghosts = capture_inline_ghosts(&app, output);
     let receipt = json!({
-        "schema":"brotypist-macos-layout-capture/4", "passed":result.is_ok() && menu_glyphs.is_ok() && emoji.is_ok(),
-        "scope":"Canonical owned native Settings controls and theme frame; synthetic preferences/status, no runtime services. Native menu inspected without opening it.",
+        "schema":"brotypist-macos-layout-capture/5", "passed":result.is_ok() && menu_glyphs.is_ok() && emoji.is_ok() && ghosts.is_ok(),
+        "scope":"Canonical owned native Settings controls, theme frame, chooser and same-line OverlayOwner ghost; synthetic preferences/status/writing, no runtime services. Native menu inspected without opening it.",
         "safety":{"controller_started":false,"profile_loaded":false,"input_hooks_started":false,"foreground_activation_allowed":false,"external_screen_capture":false},
         "limits":"Native geometry assertions and NSView rasterization do not prove WindowServer vibrancy/compositing or external-host typing. Visual review of images is required.",
         "menu":menu_items,"screenshots":captures,"geometry":geometry,
@@ -1110,7 +1349,8 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
         "draft_retention":draft_retention,
         "native_status_rendering":native_status_rendering,
         "emoji":emoji.as_ref().ok(),
-        "error":result.as_ref().err().or_else(||menu_glyphs.as_ref().err()).or_else(||emoji.as_ref().err()).map(|error|format!("{error:#}"))
+        "inline_ghosts":ghosts.as_ref().ok(),
+        "error":result.as_ref().err().or_else(||menu_glyphs.as_ref().err()).or_else(||emoji.as_ref().err()).or_else(||ghosts.as_ref().err()).map(|error|format!("{error:#}"))
     });
     write_new(
         &output.join("receipt.json"),
@@ -1119,6 +1359,7 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
     result?;
     menu_glyphs?;
     emoji?;
+    ghosts?;
     Ok(0)
 }
 fn snapshot(shell: &Shell, receipt: &mut Value, output: &Path, id: &str, name: &str) -> Result<()> {

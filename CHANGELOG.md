@@ -41,6 +41,8 @@
 - Keep bounded, consented focused-window references for single-word drafts without lexical overlap, while retaining keyword gating for clipboard and topic-bearing drafts. Leave the model and sampling unchanged.
 - Correct native emoji row clicks to zero-based indices, revoke failed/hidden chooser presentations and bind permitted owned-button pointer pairs to their presentation generation. Keep unknown host input fail-closed; verify native chooser pixels and owned edit readback.
 - Extend the explicitly requested WhatsApp diagnostic with content-free runtime scheduling/context-attachment/presentation counters; remove draft-value reads from native shape diagnostics.
+- Correct native ghost-window allocation for AppKit logical-point origin rounding, preserving exact glyph origin/baseline and explicitly clipping all paint to the original verified footprint. Exercise actual GhostSurface pixels across system/named fonts and fractional caret positions.
+- Record fixed native renderer rejection reasons and submission-time context collector/attachment outcomes in explicitly requested, content-free WhatsApp diagnostics; preserve collection budgets, consent and paint-safety refusals.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
 
 ## 0.4.13 — macOS Electron safety fixes

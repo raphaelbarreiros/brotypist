@@ -2129,6 +2129,9 @@ impl Shell {
             if let Err(error) = self.controller.borrow().export_whatsapp_diagnostic() {
                 eprintln!("BroTypist: runtime diagnostic export failed: {error}");
             }
+            if let Err(error) = self.overlay.export_whatsapp_diagnostic() {
+                eprintln!("BroTypist: renderer diagnostic export failed: {error}");
+            }
         }
         if self.settings.visible()
             && self.settings.pane() == "statistics"

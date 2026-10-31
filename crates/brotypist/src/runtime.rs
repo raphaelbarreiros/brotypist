@@ -413,11 +413,66 @@ pub struct Preparation {
     pub authorization_ticket: Option<Box<dyn platform::DetachedContextRead>>,
     pub hard_disabled_apps: BTreeSet<String>,
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextCollectorOutcome {
+    #[default]
+    Off,
+    TimedOut,
+    TokenStale,
+    TicketUnavailable,
+    AuthorizationStale,
+    Ready,
+    Empty,
+    Blocked,
+    Stale,
+    Unavailable,
+    Error,
+    ScreenPermission,
+}
+impl ContextCollectorOutcome {
+    fn from_status(status: &str) -> Self {
+        match status {
+            "ready" => Self::Ready,
+            "empty" => Self::Empty,
+            "blocked" => Self::Blocked,
+            "stale" => Self::Stale,
+            "unavailable" => Self::Unavailable,
+            "screen_permission" => Self::ScreenPermission,
+            _ => Self::Error,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextAttachmentOutcome {
+    #[default]
+    NoReferences,
+    RankerEmpty,
+    Attached,
+    Expired,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+pub struct ContextPreparationDiagnostic {
+    screen: ContextCollectorOutcome,
+    clipboard: ContextCollectorOutcome,
+    attachment: ContextAttachmentOutcome,
+}
+fn context_attachment_outcome(references: bool, attached: bool) -> ContextAttachmentOutcome {
+    if attached {
+        ContextAttachmentOutcome::Attached
+    } else if references {
+        ContextAttachmentOutcome::RankerEmpty
+    } else {
+        ContextAttachmentOutcome::NoReferences
+    }
+}
 pub struct Prepared {
     pub token: u64,
     pub epoch: u64,
     pub options: GenerationOptions,
     pub context_status: String,
+    pub context_diagnostic: ContextPreparationDiagnostic,
     pub warning: String,
     pub reference_expires: Option<Instant>,
 }
@@ -545,6 +600,7 @@ impl AsyncPreparer {
             let expected = request.epoch; let check_epoch = epoch.clone(); let check_state = shared.clone();
             let guard: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || guard_epoch(&check_epoch, expected) && !locked(&check_state.0).stopped);
             let source_guard = guard.clone();
+            let authorization_available = request.authorization_ticket.is_some();
             let authorization = request.authorization_ticket.map(|ticket| Arc::new(Mutex::new(ticket)));
             let private_guard: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || {
                 if !source_guard() { return false; }
@@ -554,16 +610,19 @@ impl AsyncPreparer {
             if !guard() { continue; }
             let c = &request.config; let snapshot = &request.snapshot;
             let mut references = request.references; let mut status = "off".to_owned(); let mut expires = None;
+            let mut context_diagnostic = ContextPreparationDiagnostic::default();
             if c.screen_context || c.screenshot_context {
                 let s = locked(&shared.0);
                 let (mut s, _) = shared.1.wait_timeout_while(s, Duration::from_millis(250), |s| !s.stopped && guard_epoch(&epoch, expected)
                     && s.pending.is_none() && s.screen_result.as_ref().is_none_or(|(token, ep, _, _)| *token != request.token || *ep != expected))
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 if !s.stopped && guard_epoch(&epoch, expected) {
+                    context_diagnostic.screen = if s.screen_result.is_some() { ContextCollectorOutcome::TokenStale } else { ContextCollectorOutcome::TimedOut };
                     status = "unavailable".into();
                     if s.screen_result.as_ref().is_some_and(|(token, ep, _, _)| *token == request.token && *ep == expected) {
                         let (_, _, read, at) = s.screen_result.take().expect("screen result");
                         status = if context_status(&read.status) { read.status } else { "error".into() };
+                        context_diagnostic.screen = ContextCollectorOutcome::from_status(&status);
                         if status == "ready" && ((read.source == "accessibility" && c.screen_context) || (read.source == "screenshot" && c.screenshot_context)) {
                             references.push((read.source, first(&read.text, 2400))); expires = Some(at + Duration::from_secs(2));
                         }
@@ -571,10 +630,18 @@ impl AsyncPreparer {
                 }
             }
             if !guard() { continue; }
-            if c.clipboard_context && private_guard() {
-                match readers.clipboard(private_guard.clone()) {
-                    Ok(text) if private_guard() && !text.is_empty() => { references.push(("clipboard".into(), first(&text, 4000))); status = "ready".into(); let until = Instant::now() + Duration::from_secs(2); expires = Some(expires.map_or(until, |at: Instant| at.min(until))); }
-                    Ok(_) => {}, Err(_) => status = "error".into(),
+            if c.clipboard_context {
+                context_diagnostic.clipboard = if authorization_available { ContextCollectorOutcome::AuthorizationStale } else { ContextCollectorOutcome::TicketUnavailable };
+                if private_guard() {
+                    match readers.clipboard(private_guard.clone()) {
+                        Ok(text) => {
+                            if private_guard() {
+                                if text.is_empty() { context_diagnostic.clipboard = ContextCollectorOutcome::Empty; }
+                                else { references.push(("clipboard".into(), first(&text, 4000))); status = "ready".into(); context_diagnostic.clipboard = ContextCollectorOutcome::Ready; let until = Instant::now() + Duration::from_secs(2); expires = Some(expires.map_or(until, |at: Instant| at.min(until))); }
+                            }
+                        },
+                        Err(_) => { status = "error".into(); context_diagnostic.clipboard = ContextCollectorOutcome::Error; },
+                    }
                 }
             }
             if !guard() { continue; }
@@ -595,9 +662,10 @@ impl AsyncPreparer {
                 alternatives: request.mode == "alternatives", anchor: request.anchor,
                 utility: if request.mode == "synonyms" { features::synonym_prompt(snapshot.prefix(), snapshot.selection_suffix(), snapshot.selected_text()) } else { String::new() },
             };
+            context_diagnostic.attachment = context_attachment_outcome(!references.is_empty(), !options.context.is_empty());
             let mut s = locked(&shared.0);
             if guard_epoch(&epoch, request.epoch) && !s.stopped && s.pending.is_none() {
-                s.results.clear(); s.results.push_back(Prepared { token: request.token, epoch: request.epoch, options, context_status: status, warning, reference_expires: expires });
+                s.results.clear(); s.results.push_back(Prepared { token: request.token, epoch: request.epoch, options, context_status: status, context_diagnostic, warning, reference_expires: expires });
                 shared.1.notify_all();
             }
         });
@@ -1008,6 +1076,8 @@ struct WhatsAppRuntimeDiagnostic {
     last_spelling_pending: bool,
     last_spelling_suspected: Option<bool>,
     last_context_attached: Option<bool>,
+    last_context_read_ready: Option<bool>,
+    last_context_preparation: Option<ContextPreparationDiagnostic>,
     last_request_id: Option<u64>,
     last_screen_ticket_available: Option<bool>,
     last_authorization_ticket_available: Option<bool>,
@@ -2547,6 +2617,7 @@ impl Engine {
             if prepared.reference_expires.is_some_and(|at| self.now() > at) {
                 prepared.options.context.clear();
                 prepared.reference_expires = None;
+                prepared.context_diagnostic.attachment = ContextAttachmentOutcome::Expired;
             }
             if c.provider_identity() != p.config.provider_identity()
                 || c.prompt_style != p.config.prompt_style
@@ -2569,6 +2640,13 @@ impl Engine {
                     if s.app_id == WHATSAPP_APP_ID {
                         self.whatsapp_diagnostic.last_context_attached =
                             Some(!prepared.options.context.is_empty());
+                        self.whatsapp_diagnostic.last_context_read_ready = Some(
+                            prepared.context_diagnostic.screen == ContextCollectorOutcome::Ready
+                                || prepared.context_diagnostic.clipboard
+                                    == ContextCollectorOutcome::Ready,
+                        );
+                        self.whatsapp_diagnostic.last_context_preparation =
+                            Some(prepared.context_diagnostic);
                         self.whatsapp_diagnostic.last_request_id = Some(id);
                         self.whatsapp_diagnostic.last_submission_mode =
                             DiagnosticMode::from_mode(&p.mode);
@@ -5125,6 +5203,7 @@ mod tests {
                 epoch: p.epoch,
                 options: GenerationOptions::default(),
                 context_status: "off".into(),
+                context_diagnostic: ContextPreparationDiagnostic::default(),
                 warning: String::new(),
                 reference_expires: None,
             });
@@ -5189,6 +5268,11 @@ mod tests {
                 ..Default::default()
             },
             context_status: "ready".into(),
+            context_diagnostic: ContextPreparationDiagnostic {
+                screen: ContextCollectorOutcome::Ready,
+                attachment: ContextAttachmentOutcome::Attached,
+                ..Default::default()
+            },
             warning: String::new(),
             reference_expires: None,
         });
@@ -5271,6 +5355,84 @@ mod tests {
         h.response("ready", "", false);
         assert_eq!(h.engine.whatsapp_diagnostic.counters.stale_worker_events, 1);
         assert!(h.worker.borrow().proceeds.is_empty());
+    }
+
+    #[test]
+    fn submitted_context_diagnostic_preserves_collector_and_attachment_outcomes() {
+        let mut config = Config::default();
+        config.typo_suppression = false;
+        config.typo_fixes = false;
+        let mut h = harness(config, None);
+        let mut snapshot = field("SYNTHETIC_PRIVATE_DRAFT");
+        snapshot.app_id = WHATSAPP_APP_ID.into();
+        h.native.borrow_mut().snapshot = Some(snapshot);
+        h.force();
+        let pending = h.preparation.borrow_mut().pending.take().unwrap();
+        h.preparation.borrow_mut().results.push(Prepared {
+            token: pending.token,
+            epoch: pending.epoch,
+            options: GenerationOptions {
+                context: "SYNTHETIC_PRIVATE_CONTEXT".into(),
+                ..Default::default()
+            },
+            context_status: "ready".into(),
+            context_diagnostic: ContextPreparationDiagnostic {
+                screen: ContextCollectorOutcome::Ready,
+                clipboard: ContextCollectorOutcome::Empty,
+                attachment: ContextAttachmentOutcome::Attached,
+            },
+            warning: String::new(),
+            reference_expires: Some(*h.time.borrow() - Duration::from_millis(1)),
+        });
+        h.engine.tick();
+        let diagnostic = &h.engine.whatsapp_diagnostic;
+        assert_eq!(diagnostic.last_context_attached, Some(false));
+        assert_eq!(diagnostic.last_context_read_ready, Some(true));
+        let context = diagnostic.last_context_preparation.unwrap();
+        assert_eq!(context.screen, ContextCollectorOutcome::Ready);
+        assert_eq!(context.clipboard, ContextCollectorOutcome::Empty);
+        assert_eq!(context.attachment, ContextAttachmentOutcome::Expired);
+        h.engine.context_status = "unavailable".into();
+        h.engine.whatsapp_state();
+        assert_eq!(
+            h.engine.whatsapp_diagnostic.last_context_read_ready,
+            Some(true)
+        );
+        let serialized = serde_json::to_string(&h.engine.whatsapp_diagnostic).unwrap();
+        assert!(!serialized.contains("SYNTHETIC_PRIVATE"));
+    }
+
+    #[test]
+    fn context_diagnostic_only_exports_fixed_outcomes() {
+        assert_eq!(
+            ContextCollectorOutcome::from_status("SYNTHETIC_PRIVATE_ERROR"),
+            ContextCollectorOutcome::Error
+        );
+        assert_eq!(
+            context_attachment_outcome(true, false),
+            ContextAttachmentOutcome::RankerEmpty
+        );
+        assert_eq!(
+            context_attachment_outcome(false, false),
+            ContextAttachmentOutcome::NoReferences
+        );
+        assert_eq!(
+            context_attachment_outcome(true, true),
+            ContextAttachmentOutcome::Attached
+        );
+        let diagnostic = ContextPreparationDiagnostic {
+            screen: ContextCollectorOutcome::TimedOut,
+            clipboard: ContextCollectorOutcome::AuthorizationStale,
+            attachment: ContextAttachmentOutcome::NoReferences,
+        };
+        assert_eq!(
+            serde_json::to_value(diagnostic).unwrap(),
+            json!({
+                "screen": "timed_out",
+                "clipboard": "authorization_stale",
+                "attachment": "no_references",
+            })
+        );
     }
 
     #[test]
@@ -5442,6 +5604,7 @@ mod tests {
                 ..Default::default()
             },
             context_status: "ready".into(),
+            context_diagnostic: ContextPreparationDiagnostic::default(),
             warning: String::new(),
             reference_expires: None,
         });
@@ -6121,6 +6284,70 @@ mod tests {
         gate.1.notify_all();
         service.request_stop();
         drop(service);
+    }
+    #[test]
+    fn screen_wait_diagnostic_distinguishes_timeout_from_unmatched_token_without_readiness() {
+        for unmatched_token in [false, true] {
+            let stored = Arc::new(Mutex::new(Stored::default()));
+            let storage: SharedStorage = Arc::new(Mutex::new(Box::new(Memory(stored))));
+            let epoch = Arc::new(AtomicU64::new(1));
+            let mut service =
+                AsyncPreparer::new(storage, epoch, Arc::new(SyntheticSources)).unwrap();
+            let gate = Arc::new((Mutex::new(false), Condvar::new()));
+            let (entered, receive) = mpsc::sync_channel(1);
+            let snapshot = field("Thank you for the launch review");
+            service.submit(preparation(
+                snapshot.clone(),
+                1,
+                1,
+                Some(Box::new(ContextTicket {
+                    snapshot,
+                    gate: Some(gate.clone()),
+                    entered: Some(entered),
+                    text: "SYNTHETIC_PRIVATE_REFERENCE".into(),
+                })),
+            ));
+            receive.recv_timeout(Duration::from_secs(1)).unwrap();
+            if unmatched_token {
+                locked(&service.state.0).screen_result = Some((
+                    99,
+                    1,
+                    ContextRead {
+                        text: "SYNTHETIC_PRIVATE_WRONG_TOKEN".into(),
+                        status: "ready".into(),
+                        source: "accessibility".into(),
+                    },
+                    Instant::now(),
+                ));
+                service.state.1.notify_all();
+            }
+            let state = locked(&service.state.0);
+            let (mut state, wait) = service
+                .state
+                .1
+                .wait_timeout_while(state, Duration::from_secs(1), |s| s.results.is_empty())
+                .unwrap();
+            assert!(!wait.timed_out());
+            let prepared = state.results.pop_front().unwrap();
+            drop(state);
+            *locked(&gate.0) = true;
+            gate.1.notify_all();
+            service.request_stop();
+            assert!(prepared.options.context.is_empty());
+            assert_eq!(prepared.context_status, "unavailable");
+            assert_eq!(
+                prepared.context_diagnostic.screen,
+                if unmatched_token {
+                    ContextCollectorOutcome::TokenStale
+                } else {
+                    ContextCollectorOutcome::TimedOut
+                }
+            );
+            assert_eq!(
+                prepared.context_diagnostic.attachment,
+                ContextAttachmentOutcome::NoReferences
+            );
+        }
     }
     #[test]
     fn history_and_statistics_commands_return_results_without_enabling_recording() {

@@ -19,13 +19,16 @@ use objc2_foundation::{
     NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
 };
 use serde_json::Value;
-use std::{cell::RefCell, ffi::c_void};
+use std::{cell::RefCell, ffi::c_void, io::Write};
 
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
     fn CGContextSetTextPosition(context: *const c_void, x: f64, y: f64);
     fn CGContextSetTextMatrix(context: *mut c_void, matrix: Transform);
     fn CGContextSetFillColorWithColor(context: *mut c_void, color: *const c_void);
+    fn CGContextSaveGState(context: *mut c_void);
+    fn CGContextRestoreGState(context: *mut c_void);
+    fn CGContextClipToRect(context: *mut c_void, rect: NSRect);
 }
 #[repr(C)]
 struct Transform {
@@ -148,6 +151,7 @@ struct GhostIvars {
     baseline: f64,
     runs: Vec<DrawRun>,
     fills: Vec<(NSRect, Retained<NSColor>)>,
+    clip: NSRect,
 }
 define_class!(
     #[unsafe(super = NSView)]
@@ -160,8 +164,10 @@ define_class!(
         #[unsafe(method(drawRect:))]
         fn draw(&self,_dirty:NSRect) {
             let Some(context)=NSGraphicsContext::currentContext() else {return};
-            let cg:*mut c_void=unsafe {msg_send![&*context,CGContext]};
+            let cg:*mut objc2_core_graphics::CGContext=unsafe {msg_send![&*context,CGContext]};
             if cg.is_null() {return;}
+            let cg = cg.cast::<c_void>();
+            unsafe { CGContextSaveGState(cg); CGContextClipToRect(cg, self.ivars().clip); }
             for (frame,color) in &self.ivars().fills { color.setFill(); NSBezierPath::fillRect(*frame); }
             unsafe { CGContextSetTextMatrix(cg,Transform{a:1.,b:0.,c:0.,d:1.,tx:0.,ty:0.}); }
             for run in &self.ivars().runs {
@@ -175,6 +181,7 @@ define_class!(
                 let line=unsafe {CTLine::with_attributed_string((&*attributed).as_ref())};
                 unsafe {CGContextSetTextPosition(cg,run.x,self.ivars().baseline);CTLineDraw(&*line as *const _ as *const c_void,cg);}
             }
+            unsafe { CGContextRestoreGState(cg); }
         }
     }
 );
@@ -222,7 +229,135 @@ fn width(font: &NSFont, text: &str) -> f64 {
         )
     }
 }
-fn resolve_font(render: &InlineRender) -> Option<Retained<NSFont>> {
+// These are fixed renderer decisions, not descriptions derived from host content.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+#[repr(usize)]
+enum GhostRejection {
+    Closed,
+    Caret,
+    RenderDecode,
+    RenderInvalid,
+    InlineDisabled,
+    FontMetadata,
+    CaretRowContract,
+    FontUnavailable,
+    FontDescriptor,
+    FontIdentity,
+    EmptyText,
+    MultilineAdvance,
+    CorrectionRect,
+    CorrectionGeometry,
+    CorrectionFit,
+    NoWholeWordFits,
+    ClipBounds,
+    NoScreens,
+    NoContainingScreen,
+    BackingScale,
+    FrameOffscreen,
+    FrameOriginReadback,
+    FrameContentReadback,
+    SuffixBackground,
+    SuffixInk,
+    NotVisible,
+}
+impl GhostRejection {
+    const ALL: [Self; 26] = [
+        Self::Closed,
+        Self::Caret,
+        Self::RenderDecode,
+        Self::RenderInvalid,
+        Self::InlineDisabled,
+        Self::FontMetadata,
+        Self::CaretRowContract,
+        Self::FontUnavailable,
+        Self::FontDescriptor,
+        Self::FontIdentity,
+        Self::EmptyText,
+        Self::MultilineAdvance,
+        Self::CorrectionRect,
+        Self::CorrectionGeometry,
+        Self::CorrectionFit,
+        Self::NoWholeWordFits,
+        Self::ClipBounds,
+        Self::NoScreens,
+        Self::NoContainingScreen,
+        Self::BackingScale,
+        Self::FrameOffscreen,
+        Self::FrameOriginReadback,
+        Self::FrameContentReadback,
+        Self::SuffixBackground,
+        Self::SuffixInk,
+        Self::NotVisible,
+    ];
+}
+#[derive(Default, serde::Serialize)]
+struct GhostGeometry {
+    correction: bool,
+    inline: bool,
+    text_present: bool,
+    advance_present: bool,
+    suffix_present: bool,
+    ax_caret_row: bool,
+    system_font: bool,
+    requested_font: String,
+    resolved_font: Option<String>,
+    font_size: f64,
+    system_weight: f64,
+    fixed_advance: f64,
+    caret: Option<Rect>,
+    clip: Option<Rect>,
+    baseline: f64,
+    ascent: f64,
+    descent: f64,
+    available_width: Option<f64>,
+    drawn_width: Option<f64>,
+    glyph_bounds: Option<Rect>,
+    scale: Option<f64>,
+    requested_frame: Option<Rect>,
+    actual_frame: Option<Rect>,
+    origin_error: Option<[f64; 2]>,
+    drawing_origin: Option<[f64; 2]>,
+    surface_visible: Option<bool>,
+    on_active_space: Option<bool>,
+}
+#[derive(Default)]
+struct WhatsAppGhostDiagnostic {
+    attempts: u64,
+    rendered: u64,
+    rejections: [u64; 26],
+    last_rejection: Option<GhostRejection>,
+    last_geometry: Option<GhostGeometry>,
+}
+impl WhatsAppGhostDiagnostic {
+    fn record(&mut self, geometry: GhostGeometry, rejection: Option<GhostRejection>) {
+        self.attempts = self.attempts.saturating_add(1);
+        if let Some(reason) = rejection {
+            let count = &mut self.rejections[reason as usize];
+            *count = count.saturating_add(1);
+        } else {
+            self.rendered = self.rendered.saturating_add(1);
+        }
+        self.last_rejection = rejection;
+        self.last_geometry = Some(geometry);
+    }
+}
+fn whatsapp_ghost_event(event: &Value) -> bool {
+    event["key"]["app_id"].as_str() == Some("net.whatsapp.WhatsApp")
+        && event["type"].as_str() == Some("suggestion")
+        && matches!(
+            event["mode"].as_str().unwrap_or("completion"),
+            "completion" | "correction"
+        )
+}
+fn font_diagnostic_name(name: &str) -> String {
+    // Font metadata only; cap even malformed native metadata. Never copy an event.
+    name.chars().filter(|c| !c.is_control()).take(128).collect()
+}
+fn resolve_font(
+    render: &InlineRender,
+    diagnostic: &mut Option<GhostGeometry>,
+) -> Result<Retained<NSFont>, GhostRejection> {
     if render.font_name.is_empty()
         || !render.font_size.is_finite()
         || !(1.0..=300.0).contains(&render.font_size)
@@ -230,13 +365,13 @@ fn resolve_font(render: &InlineRender) -> Option<Retained<NSFont>> {
         || !render.fixed_advance.is_finite()
         || !(0.0..=300.0).contains(&render.fixed_advance)
     {
-        return None;
+        return Err(GhostRejection::FontMetadata);
     }
     // The fitted AX row is legal only at a line end, with no repaint of host text.
     if render.source == "macos-ax-caret-row"
         && (!render.system_font || !render.suffix.is_empty() || render.suffix_width != 0.)
     {
-        return None;
+        return Err(GhostRejection::CaretRowContract);
     }
     let mut font = if render.system_font {
         Some(NSFont::systemFontOfSize_weight(
@@ -247,7 +382,11 @@ fn resolve_font(render: &InlineRender) -> Option<Retained<NSFont>> {
         None
     } else {
         NSFont::fontWithName_size(&NSString::from_str(&render.font_name), render.font_size)
-    }?;
+    }
+    .ok_or(GhostRejection::FontUnavailable)?;
+    if let Some(geometry) = diagnostic.as_mut() {
+        geometry.resolved_font = Some(font_diagnostic_name(&font.fontName().to_string()));
+    }
     if render.fixed_advance > 0. {
         let value = NSNumber::new_f64(render.fixed_advance);
         let attrs = NSDictionary::from_slices(
@@ -258,9 +397,16 @@ fn resolve_font(render: &InlineRender) -> Option<Retained<NSFont>> {
             font.fontDescriptor()
                 .fontDescriptorByAddingAttributes(&attrs)
         };
-        font = NSFont::fontWithDescriptor_size(&descriptor, render.font_size)?;
+        font = NSFont::fontWithDescriptor_size(&descriptor, render.font_size)
+            .ok_or(GhostRejection::FontDescriptor)?;
     }
-    (font.fontName().to_string() == render.font_name).then_some(font)
+    if let Some(geometry) = diagnostic.as_mut() {
+        geometry.resolved_font = Some(font_diagnostic_name(&font.fontName().to_string()));
+    }
+    if font.fontName().to_string() != render.font_name {
+        return Err(GhostRejection::FontIdentity);
+    }
+    Ok(font)
 }
 fn fit_text<'a>(text: &'a str, available: f64, measure: impl Fn(&str) -> f64) -> &'a str {
     if !available.is_finite() || available <= 0. || text.is_empty() {
@@ -400,6 +546,7 @@ pub struct OverlayOwner {
     ghost_event: Option<Value>,
     chooser_event: Option<Value>,
     environment: Value,
+    whatsapp_diagnostic: WhatsAppGhostDiagnostic,
     closed: bool,
 }
 impl OverlayOwner {
@@ -465,11 +612,50 @@ impl OverlayOwner {
             ghost_event: None,
             chooser_event: None,
             environment: Value::Null,
+            whatsapp_diagnostic: WhatsAppGhostDiagnostic::default(),
             closed: false,
         };
         this.environment = this.environment_signature();
         this.label(false);
         Ok(this)
+    }
+    #[cfg(feature = "native-smoke")]
+    pub fn smoke_ghost_diagnostic(&self) -> Value {
+        serde_json::json!({
+            "rejection":self.whatsapp_diagnostic.last_rejection,
+            "geometry":self.whatsapp_diagnostic.last_geometry,
+        })
+    }
+    /// Explicit notification only. The retained snapshot has fixed fields and is
+    /// collected solely for the exact native WhatsApp suggestion app identity.
+    pub fn export_whatsapp_diagnostic(&self) -> Result<()> {
+        let diagnostic = &self.whatsapp_diagnostic;
+        let rejections: Vec<_> = GhostRejection::ALL.iter().map(|reason| {
+            serde_json::json!({"reason":reason,"count":diagnostic.rejections[*reason as usize]})
+        }).collect();
+        let value = serde_json::json!({
+            "schema":"brotypist-whatsapp-renderer-diagnostic/1",
+            "version":env!("CARGO_PKG_VERSION"),
+            "app_id":"net.whatsapp.WhatsApp",
+            "observed":diagnostic.attempts != 0,
+            "attempts":diagnostic.attempts,
+            "rendered":diagnostic.rendered,
+            "rejections":rejections,
+            "last_rejection":diagnostic.last_rejection,
+            "last_geometry":diagnostic.last_geometry,
+        });
+        let directory = crate::paths::config_dir()?.join("diagnostics");
+        crate::paths::private_directory(&directory)?;
+        let mut temporary = tempfile::Builder::new()
+            .prefix(".inklow-")
+            .tempfile_in(&directory)?;
+        serde_json::to_writer_pretty(&mut temporary, &value)?;
+        temporary.write_all(b"\n")?;
+        temporary.as_file().sync_all()?;
+        temporary
+            .persist(directory.join("renderer-whatsapp.json"))
+            .map_err(|error| error.error)?;
+        Ok(())
     }
     pub fn configure(&mut self, show_accessory: bool, _accept_key: &str) {
         self.show_accessory = show_accessory;
@@ -631,6 +817,10 @@ impl OverlayOwner {
     }
     pub fn handle(&mut self, event: &Value) -> Result<Vec<Command>> {
         if self.closed {
+            if whatsapp_ghost_event(event) {
+                self.whatsapp_diagnostic
+                    .record(GhostGeometry::default(), Some(GhostRejection::Closed));
+            }
             return Ok(Vec::new());
         }
         let mut commands = Vec::new();
@@ -687,6 +877,16 @@ impl OverlayOwner {
                     mode
                 };
                 if finite_rect(&event["rect"]).is_none() {
+                    if whatsapp_ghost_event(event) {
+                        self.whatsapp_diagnostic.record(
+                            GhostGeometry {
+                                correction: mode == "correction",
+                                inline: event["inline"].as_bool() == Some(true),
+                                ..Default::default()
+                            },
+                            Some(GhostRejection::Caret),
+                        );
+                    }
                     self.clear(true, None);
                     if let Some(c) = Self::ack(event, String::new(), mode) {
                         commands.push(c);
@@ -891,45 +1091,78 @@ impl OverlayOwner {
         }
     }
     fn present_ghost(&mut self, event: &Value, mode: &str) -> String {
-        let result = (|| -> Option<String> {
-            let caret = finite_rect(&event["rect"])?;
-            let render: InlineRender = serde_json::from_value(event["render"].clone()).ok()?;
-            if !render.valid(Some(caret))
-                || (mode == "completion" && event["inline"].as_bool() != Some(true))
-            {
-                return None;
+        let mut diagnostic = whatsapp_ghost_event(event).then(|| GhostGeometry {
+            correction: mode == "correction",
+            inline: event["inline"].as_bool() == Some(true),
+            text_present: event["text"].as_str().is_some_and(|s| !s.is_empty()),
+            advance_present: event["advance"].as_str().is_some_and(|s| !s.is_empty()),
+            ..Default::default()
+        });
+        let result = (|| -> Result<String, GhostRejection> {
+            let caret = finite_rect(&event["rect"]).ok_or(GhostRejection::Caret)?;
+            if let Some(geometry) = diagnostic.as_mut() {
+                geometry.caret = Some(caret);
             }
-            let font = resolve_font(&render)?;
+            let render: InlineRender = serde_json::from_value(event["render"].clone())
+                .map_err(|_| GhostRejection::RenderDecode)?;
+            if let Some(geometry) = diagnostic.as_mut() {
+                geometry.requested_font = font_diagnostic_name(&render.font_name);
+                geometry.font_size = render.font_size;
+                geometry.system_font = render.system_font;
+                geometry.system_weight = render.system_weight;
+                geometry.fixed_advance = render.fixed_advance;
+                geometry.ax_caret_row = render.source == "macos-ax-caret-row";
+                geometry.suffix_present = !render.suffix.is_empty();
+                geometry.clip = Some(render.clip_rect);
+                geometry.baseline = render.baseline;
+                geometry.ascent = render.ascent;
+                geometry.descent = render.descent;
+            }
+            if !render.valid(Some(caret)) {
+                return Err(GhostRejection::RenderInvalid);
+            }
+            if mode == "completion" && event["inline"].as_bool() != Some(true) {
+                return Err(GhostRejection::InlineDisabled);
+            }
+            let font = resolve_font(&render, &mut diagnostic)?;
             let text = event["text"]
                 .as_str()
                 .unwrap_or("")
                 .split(['\n', '\r'])
-                .next()?;
+                .next()
+                .unwrap_or("");
             let advance = event["advance"].as_str().unwrap_or("");
-            if text.is_empty() || advance.contains(['\r', '\n']) {
-                return None;
+            if text.is_empty() {
+                return Err(GhostRejection::EmptyText);
+            }
+            if advance.contains(['\r', '\n']) {
+                return Err(GhostRejection::MultilineAdvance);
             }
             let x = caret[0] + width(&font, advance);
             let [cx, cy, cw, ch] = render.clip_rect;
             let available = cx + cw - x - render.suffix_width;
+            if let Some(geometry) = diagnostic.as_mut() {
+                geometry.available_width = Some(available);
+            }
             let mut left = x;
             let mut gap = 0.;
             let mut strike = None;
             let drawn = if mode == "correction" {
-                let r = finite_rect(&event["correction"]["rect"])?;
+                let r = finite_rect(&event["correction"]["rect"])
+                    .ok_or(GhostRejection::CorrectionRect)?;
                 if r[2] <= 0.
                     || !advance.is_empty()
                     || !(r[1] < render.baseline && render.baseline <= r[1] + r[3] + 1.)
                     || r[0] < cx
                     || r[0] + r[2] > x + 1.5
                 {
-                    return None;
+                    return Err(GhostRejection::CorrectionGeometry);
                 }
                 if (r[0] + r[2] - x).abs() <= 1.5 {
                     gap = width(&font, " ");
                 }
                 if width(&font, text) + gap > available {
-                    return None;
+                    return Err(GhostRejection::CorrectionFit);
                 }
                 left = r[0];
                 strike = Some(r);
@@ -938,9 +1171,12 @@ impl OverlayOwner {
                 fit_text(text, available, |s| width(&font, s))
             };
             if drawn.is_empty() {
-                return None;
+                return Err(GhostRejection::NoWholeWordFits);
             }
             let ghost_width = width(&font, drawn);
+            if let Some(geometry) = diagnostic.as_mut() {
+                geometry.drawn_width = Some(ghost_width);
+            }
             let right = x + gap + ghost_width + render.suffix_width;
             let displaced = !render.suffix.trim().is_empty();
             let mut top = render.baseline - render.ascent;
@@ -949,32 +1185,50 @@ impl OverlayOwner {
                 top = top.min(caret[1]);
                 bottom = bottom.max(caret[1] + caret[3]);
             }
+            if let Some(geometry) = diagnostic.as_mut() {
+                geometry.glyph_bounds = Some([left, top, right - left, bottom - top]);
+            }
             if left < cx || right > cx + cw + 0.5 || top < cy || bottom > cy + ch + 1. {
-                return None;
+                return Err(GhostRejection::ClipBounds);
             }
             let screens = NSScreen::screens(self.mtm);
-            let first = screens.firstObject()?;
+            let first = screens.firstObject().ok_or(GhostRejection::NoScreens)?;
             let origin_top = first.frame().origin.y + first.frame().size.height;
             let cocoa_bottom = origin_top - bottom;
             let screen = screens
                 .iter()
-                .find(|s| contains_point(s.frame(), left, cocoa_bottom))?;
+                .find(|s| contains_point(s.frame(), left, cocoa_bottom))
+                .ok_or(GhostRejection::NoContainingScreen)?;
             let scale = screen.backingScaleFactor();
-            if !scale.is_finite() || scale <= 0. {
-                return None;
+            if let Some(geometry) = diagnostic.as_mut() {
+                geometry.scale = Some(scale);
             }
-            let fx = (left * scale).floor() / scale;
-            let fy = (cocoa_bottom * scale).floor() / scale;
+            if !scale.is_finite() || scale <= 0. {
+                return Err(GhostRejection::BackingScale);
+            }
+            // AppKit may round window origins to whole logical points even on
+            // Retina screens. Outward-round this transparent window in points;
+            // the drawing offsets preserve the exact host glyph coordinates.
+            let fx = left.floor();
+            let fy = cocoa_bottom.floor();
             let mut dx = left - fx;
             let mut dy = cocoa_bottom - fy;
             let frame = rect([
                 fx,
                 fy,
-                ((right - left + dx) * scale).ceil() / scale,
-                ((bottom - top + dy) * scale).ceil() / scale,
+                (right - left + dx).ceil(),
+                (bottom - top + dy).ceil(),
             ]);
+            if let Some(geometry) = diagnostic.as_mut() {
+                geometry.requested_frame = Some([
+                    frame.origin.x,
+                    frame.origin.y,
+                    frame.size.width,
+                    frame.size.height,
+                ]);
+            }
             if !screens.iter().any(|s| contains_rect(s.frame(), frame)) {
-                return None;
+                return Err(GhostRejection::FrameOffscreen);
             }
             self.ghost.setFrame_display(frame, false);
             // NSWindow can quantize origins. Correct the owned drawing origin,
@@ -982,17 +1236,29 @@ impl OverlayOwner {
             let actual = self.ghost.frame();
             let ex = fx - actual.origin.x;
             let ey = fy - actual.origin.y;
+            if let Some(geometry) = diagnostic.as_mut() {
+                geometry.actual_frame = Some([
+                    actual.origin.x,
+                    actual.origin.y,
+                    actual.size.width,
+                    actual.size.height,
+                ]);
+                geometry.origin_error = Some([ex, ey]);
+            }
             if ex.abs() > 1. / scale + 0.001 || ey.abs() > 1. / scale + 0.001 {
-                return None;
+                return Err(GhostRejection::FrameOriginReadback);
             }
             dx += ex;
             dy += ey;
+            if let Some(geometry) = diagnostic.as_mut() {
+                geometry.drawing_origin = Some([dx, dy]);
+            }
             if dx < 0.
                 || dy < 0.
                 || right - left + dx > actual.size.width + 0.001
                 || bottom - top + dy > actual.size.height + 0.001
             {
-                return None;
+                return Err(GhostRejection::FrameContentReadback);
             }
             let workspace = NSWorkspace::sharedWorkspace();
             let contrast = workspace.accessibilityDisplayShouldIncreaseContrast();
@@ -1028,12 +1294,14 @@ impl OverlayOwner {
             if displaced {
                 fills.push((
                     rect([dx + x - left, dy, right - x, bottom - top]),
-                    rgb(render.background_rgb?),
+                    rgb(render
+                        .background_rgb
+                        .ok_or(GhostRejection::SuffixBackground)?),
                 ));
                 runs.push(DrawRun {
                     text: render.suffix.clone(),
                     x: gx + ghost_width,
-                    color: rgb(render.text_rgb?),
+                    color: rgb(render.text_rgb.ok_or(GhostRejection::SuffixInk)?),
                 });
             }
             if let Some(strike) = strike {
@@ -1052,18 +1320,31 @@ impl OverlayOwner {
                     baseline,
                     runs,
                     fills,
+                    clip: rect([dx, dy, right - left, bottom - top]),
                 },
             );
             self.ghost.setContentView(Some(&surface));
             self.ghost.orderFrontRegardless();
             self.ghost.displayIfNeeded();
-            visible(&self.ghost).then(|| drawn.to_owned())
+            if let Some(geometry) = diagnostic.as_mut() {
+                geometry.surface_visible = Some(self.ghost.isVisible());
+                geometry.on_active_space = Some(self.ghost.isOnActiveSpace());
+            }
+            if !visible(&self.ghost) {
+                return Err(GhostRejection::NotVisible);
+            }
+            Ok(drawn.to_owned())
         })();
-        if let Some(text) = result {
-            text
-        } else {
-            self.ghost.orderOut(None);
-            String::new()
+        if let Some(geometry) = diagnostic {
+            self.whatsapp_diagnostic
+                .record(geometry, result.as_ref().err().copied());
+        }
+        match result {
+            Ok(text) => text,
+            Err(_) => {
+                self.ghost.orderOut(None);
+                String::new()
+            }
         }
     }
     pub fn tick(&mut self) -> Result<Vec<Command>> {
@@ -1253,5 +1534,85 @@ mod tests {
         fn ack(v: &Value) -> bool {
             OverlayOwner::ack(v, " visible".into(), "completion").is_some()
         }
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+
+    #[test]
+    fn renderer_diagnostic_requires_exact_whatsapp_suggestion_identity() {
+        let mut event = serde_json::json!({
+            "type":"suggestion","mode":"completion",
+            "key":{"app_id":"net.whatsapp.WhatsApp"},
+            "text":"PRIVATE_SENTINEL","render":{"suffix":"PRIVATE_SENTINEL"},
+            "window_title":"PRIVATE_SENTINEL","domain":"PRIVATE_SENTINEL"
+        });
+        assert!(whatsapp_ghost_event(&event));
+        for app in ["", "net.whatsapp.WhatsApp.helper", "owned.synthetic.inline"] {
+            event["key"]["app_id"] = Value::from(app);
+            assert!(!whatsapp_ghost_event(&event));
+        }
+        event["key"]["app_id"] = Value::from("net.whatsapp.WhatsApp");
+        event["mode"] = Value::from("emoji");
+        assert!(!whatsapp_ghost_event(&event));
+        event["mode"] = Value::from("correction");
+        assert!(whatsapp_ghost_event(&event));
+        event["type"] = Value::from("caret");
+        assert!(!whatsapp_ghost_event(&event));
+    }
+
+    #[test]
+    fn renderer_diagnostic_reasons_are_bounded_and_accounted_without_event_storage() {
+        let mut diagnostic = WhatsAppGhostDiagnostic::default();
+        for (index, reason) in GhostRejection::ALL.into_iter().enumerate() {
+            assert_eq!(reason as usize, index);
+            diagnostic.record(GhostGeometry::default(), Some(reason));
+        }
+        assert_eq!(diagnostic.attempts, 26);
+        assert_eq!(diagnostic.rejections, [1; 26]);
+        assert_eq!(diagnostic.rendered, 0);
+        diagnostic.record(
+            GhostGeometry {
+                suffix_present: true,
+                requested_font: ".AppleSystemUIFont".into(),
+                caret: Some([100.125, 200.875, 1., 18.]),
+                ..Default::default()
+            },
+            None,
+        );
+        assert_eq!(diagnostic.rendered, 1);
+        assert_eq!(diagnostic.last_rejection, None);
+        let geometry = serde_json::to_value(diagnostic.last_geometry.as_ref().unwrap()).unwrap();
+        for forbidden in [
+            "text",
+            "suffix",
+            "suffix_width",
+            "advance",
+            "window_title",
+            "domain",
+            "key",
+            "authority",
+            "event",
+            "field_id",
+        ] {
+            assert!(geometry.get(forbidden).is_none());
+        }
+        assert_eq!(geometry["suffix_present"], true);
+        assert_eq!(
+            geometry["caret"],
+            serde_json::json!([100.125, 200.875, 1., 18.])
+        );
+        assert_eq!(font_diagnostic_name(&"A".repeat(1000)).len(), 128);
+        assert_eq!(font_diagnostic_name("Font\nName\0"), "FontName");
+        diagnostic.attempts = u64::MAX;
+        diagnostic.rejections[GhostRejection::Caret as usize] = u64::MAX;
+        diagnostic.record(GhostGeometry::default(), Some(GhostRejection::Caret));
+        assert_eq!(diagnostic.attempts, u64::MAX);
+        assert_eq!(
+            diagnostic.rejections[GhostRejection::Caret as usize],
+            u64::MAX
+        );
     }
 }
