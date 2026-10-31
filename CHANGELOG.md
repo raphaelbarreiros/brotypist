@@ -30,6 +30,7 @@
 - Restyle Settings sidebar navigation with larger icon tiles, padded rounded selection, clearer icon/title separation and one appearance-aware highlight while retaining native full-row actions, destination state and narrow-height scrolling.
 - Replace the application artwork with the supplied Typing Buddy face across adaptive macOS layers, classic ICNS, Windows ICO and Linux runtime/desktop PNGs; preserve separate native template menu marks and application/data identities.
 - Replace macOS menu-bar caret/pill drawings with supplied template face states at native 1x/2x sizes.
+- Replace the separate inline accessory template artwork with the supplied face and anchor it to the actual caret before field bounds, with a tighter two-point above-left gap and unchanged screen-edge refusal.
 - Accept the typed zero-length macOS marked-text sentinel without admitting negative selection/mutation offsets; expose content-free GUI-owned capture-stage diagnostics for prediction failure diagnosis.
 - Add a nonactivating, service-free native Settings layout capture mode for visual inspection; keep the full macOS desktop smoke CI-only.
 - Add a build-free authenticated Windows installer artifact-reuse diagnostic lane, keeping original package source separate from probe checkout and preserving full canonical gates. Retain compact native-context/registry-presence evidence; do not relax the blocked per-user ARP ownership gate.

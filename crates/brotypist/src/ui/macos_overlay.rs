@@ -303,6 +303,18 @@ fn visible(panel: &PassivePanel) -> bool {
 fn cached(identity: &Value, previous: Option<&(Value, String)>, shown: bool) -> bool {
     previous.is_some_and(|(old, text)| old == identity && !text.is_empty() && shown)
 }
+fn accessory_frame(caret: Rect, top: f64, w: f64, h: f64, visible: NSRect) -> Option<NSRect> {
+    // Stay just above-left of the known caret line, never on its text. Prefer
+    // the caret itself, not the potentially distant left edge of a wide field.
+    let y = top - caret[1] + 2.;
+    let frame = rect([caret[0] - w - 2., y, w, h]);
+    let safe = NSRect::new(
+        NSPoint::new(visible.origin.x + 4., visible.origin.y + 4.),
+        NSSize::new(visible.size.width - 8., visible.size.height - 8.),
+    );
+    // Do not clamp or flip onto the caret, another line, or an adjacent screen.
+    contains_rect(safe, frame).then_some(frame)
+}
 fn position(mtm: MainThreadMarker, r: Rect, w: f64, h: f64, accessory: bool) -> Option<NSRect> {
     let screens = NSScreen::screens(mtm);
     let first = screens.firstObject()?;
@@ -313,27 +325,20 @@ fn position(mtm: MainThreadMarker, r: Rect, w: f64, h: f64, accessory: bool) -> 
         .find(|s| contains_point(s.frame(), r[0], bottom))
         .unwrap_or(first);
     let v = screen.visibleFrame();
+    if accessory {
+        return accessory_frame(r, top, w, h, v);
+    }
     let minx = v.origin.x;
     let maxx = minx + v.size.width;
     let miny = v.origin.y;
     let maxy = miny + v.size.height;
-    let mut x = if accessory { r[0] - w - 6. } else { r[0] };
-    let mut y = if accessory {
-        top - r[1] + 6.
-    } else {
-        bottom - h - 6.
-    };
-    if accessory {
-        if x < minx + 4. || x + w > maxx - 4. || y < miny + 4. || y + h > maxy - 4. {
-            return None;
-        }
-    } else {
-        if bottom - miny < h + 40. {
-            y = bottom + r[3] + 6.;
-        }
-        x = x.max(minx + 8.).min(maxx - w - 8.);
-        y = y.max(miny + 8.).min(maxy - h - 8.);
+    let mut x = r[0];
+    let mut y = bottom - h - 6.;
+    if bottom - miny < h + 40. {
+        y = bottom + r[3] + 6.;
     }
+    x = x.max(minx + 8.).min(maxx - w - 8.);
+    y = y.max(miny + 8.).min(maxy - h - 8.);
     Some(rect([x, y, w, h]))
 }
 fn contains_point(r: NSRect, x: f64, y: f64) -> bool {
@@ -352,6 +357,8 @@ fn contains_rect(outer: NSRect, inner: NSRect) -> bool {
 }
 
 fn accessory_image(mtm: MainThreadMarker) -> Result<Retained<NSImage>> {
+    // Rasterized from assets/menubar/menubar-active.svg at 1x/2x with AppKit;
+    // preserve the supplied face and its 18×16-point template canvas.
     let image = NSImage::initWithSize(NSImage::alloc(), NSSize::new(18., 16.));
     for bytes in [
         include_bytes!("../../assets/active-template-18.png").as_slice(),
@@ -518,12 +525,7 @@ impl OverlayOwner {
         self.button.setToolTip(Some(&NSString::from_str(tip)));
     }
     fn place_accessory(&mut self) {
-        let anchor = self.docs.or_else(|| {
-            self.field.or(self.caret).map(|field| {
-                let line = self.caret.unwrap_or(field);
-                [field[0], line[1], field[2], line[3]]
-            })
-        });
+        let anchor = self.docs.or(self.caret).or(self.field);
         if self.show_accessory {
             if let Some(frame) = anchor.and_then(|r| position(self.mtm, r, 24., 24., true)) {
                 self.accessory.setFrame_display(frame, true);
@@ -1073,6 +1075,33 @@ impl Drop for OverlayOwner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn accessory_stays_two_points_above_the_caret_line() {
+        let screen = rect([0., 0., 800., 600.]);
+        let frame = accessory_frame([300., 200., 1., 18.], 600., 24., 24., screen).unwrap();
+        assert_eq!(frame, rect([274., 402., 24., 24.]));
+    }
+    #[test]
+    fn accessory_refuses_screen_edges_instead_of_covering_text() {
+        let screen = rect([0., 0., 800., 600.]);
+        let place = |caret| accessory_frame(caret, 600., 24., 24., screen);
+        assert_eq!(place([30., 30., 0., 18.]), Some(rect([4., 572., 24., 24.])));
+        assert!(place([29.9, 30., 0., 18.]).is_none());
+        assert!(place([30., 29.9, 0., 18.]).is_none());
+        assert!(place([798.1, 200., 0., 18.]).is_none());
+        assert!(place([300., 598.1, 0., 1.]).is_none());
+        // Negative-origin secondary screens use the same exact visible-frame gate.
+        assert_eq!(
+            accessory_frame(
+                [-600., 200., 1., 18.],
+                600.,
+                24.,
+                24.,
+                rect([-800., 0., 800., 600.]),
+            ),
+            Some(rect([-626., 402., 24., 24.]))
+        );
+    }
     #[test]
     fn whole_word_clipping() {
         let measure = |s: &str| s.chars().count() as f64;
