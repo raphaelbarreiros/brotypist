@@ -486,6 +486,89 @@ fn layout_geometry(
         }))
     }
 }
+fn layout_native_status(
+    app: &AnyObject,
+    expected: &str,
+    size_case: &str,
+    phase: &str,
+) -> Result<Value> {
+    let owned = window(app, "inklow.settings")?;
+    let root = content(&owned)?;
+    let id = "inklow.setup.nativeStatus";
+    let label = find(&root, id)?;
+    let observed = native_text(&label);
+    ensure!(
+        observed == expected,
+        "Setup native status did not render runtime native_status.message after {phase}: {observed:?}"
+    );
+    unsafe {
+        let _: () = msg_send![&*root, layoutSubtreeIfNeeded];
+        let hidden: bool = msg_send![&*label, isHiddenOrHasHiddenAncestor];
+        let alpha: f64 = msg_send![&*label, alphaValue];
+        let bounds: NSRect = msg_send![&*label, bounds];
+        ensure!(
+            !hidden && alpha > 0. && bounds.size.width > 0. && bounds.size.height > 0.,
+            "Setup native status label is hidden or empty after {phase}"
+        );
+        // Rasterize the actual owned NSTextField, not a separately drawn string.
+        // Its corner supplies the background reference, supporting both transparent
+        // and opaque AppKit cache representations without counting a flat fill as ink.
+        let bitmap: *mut AnyObject =
+            msg_send![&*label,bitmapImageRepForCachingDisplayInRect:bounds];
+        ensure!(!bitmap.is_null(), "Setup native status has no bitmap");
+        let _: () = msg_send![&*label,cacheDisplayInRect:bounds,toBitmapImageRep:bitmap];
+        let width: isize = msg_send![bitmap, pixelsWide];
+        let height: isize = msg_send![bitmap, pixelsHigh];
+        ensure!(
+            (1..=4096).contains(&width) && (1..=4096).contains(&height),
+            "Setup native status bitmap has invalid dimensions"
+        );
+        let corner: *mut AnyObject = msg_send![bitmap,colorAtX:0isize,y:0isize];
+        ensure!(
+            !corner.is_null(),
+            "Setup native status bitmap has no background"
+        );
+        let background_alpha: f64 = msg_send![corner, alphaComponent];
+        let background_red: f64 = msg_send![corner, redComponent];
+        let background_green: f64 = msg_send![corner, greenComponent];
+        let background_blue: f64 = msg_send![corner, blueComponent];
+        let mut ink_pixels = 0usize;
+        for y in 0..height {
+            for x in 0..width {
+                let color: *mut AnyObject = msg_send![bitmap,colorAtX:x,y:y];
+                ensure!(!color.is_null(), "Setup native status bitmap has no pixel");
+                let alpha: f64 = msg_send![color, alphaComponent];
+                if alpha <= 0.05 {
+                    continue;
+                }
+                let red: f64 = msg_send![color, redComponent];
+                let green: f64 = msg_send![color, greenComponent];
+                let blue: f64 = msg_send![color, blueComponent];
+                if background_alpha <= 0.05
+                    || (red - background_red)
+                        .abs()
+                        .max((green - background_green).abs())
+                        .max((blue - background_blue).abs())
+                        > 0.1
+                {
+                    ink_pixels += 1;
+                }
+            }
+        }
+        ensure!(
+            ink_pixels >= 20,
+            "Setup native status string has no visible native label ink after {phase}"
+        );
+        Ok(json!({
+            "id":id,"size_case":size_case,"phase":phase,"passed":true,
+            "string_value":observed,"bounds":layout_rect(bounds),
+            "pixel_width":width,"pixel_height":height,"ink_pixels":ink_pixels,
+            "capture":"Actual owned NSTextField stringValue and NSView bitmap; no label mutation or replacement drawing",
+            "ink_measurement":"Alpha > 0.05 with transparent corner, otherwise RGB contrast > 0.1 from corner"
+        }))
+    }
+}
+
 fn layout_draft_resize(
     settings: &mut Settings,
     app: &AnyObject,
@@ -686,10 +769,12 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
         screenshot_appearance: false,
         ..Config::default()
     };
+    let native_status_message = "Native input: native_available. Keyboard: ready. Last ordinary field capture: attributed_text_unverified.";
     let status = json!({
         "state":"paused", "model_name":"Gemma 4 E2B", "current_app":"",
         "message":"This field does not expose verified same-line rendering; ordinary completion is silent.",
-        "paused_remaining":0, "permissions":{}
+        "paused_remaining":0, "permissions":{},
+        "native_status":{"message":native_status_message}
     });
     let menus = Menus::new(&kit);
     menus.refresh(&kit, &config, &status, &json!({}), None);
@@ -729,6 +814,7 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
     let mut captures = Vec::new();
     let mut geometry = Vec::new();
     let mut draft_retention = Value::Null;
+    let mut native_status_rendering = Vec::new();
     let result = (|| -> Result<()> {
         // Keep all twelve baseline panes, then exercise the same representative
         // forms at both size extremes. Geometry comes from alignment_report's
@@ -791,6 +877,14 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
             for pane in panes {
                 settings.prepare(pane, &config, &status, &json!([]), &json!({}))?;
                 geometry.push(layout_geometry(&settings, &app, pane, suffix, "prepared")?);
+                if *pane == "setup" {
+                    native_status_rendering.push(layout_native_status(
+                        &app,
+                        native_status_message,
+                        suffix,
+                        "prepared",
+                    )?);
+                }
                 let owned = window(&app, "inklow.settings")?;
                 unsafe {
                     let _: () = msg_send![&*owned,setContentSize:NSSize::new(width,height)];
@@ -798,6 +892,14 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
                 }
                 settings.reflow();
                 geometry.push(layout_geometry(&settings, &app, pane, suffix, "resized")?);
+                if *pane == "setup" {
+                    native_status_rendering.push(layout_native_status(
+                        &app,
+                        native_status_message,
+                        suffix,
+                        "resized",
+                    )?);
+                }
                 captures.push(screenshot(
                     &app,
                     "inklow.settings",
@@ -888,6 +990,7 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
         "menu":menu_items,"screenshots":captures,"geometry":geometry,
         "menu_glyphs":menu_glyphs.as_ref().ok(),
         "draft_retention":draft_retention,
+        "native_status_rendering":native_status_rendering,
         "error":result.as_ref().err().or_else(||menu_glyphs.as_ref().err()).map(|error|format!("{error:#}"))
     });
     write_new(

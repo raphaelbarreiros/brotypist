@@ -2071,7 +2071,12 @@ impl Settings {
             }
         }
         self.refresh_setup(c, status, inventory);
-        self.set_live("nativeStatus", text(status, "native_status"));
+        self.set_live(
+            "nativeStatus",
+            status["native_status"]["message"]
+                .as_str()
+                .unwrap_or_else(|| text(status, "native_status")),
+        );
         self.set_live(
             "contextStatus",
             &format!(
