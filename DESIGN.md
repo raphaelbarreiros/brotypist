@@ -6,15 +6,17 @@ Visual direction and interaction examples. Units are points (pt). "Light / Dark"
 
 ## 1. Identity
 
-### App icon
-- macOS squircle (use the system icon mask via Icon Composer).
-- **Background:** vertical gradient from `#30343D` (top) to `#16181D` (bottom), with a 1 px inner stroke of white at 8% opacity.
-- **Caret (I-beam):** white. On a 100-unit grid: stem `x 24, y 27, w 6, h 46, r 3`; top serif `x 19, y 27, w 16, h 4, r 2`; bottom serif `x 19, y 69, w 16, h 4, r 2`.
-- **Ghost words:** two pills in mint `#5BD1A5`, vertically centered. Pill 1 is `x 40, y 46, w 22, h 8, r 4` at 75% opacity; pill 2 is `x 66, y 46, w 14, h 8, r 4` at 35% opacity.
-- **Dark variant:** background `#0E0F12`, inner stroke white at 12%, caret `#E9E9EC`, mint at 85% and 40%.
-- **Tinted variant:** the system tints the background; caret and pills are white (pills at 70% and 35%).
-- **Small sizes:** at 32 pt and below, drop the serifs and merge the two pills into one solid mint pill (see `design/icons/app-icon-small.svg`).
-- **Meaning:** a cursor, then the words that come next. Don't add sparkles, robots or gradients beyond this one.
+### App icon (Typing Buddy; 100-unit grid, exported at 1024)
+- A face made only of type parts: the open eye is a text cursor, the other eye winks, and the mint smile represents the prediction. No mascot body, emoji details or sparkles.
+- **Background:** vertical gradient from `#30343D` (top) to `#16181D` (bottom).
+- **Cursor eye (white):** stem `x31 y28 w7 h26 r3.5`; top serif `x26 y28 w17 h4 r2`; bottom serif `x26 y50 w17 h4 r2`.
+- **Wink eye (white):** `x60 y36 w12 h7 r3.5`.
+- **Smile (mint `#5BD1A5`):** quadratic path `M28 65 Q50 82 72 65`, stroke 7, round caps.
+- **Dark variant:** background `#0E0F12`, eyes `#E9E9EC`, smile mint.
+- **Tinted variant:** white foreground from `app-icon-foreground.svg`, with the smile at 75% opacity and a neutral background for system tinting.
+- **Small sizes:** at 64 pt and below, use heavier, serif-free artwork. `app-icon-32.svg` uses eye `x28 y22 w12 h34 r6`, wink `x58 y33 w17 h12 r6`, and smile `M24 66 Q50 88 76 66`, stroke 12; `app-icon-16.svg` supplies the smallest variant.
+- **Canonical adaptive project:** `design/icons/BroTypist.icon` retains the existing macOS Icon Composer schema, non-glass layers, and default/dark/tinted specializations. Its background is full-bleed and unrounded; the system supplies the icon mask, avoiding a second rounded tile. Do not bake the flat-export border or squircle into Composer layers. No newer runtime API is required; the macOS 15.0 compatibility target remains unchanged.
+- **Authoritative flat exports:** `app-icon.svg`, `app-icon-dark.svg`, `app-icon-foreground.svg`, `app-icon-32.svg`, and `app-icon-16.svg` are imported directly from the supplied handoff. The flat default/dark tiles retain their supplied white inner strokes (8%/12%); they are not Composer background layers.
 
 ### Wordmark
 - "Bro" in SF Pro Display Bold, followed by "Typist" in SF Pro Display Semibold set in the ghost color. Tracking −2.5%.

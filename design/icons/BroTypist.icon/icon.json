@@ -4,55 +4,55 @@
   },
   "groups": [
     {
-      "name": "Ghost Caret",
+      "name": "Typing Buddy",
       "layers": [
         {
-          "name": "Suggestions",
+          "name": "Smile",
           "image-name-specializations": [
             {
-              "value": "suggestions.svg"
+              "value": "smile.svg"
             },
             {
               "appearance": "dark",
-              "value": "suggestions-dark.svg"
+              "value": "smile-dark.svg"
             },
             {
               "appearance": "tinted",
-              "value": "suggestions-tinted.svg"
+              "value": "smile-tinted.svg"
             }
           ],
           "glass": false
         },
         {
-          "name": "Caret",
+          "name": "Eyes",
           "image-name-specializations": [
             {
-              "value": "caret.svg"
+              "value": "eyes.svg"
             },
             {
               "appearance": "dark",
-              "value": "caret-dark.svg"
+              "value": "eyes-dark.svg"
             },
             {
               "appearance": "tinted",
-              "value": "caret-tinted.svg"
+              "value": "eyes-tinted.svg"
             }
           ],
           "glass": false
         },
         {
-          "name": "Enclosure",
+          "name": "Background",
           "image-name-specializations": [
             {
-              "value": "enclosure.svg"
+              "value": "background.svg"
             },
             {
               "appearance": "dark",
-              "value": "enclosure-dark.svg"
+              "value": "background-dark.svg"
             },
             {
               "appearance": "tinted",
-              "value": "enclosure-tinted.svg"
+              "value": "background-tinted.svg"
             }
           ],
           "glass": false
