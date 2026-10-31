@@ -1,0 +1,22 @@
+{
+  "schema": "brotypist-macos-ghost-placement-install/1",
+  "source_commit": "d1dc04518e657d505926b52019fc151549626080",
+  "original_designated_requirement_preserved": true,
+  "candidate_installed_inventory_matches": true,
+  "strict_codesign_verified": true,
+  "graceful_quit_locked_backup_atomic_swap": true,
+  "settings_history_unchanged": true,
+  "startup_eight_seconds_no_exit": true,
+  "actual_gui_renderer_and_runtime_exports_verified": true,
+  "diagnostic_file_modes": "0600",
+  "initial_renderer_observed": false,
+  "initial_runtime_observed": false,
+  "live_whatsapp_after_install_verified": false,
+  "selected_model_changed": false,
+  "collection_or_paint_safety_relaxed": false,
+  "workspace_tests": 421,
+  "nested_child_invocations": 2,
+  "actual_owned_ghost_cases_passed": 32,
+  "too_narrow_inline_ready_cases_refused": 32,
+  "all_extra_window_padding_transparent": true
+}
