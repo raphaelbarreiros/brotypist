@@ -1,0 +1,160 @@
+{
+  "elapsed_ms": 5700,
+  "observations": [
+    {
+      "acceleration": "cpu",
+      "check": "isolation_and_verified_cache",
+      "model_bytes": 101016128,
+      "model_sha256": "e3131339bf4e8065265593d4fd8f7bb7ff2d3abff1edb5618aa1197b89cad9f5",
+      "passed": true,
+      "prompt_style": "continuation",
+      "raw_authored_text_persisted": false,
+      "sampler": "actual production sampler; deterministic initial seed and seed evolution, not greedy",
+      "worker_stderr": "canonical private worker intentionally suppresses diagnostics; public CLI stderr sanitized separately",
+      "worker_transport": "canonical WorkerClient: bounded JSON pipes, owned supervisor and child cleanup"
+    },
+    {
+      "check": "explicit_proceed_barrier",
+      "loading_observed": true,
+      "passed": true,
+      "request": 1,
+      "withheld_ms": 400
+    },
+    {
+      "check": "worker_writing",
+      "consumer_acceptance": true,
+      "done_observed": true,
+      "factual_quality_claim": false,
+      "final_observed": true,
+      "guided_healing_exercised": false,
+      "passed": true,
+      "request": 1,
+      "result_frames": 5,
+      "semantic_contract": "exact visible acceptance preserves typed prefix/suffix and scalar caret; stale-document acceptance refused",
+      "suffix_preserved": false,
+      "unicode_scalars": 23,
+      "utf8_bytes": 23
+    },
+    {
+      "check": "explicit_proceed_barrier",
+      "loading_observed": false,
+      "passed": true,
+      "request": 2,
+      "withheld_ms": 400
+    },
+    {
+      "check": "worker_suffix",
+      "consumer_acceptance": true,
+      "done_observed": true,
+      "factual_quality_claim": false,
+      "final_observed": true,
+      "guided_healing_exercised": false,
+      "passed": true,
+      "request": 2,
+      "result_frames": 5,
+      "semantic_contract": "exact visible acceptance preserves typed prefix/suffix and scalar caret; stale-document acceptance refused",
+      "suffix_preserved": true,
+      "unicode_scalars": 22,
+      "utf8_bytes": 22
+    },
+    {
+      "boundary": "ready-before-proceed; cancellation revokes authorization, not a claim of mid-token interruption",
+      "cancelled_request": 3,
+      "check": "cancellation_acknowledged",
+      "passed": true,
+      "status": {
+        "active_id": null,
+        "awaiting_proceed": false,
+        "epoch": 1,
+        "evaluating": false,
+        "initializing": false,
+        "latest_id": 4,
+        "lifecycle": "ready",
+        "loading_detail": "",
+        "message": "Ready.",
+        "model_loaded": true,
+        "owner_finished": false,
+        "release_complete": false,
+        "release_generation": 0,
+        "release_pending": false,
+        "released_generation": 0,
+        "released_through": 0,
+        "state": "ready",
+        "terminating": false,
+        "worker_pid": 4180
+      }
+    },
+    {
+      "check": "release_acknowledged",
+      "passed": true,
+      "status": {
+        "active_id": null,
+        "awaiting_proceed": false,
+        "epoch": 2,
+        "evaluating": false,
+        "initializing": false,
+        "latest_id": 5,
+        "lifecycle": "idle",
+        "loading_detail": "",
+        "message": "Model released.",
+        "model_loaded": false,
+        "owner_finished": false,
+        "release_complete": true,
+        "release_generation": 1,
+        "release_pending": false,
+        "released_generation": 1,
+        "released_through": 4,
+        "state": "idle",
+        "terminating": false,
+        "worker_pid": null
+      }
+    },
+    {
+      "check": "reload_before_shutdown",
+      "passed": true,
+      "request": 6
+    },
+    {
+      "check": "worker_shutdown_acknowledged",
+      "failure": null,
+      "passed": true,
+      "status": {
+        "active_id": null,
+        "awaiting_proceed": false,
+        "epoch": 4,
+        "evaluating": false,
+        "initializing": false,
+        "latest_id": 6,
+        "lifecycle": "stopped",
+        "loading_detail": "",
+        "message": "Inference has stopped.",
+        "model_loaded": false,
+        "owner_finished": true,
+        "release_complete": true,
+        "release_generation": 1,
+        "release_pending": false,
+        "released_generation": 1,
+        "released_through": 6,
+        "state": "stopped",
+        "terminating": false,
+        "worker_pid": null
+      }
+    },
+    {
+      "check": "public_cli_complete",
+      "exit_code": 0,
+      "factual_quality_claim": false,
+      "passed": true,
+      "same_consumer_fences": true,
+      "semantic_contract": "exact visible acceptance preserves typed prefix/suffix and scalar caret; stale-document acceptance refused",
+      "stderr_bytes": 0,
+      "unicode_scalars": 23,
+      "utf8_bytes": 23
+    }
+  ],
+  "passed": true,
+  "preset": "tiny",
+  "schema": 1,
+  "scope": "real native inference, worker authorization/cancellation/lifecycle, public complete CLI; no desktop permissions or installed application",
+  "tool": "worker_smoke"
+}

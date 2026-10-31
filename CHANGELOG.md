@@ -36,6 +36,7 @@
 - Prepare permitted application compatibility accessibility before requiring its focused window, fixing a discovery-order dependency while retaining foreground/security/policy checks and strict window/field ownership validation.
 - Add a nonactivating, service-free native Settings layout capture mode for visual inspection; keep the full macOS desktop smoke CI-only.
 - Add a build-free authenticated Windows installer artifact-reuse diagnostic lane, keeping original package source separate from probe checkout and preserving full canonical gates. Retain compact native-context/registry-presence evidence; do not relax the blocked per-user ARP ownership gate.
+- Exercise real Tiny inference and visible Settings/Quit from the relocated canonical Windows ZIP independently of MSI registration; retain worker proof even when the separate strict MSI ownership gate fails.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
 
 ## 0.4.13 — macOS Electron safety fixes

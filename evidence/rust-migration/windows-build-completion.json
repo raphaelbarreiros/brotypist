@@ -1,0 +1,58 @@
+{
+  "schema": "brotypist-windows-build-completion/1",
+  "version": "0.4.13",
+  "runtime": "rust",
+  "architecture": "x86_64",
+  "ci_run": 41236356500,
+  "ci_url": "https://github.com/renan-brasilio/brotypist/actions/runs/41236356500",
+  "branch_head": "1fbe9ac9c32bb4631abbccc990ee744f4dbfe53f",
+  "package_source": "1e105adcba63b79637a67bc5175e1061a536e4e7",
+  "source_parents": [
+    "6eaeed5fe56e1ea8dcf878b1b7498f922c26fd59",
+    "1fbe9ac9c32bb4631abbccc990ee744f4dbfe53f"
+  ],
+  "clean_pinned_source": true,
+  "payload_files": 389,
+  "portable_zip": {
+    "sha256": "616e45175f8291810f341d98bcfe80c6563aabe40649016bc5b7c151446bf684",
+    "size": 12886187
+  },
+  "held_msi": {
+    "sha256": "41e34a7fed6caf7c90a768e4cac75f544811939fc3cf8a247696a87d2c365242",
+    "size": 20036349,
+    "status": "blocked; not offered for installation"
+  },
+  "native_workspace_tests": 278,
+  "nested_child_invocations": 2,
+  "owned_ui_checks": 14,
+  "portable_runtime_passed": true,
+  "portable_relocated_real_tiny_inference_passed": true,
+  "portable_native_settings_quit_passed": true,
+  "data_sentinels_and_autostart_unchanged": true,
+  "all_zip_members_hash_verified": true,
+  "github_artifacts": [
+    {
+      "digest": "sha256:f08ab563257d60d1a812ec3a9890e9b3c06f05632d1aecdd40bc0d9cbe54dd0b",
+      "expired": false,
+      "id": 13056264117,
+      "name": "installer-packages-windows-x86_64-not-published",
+      "size_in_bytes": 26486308,
+      "independently_verified_archive_digest": true
+    },
+    {
+      "digest": "sha256:32aefa697be94d5c3d033912cb3cb98c94cbb34d5ca9d7ee8213b73351a8e3d7",
+      "expired": false,
+      "id": 13055809987,
+      "name": "native-evidence-windows-x86_64",
+      "size_in_bytes": 365467,
+      "independently_verified_archive_digest": true
+    }
+  ],
+  "signing": "unsigned",
+  "release_published": false,
+  "installer_passed": false,
+  "blocker": "exclusive per-user unmanaged MSI context 2/State 5/AssignmentType 0, but machine ARP64 registration created; strict ownership assertion retained",
+  "external_app_typing_verified": false,
+  "prior_version_upgrade_verified": false,
+  "transaction_rollback_verified": false
+}

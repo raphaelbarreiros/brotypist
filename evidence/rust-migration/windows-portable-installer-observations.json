@@ -1,0 +1,187 @@
+{
+  "failure": "Windows installer smoke failed; inspect observations and redacted diagnostics",
+  "full_installer_matrix_passed": false,
+  "interactive_typing_verified": false,
+  "observations": {
+    "diagnostics": [
+      "Machine ARP registration exists",
+      "BroTypist 0.4.13\n",
+      "",
+      "{\n  \"acceleration\": \"cpu\",\n  \"backend\": \"gguf\",\n  \"global_enabled\": false,\n  \"idle_release_seconds\": 300,\n  \"model_file_exists\": false,\n  \"native\": {\n    \"domain_observable\": false,\n    \"hook_diagnostic\": \"\",\n    \"hook_running\": false,\n    \"message\": \"Windows UI Automation ready. Native Edit and writable UIA TextPattern/TextEdit providers only. Password, read-only, disabled, composing and higher-integrity targets are excluded. Inline requires verified UIA glyph/font and GDI metrics. Browser domains are not observable; domain-denied browsers fail closed. Windows publication and native compatibility verification remain held.\",\n    \"native_edit\": true,\n    \"platform\": \"windows\",\n    \"publication\": \"held\",\n    \"shortcut_claim_timeout_ms\": 500,\n    \"stopped\": false,\n    \"uia_existing_selection_only\": true\n  },\n  \"platform\": \"windows\",\n  \"runtime\": \"Rust\",\n  \"settings\": \"D:\\\\a\\\\_temp\\\\brotypist-installer-308a51ed6dd14160bc12182f30d9ce72\\\\profile\\\\settings.json\",\n  \"shell\": \"Win32\",\n  \"version\": \"0.4.13\"\n}\n",
+      "",
+      "Worker and public CLI smoke passed; receipt: <private-path>\\portable-tiny-worker\\worker-smoke.json\n",
+      "",
+      ": 1: 1707 \r\nMSI (s) (F4:F8) [20:17:39:048]: Note: 1: 2205 2:  3: Error \r\nMSI (s) (F4:F8) [20:17:39:048]: Note: 1: 2228 2:  3: Error 4: SELECT `Message` FROM `Error` WHERE `Error` = 1707 \r\nMSI (s) (F4:F8) [20:17:39:048]: Note: 1: 2205 2:  3: Error \r\nMSI (s) (F4:F8) [20:17:39:048]: Note: 1: 2228 2:  3: Error 4: SELECT `Message` FROM `Error` WHERE `Error` = 1709 \r\nMSI (s) (F4:F8) [20:17:39:048]: Product: BroTypist -- Installation completed successfully.\r\n\r\nMSI (s) (F4:F8) [20:17:39:048]: Windows Installer installed the product. Product Name: BroTypist. Product Version: 0.4.13. Product Language: 1033. Manufacturer: BroTypist. Installation success or error status: 0.\r\n\r\nMSI (s) (F4:F8) [20:17:39:086]: Deferring clean up of packages/files, if any exist\r\nMSI (s) (F4:F8) [20:17:39:086]: MainEngineThread is returning 0\r\nMSI (s) (F4:24) [20:17:39:088]: RESTART MANAGER: Session closed.\r\nMSI (s) (F4:24) [20:17:39:088]: No System Restore sequence number for this installation.\r\n=== Logging stopped: 10/31/2026  20:17:39 ===\r\nMSI (s) (F4:24) [20:17:39:093]: User policy value 'DisableRollback' is 0\r\nMSI (s) (F4:24) [20:17:39:093]: Machine policy value 'DisableRollback' is 0\r\nMSI (s) (F4:24) [20:17:39:093]: Incrementing counter to disable shutdown. Counter after increment: 0\r\nMSI (s) (F4:24) [20:17:39:093]: Note: 1: 1402 2: HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Installer\\Rollback\\Scripts 3: 2 \r\nMSI (s) (F4:24) [20:17:39:102]: Note: 1: 2265 2:  3: -2147287035 \r\nMSI (s) (F4:24) [20:17:39:102]: Note: 1: 1402 2: HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Installer\\Rollback\\Scripts 3: 2 \r\nMSI (s) (F4:24) [20:17:39:102]: Decrementing counter to disable shutdown. If counter >= 0, shutdown will be denied.  Counter after decrement: -1\r\nMSI (c) (C0:64) [20:17:39:104]: Decrementing counter to disable shutdown. If counter >= 0, shutdown will be denied.  Counter after decrement: -1\r\nMSI (c) (C0:64) [20:17:39:104]: MainEngineThread is returning 0\r\n=== Verbose logging stopped: 10/31/2026  20:17:39 ===\r\n\r\n"
+    ],
+    "full_installer_matrix_passed": false,
+    "observations": [
+      {
+        "check": "isolation_and_family_preflight",
+        "evidence": {
+          "disposable_hosted_ci": true,
+          "install_directory": "%LOCALAPPDATA%\\Programs\\BroTypist",
+          "installer_family": "{5CE4B9DD-FD8B-5FAA-AFBE-9BD3B68A916A}",
+          "manually_authored_hklm_changes": false,
+          "preexisting_install": false,
+          "signing": "unsigned"
+        },
+        "passed": true
+      },
+      {
+        "check": "relocated_portable_cli_doctor",
+        "evidence": {
+          "input_hook_running": false,
+          "paused": true,
+          "private_profile": true,
+          "shell": "Win32",
+          "version": "0.4.13"
+        },
+        "passed": true
+      },
+      {
+        "check": "portable_zip_exact_relocation",
+        "evidence": {
+          "exact_manifest": true,
+          "original_build_dll_path_removed": true,
+          "source_location_absent": true
+        },
+        "passed": true
+      },
+      {
+        "check": "portable_tiny_worker",
+        "evidence": {
+          "canonical_worker_receipt": "portable-tiny-worker/worker-smoke.json",
+          "model_verified_by_canonical_smoke": true,
+          "passed": true,
+          "preset": "tiny"
+        },
+        "passed": true
+      },
+      {
+        "check": "portable_native_settings_quit",
+        "evidence": {
+          "action": "BM_CLICK on visible owned native Quit BUTTON",
+          "child_process_ids": [],
+          "control_id": 13,
+          "exit_code": 0,
+          "owned_children_exited": true,
+          "process_id": 4568,
+          "visible": true,
+          "window_class": "BroTypist.Settings",
+          "worker_observation": "paused GUI created no observable worker process; GUI controller exited cleanly"
+        },
+        "passed": true
+      },
+      {
+        "authored_downgrade_message_observed": false,
+        "check": "fresh_install",
+        "exit_code": 0,
+        "passed": true,
+        "reboot_required": false
+      },
+      {
+        "check": "native_per_user_context",
+        "evidence": {
+          "assignment_type": "0",
+          "contexts": [
+            {
+              "context": 2,
+              "state": "5"
+            }
+          ],
+          "machine_arp_32_present": false,
+          "machine_arp_present": true
+        },
+        "passed": true
+      },
+      {
+        "authored_downgrade_message_observed": false,
+        "check": "uninstall_transaction",
+        "exit_code": 0,
+        "passed": true,
+        "reboot_required": false
+      },
+      {
+        "check": "uninstall",
+        "evidence": {
+          "all_owned_product_contexts_absent": true,
+          "installer_family_absent": true,
+          "payload_absent": true,
+          "shortcut_absent": true
+        },
+        "passed": true
+      },
+      {
+        "check": "synthetic_profile_model_history_settings_unchanged",
+        "evidence": {
+          "sha256": [
+            {
+              "file": "settings.json",
+              "sha256": "e0b4a0b01a9ef6bb8a77c18b8207fcf1f24b6cac29a5178674a9c44a8d373e35"
+            },
+            {
+              "file": "synthetic.gguf",
+              "sha256": "25ebf52a790bbfb2e6711e6bb5675bd655032feb21ca17a2c0d496af8871cd3b"
+            },
+            {
+              "file": "history.enc",
+              "sha256": "40e5df5ffd1254257200baddaa3213dca148c494f24a577d844f0889d961b667"
+            },
+            {
+              "file": "preserve-user-data.txt",
+              "sha256": "9dc5b871ecf554021887238fa772e0ff392ddbcab5dfdf5eba1d5026ebe4a684"
+            }
+          ],
+          "unchanged_at_final_check": true,
+          "uninstall_observed": true
+        },
+        "passed": true
+      }
+    ],
+    "passed": false,
+    "physical_typing_verified": false,
+    "portable_runtime_passed": true,
+    "publication": "held; no Windows OTA/publication proof",
+    "required_gates": {
+      "rollback": {
+        "reason": "no genuine rollback-failure fixture supplied",
+        "status": "not_exercised"
+      },
+      "upgrade": {
+        "reason": "no genuine prior canonical package supplied",
+        "status": "not_exercised"
+      }
+    },
+    "schema": 1,
+    "signing": "unsigned",
+    "tool": "windows-core-installer-smoke"
+  },
+  "package_sha256": "4f0de62a37b135833f77b62ccf1b2df138d71fff1f61e1f5d421c3c844575df0",
+  "passed": false,
+  "pe_native_dll_closure": {
+    "development_bundle": false,
+    "method": "canonical bundle x86_64 PE and dumpbin dependency audit plus exact portable ZIP content; installed MSI payload is asserted separately by the native lifecycle probe",
+    "passed": true,
+    "portable_zip_exact_content": true
+  },
+  "portable_runtime_passed": true,
+  "publication": "held; Windows publication and OTA remain disabled",
+  "required_gates": {
+    "rollback": {
+      "reason": "no genuine rollback-failure fixture supplied",
+      "status": "not_exercised"
+    },
+    "upgrade": {
+      "reason": "no genuine prior canonical package supplied",
+      "status": "not_exercised"
+    }
+  },
+  "runtime": "rust",
+  "schema": 1,
+  "scope": "fresh per-user MSI install, repair, relocated portable ZIP, installed CLI/doctor, visible native Quit, uninstall and synthetic-data continuity; not a complete production installer matrix",
+  "signing": "unsigned",
+  "source_commit": "1e105adcba63b79637a67bc5175e1061a536e4e7",
+  "stage": "native_per_user_installer_lifecycle",
+  "tool": "windows-core-installer-smoke",
+  "version": "0.4.13"
+}
