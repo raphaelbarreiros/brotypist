@@ -1,0 +1,17 @@
+{
+  "schema": "brotypist-gui-status-install/1",
+  "source_commit": "387d2e687d1b6cc3d3762dc95def0bf9b4ff0a24",
+  "signature": "identity-signed",
+  "installed_inventory_matches_candidate": true,
+  "original_requirement_preserved": true,
+  "graceful_quit_locked_backup_atomic_swap": true,
+  "settings_history_unchanged_after_startup": true,
+  "eight_second_startup_no_exit": true,
+  "workspace_tests": 399,
+  "nested_child_invocations": 2,
+  "real_setup_label_readback_and_ink_proved": true,
+  "fixture_status_is_synthetic_not_whatsapp": true,
+  "user_reports_discord_predictions_work": true,
+  "whatsapp_prediction_still_unresolved": true,
+  "permissions_changed": false
+}
