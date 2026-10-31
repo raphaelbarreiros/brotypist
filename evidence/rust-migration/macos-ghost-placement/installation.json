@@ -18,5 +18,12 @@
   "nested_child_invocations": 2,
   "actual_owned_ghost_cases_passed": 32,
   "too_narrow_inline_ready_cases_refused": 32,
-  "all_extra_window_padding_transparent": true
+  "all_extra_window_padding_transparent": true,
+  "subsequent_user_acceptance": {
+    "source": "current user conversation",
+    "statement": "Works now",
+    "scope": "WhatsApp prediction visibility on this installed signed macOS candidate",
+    "new_automated_external_host_capture": false,
+    "semantic_model_quality_or_prior_context_failure_certified": false
+  }
 }

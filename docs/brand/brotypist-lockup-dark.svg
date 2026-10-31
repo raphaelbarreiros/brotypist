@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="500" height="112" viewBox="0 0 500 112" role="img" aria-labelledby="title desc">
+  <title id="title">BroTypist</title>
+  <desc id="desc">The original dark Typing Buddy face beside Bro in light ink and Typist in ghost grey.</desc>
+  <!-- Icon artwork from design/icons/app-icon-dark.svg, unchanged; README lockup only. -->
+  <svg x="16" y="16" width="80" height="80" viewBox="0 0 100 100">
+    <rect x="2" y="2" width="96" height="96" rx="22" fill="#0E0F12"/>
+    <rect x="2.5" y="2.5" width="95" height="95" rx="21.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.12"/>
+    <rect x="31" y="28" width="7" height="26" rx="3.5" fill="#E9E9EC"/>
+    <rect x="26" y="28" width="17" height="4" rx="2" fill="#E9E9EC"/>
+    <rect x="26" y="50" width="17" height="4" rx="2" fill="#E9E9EC"/>
+    <rect x="60" y="36" width="12" height="7" rx="3.5" fill="#E9E9EC"/>
+    <path d="M28 65 Q50 82 72 65" fill="none" stroke="#5BD1A5" stroke-width="7" stroke-linecap="round"/>
+  </svg>
+  <text x="112" y="83" font-family="SF Pro Display, -apple-system, BlinkMacSystemFont, Helvetica Neue, Arial, sans-serif" font-size="80" letter-spacing="-2"><tspan fill="#F2F2F3" font-weight="700">Bro</tspan><tspan fill="#6E717A" font-weight="600">Typist</tspan></text>
+</svg>

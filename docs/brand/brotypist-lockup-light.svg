@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="500" height="112" viewBox="0 0 500 112" role="img" aria-labelledby="title desc">
+  <title id="title">BroTypist</title>
+  <desc id="desc">The original Typing Buddy face beside Bro in dark ink and Typist in ghost grey.</desc>
+  <!-- Icon artwork from design/icons/app-icon.svg, unchanged; README lockup only. -->
+  <svg x="16" y="16" width="80" height="80" viewBox="0 0 100 100">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#30343D"/><stop offset="1" stop-color="#16181D"/></linearGradient></defs>
+    <rect x="2" y="2" width="96" height="96" rx="22" fill="url(#g)"/>
+    <rect x="2.5" y="2.5" width="95" height="95" rx="21.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.08"/>
+    <rect x="31" y="28" width="7" height="26" rx="3.5" fill="#FFFFFF"/>
+    <rect x="26" y="28" width="17" height="4" rx="2" fill="#FFFFFF"/>
+    <rect x="26" y="50" width="17" height="4" rx="2" fill="#FFFFFF"/>
+    <rect x="60" y="36" width="12" height="7" rx="3.5" fill="#FFFFFF"/>
+    <path d="M28 65 Q50 82 72 65" fill="none" stroke="#5BD1A5" stroke-width="7" stroke-linecap="round"/>
+  </svg>
+  <text x="112" y="83" font-family="SF Pro Display, -apple-system, BlinkMacSystemFont, Helvetica Neue, Arial, sans-serif" font-size="80" letter-spacing="-2"><tspan fill="#15171C" font-weight="700">Bro</tspan><tspan fill="#A7A9AF" font-weight="600">Typist</tspan></text>
+</svg>

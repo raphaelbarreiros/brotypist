@@ -43,6 +43,7 @@
 - Extend the explicitly requested WhatsApp diagnostic with content-free runtime scheduling/context-attachment/presentation counters; remove draft-value reads from native shape diagnostics.
 - Correct native ghost-window allocation for AppKit logical-point origin rounding, preserving exact glyph origin/baseline and explicitly clipping all paint to the original verified footprint. Exercise actual GhostSurface pixels across system/named fonts and fractional caret positions.
 - Record fixed native renderer rejection reasons and submission-time context collector/attachment outcomes in explicitly requested, content-free WhatsApp diagnostics; preserve collection budgets, consent and paint-safety refusals.
+- Improve the main README with theme-aware Typing Buddy branding, an actual native Settings capture, practical usage/install guidance and explicit platform, privacy and model-quality boundaries.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
 
 ## 0.4.13 — macOS Electron safety fixes
