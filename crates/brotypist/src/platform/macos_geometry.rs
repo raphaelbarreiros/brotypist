@@ -578,9 +578,10 @@ fn inline<B: Backend>(
     rect: Option<Rect>,
     field_rect: Option<Rect>,
     browser: bool,
+    diagnostic: &mut &'static str,
 ) -> (Option<InlineRender>, Option<AppearanceEvidence>) {
     inline_checked(
-        backend, field, secure, text, at, location, rect, field_rect, browser,
+        backend, field, secure, text, at, location, rect, field_rect, browser, diagnostic,
     )
     .unwrap_or((None, None))
 }
@@ -594,12 +595,17 @@ fn inline_checked<B: Backend>(
     rect: Option<Rect>,
     field_rect: Option<Rect>,
     browser: bool,
+    diagnostic: &mut &'static str,
 ) -> Option<(Option<InlineRender>, Option<AppearanceEvidence>)> {
+    *diagnostic = "caret_geometry_unverified";
     let rect = valid_rect(rect?, false)?;
+    *diagnostic = "field_geometry_unverified";
     let field_rect = valid_rect(field_rect?, false)?;
+    *diagnostic = "caret_utf16_unverified";
     if at == 0 || text.index().scalar_to_utf16(ScalarIndex(at))?.0 != location {
         return None;
     }
+    *diagnostic = "caret_row_text_unverified";
     let before = text.slice(0, at)?.rsplit(['\r', '\n']).next()?;
     let after = text
         .slice(at, text.scalar_len().checked_sub(at)?)?
@@ -618,6 +624,7 @@ fn inline_checked<B: Backend>(
         return None;
     }
     let suffix_units = after.encode_utf16().count();
+    *diagnostic = "visible_range_unverified";
     if let Some(shown) = backend.visible(field) {
         let shown = shown.ok()?;
         if (shown.location != 0 || shown.length != 0)
@@ -628,6 +635,7 @@ fn inline_checked<B: Backend>(
             return None;
         }
     }
+    *diagnostic = "caret_clipping_unverified";
     let clip = visible_clip(backend, field, secure, field_rect)?;
     if rect[0] < clip[0]
         || rect[0] + 1.0 > clip[0] + clip[2]
@@ -636,6 +644,7 @@ fn inline_checked<B: Backend>(
     {
         return None;
     }
+    *diagnostic = "same_line_glyph_bounds_unverified";
     let mut whole;
     loop {
         let base = location.checked_sub(span.encode_utf16().count())?;
@@ -668,6 +677,7 @@ fn inline_checked<B: Backend>(
     let caret_offset = span.encode_utf16().count();
     let base = location.checked_sub(caret_offset)?;
     let expected_units = caret_offset.checked_add(suffix_units)?;
+    *diagnostic = "attributed_text_unverified";
     let attributed = backend.attributed(
         field,
         AxRange {
@@ -684,6 +694,7 @@ fn inline_checked<B: Backend>(
         return None;
     }
     let expected_index = TextIndex::new(&expected);
+    *diagnostic = "typography_run_unverified";
     let mut run_start = 0;
     let mut run_end = expected_units;
     let mut descriptor = None;
@@ -743,6 +754,7 @@ fn inline_checked<B: Backend>(
         .and_then(|d| d.dictionary("AXFontFamily"))
         .and_then(|v| v.string())
         .unwrap_or_default();
+    *diagnostic = "font_descriptor_unverified";
     if name.is_empty() && family.is_empty() {
         return Some((
             if after.is_empty() {
@@ -753,6 +765,7 @@ fn inline_checked<B: Backend>(
             None,
         ));
     }
+    *diagnostic = "same_line_font_samples_unverified";
     let size = descriptor.as_ref()?.dictionary("AXFontSize")?.number()?;
     if !size.is_finite() || !(1.0..=300.0).contains(&size) {
         return None;
@@ -823,9 +836,11 @@ fn inline_checked<B: Backend>(
     } else {
         0.75
     };
+    *diagnostic = "font_identity_unverified";
     let Some((mut font, system, weight)) = font_candidate(backend, &name, &family, size) else {
         return Some((None, Some(evidence)));
     };
+    *diagnostic = "font_advances_unverified";
     let Some(scale) = calibrate(
         backend,
         &font,
@@ -838,6 +853,7 @@ fn inline_checked<B: Backend>(
     ) else {
         return Some((None, Some(evidence)));
     };
+    *diagnostic = "scaled_font_unverified";
     let effective = size * scale;
     if scale != 1.0 {
         let original_name = backend.font_name(&font);
@@ -858,6 +874,7 @@ fn inline_checked<B: Backend>(
         }
         font = scaled;
     }
+    *diagnostic = "font_baseline_unverified";
     let (ascent, descent) = backend.metrics(&font);
     let (top, height) = (whole[1], whole[3]);
     let mut baselines = Vec::with_capacity(2);
@@ -888,6 +905,7 @@ fn inline_checked<B: Backend>(
     } else {
         *baselines.last()?
     };
+    *diagnostic = "inline_render_invalid";
     let mut render = InlineRender {
         font_name: backend.font_name(&font),
         font_size: effective,
@@ -903,6 +921,7 @@ fn inline_checked<B: Backend>(
     if !render.valid(Some(rect)) {
         return Some((None, Some(evidence)));
     }
+    *diagnostic = "suffix_typography_unverified";
     if after.is_empty() {
         return Some((Some(render), None));
     }
@@ -1153,6 +1172,7 @@ pub fn inline_metrics(
     caret_rect: Option<Rect>,
     field_rect: Option<Rect>,
     browser: bool,
+    diagnostic: &mut &'static str,
 ) -> (Option<InlineRender>, Option<AppearanceEvidence>) {
     inline(
         &Native::new(),
@@ -1164,6 +1184,7 @@ pub fn inline_metrics(
         caret_rect,
         field_rect,
         browser,
+        diagnostic,
     )
 }
 
@@ -1381,6 +1402,7 @@ mod tests {
                 Some(rect),
                 Some([0.0, 0.0, 400.0, 200.0]),
                 browser,
+                &mut "not_observed",
             )
         }
     }
