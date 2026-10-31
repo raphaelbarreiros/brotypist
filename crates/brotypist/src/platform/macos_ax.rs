@@ -99,6 +99,7 @@ pub mod ffi {
         pub fn CGEventTapEnable(tap: Native, enabled: bool);
         pub fn CGEventCreateCopy(event: Native) -> Native;
         pub fn CGEventGetIntegerValueField(event: Native, field: u32) -> i64;
+        pub fn CGEventGetLocation(event: Native) -> super::Point;
         pub fn CGEventSetIntegerValueField(event: Native, field: u32, value: i64);
         pub fn CGEventGetFlags(event: Native) -> u64;
         pub fn CGEventSetFlags(event: Native, flags: u64);

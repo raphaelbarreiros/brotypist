@@ -817,6 +817,209 @@ struct Download {
     thread: JoinHandle<()>,
     receiver: Receiver<Value>,
 }
+const WHATSAPP_APP_ID: &str = "net.whatsapp.WhatsApp";
+
+#[derive(Clone, Copy, Default, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum DiagnosticMode {
+    #[default]
+    None,
+    Completion,
+    Alternatives,
+    Synonyms,
+    Emoji,
+    Correction,
+    Unknown,
+}
+impl DiagnosticMode {
+    fn from_mode(mode: &str) -> Self {
+        match mode {
+            "completion" => Self::Completion,
+            "alternatives" => Self::Alternatives,
+            "synonyms" => Self::Synonyms,
+            "emoji" => Self::Emoji,
+            "correction" => Self::Correction,
+            _ => Self::Unknown,
+        }
+    }
+}
+#[derive(Clone, Copy, Default, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum DiagnosticStage {
+    #[default]
+    Unobserved,
+    Captured,
+    Scheduled,
+    PreparationQueued,
+    Prepared,
+    Submitted,
+    Ready,
+    Proceeded,
+    Result,
+    Offered,
+    Presented,
+    PresentationRejected,
+    Cleared,
+    Revoked,
+    SubmissionError,
+    WorkerError,
+}
+#[derive(Clone, Copy, Default, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum DiagnosticRevocation {
+    #[default]
+    None,
+    Epoch,
+    UserRevision,
+    CaptureUnavailable,
+    SnapshotIdentity,
+    Geometry,
+}
+#[derive(Clone, Copy, Default, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum DiagnosticWorkerState {
+    #[default]
+    Unknown,
+    Idle,
+    Loading,
+    AwaitingProceed,
+    Evaluating,
+    Ready,
+    Error,
+    Terminating,
+    Stopped,
+}
+#[derive(Default, serde::Serialize)]
+struct DiagnosticWorker {
+    state: DiagnosticWorkerState,
+    worker_pid: Option<u64>,
+    model_loaded: Option<bool>,
+    initializing: Option<bool>,
+    awaiting_proceed: Option<bool>,
+    evaluating: Option<bool>,
+    terminating: Option<bool>,
+    release_complete: Option<bool>,
+}
+impl DiagnosticWorker {
+    fn from_status(status: &Value) -> Self {
+        Self {
+            state: match status
+                .get("lifecycle")
+                .or_else(|| status.get("state"))
+                .and_then(Value::as_str)
+            {
+                Some("idle") => DiagnosticWorkerState::Idle,
+                Some("loading") => DiagnosticWorkerState::Loading,
+                Some("awaiting_proceed") => DiagnosticWorkerState::AwaitingProceed,
+                Some("evaluating") => DiagnosticWorkerState::Evaluating,
+                Some("ready") => DiagnosticWorkerState::Ready,
+                Some("error") => DiagnosticWorkerState::Error,
+                Some("terminating") => DiagnosticWorkerState::Terminating,
+                Some("stopped") => DiagnosticWorkerState::Stopped,
+                _ => DiagnosticWorkerState::Unknown,
+            },
+            worker_pid: status.get("worker_pid").and_then(Value::as_u64),
+            model_loaded: status.get("model_loaded").and_then(Value::as_bool),
+            initializing: status.get("initializing").and_then(Value::as_bool),
+            awaiting_proceed: status.get("awaiting_proceed").and_then(Value::as_bool),
+            evaluating: status.get("evaluating").and_then(Value::as_bool),
+            terminating: status.get("terminating").and_then(Value::as_bool),
+            release_complete: status.get("release_complete").and_then(Value::as_bool),
+        }
+    }
+}
+#[derive(Default, serde::Serialize)]
+struct WhatsAppCounters {
+    captures: u64,
+    inline_safe_captures: u64,
+    scheduled: u64,
+    preparation_queued: u64,
+    prepared: u64,
+    submitted: u64,
+    ready: u64,
+    proceeded: u64,
+    results: u64,
+    offered: u64,
+    presentation_acks: u64,
+    rendered_acks: u64,
+    rejected_acks: u64,
+    clears: u64,
+    cancellation_calls: u64,
+    inflight_cancellations: u64,
+    revoked_epochs: u64,
+    revoked_native_evidence: u64,
+    stale_worker_events: u64,
+    submission_errors: u64,
+    worker_errors: u64,
+}
+#[derive(Default, serde::Serialize)]
+struct DiagnosticLease {
+    present: bool,
+    mode: DiagnosticMode,
+    id: u64,
+    epoch_current: bool,
+    user_revision_current: bool,
+    snapshot_current: bool,
+    authority_current: bool,
+}
+#[derive(Default, serde::Serialize)]
+struct WhatsAppRuntimeState {
+    foreground_whatsapp: bool,
+    active: bool,
+    native_ready: bool,
+    secure_input_clear: bool,
+    app_allowed: bool,
+    on_battery: bool,
+    battery_on_demand: bool,
+    candidate_present: bool,
+    inline_safe: bool,
+    prefix_meets_minimum: bool,
+    on_demand_only: bool,
+    selection_present: bool,
+    has_anchor: bool,
+    screen_context_enabled: bool,
+    screenshot_context_enabled: bool,
+    clipboard_context_enabled: bool,
+    context_read_ready: bool,
+    field_paused: bool,
+    pending_edit: bool,
+    attempted_completion: bool,
+    debounce_elapsed: bool,
+    inside_text_allowed: bool,
+    typo_filtering: bool,
+    preparing: DiagnosticLease,
+    preparation_native_pending: bool,
+    request: DiagnosticLease,
+    request_proceeded: bool,
+    request_pending_text: bool,
+    request_final: bool,
+    request_reference_expired: bool,
+    suggestion_present: bool,
+    choice_mode: DiagnosticMode,
+    choice_count: usize,
+    claim_count: usize,
+}
+#[derive(Default, serde::Serialize)]
+struct WhatsAppRuntimeDiagnostic {
+    observed: bool,
+    last_stage: DiagnosticStage,
+    last_revocation: DiagnosticRevocation,
+    last_schedule_eligible: Option<bool>,
+    last_spelling_pending: bool,
+    last_spelling_suspected: Option<bool>,
+    last_context_attached: Option<bool>,
+    last_request_id: Option<u64>,
+    last_screen_ticket_available: Option<bool>,
+    last_authorization_ticket_available: Option<bool>,
+    last_submission_mode: DiagnosticMode,
+    last_ack_mode: DiagnosticMode,
+    last_ack_visible: bool,
+    last_ack_current: bool,
+    last_ack_accepted: bool,
+    counters: WhatsAppCounters,
+    state: WhatsAppRuntimeState,
+    worker: DiagnosticWorker,
+}
 
 /// UI handle is intentionally !Send. Native bridge construction, poll and edits
 /// remain on their toolkit owner thread. send never captures or evaluates text.
@@ -873,6 +1076,13 @@ impl Controller {
     }
     pub fn status(&self) -> Value {
         self.engine.borrow().status()
+    }
+    /// Explicit, content-free export from the actual GUI controller owner.
+    pub fn export_whatsapp_diagnostic(&self) -> Result<()> {
+        self.engine
+            .try_borrow_mut()
+            .map_err(|_| anyhow!("Controller is busy."))?
+            .export_whatsapp_diagnostic()
     }
     pub fn config(&self) -> Config {
         self.engine.borrow().config.clone()
@@ -1003,6 +1213,7 @@ pub struct Engine {
     shortcuts_suspended: bool,
     stopping: bool,
     done: BTreeSet<&'static str>,
+    whatsapp_diagnostic: WhatsAppRuntimeDiagnostic,
 }
 impl Engine {
     #[allow(clippy::too_many_arguments)]
@@ -1236,6 +1447,7 @@ impl Engine {
             shortcuts_suspended: false,
             stopping: false,
             done: BTreeSet::new(),
+            whatsapp_diagnostic: WhatsAppRuntimeDiagnostic::default(),
         };
         if recording_configured(&engine.config) {
             let result = locked(&engine.storage).unlock();
@@ -1289,6 +1501,242 @@ impl Engine {
     }
     fn now(&self) -> Instant {
         self.clock.now()
+    }
+    fn whatsapp_relevant(&self) -> bool {
+        self.app == WHATSAPP_APP_ID
+            || self
+                .candidate
+                .as_ref()
+                .is_some_and(|s| s.app_id == WHATSAPP_APP_ID)
+            || self
+                .preparing
+                .as_ref()
+                .is_some_and(|p| p.lease.snapshot.app_id == WHATSAPP_APP_ID)
+            || self
+                .request
+                .as_ref()
+                .is_some_and(|r| r.lease.snapshot.app_id == WHATSAPP_APP_ID)
+            || self
+                .suggestion
+                .snapshot
+                .as_ref()
+                .is_some_and(|s| s.app_id == WHATSAPP_APP_ID)
+            || self
+                .choices
+                .as_ref()
+                .is_some_and(|c| c.snapshot.app_id == WHATSAPP_APP_ID)
+            || self
+                .correction
+                .as_ref()
+                .is_some_and(|(s, _)| s.app_id == WHATSAPP_APP_ID)
+            || self
+                .pending_edit
+                .as_ref()
+                .is_some_and(|p| p.before.app_id == WHATSAPP_APP_ID)
+    }
+    fn whatsapp_stage(&mut self, stage: DiagnosticStage) {
+        if !self.whatsapp_relevant() {
+            return;
+        }
+        let diagnostic = &mut self.whatsapp_diagnostic;
+        diagnostic.observed = true;
+        let counters = &mut diagnostic.counters;
+        let count = match stage {
+            DiagnosticStage::Captured => Some(&mut counters.captures),
+            DiagnosticStage::Scheduled => Some(&mut counters.scheduled),
+            DiagnosticStage::PreparationQueued => Some(&mut counters.preparation_queued),
+            DiagnosticStage::Prepared => Some(&mut counters.prepared),
+            DiagnosticStage::Submitted => Some(&mut counters.submitted),
+            DiagnosticStage::Ready => Some(&mut counters.ready),
+            DiagnosticStage::Proceeded => Some(&mut counters.proceeded),
+            DiagnosticStage::Result => Some(&mut counters.results),
+            DiagnosticStage::Offered => Some(&mut counters.offered),
+            DiagnosticStage::Presented => Some(&mut counters.rendered_acks),
+            DiagnosticStage::PresentationRejected => Some(&mut counters.rejected_acks),
+            DiagnosticStage::Cleared => Some(&mut counters.clears),
+            DiagnosticStage::SubmissionError => Some(&mut counters.submission_errors),
+            DiagnosticStage::WorkerError => Some(&mut counters.worker_errors),
+            _ => None,
+        };
+        if let Some(count) = count {
+            *count = count.saturating_add(1);
+        }
+        // Routine captures must not obscure the last request/render boundary.
+        if !matches!(stage, DiagnosticStage::Captured) || counters.scheduled == 0 {
+            diagnostic.last_stage = stage;
+        }
+    }
+    fn whatsapp_worker(&mut self) {
+        if self.whatsapp_relevant() {
+            self.whatsapp_diagnostic.worker = DiagnosticWorker::from_status(&self.worker.status());
+        }
+    }
+    fn whatsapp_lease(&self, lease: &Lease, id: u64, mode: &str) -> DiagnosticLease {
+        DiagnosticLease {
+            present: true,
+            mode: DiagnosticMode::from_mode(mode),
+            id,
+            epoch_current: lease.epoch == self.current_epoch(),
+            user_revision_current: Some(lease.revision) == self.user_revision(),
+            snapshot_current: self
+                .candidate
+                .as_ref()
+                .is_some_and(|s| lease.snapshot.same_key(s)),
+            authority_current: self
+                .candidate
+                .as_ref()
+                .is_some_and(|s| lease.snapshot.same_authority(s)),
+        }
+    }
+    fn whatsapp_state(&mut self) {
+        if !self.whatsapp_relevant() && !self.whatsapp_diagnostic.state.foreground_whatsapp {
+            return;
+        }
+        let foreground = self.app == WHATSAPP_APP_ID;
+        if !foreground {
+            let state = &mut self.whatsapp_diagnostic.state;
+            state.foreground_whatsapp = false;
+            state.candidate_present = false;
+            state.preparing = DiagnosticLease::default();
+            state.request = DiagnosticLease::default();
+            state.preparation_native_pending = false;
+            state.request_proceeded = false;
+            state.request_pending_text = false;
+            state.request_final = false;
+            state.request_reference_expired = false;
+            state.suggestion_present = false;
+            state.choice_mode = DiagnosticMode::None;
+            state.choice_count = 0;
+            state.claim_count = 0;
+            return;
+        }
+        let candidate = self
+            .candidate
+            .as_ref()
+            .filter(|s| foreground && s.app_id == WHATSAPP_APP_ID);
+        let preparing = self
+            .preparing
+            .as_ref()
+            .filter(|p| p.lease.snapshot.app_id == WHATSAPP_APP_ID);
+        let request = self
+            .request
+            .as_ref()
+            .filter(|r| r.lease.snapshot.app_id == WHATSAPP_APP_ID);
+        let choices = self
+            .choices
+            .as_ref()
+            .filter(|c| c.snapshot.app_id == WHATSAPP_APP_ID);
+        let state = WhatsAppRuntimeState {
+            foreground_whatsapp: foreground,
+            active: self.active(),
+            native_ready: self.native_ready,
+            secure_input_clear: self.secure_input() == Some(false),
+            app_allowed: self.whatsapp_diagnostic.state.app_allowed,
+            on_battery: self.on_battery,
+            battery_on_demand: self.config.battery_on_demand,
+            candidate_present: candidate.is_some(),
+            inline_safe: candidate.is_some_and(Snapshot::inline_safe),
+            prefix_meets_minimum: candidate
+                .is_some_and(|s| s.eligible(self.config.min_chars as usize)),
+            on_demand_only: candidate.is_some_and(|s| s.on_demand_only),
+            selection_present: candidate.is_some_and(|s| s.selection_length != 0),
+            has_anchor: candidate.is_some_and(Snapshot::has_anchor),
+            field_paused: candidate.is_some_and(|s| self.field_paused(s)),
+            pending_edit: self
+                .pending_edit
+                .as_ref()
+                .is_some_and(|p| p.before.app_id == WHATSAPP_APP_ID),
+            attempted_completion: candidate.is_some_and(|s| {
+                self.attempted
+                    .as_ref()
+                    .is_some_and(|(key, authority, mode)| {
+                        mode == "completion" && key.matches(s) && authority_matches(authority, s)
+                    })
+            }),
+            debounce_elapsed: self.now().saturating_duration_since(self.candidate_since)
+                >= Duration::from_millis(self.config.debounce_ms.into()),
+            inside_text_allowed: candidate.is_some_and(|s| {
+                self.config.complete_inside_text || s.line_suffix().trim().is_empty()
+            }),
+            typo_filtering: self.config.typo_suppression || self.config.typo_fixes,
+            screen_context_enabled: self.config.screen_context,
+            screenshot_context_enabled: self.config.screenshot_context,
+            clipboard_context_enabled: self.config.clipboard_context,
+            context_read_ready: self.context_status == "ready",
+            preparing: preparing.map_or_else(DiagnosticLease::default, |p| {
+                self.whatsapp_lease(&p.lease, p.token, &p.mode)
+            }),
+            preparation_native_pending: preparing.is_some_and(|p| p.native_pending),
+            request: request.map_or_else(DiagnosticLease::default, |r| {
+                self.whatsapp_lease(&r.lease, r.id, &r.mode)
+            }),
+            request_proceeded: request.is_some_and(|r| r.proceeded),
+            request_pending_text: request.is_some_and(|r| r.pending_text.is_some()),
+            request_final: request.is_some_and(|r| r.final_),
+            request_reference_expired: request
+                .is_some_and(|r| r.reference_expires.is_some_and(|at| self.now() > at)),
+            suggestion_present: self
+                .suggestion
+                .snapshot
+                .as_ref()
+                .is_some_and(|s| s.app_id == WHATSAPP_APP_ID)
+                && !self.suggestion.text.is_empty(),
+            choice_mode: choices
+                .map_or(DiagnosticMode::None, |c| DiagnosticMode::from_mode(&c.mode)),
+            choice_count: choices.map_or(0, |c| c.values.len()),
+            claim_count: self
+                .claims
+                .iter()
+                .filter(|c| c.key.app_id == WHATSAPP_APP_ID)
+                .count(),
+        };
+        self.whatsapp_diagnostic.observed = true;
+        self.whatsapp_diagnostic.state = state;
+    }
+    fn whatsapp_revocation(&mut self, lease: &Lease, current: Option<&Snapshot>) {
+        if lease.snapshot.app_id != WHATSAPP_APP_ID {
+            return;
+        }
+        let reason = if lease.epoch != self.current_epoch() {
+            DiagnosticRevocation::Epoch
+        } else if Some(lease.revision) != self.user_revision() {
+            DiagnosticRevocation::UserRevision
+        } else if let Some(current) = current {
+            if !lease.snapshot.same_key(current) || !lease.snapshot.same_authority(current) {
+                DiagnosticRevocation::SnapshotIdentity
+            } else {
+                DiagnosticRevocation::Geometry
+            }
+        } else {
+            DiagnosticRevocation::CaptureUnavailable
+        };
+        self.whatsapp_diagnostic.last_revocation = reason;
+        self.whatsapp_diagnostic.last_stage = DiagnosticStage::Revoked;
+        let count = if matches!(reason, DiagnosticRevocation::Epoch) {
+            &mut self.whatsapp_diagnostic.counters.revoked_epochs
+        } else {
+            &mut self.whatsapp_diagnostic.counters.revoked_native_evidence
+        };
+        *count = count.saturating_add(1);
+    }
+    fn export_whatsapp_diagnostic(&mut self) -> Result<()> {
+        if self.app == WHATSAPP_APP_ID {
+            self.whatsapp_state();
+            self.whatsapp_worker();
+        }
+        #[derive(serde::Serialize)]
+        struct Export<'a> {
+            schema: &'static str,
+            version: &'static str,
+            app_id: &'static str,
+            runtime: &'a WhatsAppRuntimeDiagnostic,
+        }
+        system::export_whatsapp_runtime_diagnostic(&Export {
+            schema: "brotypist-whatsapp-runtime-diagnostic/1",
+            version: env!("CARGO_PKG_VERSION"),
+            app_id: WHATSAPP_APP_ID,
+            runtime: &self.whatsapp_diagnostic,
+        })
     }
     fn active(&self) -> bool {
         !self.stopping
@@ -1427,8 +1875,11 @@ impl Engine {
         {
             return None;
         }
-        self.allowed(&info.app_id, &info.domain, &info.executable)
-            .then_some(info)
+        let allowed = self.allowed(&info.app_id, &info.domain, &info.executable);
+        if info.app_id == WHATSAPP_APP_ID {
+            self.whatsapp_diagnostic.state.app_allowed = allowed;
+        }
+        allowed.then_some(info)
     }
     fn capture(&mut self) -> Option<Snapshot> {
         if !self.native_ready || !self.active() || self.secure_input() != Some(false) {
@@ -1468,6 +1919,13 @@ impl Engine {
             snapshot.inline_render = None;
         }
         self.candidate_revision = revision;
+        if snapshot.app_id == WHATSAPP_APP_ID {
+            self.whatsapp_stage(DiagnosticStage::Captured);
+            if snapshot.inline_safe() {
+                let count = &mut self.whatsapp_diagnostic.counters.inline_safe_captures;
+                *count = count.saturating_add(1);
+            }
+        }
         Some(snapshot)
     }
     fn disarm(&mut self) {
@@ -1482,9 +1940,23 @@ impl Engine {
         }
     }
     fn clear(&mut self, hide: bool, cancel: bool) {
+        let whatsapp = self.whatsapp_relevant();
+        if whatsapp {
+            self.whatsapp_stage(DiagnosticStage::Cleared);
+        }
+        if whatsapp && cancel {
+            let counters = &mut self.whatsapp_diagnostic.counters;
+            counters.cancellation_calls = counters.cancellation_calls.saturating_add(1);
+            if self.preparing.is_some() || self.request.is_some() {
+                counters.inflight_cancellations = counters.inflight_cancellations.saturating_add(1);
+            }
+        }
         self.bump_epoch();
         if cancel {
             let _ = self.worker.cancel();
+            if whatsapp {
+                self.whatsapp_worker();
+            }
         }
         self.preparer.cancel();
         self.preparing = None;
@@ -1514,6 +1986,21 @@ impl Engine {
             let _ = bridge.hide_native();
         }
         self.emit(json!({"type":"clear","hide_accessory":hide}));
+        if whatsapp {
+            self.whatsapp_state();
+        }
+    }
+    fn revoke_inflight(&mut self, hide: bool) {
+        let whatsapp = self.whatsapp_relevant();
+        self.clear(hide, true);
+        // Revoked native evidence is not a completed or dismissed attempt.
+        // A fresh eligible capture may start new work after the usual debounce.
+        self.attempted = None;
+        self.candidate_since = self.now();
+        if whatsapp {
+            self.whatsapp_diagnostic.last_stage = DiagnosticStage::Revoked;
+            self.whatsapp_state();
+        }
     }
     fn attempted(&self, s: &Snapshot, mode: &str) -> bool {
         self.attempted.as_ref().is_some_and(|(key, authority, m)| {
@@ -1557,6 +2044,27 @@ impl Engine {
             .as_ref()
             .is_some_and(|p| p.same_key(&snapshot) && p.same_authority(&snapshot))
         {
+            // A delayed native value/selection notification can revoke the
+            // epoch without changing this draft or its user-input revision.
+            // Retire that work before the same-key fast path; otherwise its
+            // later rejection leaves the attempted latch blocking this draft.
+            let epoch = self.current_epoch();
+            if self
+                .preparing
+                .as_ref()
+                .is_some_and(|p| p.lease.epoch != epoch)
+                || self
+                    .request
+                    .as_ref()
+                    .is_some_and(|request| request.lease.epoch != epoch)
+            {
+                if snapshot.app_id == WHATSAPP_APP_ID {
+                    self.whatsapp_diagnostic.last_revocation = DiagnosticRevocation::Epoch;
+                    let count = &mut self.whatsapp_diagnostic.counters.revoked_epochs;
+                    *count = count.saturating_add(1);
+                }
+                self.revoke_inflight(false);
+            }
             let changed = previous.as_ref().is_some_and(|p| p != &snapshot);
             self.candidate = Some(snapshot.clone());
             if changed
@@ -1676,6 +2184,7 @@ impl Engine {
             event["choices_mode"] = json!("alternatives");
         }
         self.emit(event);
+        self.whatsapp_stage(DiagnosticStage::Offered);
     }
     fn publish_choices(&mut self) {
         self.claims
@@ -1693,6 +2202,7 @@ impl Engine {
         }
         let event = self.presentation_event(&c.snapshot, &c.values[0], &c.mode, &c.values);
         self.emit(event);
+        self.whatsapp_stage(DiagnosticStage::Offered);
     }
     fn set_choices(
         &mut self,
@@ -1924,6 +2434,8 @@ impl Engine {
             config,
             native_pending: true,
         });
+        self.whatsapp_stage(DiagnosticStage::Scheduled);
+        self.whatsapp_state();
         true
     }
     fn advance_preparation(&mut self) {
@@ -1936,7 +2448,8 @@ impl Engine {
                 .as_ref()
                 .is_some_and(|s| p.lease.matches(s, self.current_epoch()) && s.has_anchor())
             {
-                self.clear(true, true);
+                self.whatsapp_revocation(&p.lease, current.as_ref());
+                self.revoke_inflight(true);
                 return;
             }
             let context_ticket = if (p.config.screen_context || p.config.screenshot_context)
@@ -1968,13 +2481,20 @@ impl Engine {
             } else {
                 None
             };
-            if !self
-                .capture()
+            let current = self.capture();
+            if !current
                 .as_ref()
                 .is_some_and(|s| p.lease.matches(s, self.current_epoch()))
             {
-                self.clear(true, true);
+                self.whatsapp_revocation(&p.lease, current.as_ref());
+                self.revoke_inflight(true);
                 return;
+            }
+            if p.lease.snapshot.app_id == WHATSAPP_APP_ID {
+                self.whatsapp_diagnostic.last_screen_ticket_available =
+                    Some(context_ticket.is_some());
+                self.whatsapp_diagnostic.last_authorization_ticket_available =
+                    Some(authorization_ticket.is_some());
             }
             p.native_pending = false;
             let mut hard_disabled_apps = BTreeSet::new();
@@ -2001,6 +2521,8 @@ impl Engine {
                 hard_disabled_apps,
             });
             self.preparing = Some(p);
+            self.whatsapp_stage(DiagnosticStage::PreparationQueued);
+            self.whatsapp_state();
         }
         for mut prepared in self.preparer.poll() {
             let Some(p) = self.preparing.take() else {
@@ -2010,13 +2532,15 @@ impl Engine {
                 self.preparing = Some(p);
                 continue;
             }
+            self.whatsapp_stage(DiagnosticStage::Prepared);
             let current = self.capture();
             if !current.as_ref().is_some_and(|s| {
                 p.lease.matches(s, self.current_epoch())
                     && s.has_anchor()
                     && (p.mode != "completion" || s.inline_safe())
             }) {
-                self.clear(true, true);
+                self.whatsapp_revocation(&p.lease, current.as_ref());
+                self.revoke_inflight(true);
                 continue;
             }
             let c = self.effective_config(&p.mode);
@@ -2042,6 +2566,13 @@ impl Engine {
                 &prepared.options,
             ) {
                 Ok(id) => {
+                    if s.app_id == WHATSAPP_APP_ID {
+                        self.whatsapp_diagnostic.last_context_attached =
+                            Some(!prepared.options.context.is_empty());
+                        self.whatsapp_diagnostic.last_request_id = Some(id);
+                        self.whatsapp_diagnostic.last_submission_mode =
+                            DiagnosticMode::from_mode(&p.mode);
+                    }
                     self.request = Some(Request {
                         id,
                         lease: p.lease,
@@ -2054,9 +2585,16 @@ impl Engine {
                         reference_expires: prepared.reference_expires,
                         provider_identity: c.provider_identity(),
                         prompt_style: c.prompt_style.clone(),
-                    })
+                    });
+                    self.whatsapp_stage(DiagnosticStage::Submitted);
+                    self.whatsapp_state();
+                    self.whatsapp_worker();
                 }
-                Err(_) => self.fail("Local inference submission"),
+                Err(_) => {
+                    self.whatsapp_stage(DiagnosticStage::SubmissionError);
+                    self.whatsapp_worker();
+                    self.fail("Local inference submission");
+                }
             }
         }
     }
@@ -2068,9 +2606,17 @@ impl Engine {
         }
         for event in events {
             let Some(mut request) = self.request.take() else {
+                if self.whatsapp_diagnostic.last_request_id == Some(event.id) {
+                    let count = &mut self.whatsapp_diagnostic.counters.stale_worker_events;
+                    *count = count.saturating_add(1);
+                }
                 continue;
             };
             if event.id != request.id {
+                if request.lease.snapshot.app_id == WHATSAPP_APP_ID {
+                    let count = &mut self.whatsapp_diagnostic.counters.stale_worker_events;
+                    *count = count.saturating_add(1);
+                }
                 self.request = Some(request);
                 continue;
             }
@@ -2080,12 +2626,15 @@ impl Engine {
                     .as_ref()
                     .is_some_and(|s| request.lease.matches(s, self.current_epoch()))
             {
-                self.clear(true, true);
+                self.whatsapp_revocation(&request.lease, current.as_ref());
+                self.revoke_inflight(true);
                 continue;
             }
             let current = current.expect("current lease");
             match event.kind.as_str() {
                 "ready" => {
+                    self.whatsapp_stage(DiagnosticStage::Ready);
+                    self.whatsapp_worker();
                     let effective = self.effective_config(&request.mode);
                     if request.reference_expires.is_some_and(|at| self.now() > at)
                         || effective.provider_identity() != request.provider_identity
@@ -2105,15 +2654,21 @@ impl Engine {
                         if self.worker.proceed(request.id).is_ok() {
                             request.proceeded = true;
                             self.request = Some(request);
+                            self.whatsapp_stage(DiagnosticStage::Proceeded);
+                            self.whatsapp_state();
+                            self.whatsapp_worker();
                         } else {
                             self.fail("Local inference authorization");
                             self.clear(false, true);
                         }
                     } else {
-                        self.clear(true, true);
+                        self.whatsapp_revocation(&request.lease, fresh.as_ref());
+                        self.revoke_inflight(true);
                     }
                 }
                 "result" if request.proceeded => {
+                    self.whatsapp_stage(DiagnosticStage::Result);
+                    self.whatsapp_worker();
                     if request.mode == "completion" {
                         request.pending_text = Some(if request.length == "word" {
                             features::current_word_only(current.prefix(), &event.text)
@@ -2147,6 +2702,8 @@ impl Engine {
                     }
                 }
                 "error" => {
+                    self.whatsapp_stage(DiagnosticStage::WorkerError);
+                    self.whatsapp_worker();
                     self.fail("Local inference");
                     self.clear(false, false);
                 }
@@ -2170,6 +2727,8 @@ impl Engine {
             return;
         };
         if !request.lease.matches(&s, self.current_epoch()) {
+            self.whatsapp_revocation(&request.lease, Some(&s));
+            self.revoke_inflight(true);
             return;
         }
         if request.mode != "completion" || request.pending_text.is_none() {
@@ -2190,7 +2749,8 @@ impl Engine {
                 if !fresh.as_ref().is_some_and(|current| {
                     request.lease.matches(current, self.current_epoch()) && current.inline_safe()
                 }) {
-                    self.clear(true, true);
+                    self.whatsapp_revocation(&request.lease, fresh.as_ref());
+                    self.revoke_inflight(true);
                     return;
                 }
                 let text = request.pending_text.take().expect("pending text");
@@ -2204,6 +2764,11 @@ impl Engine {
         }
     }
     fn schedule(&mut self, s: &Snapshot) {
+        if s.app_id == WHATSAPP_APP_ID {
+            self.whatsapp_diagnostic.last_schedule_eligible = Some(false);
+            self.whatsapp_diagnostic.last_spelling_pending = false;
+            self.whatsapp_diagnostic.last_spelling_suspected = None;
+        }
         if !self.active()
             || s.on_demand_only
             || self.field_paused(s)
@@ -2258,7 +2823,13 @@ impl Engine {
             }
         }
         if selected.is_empty() && self.typo_active(s) && s.eligible(1) {
-            match self.assess(s) {
+            let assessment = self.assess(s);
+            if s.app_id == WHATSAPP_APP_ID {
+                self.whatsapp_diagnostic.last_spelling_pending = assessment.is_none();
+                self.whatsapp_diagnostic.last_spelling_suspected =
+                    assessment.as_ref().map(|r| r.suspected);
+            }
+            match assessment {
                 None => eligible = false,
                 Some(result) if result.suspected => {
                     if !self.attempted(s, "correction") && self.show_correction(s, result) {
@@ -2288,6 +2859,9 @@ impl Engine {
         }
         if self.on_battery && self.config.battery_on_demand {
             eligible = false;
+        }
+        if s.app_id == WHATSAPP_APP_ID {
+            self.whatsapp_diagnostic.last_schedule_eligible = Some(eligible);
         }
         let delay = if mode == "synonyms" {
             self.config.synonyms_delay_ms
@@ -2445,6 +3019,25 @@ impl Engine {
                 }),
                 _ => false,
             };
+        if key.app_id == WHATSAPP_APP_ID {
+            let diagnostic = &mut self.whatsapp_diagnostic;
+            diagnostic.observed = true;
+            diagnostic.counters.presentation_acks =
+                diagnostic.counters.presentation_acks.saturating_add(1);
+            diagnostic.last_ack_mode = DiagnosticMode::from_mode(&mode);
+            diagnostic.last_ack_visible = !visible.is_empty();
+            diagnostic.last_ack_current = current;
+            diagnostic.last_ack_accepted = valid && self.native_ready && !self.shortcuts_suspended;
+            if diagnostic.last_ack_accepted {
+                diagnostic.last_stage = DiagnosticStage::Presented;
+                diagnostic.counters.rendered_acks =
+                    diagnostic.counters.rendered_acks.saturating_add(1);
+            } else {
+                diagnostic.last_stage = DiagnosticStage::PresentationRejected;
+                diagnostic.counters.rejected_acks =
+                    diagnostic.counters.rejected_acks.saturating_add(1);
+            }
+        }
         self.claims.retain(|c| c.mode != mode);
         if valid && self.native_ready && !self.shortcuts_suspended {
             self.claims.push(Arc::new(Claim {
@@ -2458,6 +3051,7 @@ impl Engine {
             }));
         }
         self.refresh_arming();
+        self.whatsapp_state();
     }
     fn accept(&mut self, action: &Action, supplied: Option<Arc<Claim>>) -> bool {
         let Some(current) = self.capture().filter(Snapshot::has_anchor) else {
@@ -3440,6 +4034,7 @@ impl Engine {
         }
         let _ = self.flush_records();
         self.refresh_arming();
+        self.whatsapp_state();
     }
     pub fn status(&self) -> Value {
         let mut status = self.worker.status();
@@ -4570,6 +5165,135 @@ mod tests {
         }
     }
     #[test]
+    fn whatsapp_runtime_diagnostic_is_content_free_and_retained_across_foreground_switches() {
+        let mut config = Config::default();
+        config.typo_suppression = false;
+        config.typo_fixes = false;
+        let mut h = harness(config, None);
+        h.offer(" synthetic ordinary proposal");
+        assert!(!h.engine.whatsapp_diagnostic.observed);
+        let mut snapshot = field("SYNTHETIC_PRIVATE_DRAFT");
+        snapshot.app_id = WHATSAPP_APP_ID.into();
+        snapshot.field_id = "SYNTHETIC_PRIVATE_FIELD".into();
+        snapshot.window_id = "SYNTHETIC_PRIVATE_WINDOW".into();
+        snapshot.window_revision = "SYNTHETIC_PRIVATE_DOCUMENT".into();
+        snapshot.domain = "synthetic-private.invalid".into();
+        h.native.borrow_mut().snapshot = Some(snapshot);
+        h.force();
+        let pending = h.preparation.borrow_mut().pending.take().unwrap();
+        h.preparation.borrow_mut().results.push(Prepared {
+            token: pending.token,
+            epoch: pending.epoch,
+            options: GenerationOptions {
+                context: "SYNTHETIC_PRIVATE_CONTEXT".into(),
+                ..Default::default()
+            },
+            context_status: "ready".into(),
+            warning: String::new(),
+            reference_expires: None,
+        });
+        h.engine.tick();
+        h.response("ready", "", false);
+        h.response("result", " SYNTHETIC_PRIVATE_PROPOSAL", true);
+        h.drawn("", "completion");
+        assert_eq!(h.engine.whatsapp_diagnostic.counters.rejected_acks, 1);
+        assert_eq!(h.engine.whatsapp_diagnostic.counters.rendered_acks, 0);
+        assert!(h.engine.claims.is_empty());
+        h.drawn(" SYNTHETIC_PRIVATE_PROPOSAL", "completion");
+        let diagnostic = &h.engine.whatsapp_diagnostic;
+        assert_eq!(diagnostic.last_context_attached, Some(true));
+        assert_eq!(diagnostic.counters.submitted, 1);
+        assert_eq!(diagnostic.counters.proceeded, 1);
+        assert_eq!(diagnostic.counters.rendered_acks, 1);
+        assert!(diagnostic.state.suggestion_present);
+        assert_eq!(diagnostic.state.claim_count, 1);
+        let captures = diagnostic.counters.captures;
+        let serialized = serde_json::to_string(diagnostic).unwrap();
+        for excluded in [
+            "SYNTHETIC_PRIVATE",
+            "synthetic-private.invalid",
+            "window_id",
+            "field_id",
+            "\"text\":",
+            "\"message\":",
+        ] {
+            assert!(!serialized.contains(excluded));
+        }
+        h.native.borrow_mut().snapshot = Some(field("SYNTHETIC_OTHER_APP_DRAFT"));
+        h.observe();
+        let diagnostic = &h.engine.whatsapp_diagnostic;
+        assert_eq!(diagnostic.counters.captures, captures);
+        assert_eq!(diagnostic.counters.submitted, 1);
+        assert_eq!(diagnostic.last_context_attached, Some(true));
+        assert!(!diagnostic.state.foreground_whatsapp);
+        assert!(!diagnostic.state.candidate_present);
+        assert!(!diagnostic.state.suggestion_present);
+        assert_eq!(diagnostic.state.claim_count, 0);
+        assert!(
+            !serde_json::to_string(diagnostic)
+                .unwrap()
+                .contains("SYNTHETIC_OTHER")
+        );
+    }
+
+    #[test]
+    fn whatsapp_runtime_diagnostic_distinguishes_attached_context_from_late_readiness_and_revocation()
+     {
+        let mut config = Config::default();
+        config.debounce_ms = 200;
+        config.typo_suppression = false;
+        config.typo_fixes = false;
+        let mut h = harness(config, None);
+        let mut snapshot = field("Synthetic draft");
+        snapshot.app_id = WHATSAPP_APP_ID.into();
+        h.native.borrow_mut().snapshot = Some(snapshot);
+        h.force();
+        h.prepared();
+        assert_eq!(
+            h.engine.whatsapp_diagnostic.last_context_attached,
+            Some(false)
+        );
+        h.engine.context_status = "ready".into();
+        h.engine.whatsapp_state();
+        assert!(h.engine.whatsapp_diagnostic.state.context_read_ready);
+        assert_eq!(
+            h.engine.whatsapp_diagnostic.last_context_attached,
+            Some(false)
+        );
+        let wake = h.native.borrow().wake.clone().unwrap();
+        wake();
+        h.observe();
+        assert_eq!(h.engine.whatsapp_diagnostic.counters.revoked_epochs, 1);
+        assert_eq!(h.engine.whatsapp_diagnostic.counters.submitted, 1);
+        assert_eq!(h.engine.whatsapp_diagnostic.counters.proceeded, 0);
+        assert!(!h.engine.whatsapp_diagnostic.state.request.present);
+        assert!(!h.engine.whatsapp_diagnostic.state.attempted_completion);
+        h.response("ready", "", false);
+        assert_eq!(h.engine.whatsapp_diagnostic.counters.stale_worker_events, 1);
+        assert!(h.worker.borrow().proceeds.is_empty());
+    }
+
+    #[test]
+    fn whatsapp_runtime_worker_diagnostic_never_copies_status_strings() {
+        let status = json!({
+            "state": "SYNTHETIC_PRIVATE_STATE",
+            "message": "SYNTHETIC_PRIVATE_ERROR",
+            "worker_pid": 42,
+            "model_loaded": true,
+            "initializing": false,
+            "terminating": false,
+            "context": "SYNTHETIC_PRIVATE_CONTEXT",
+        });
+        let diagnostic = serde_json::to_value(DiagnosticWorker::from_status(&status)).unwrap();
+        assert_eq!(diagnostic["state"], "unknown");
+        assert_eq!(diagnostic["worker_pid"], 42);
+        assert_eq!(diagnostic["model_loaded"], true);
+        assert!(!diagnostic.to_string().contains("SYNTHETIC_PRIVATE"));
+        assert!(diagnostic.get("message").is_none());
+        assert!(diagnostic.get("context").is_none());
+    }
+
+    #[test]
     fn ready_requires_fresh_native_authority_and_geometry_does_not_regenerate() {
         let mut h = harness(Config::default(), None);
         h.force();
@@ -4725,6 +5449,149 @@ mod tests {
         assert!(h.worker.borrow().submitted.is_empty());
         assert_eq!(h.worker.borrow().released, 1);
     }
+    #[test]
+    fn transient_inline_geometry_rejection_does_not_latch_the_unchanged_draft() {
+        for stage in 0..3 {
+            let mut config = Config::default();
+            config.debounce_ms = 200;
+            config.typo_suppression = false;
+            config.typo_fixes = false;
+            let mut h = harness(config, None);
+            h.force();
+            if stage >= 1 {
+                h.prepared();
+            }
+            if stage == 2 {
+                h.response("ready", "", false);
+            }
+            let original = h.native.borrow().snapshot.clone().unwrap();
+            {
+                let mut native = h.native.borrow_mut();
+                let snapshot = native.snapshot.as_mut().unwrap();
+                snapshot.native_inline = false;
+                snapshot.native_anchor.clear();
+                snapshot.inline_render = None;
+            }
+            match stage {
+                0 => h.prepared(),
+                1 => h.response("ready", "", false),
+                _ => h.response("result", " obsolete proposal", true),
+            }
+            assert!(h.engine.preparing.is_none());
+            assert!(h.engine.request.is_none());
+            assert!(h.engine.attempted.is_none());
+            assert!(h.engine.suggestion.text.is_empty());
+            assert!(h.engine.claims.is_empty());
+            h.native.borrow_mut().snapshot = Some(original);
+            h.observe();
+            h.elapse(201);
+            h.engine.tick();
+            h.engine.tick();
+            h.prepared();
+            h.response("ready", "", false);
+            h.response("result", " arrives", true);
+            assert_eq!(h.engine.suggestion.text, " arrives");
+            assert!(h.engine.claims.is_empty());
+            h.drawn(" arrives", "completion");
+            assert!(h.invoke_hook(Action::All));
+        }
+    }
+
+    #[test]
+    fn emoji_choice_zero_requires_visible_ack_and_preserves_exact_trigger_range() {
+        for trigger in [":sorriso", "<3"] {
+            for can_replace in [false, true] {
+                let mut config = Config::default();
+                config.emoji_enabled = true;
+                config.emoticons_enabled = true;
+                config.typo_suppression = false;
+                config.typo_fixes = false;
+                let mut h = harness(config, None);
+                let mut snapshot = field(&format!("Olá  {trigger}"));
+                snapshot.can_replace = can_replace;
+                h.native.borrow_mut().snapshot = Some(snapshot);
+                h.observe();
+                assert!(!h.invoke_hook(Action::Choice(0)));
+                assert!(h.native.borrow().edits.is_empty());
+                if !can_replace {
+                    assert!(h.engine.choices.is_none());
+                    assert!(
+                        h.engine
+                            .preparing
+                            .as_ref()
+                            .is_none_or(|p| p.mode != "emoji")
+                    );
+                    h.engine.command(Command::Action(Action::Choice(0)));
+                    h.engine.tick();
+                    assert!(h.native.borrow().edits.is_empty());
+                    assert!(h.worker.borrow().submitted.is_empty());
+                    continue;
+                }
+                let values = h.engine.choices.as_ref().unwrap().values.clone();
+                h.drawn(&values.join("\n"), "emoji");
+                assert!(h.invoke_hook(Action::Choice(0)));
+                h.engine.tick();
+                assert_eq!(
+                    h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+                    format!("Olá  {}", values[0])
+                );
+                assert_eq!(h.native.borrow().edits, vec![values[0].clone()]);
+                assert!(h.worker.borrow().submitted.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn same_draft_native_notification_restarts_only_revoked_inflight_work() {
+        for submitted in [false, true] {
+            let mut config = Config::default();
+            config.debounce_ms = 200;
+            config.typo_suppression = false;
+            config.typo_fixes = false;
+            let mut h = harness(config, None);
+            h.force();
+            if submitted {
+                h.prepared();
+            }
+            let retired_id = h.engine.request.as_ref().map(|request| request.id);
+            let revision = h.native.borrow().revision;
+            let cancelled = h.worker.borrow().cancelled;
+            // AX value/selection notifications also invalidate the epoch, but
+            // need not change either user input revision or the captured draft.
+            let wake = h.native.borrow().wake.clone().unwrap();
+            wake();
+            h.observe();
+            assert_eq!(h.native.borrow().revision, revision);
+            assert!(h.worker.borrow().cancelled > cancelled);
+            assert!(h.engine.preparing.is_none());
+            assert!(h.engine.request.is_none());
+            assert!(h.engine.attempted.is_none());
+            if let Some(id) = retired_id {
+                h.worker.borrow_mut().events.push(WorkerEvent {
+                    id,
+                    kind: "result".into(),
+                    text: " obsolete proposal".into(),
+                    final_: true,
+                    model_loaded: true,
+                    message: String::new(),
+                });
+                h.engine.tick();
+                assert!(h.engine.suggestion.text.is_empty());
+            }
+            h.elapse(201);
+            h.engine.tick();
+            h.engine.tick();
+            assert!(h.preparation.borrow().pending.is_some());
+            h.prepared();
+            h.response("ready", "", false);
+            h.response("result", " arrives", true);
+            assert_eq!(h.engine.suggestion.text, " arrives");
+            assert!(h.engine.claims.is_empty());
+            h.drawn(" arrives", "completion");
+            assert!(h.invoke_hook(Action::All));
+        }
+    }
+
     #[test]
     fn same_text_after_real_input_revokes_acceptance_but_passthrough_dismissal_keeps_actual_emoji_mode()
      {

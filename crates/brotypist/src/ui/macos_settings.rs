@@ -1324,7 +1324,7 @@ impl Settings {
     }
     fn emoji(&mut self, c: &Config) {
         self.section("Emoji Suggestions");
-        self.toggle(c,"emoji_enabled","Suggest emoji after typing a colon","At line start or after a space, type :sweat_smile in an eligible field. Choose a numbered result. macOS picker remains Control-Command-Space.");
+        self.toggle(c,"emoji_enabled","Suggest emoji after typing a colon","At line start or after a space, type :sweat_smile or :sorriso. Plain words do not trigger emoji. macOS picker remains Control-Command-Space.");
         self.toggle(c,"emoticons_enabled","Suggest emoji from emoticons","Offer emoji for :-) ;-) :( or <3. Accept explicitly; text is never silently rewritten.");
         self.section("Emoji Preferences");
         let labels = [
@@ -1365,7 +1365,7 @@ impl Settings {
                 ("Male", "male"),
             ],
         );
-        self.note("The numbered chooser accepts keys 1–9 or clicks without taking focus from your field. Emoji lookup is local and needs no inference worker.");
+        self.note("The numbered chooser accepts keys 1–9 or clicks without taking focus from your field. Local lookup needs no inference worker. Suggestions require verified text replacement; append-only Electron/Chromium fields cannot replace emoji shortcodes or emoticons.");
     }
     fn shortcuts(&mut self, c: &Config) {
         self.live_label("secureInput", "inklow.shortcuts.secureInput", "", 60.);

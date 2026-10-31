@@ -175,6 +175,7 @@ struct DelegateIvars {
     no_tray: Cell<bool>,
     suspend: RefCell<Option<Box<dyn Fn(bool)>>>,
     menu_notice: RefCell<Option<Box<dyn Fn(bool)>>>,
+    diagnostic_requested: Cell<bool>,
 }
 define_class!(
  #[unsafe(super=NSObject)] #[thread_kind=MainThreadOnly] #[ivars=DelegateIvars]
@@ -200,6 +201,7 @@ define_class!(
   #[unsafe(method(menuWillOpen:))] fn menu_open(&self,_menu:&AnyObject){let first={let mut queue=self.ivars().queue.borrow_mut();queue.tracking+=1;queue.tracking==1};if first{if let Some(suspend)=self.ivars().suspend.borrow().as_ref(){suspend(true);}if let Some(notice)=self.ivars().menu_notice.borrow().as_ref(){notice(true);}}}
   #[unsafe(method(menuDidClose:))] fn menu_close(&self,_menu:&AnyObject){let remaining={let mut q=self.ivars().queue.borrow_mut();q.tracking=q.tracking.saturating_sub(1);if q.tracking==0{q.resume_shortcuts=true;}q.tracking};if remaining==0{if let Some(notice)=self.ivars().menu_notice.borrow().as_ref(){notice(false);}}}
   #[unsafe(method(windowDidResize:))] fn resized(&self,_notification:&AnyObject){self.ivars().queue.borrow_mut().pending.push_back(UiAction::Resized);}
+  #[unsafe(method(exportWhatsAppDiagnostic:))] fn export_diagnostic(&self,_notification:&AnyObject){self.ivars().diagnostic_requested.set(true);}
   #[unsafe(method(windowDidResignKey:))] fn resigned(&self,notification:&AnyObject){unsafe{let window:*mut AnyObject=msg_send![notification,object];let id:*mut NSString=msg_send![window,identifier];if !id.is_null(){self.ivars().queue.borrow_mut().pending.push_back(UiAction::Deactivated((&*id).to_string()));}}}
   #[unsafe(method(windowWillClose:))] fn closed(&self,notification:&AnyObject){unsafe{let window:*mut AnyObject=msg_send![notification,object];let id:*mut NSString=msg_send![window,identifier];if !id.is_null(){self.ivars().queue.borrow_mut().pending.push_back(UiAction::Closed((&*id).to_string()));}}}
   #[unsafe(method(windowShouldClose:))] fn should_close(&self,_window:&AnyObject)->bool{if self.ivars().no_tray.get(){self.ivars().queue.borrow_mut().pending.push_back(UiAction::Quit);false}else{true}}
@@ -225,6 +227,7 @@ impl Kit {
             no_tray: Cell::new(no_tray),
             suspend: RefCell::new(None),
             menu_notice: RefCell::new(None),
+            diagnostic_requested: Cell::new(false),
         });
         let target = unsafe { msg_send![super(this), init] };
         Self { target, queue }
@@ -1019,6 +1022,20 @@ struct Shell {
     acknowledged: bool,
     images: BTreeMap<String, Obj>,
 }
+impl Drop for Shell {
+    fn drop(&mut self) {
+        unsafe {
+            let center: *mut AnyObject = msg_send![
+                AnyClass::get(c"NSDistributedNotificationCenter").unwrap(),
+                defaultCenter
+            ];
+            let _: () = msg_send![center,
+                removeObserver: &*self.kit.target,
+                name: &*NSString::from_str("BroTypistExportWhatsAppDiagnostic"),
+                object: std::ptr::null::<AnyObject>()];
+        }
+    }
+}
 impl Shell {
     fn new(config: Config, options: &LaunchOptions) -> Result<Self> {
         let mtm =
@@ -1149,6 +1166,17 @@ impl Shell {
             this.show_welcome()?;
         } else if pane.is_some() || this.status_item.is_none() {
             this.navigate(pane.unwrap_or("general"))?;
+        }
+        unsafe {
+            let center: *mut AnyObject = msg_send![
+                AnyClass::get(c"NSDistributedNotificationCenter").unwrap(),
+                defaultCenter
+            ];
+            let _: () = msg_send![center,
+                addObserver: &*this.kit.target,
+                selector: sel!(exportWhatsAppDiagnostic:),
+                name: &*NSString::from_str("BroTypistExportWhatsAppDiagnostic"),
+                object: std::ptr::null::<AnyObject>()];
         }
         Ok(this)
     }
@@ -2096,6 +2124,11 @@ impl Shell {
             self.poll_controller()?;
             let commands = self.overlay.tick()?;
             self.commands(commands)?;
+        }
+        if self.kit.target.ivars().diagnostic_requested.replace(false) && !self.shutdown_started {
+            if let Err(error) = self.controller.borrow().export_whatsapp_diagnostic() {
+                eprintln!("BroTypist: runtime diagnostic export failed: {error}");
+            }
         }
         if self.settings.visible()
             && self.settings.pane() == "statistics"

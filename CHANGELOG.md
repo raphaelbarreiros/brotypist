@@ -37,6 +37,10 @@
 - Add a nonactivating, service-free native Settings layout capture mode for visual inspection; keep the full macOS desktop smoke CI-only.
 - Add a build-free authenticated Windows installer artifact-reuse diagnostic lane, keeping original package source separate from probe checkout and preserving full canonical gates. Retain compact native-context/registry-presence evidence; do not relax the blocked per-user ARP ownership gate.
 - Exercise real Tiny inference and visible Settings/Quit from the relocated canonical Windows ZIP independently of MSI registration; retain worker proof even when the separate strict MSI ownership gate fails.
+- Retry only revoked in-flight predictions after same-draft native notifications or transient geometry loss, without clearing dismissal/model-error latches; fence macOS captures against caret/selection/frame races.
+- Keep bounded, consented focused-window references for single-word drafts without lexical overlap, while retaining keyword gating for clipboard and topic-bearing drafts. Leave the model and sampling unchanged.
+- Correct native emoji row clicks to zero-based indices, revoke failed/hidden chooser presentations and bind permitted owned-button pointer pairs to their presentation generation. Keep unknown host input fail-closed; verify native chooser pixels and owned edit readback.
+- Extend the explicitly requested WhatsApp diagnostic with content-free runtime scheduling/context-attachment/presentation counters; remove draft-value reads from native shape diagnostics.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
 
 ## 0.4.13 — macOS Electron safety fixes

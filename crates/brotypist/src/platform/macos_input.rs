@@ -4,12 +4,15 @@
 use super::ax::ffi::{
     CFMachPortCreateRunLoopSource, CFMachPortInvalidate, CFRelease, CFRetain, CFRunLoopAddSource,
     CFRunLoopGetCurrent, CFRunLoopRemoveSource, CFRunLoopRunInMode, CGEventCreateCopy,
-    CGEventCreateKeyboardEvent, CGEventGetFlags, CGEventGetIntegerValueField,
+    CGEventCreateKeyboardEvent, CGEventGetFlags, CGEventGetIntegerValueField, CGEventGetLocation,
     CGEventKeyboardGetUnicodeString, CGEventKeyboardSetUnicodeString, CGEventPost, CGEventSetFlags,
     CGEventSetIntegerValueField, CGEventSourceFlagsState, CGEventTapCreate, CGEventTapEnable,
     CGPreflightPostEventAccess, Native, kCFRunLoopCommonModes, kCFRunLoopDefaultMode,
 };
-use crate::platform::{Action, Foreground, ShortcutHandler, policy::ObservationPolicy};
+use crate::{
+    core::Rect,
+    platform::{Action, Foreground, ShortcutHandler, policy::ObservationPolicy},
+};
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
 use std::{
@@ -17,7 +20,7 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     ptr,
     sync::{
-        Arc, Mutex, MutexGuard,
+        Arc, Mutex, MutexGuard, Weak,
         atomic::{AtomicU64, Ordering},
         mpsc,
     },
@@ -37,13 +40,130 @@ const ALTERNATE: u64 = 1 << 19;
 const COMMAND: u64 = 1 << 20;
 const FUNCTION: u64 = 1 << 23;
 const KEYCODE: u32 = 9;
+const TARGET_PID: u32 = 40;
 const SOURCE_PID: u32 = 41;
 const SOURCE_TAG: u32 = 42;
+const WINDOW_UNDER_POINTER: u32 = 91;
+const WINDOW_HANDLING_POINTER: u32 = 92;
+const LEFT_MOUSE_DOWN: u32 = 1;
+const LEFT_MOUSE_UP: u32 = 2;
 const REPLAY_LIMIT: usize = 256;
 const REPLAY_TIME: Duration = Duration::from_secs(2);
 const STOP_TIME: Duration = Duration::from_secs(2);
 
 type InputCallback = Arc<dyn Fn() + Send + Sync>;
+
+/// Exact enabled native chooser buttons, in Quartz top-left screen points.
+#[derive(Clone, Copy, PartialEq)]
+pub struct ChooserHitRegion {
+    pub window_number: isize,
+    pub button_rects: [Rect; 9],
+    pub button_count: usize,
+}
+impl ChooserHitRegion {
+    fn valid(&self) -> bool {
+        self.window_number > 0
+            && (1..=self.button_rects.len()).contains(&self.button_count)
+            && self.button_rects[..self.button_count]
+                .iter()
+                .all(|rect| rect.iter().all(|v| v.is_finite()) && rect[2] > 0.0 && rect[3] > 0.0)
+    }
+    fn hit(&self, pointer: PointerTarget) -> Option<usize> {
+        if !self.valid()
+            || pointer.window != self.window_number as i64
+            || pointer.handling_window != self.window_number as i64
+            || pointer.pid != i64::from(std::process::id())
+            || !pointer.point.x.is_finite()
+            || !pointer.point.y.is_finite()
+            || pointer.flags & (SHIFT | CONTROL | ALTERNATE | COMMAND | FUNCTION) != 0
+        {
+            return None;
+        }
+        self.button_rects[..self.button_count]
+            .iter()
+            .position(|rect| {
+                pointer.point.x >= rect[0]
+                    && pointer.point.x < rect[0] + rect[2]
+                    && pointer.point.y >= rect[1]
+                    && pointer.point.y < rect[1] + rect[3]
+            })
+    }
+}
+struct ChooserLease {
+    region: ChooserHitRegion,
+    revision: u64,
+    generation: u64,
+}
+struct ChooserRegistry {
+    owner: Weak<AtomicU64>,
+    lease: Option<ChooserLease>,
+    generation: u64,
+}
+impl ChooserRegistry {
+    fn publish(&mut self, region: Option<ChooserHitRegion>) {
+        let mut next = region.filter(ChooserHitRegion::valid).and_then(|region| {
+            self.owner.upgrade().map(|revision| ChooserLease {
+                region,
+                revision: revision.load(Ordering::Acquire),
+                generation: self.generation,
+            })
+        });
+        if self
+            .lease
+            .as_ref()
+            .map(|lease| (lease.region, lease.revision))
+            != next.as_ref().map(|lease| (lease.region, lease.revision))
+        {
+            self.generation = self.generation.wrapping_add(1);
+        }
+        if let Some(lease) = next.as_mut() {
+            lease.generation = self.generation;
+        }
+        self.lease = next;
+    }
+}
+static CHOOSER_TARGETS: Mutex<ChooserRegistry> = Mutex::new(ChooserRegistry {
+    owner: Weak::new(),
+    lease: None,
+    generation: 0,
+});
+
+/// Only the AppKit overlay owner publishes visibility-confirmed native buttons.
+/// None revokes the region before hiding, moving or replacing that chooser.
+pub fn publish_chooser_hit_region(region: Option<ChooserHitRegion>) {
+    CHOOSER_TARGETS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .publish(region);
+}
+
+#[derive(Clone, Copy)]
+struct PointerTarget {
+    window: i64,
+    handling_window: i64,
+    pid: i64,
+    point: super::ax::Point,
+    flags: u64,
+}
+unsafe fn pointer_target(raw: Native) -> PointerTarget {
+    // SAFETY: callers have checked the callback's borrowed event is nonnull.
+    unsafe {
+        PointerTarget {
+            window: CGEventGetIntegerValueField(raw, WINDOW_UNDER_POINTER),
+            handling_window: CGEventGetIntegerValueField(raw, WINDOW_HANDLING_POINTER),
+            pid: CGEventGetIntegerValueField(raw, TARGET_PID),
+            point: CGEventGetLocation(raw),
+            flags: CGEventGetFlags(raw),
+        }
+    }
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ChooserPress {
+    window_number: isize,
+    button: usize,
+    revision: u64,
+    generation: u64,
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum InputSourceKind {
@@ -174,6 +294,7 @@ struct State {
     timestamp: Option<Instant>,
     dead_key: bool,
     notify: bool,
+    chooser_press: Option<ChooserPress>,
     message: &'static str,
 }
 impl Default for State {
@@ -199,12 +320,14 @@ impl Default for State {
             timestamp: None,
             dead_key: false,
             notify: false,
+            chooser_press: None,
             message: "not started",
         }
     }
 }
 impl State {
     fn note(&mut self, user: bool, now: Instant) {
+        self.chooser_press = None;
         self.revision = self.revision.wrapping_add(1);
         self.revision_signal.store(self.revision, Ordering::Release);
         if user {
@@ -212,6 +335,46 @@ impl State {
         }
         self.timestamp = Some(now);
         self.notify = true;
+    }
+    fn owned_chooser_pointer(&mut self, kind: u32, pointer: PointerTarget) -> bool {
+        // A contended/unknown registry is ordinary host input, never a reason
+        // to wait in Quartz or to accept a stale presentation lease.
+        let Ok(registry) = CHOOSER_TARGETS.try_lock() else {
+            return false;
+        };
+        if registry.owner.as_ptr() != Arc::as_ptr(&self.revision_signal) {
+            return false;
+        }
+        registry
+            .lease
+            .as_ref()
+            .is_some_and(|lease| self.chooser_pointer(kind, pointer, lease))
+    }
+    fn chooser_pointer(&mut self, kind: u32, pointer: PointerTarget, lease: &ChooserLease) -> bool {
+        if self.stopping
+            || self.holding()
+            || self.driving
+            || !self.replay.is_empty()
+            || self.revision != lease.revision
+            || !matches!(kind, LEFT_MOUSE_DOWN | LEFT_MOUSE_UP)
+        {
+            return false;
+        }
+        let Some(button) = lease.region.hit(pointer) else {
+            return false;
+        };
+        let press = ChooserPress {
+            window_number: lease.region.window_number,
+            button,
+            revision: lease.revision,
+            generation: lease.generation,
+        };
+        if kind == LEFT_MOUSE_DOWN {
+            self.chooser_press = Some(press);
+            true
+        } else {
+            self.chooser_press.take() == Some(press)
+        }
     }
     fn intercepting(&self) -> bool {
         self.enabled && !self.stopping && !self.gate.as_ref().is_some_and(|g| g.released)
@@ -641,6 +804,14 @@ impl Input {
             }
             return Ok(());
         }
+        {
+            let revision = self.shared.lock().revision_signal.clone();
+            let mut registry = CHOOSER_TARGETS
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            registry.owner = Arc::downgrade(&revision);
+            registry.lease = None;
+        }
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let (done_tx, done_rx) = mpsc::sync_channel(1);
         let shared = self.shared.clone();
@@ -830,6 +1001,16 @@ impl Input {
             state.enabled = false;
             state.abort(Instant::now());
         }
+        let revision = self.shared.lock().revision_signal.clone();
+        {
+            let mut registry = CHOOSER_TARGETS
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if registry.owner.as_ptr() == Arc::as_ptr(&revision) {
+                registry.lease = None;
+                registry.owner = Weak::new();
+            }
+        }
         self.shared.pump();
         let Some(worker) = self.worker.as_ref() else {
             if self.shared.lock().holding() {
@@ -966,6 +1147,11 @@ unsafe fn receive(shared: &Shared, kind: u32, raw: Native) -> Native {
     let flags = unsafe { CGEventGetFlags(raw) };
     let mut state = shared.lock();
     let now = Instant::now();
+    if matches!(kind, LEFT_MOUSE_DOWN | LEFT_MOUSE_UP)
+        && state.owned_chooser_pointer(kind, unsafe { pointer_target(raw) })
+    {
+        return raw;
+    }
     let queue = state.holding() || state.driving || !state.replay.is_empty();
     let action = if !queue && kind == KEY_DOWN {
         state.action(code, flags)
@@ -1019,8 +1205,13 @@ unsafe extern "C" fn pointer_callback(
         }
         let mut state = shared.lock();
         if kind == TAP_TIMEOUT || kind == TAP_USER_DISABLED || !state.tap_needed() {
-            state.dead_key = false;
-            state.note(true, Instant::now());
+            let owned_choice = !raw.is_null()
+                && matches!(kind, LEFT_MOUSE_DOWN | LEFT_MOUSE_UP)
+                && state.owned_chooser_pointer(kind, unsafe { pointer_target(raw) });
+            if !owned_choice {
+                state.dead_key = false;
+                state.note(true, Instant::now());
+            }
         }
         drop(state);
         shared.notify();
@@ -1075,7 +1266,7 @@ fn event_loop(
             return Err(message);
         }
         resources.taps.push(tap);
-        let pointer_mask = [1, 3, 25, 22]
+        let pointer_mask = [1, 2, 3, 4, 25, 26, 22]
             .into_iter()
             .fold(0, |mask, kind| mask | (1u64 << kind));
         let pointer = CGEventTapCreate(1, 1, 1, pointer_mask, pointer_callback, context);
@@ -1134,6 +1325,188 @@ fn event_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn chooser_region() -> ChooserHitRegion {
+        let mut button_rects = [[0.0; 4]; 9];
+        button_rects[0] = [10.0, 20.0, 100.0, 30.0];
+        button_rects[1] = [10.0, 50.0, 100.0, 30.0];
+        ChooserHitRegion {
+            window_number: 77,
+            button_rects,
+            button_count: 2,
+        }
+    }
+    fn chooser_target() -> PointerTarget {
+        PointerTarget {
+            window: 77,
+            handling_window: 77,
+            pid: i64::from(std::process::id()),
+            point: super::super::ax::Point { x: 30.0, y: 30.0 },
+            flags: 0,
+        }
+    }
+    #[test]
+    fn exact_owned_chooser_press_preserves_revision_with_shortcuts_enabled_or_disabled() {
+        for enabled in [false, true] {
+            let mut state = State {
+                enabled,
+                ..State::default()
+            };
+            let lease = ChooserLease {
+                region: chooser_region(),
+                revision: state.revision,
+                generation: 1,
+            };
+            let pointer = chooser_target();
+            assert!(!state.chooser_pointer(LEFT_MOUSE_UP, pointer, &lease));
+            assert!(state.chooser_pointer(LEFT_MOUSE_DOWN, pointer, &lease));
+            assert!(state.chooser_pointer(LEFT_MOUSE_UP, pointer, &lease));
+            assert!(!state.chooser_pointer(LEFT_MOUSE_UP, pointer, &lease));
+            assert_eq!(state.revision, 0);
+            assert_eq!(state.user_revision, 0);
+            assert!(!state.notify);
+        }
+    }
+    #[test]
+    fn chooser_never_exempts_host_unknown_modified_outside_right_or_scroll_input() {
+        let pointer = chooser_target();
+        let mut cases = vec![
+            (3, pointer),
+            (22, pointer),
+            (
+                LEFT_MOUSE_DOWN,
+                PointerTarget {
+                    window: 0,
+                    ..pointer
+                },
+            ),
+            (
+                LEFT_MOUSE_DOWN,
+                PointerTarget {
+                    window: 78,
+                    ..pointer
+                },
+            ),
+            (
+                LEFT_MOUSE_DOWN,
+                PointerTarget {
+                    handling_window: 0,
+                    ..pointer
+                },
+            ),
+            (
+                LEFT_MOUSE_DOWN,
+                PointerTarget {
+                    handling_window: 78,
+                    ..pointer
+                },
+            ),
+            (LEFT_MOUSE_DOWN, PointerTarget { pid: 0, ..pointer }),
+            (
+                LEFT_MOUSE_DOWN,
+                PointerTarget {
+                    pid: pointer.pid + 1,
+                    ..pointer
+                },
+            ),
+            (
+                LEFT_MOUSE_DOWN,
+                PointerTarget {
+                    flags: CONTROL,
+                    ..pointer
+                },
+            ),
+        ];
+        for (x, y) in [(9.0, 30.0), (110.0, 30.0), (30.0, 80.0), (f64::NAN, 30.0)] {
+            cases.push((
+                LEFT_MOUSE_DOWN,
+                PointerTarget {
+                    point: super::super::ax::Point { x, y },
+                    ..pointer
+                },
+            ));
+        }
+        for (kind, pointer) in cases {
+            let mut state = State::default();
+            let lease = ChooserLease {
+                region: chooser_region(),
+                revision: state.revision,
+                generation: 1,
+            };
+            assert!(!state.chooser_pointer(kind, pointer, &lease));
+            assert!(state.ordinary(kind, 0, pointer.flags, false, Instant::now()));
+            assert_eq!(state.revision, 1);
+            assert_eq!(state.user_revision, 1);
+        }
+    }
+    #[test]
+    fn chooser_registry_binds_live_input_revision_and_revokes_hidden_or_invalid_buttons() {
+        let mut state = State::default();
+        let mut registry = ChooserRegistry {
+            owner: Arc::downgrade(&state.revision_signal),
+            lease: None,
+            generation: 0,
+        };
+        registry.publish(Some(chooser_region()));
+        let lease = registry.lease.as_ref().unwrap();
+        assert!(state.chooser_pointer(LEFT_MOUSE_DOWN, chooser_target(), lease));
+        state.note(true, Instant::now());
+        assert!(!state.chooser_pointer(LEFT_MOUSE_UP, chooser_target(), lease));
+        assert!(!state.chooser_pointer(LEFT_MOUSE_DOWN, chooser_target(), lease));
+        registry.publish(Some(chooser_region()));
+        let lease = registry.lease.as_ref().unwrap();
+        assert_eq!(lease.revision, state.revision);
+        assert!(state.chooser_pointer(LEFT_MOUSE_DOWN, chooser_target(), lease));
+        registry.publish(None);
+        assert!(registry.lease.is_none());
+        registry.publish(Some(chooser_region()));
+        assert!(!state.chooser_pointer(
+            LEFT_MOUSE_UP,
+            chooser_target(),
+            registry.lease.as_ref().unwrap()
+        ));
+        assert!(state.chooser_pointer(
+            LEFT_MOUSE_DOWN,
+            chooser_target(),
+            registry.lease.as_ref().unwrap()
+        ));
+        registry.publish(Some(chooser_region()));
+        assert!(state.chooser_pointer(
+            LEFT_MOUSE_UP,
+            chooser_target(),
+            registry.lease.as_ref().unwrap()
+        ));
+        for count in [0, 10] {
+            let mut region = chooser_region();
+            region.button_count = count;
+            registry.publish(Some(region));
+            assert!(registry.lease.is_none());
+        }
+        let mut region = chooser_region();
+        region.button_rects[0][2] = 0.0;
+        registry.publish(Some(region));
+        assert!(registry.lease.is_none());
+        drop(state);
+        registry.publish(Some(chooser_region()));
+        assert!(registry.lease.is_none());
+    }
+    #[test]
+    fn chooser_does_not_cross_buttons_or_bypass_native_mutation_gates() {
+        let mut state = State::default();
+        let lease = ChooserLease {
+            region: chooser_region(),
+            revision: state.revision,
+            generation: 1,
+        };
+        let pointer = chooser_target();
+        assert!(state.chooser_pointer(LEFT_MOUSE_DOWN, pointer, &lease));
+        let other = PointerTarget {
+            point: super::super::ax::Point { x: 30.0, y: 60.0 },
+            ..pointer
+        };
+        assert!(!state.chooser_pointer(LEFT_MOUSE_UP, other, &lease));
+        open(&mut state, Instant::now());
+        assert!(!state.chooser_pointer(LEFT_MOUSE_DOWN, pointer, &lease));
+    }
     fn event(kind: u32, code: u16, serial: usize) -> Event {
         Event {
             native: OwnedEvent(ptr::null_mut()),

@@ -738,6 +738,123 @@ fn capture_menu_glyphs(output: &Path) -> Result<Vec<Value>> {
     Ok(glyphs)
 }
 
+fn capture_emoji_choices(app: &AnyObject, output: &Path) -> Result<Vec<Value>> {
+    use crate::{core::Snapshot, platform::Action};
+    let mut overlay = OverlayOwner::new()?;
+    overlay.configure(false, "Tab");
+    let config = Config::default();
+    let editor = obj("NSTextView");
+    let key_before: *mut AnyObject = unsafe { msg_send![app, keyWindow] };
+    let mut observations = Vec::new();
+    for (case, text, wanted) in [
+        ("alias", "Synthetic :sorriso", Some(0usize)),
+        ("emoticon", "Synthetic <3", Some(0)),
+        ("last-row", "Synthetic :", None),
+    ] {
+        let (typed, rows) = crate::features::emoji_choices(text, &config)
+            .context("Synthetic emoji trigger produced no choices")?;
+        let wanted = wanted.unwrap_or_else(|| rows.len().saturating_sub(1));
+        ensure!(rows.len() > wanted, "Synthetic emoji row unavailable");
+        let snapshot = Snapshot {
+            text: text.into(),
+            caret: text.chars().count(),
+            app_id: "owned.synthetic.emoji".into(),
+            field_id: "owned-editor".into(),
+            ..Snapshot::default()
+        };
+        unsafe {
+            let _: () = msg_send![&*editor,setString:&*NSString::from_str(text)];
+        }
+        let acknowledged = overlay.handle(&json!({
+            "type":"suggestion","mode":"emoji","text":rows[0],"choices":rows,
+            "rect":[120.,240.,1.,18.],"field_rect":[100.,200.,700.,100.],
+            "key":snapshot.key(),"authority":snapshot.authority(),"revision":1
+        }))?;
+        ensure!(
+            acknowledged.iter().any(|command| matches!(
+                command,
+                Command::PresentationResult { mode, visible_text, .. }
+                    if mode == "emoji" && visible_text.split('\n').nth(wanted) == Some(rows[wanted].as_str())
+            )),
+            "Native chooser did not acknowledge the full requested row"
+        );
+        let targets = overlay
+            .choice_targets()
+            .context("Visible chooser has no target geometry")?;
+        ensure!(targets.button_count > wanted, "Native row target is absent");
+        let chooser = window(app, "inklow.chooser")?;
+        let view = content(&chooser)?;
+        let button = find(&view, &format!("inklow.suggestion.choice.{}", wanted + 1))?;
+        let filename = format!("emoji-{case}.png");
+        unsafe {
+            let _: () = msg_send![&*view, layoutSubtreeIfNeeded];
+            let bounds: NSRect = msg_send![&*view, bounds];
+            let rep: *mut AnyObject =
+                msg_send![&*view,bitmapImageRepForCachingDisplayInRect:bounds];
+            ensure!(!rep.is_null(), "Emoji view could not be rasterized");
+            let _: () = msg_send![&*view,cacheDisplayInRect:bounds,toBitmapImageRep:rep];
+            let properties = obj("NSDictionary");
+            let data: *mut AnyObject =
+                msg_send![rep,representationUsingType:4usize,properties:&*properties];
+            ensure!(!data.is_null(), "Emoji PNG could not be encoded");
+            let length: usize = msg_send![data, length];
+            let bytes: *const std::ffi::c_void = msg_send![data, bytes];
+            ensure!(
+                !bytes.is_null() && (33..=1024 * 1024).contains(&length),
+                "Emoji PNG has invalid bytes"
+            );
+            write_new(
+                &output.join(&filename),
+                std::slice::from_raw_parts(bytes.cast::<u8>(), length),
+            )?;
+            let _: () = msg_send![&*button,performClick:std::ptr::null::<AnyObject>()];
+        }
+        let actions = overlay.tick()?;
+        ensure!(
+            matches!(actions.as_slice(), [Command::Action(Action::Choice(index))] if *index == wanted),
+            "Native button delivered the wrong zero-based emoji choice"
+        );
+        let start = text.len() - typed.len();
+        let replacement = NSRange::new(
+            text[..start].encode_utf16().count(),
+            typed.encode_utf16().count(),
+        );
+        unsafe {
+            let _: () = msg_send![&*editor,insertText:&*NSString::from_str(&rows[wanted]),replacementRange:replacement];
+        }
+        let expected = format!("{}{}", &text[..start], rows[wanted]);
+        let actual: *mut NSString = unsafe { msg_send![&*editor, string] };
+        ensure!(
+            !actual.is_null() && unsafe { (&*actual).to_string() } == expected,
+            "Owned emoji edit readback differs"
+        );
+        let key_after: *mut AnyObject = unsafe { msg_send![app, keyWindow] };
+        ensure!(
+            key_before == key_after,
+            "Emoji chooser stole the key window"
+        );
+        overlay.handle(&json!({"type":"clear","hide_accessory":true}))?;
+        ensure!(
+            overlay.choice_targets().is_none(),
+            "Hidden chooser retained hit targets"
+        );
+        unsafe {
+            let _: () = msg_send![&*button,performClick:std::ptr::null::<AnyObject>()];
+        }
+        ensure!(
+            overlay.tick()?.is_empty(),
+            "Hidden choice remained actionable"
+        );
+        observations.push(json!({
+            "case":case,"file":filename,"choice_index":wanted,"readback":expected,
+            "key_window_preserved":true,"hidden_choice_inactive":true,"passed":true,
+            "scope":"real NSButton target/action, native chooser pixels and owned NSTextView readback; not physical global input or external-host replacement"
+        }));
+    }
+    overlay.close()?;
+    Ok(observations)
+}
+
 /// Bounded rendering only: no Shell, Controller, profile, input hooks, services or activation.
 pub(super) fn capture_layout(output: &Path) -> Result<i32> {
     ensure!(
@@ -982,8 +1099,9 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
     settings.close();
     power.close()?;
     let menu_glyphs = capture_menu_glyphs(output);
+    let emoji = capture_emoji_choices(&app, output);
     let receipt = json!({
-        "schema":"brotypist-macos-layout-capture/3", "passed":result.is_ok() && menu_glyphs.is_ok(),
+        "schema":"brotypist-macos-layout-capture/4", "passed":result.is_ok() && menu_glyphs.is_ok() && emoji.is_ok(),
         "scope":"Canonical owned native Settings controls and theme frame; synthetic preferences/status, no runtime services. Native menu inspected without opening it.",
         "safety":{"controller_started":false,"profile_loaded":false,"input_hooks_started":false,"foreground_activation_allowed":false,"external_screen_capture":false},
         "limits":"Native geometry assertions and NSView rasterization do not prove WindowServer vibrancy/compositing or external-host typing. Visual review of images is required.",
@@ -991,7 +1109,8 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
         "menu_glyphs":menu_glyphs.as_ref().ok(),
         "draft_retention":draft_retention,
         "native_status_rendering":native_status_rendering,
-        "error":result.as_ref().err().or_else(||menu_glyphs.as_ref().err()).map(|error|format!("{error:#}"))
+        "emoji":emoji.as_ref().ok(),
+        "error":result.as_ref().err().or_else(||menu_glyphs.as_ref().err()).or_else(||emoji.as_ref().err()).map(|error|format!("{error:#}"))
     });
     write_new(
         &output.join("receipt.json"),
@@ -999,6 +1118,7 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
     )?;
     result?;
     menu_glyphs?;
+    emoji?;
     Ok(0)
 }
 fn snapshot(shell: &Shell, receipt: &mut Value, output: &Path, id: &str, name: &str) -> Result<()> {

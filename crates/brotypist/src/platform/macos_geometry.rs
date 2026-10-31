@@ -2,7 +2,7 @@
 //! Native observations are authority: incomplete trees, offsets, fonts and rows
 //! are unavailable rather than estimated. Tests inject the AX/font boundaries.
 use super::ax::{AxAttributedString, AxElement, AxRange, AxValue};
-use crate::core::{InlineRender, Rect, ScalarIndex, TextBuffer, TextIndex, Utf16Offset};
+use crate::core::{InlineRender, Rect, ScalarIndex, Snapshot, TextBuffer, TextIndex, Utf16Offset};
 use objc2::{AnyThread, rc::Retained, runtime::AnyObject};
 use objc2_app_kit::{NSFont, NSFontAttributeName, NSLayoutManager};
 use objc2_foundation::{NSAttributedString, NSDictionary, NSString};
@@ -111,6 +111,7 @@ trait Backend {
         Ok(self.children(node).unwrap_or_default())
     }
     fn frame(&self, node: &Self::Node) -> Option<Rect>;
+    fn selected_range(&self, node: &Self::Node) -> Option<AxRange>;
     fn bounds(&self, node: &Self::Node, range: AxRange) -> Option<Rect>;
     // Some(Err) distinguishes malformed present attributes from absence.
     fn visible(&self, node: &Self::Node) -> Option<Result<AxRange, ()>>;
@@ -441,6 +442,38 @@ fn caret<B: Backend>(
     }
     rect[2] = rect[2].max(1.0);
     Some(rect)
+}
+
+fn anchor_matches<B: Backend>(
+    backend: &B,
+    field: &B::Node,
+    secure: &str,
+    snapshot: &Snapshot,
+    selection: AxRange,
+) -> bool {
+    if backend.selected_range(field) != Some(selection) {
+        return false;
+    }
+    // Focus identity alone does not fence a caret move or a layout update in
+    // the same field while the attributed/font/appearance reads are in flight.
+    if snapshot.caret_rect.is_some_and(|expected| {
+        caret(
+            backend,
+            field,
+            secure,
+            &snapshot.text,
+            snapshot.caret,
+            selection.location,
+        ) != Some(expected)
+    }) {
+        return false;
+    }
+    backend.frame(field) == snapshot.field_rect
+        && backend
+            .element(field, "AXWindow")
+            .and_then(|window| backend.frame(&window))
+            == snapshot.window_bounds
+        && backend.selected_range(field) == Some(selection)
 }
 
 fn tolerance(width: f64) -> f64 {
@@ -1043,6 +1076,9 @@ impl Backend for Native {
     fn element(&self, node: &AxElement, name: &str) -> Option<AxElement> {
         node.element(name)
     }
+    fn selected_range(&self, node: &AxElement) -> Option<AxRange> {
+        node.range("AXSelectedTextRange")
+    }
     fn children(&self, node: &AxElement) -> Option<Vec<AxElement>> {
         node.children()
     }
@@ -1161,6 +1197,20 @@ pub fn caret_bounds(
         text,
         caret_index,
         location,
+    )
+}
+pub fn capture_anchor_matches(
+    field: &AxElement,
+    secure_description: &str,
+    snapshot: &Snapshot,
+    selection: AxRange,
+) -> bool {
+    anchor_matches(
+        &Native::new(),
+        field,
+        secure_description,
+        snapshot,
+        selection,
     )
 }
 pub fn inline_metrics(
@@ -1308,6 +1358,8 @@ mod tests {
         clock: Cell<Duration>,
         expire_read: Option<(usize, String)>,
         expire_bounds: Option<usize>,
+        selection: Cell<Option<AxRange>>,
+        selection_after_bounds: Option<AxRange>,
         visible: Option<Result<AxRange, ()>>,
         attributed: Option<TestAttributed>,
         widths: HashMap<String, f64>,
@@ -1340,6 +1392,8 @@ mod tests {
                 clock: Cell::new(Duration::ZERO),
                 expire_read: None,
                 expire_bounds: None,
+                selection: Cell::new(None),
+                selection_after_bounds: None,
                 visible: None,
                 attributed: None,
                 widths: HashMap::new(),
@@ -1466,12 +1520,19 @@ mod tests {
             self.read(*node, "frame");
             self.nodes[*node].frame
         }
+        fn selected_range(&self, node: &usize) -> Option<AxRange> {
+            self.read(*node, "AXSelectedTextRange");
+            self.selection.get()
+        }
         fn bounds(&self, node: &usize, range: AxRange) -> Option<Rect> {
             self.requests
                 .borrow_mut()
                 .push((*node, range.location, range.length));
             if self.expire_bounds == Some(*node) {
                 self.clock.set(Duration::from_secs(1));
+            }
+            if let Some(selection) = self.selection_after_bounds {
+                self.selection.set(Some(selection));
             }
             self.rows
                 .get(&(*node, range.location, range.length))
@@ -1542,6 +1603,54 @@ mod tests {
     }
     const RECT: Rect = [120.0, 240.0, 9.0, 21.0];
     const CARET: Rect = [100.0, 40.0, 1.0, 20.0];
+
+    #[test]
+    fn capture_anchor_fences_same_field_selection_and_geometry_races_without_content_reads() {
+        let mut host = Host::tree("synthetic", &[]);
+        host.forbidden.insert((0, "AXValue".into()));
+        host.forbidden.insert((0, "AXChildren".into()));
+        host.nodes[0].frame = Some([0.0, 0.0, 400.0, 200.0]);
+        host.selection.set(Some(r(9, 0)));
+        host.rows.insert((0, 9, 0), CARET);
+        host.rows.insert((0, 8, 1), [90.0, 40.0, 10.0, 20.0]);
+        let snapshot = Snapshot {
+            text: "synthetic".into(),
+            caret: 9,
+            caret_rect: Some(CARET),
+            field_rect: host.nodes[0].frame,
+            ..Default::default()
+        };
+        assert!(anchor_matches(&host, &0, "secure", &snapshot, r(9, 0)));
+
+        host.requests.borrow_mut().clear();
+        for selection in [None, Some(r(8, 0)), Some(r(8, 1))] {
+            host.selection.set(selection);
+            assert!(!anchor_matches(&host, &0, "secure", &snapshot, r(9, 0)));
+            assert!(host.requests.borrow().is_empty());
+        }
+        host.selection.set(Some(r(9, 0)));
+        host.selection_after_bounds = Some(r(8, 0));
+        assert!(!anchor_matches(&host, &0, "secure", &snapshot, r(9, 0)));
+
+        host.selection_after_bounds = None;
+        host.selection.set(Some(r(9, 0)));
+        host.rows.insert((0, 9, 0), [101.0, 40.0, 1.0, 20.0]);
+        assert!(!anchor_matches(&host, &0, "secure", &snapshot, r(9, 0)));
+        host.rows.insert((0, 9, 0), CARET);
+        host.nodes[0].frame = Some([1.0, 0.0, 400.0, 200.0]);
+        assert!(!anchor_matches(&host, &0, "secure", &snapshot, r(9, 0)));
+        host.nodes[0].frame = snapshot.field_rect;
+        host.nodes.push(Node {
+            frame: Some([0.0, 0.0, 800.0, 600.0]),
+            ..Default::default()
+        });
+        host.nodes[0].elements.insert("AXWindow".into(), 1);
+        let mut snapshot = snapshot;
+        snapshot.window_bounds = host.nodes[1].frame;
+        assert!(anchor_matches(&host, &0, "secure", &snapshot, r(9, 0)));
+        host.nodes[1].frame = Some([0.0, 1.0, 800.0, 600.0]);
+        assert!(!anchor_matches(&host, &0, "secure", &snapshot, r(9, 0)));
+    }
 
     #[test]
     fn direct_native_geometry_never_reads_content() {

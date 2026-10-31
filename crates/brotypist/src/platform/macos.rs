@@ -1026,6 +1026,15 @@ impl MacBridge {
             self.capture_diagnostic = "focus_or_composition_changed_after_capture";
             return Ok(None);
         }
+        if !geometry::capture_anchor_matches(
+            &after.field,
+            &self.secure_description,
+            &snapshot,
+            native,
+        ) {
+            self.capture_diagnostic = "selection_or_geometry_changed_after_capture";
+            return Ok(None);
+        }
         self.focused_hash.store(field.identity(), Ordering::Relaxed);
         Ok(Some((snapshot, focus.field)))
     }
@@ -1202,7 +1211,6 @@ fn element_shape(element: &AxElement, pid: i32) -> serde_json::Value {
         "enabled": ax_shape(element, "AXEnabled"),
         "window": ax_shape(element, "AXWindow"),
         "top_level": ax_shape(element, "AXTopLevelUIElement"),
-        "value": ax_shape(element, "AXValue"),
         "selected_range": ax_shape(element, "AXSelectedTextRange"),
         "value_settable": element.settable("AXValue"),
         "selected_text_settable": element.settable("AXSelectedText"),

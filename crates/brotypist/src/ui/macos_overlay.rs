@@ -2,7 +2,10 @@
 //! verified visible glyphs; an ordering request alone never arms host insertion.
 use crate::{
     core::{Authority, InlineRender, Rect, SnapshotKey},
-    platform::Action,
+    platform::{
+        Action,
+        macos::input::{ChooserHitRegion, publish_chooser_hit_region},
+    },
     runtime::Command,
 };
 use anyhow::{Result, anyhow};
@@ -93,6 +96,11 @@ define_class!(
         #[unsafe(method(acceptsFirstResponder))] fn no_responder(&self)->bool { false }
     }
 );
+fn choice_action(tag: isize, enabled: &[usize]) -> Option<Action> {
+    ((1..=9).contains(&tag) && enabled.contains(&(tag as usize)))
+        .then(|| Action::Choice((tag - 1) as usize))
+}
+
 struct ActionsIvars {
     queue: RefCell<Vec<Command>>,
     menu: RefCell<Option<Retained<NSMenu>>>,
@@ -114,8 +122,8 @@ define_class!(
                 } else if let Some(menu)=self.ivars().menu.borrow().as_ref().cloned() {
                     menu.popUpMenuPositioningItem_atLocation_inView(None, NSPoint::new(0.,-4.), Some(sender));
                 }
-            } else if tag>0 && self.ivars().enabled.borrow().contains(&(tag as usize)) {
-                self.ivars().queue.borrow_mut().push(Command::Action(Action::Choice(tag as usize)));
+            } else if let Some(action)=choice_action(tag, &self.ivars().enabled.borrow()) {
+                self.ivars().queue.borrow_mut().push(Command::Action(action));
             }
         }
     }
@@ -162,7 +170,7 @@ define_class!(
                 let color_key=unsafe{&*(objc2_core_text::kCTForegroundColorFromContextAttributeName as *const _ as *const NSString)};
                 let from_context=NSNumber::new_bool(true);
                 let attributes=NSDictionary::from_slices(&[unsafe{NSFontAttributeName},color_key], &[&*self.ivars().font as &AnyObject,&*from_context as &AnyObject]);
-                unsafe{let color:*const c_void=msg_send![&*run.color,CGColor];CGContextSetFillColorWithColor(cg,color);}
+                unsafe{let color:*mut objc2_core_graphics::CGColor=msg_send![&*run.color,CGColor];CGContextSetFillColorWithColor(cg,color.cast());}
                 let attributed=unsafe {NSAttributedString::new_with_attributes(&NSString::from_str(&run.text),&attributes)};
                 let line=unsafe {CTLine::with_attributed_string((&*attributed).as_ref())};
                 unsafe {CGContextSetTextPosition(cg,run.x,self.ivars().baseline);CTLineDraw(&*line as *const _ as *const c_void,cg);}
@@ -379,6 +387,7 @@ pub struct OverlayOwner {
     mtm: MainThreadMarker,
     ghost: Retained<PassivePanel>,
     chooser: Retained<PassivePanel>,
+    chooser_buttons: [Option<Retained<PassiveButton>>; 9],
     accessory: Retained<PassivePanel>,
     button: Retained<PassiveButton>,
     target: Retained<OverlayActions>,
@@ -443,6 +452,7 @@ impl OverlayOwner {
             mtm,
             ghost,
             chooser,
+            chooser_buttons: std::array::from_fn(|_| None),
             accessory,
             button,
             target,
@@ -465,6 +475,59 @@ impl OverlayOwner {
         self.show_accessory = show_accessory;
         self.place_accessory();
     }
+    /// Content-free native hit regions for the currently visible, complete rows.
+    /// This is geometry only: runtime still validates the current edit authority.
+    pub fn choice_targets(&self) -> Option<ChooserHitRegion> {
+        let (identity, text) = self.chooser_state.as_ref()?;
+        if self.closed
+            || text.is_empty()
+            || !visible(&self.chooser)
+            || identity.get(4) != Some(&self.environment)
+        {
+            return None;
+        }
+        let window_number = self.chooser.windowNumber();
+        if window_number <= 0 {
+            return None;
+        }
+        let screens = NSScreen::screens(self.mtm);
+        let first = screens.firstObject()?;
+        let top = first.frame().origin.y + first.frame().size.height;
+        let enabled = self.target.ivars().enabled.borrow();
+        let mut region = ChooserHitRegion {
+            window_number,
+            button_rects: [[0.; 4]; 9],
+            button_count: 0,
+        };
+        for (index, button) in self.chooser_buttons.iter().enumerate() {
+            if !enabled.contains(&(index + 1)) {
+                continue;
+            }
+            let button = button.as_ref()?;
+            if !button.isEnabled()
+                || button.isHidden()
+                || button.window()?.windowNumber() != window_number
+            {
+                return None;
+            }
+            let frame = self
+                .chooser
+                .convertRectToScreen(button.convertRect_toView(button.bounds(), None));
+            let bounds = [
+                frame.origin.x,
+                top - frame.origin.y - frame.size.height,
+                frame.size.width,
+                frame.size.height,
+            ];
+            if !bounds.iter().all(|value| value.is_finite()) || bounds[2] <= 0. || bounds[3] <= 0. {
+                return None;
+            }
+            region.button_rects[region.button_count] = bounds;
+            region.button_count += 1;
+        }
+        (region.button_count != 0).then_some(region)
+    }
+
     /// The shell builds this minimal native menu with captured app/site/token
     /// intents and retains its own action target through synchronous tracking.
     pub fn set_field_menu(&mut self, menu: &NSMenu) {
@@ -542,7 +605,9 @@ impl OverlayOwner {
             self.ghost_event = None;
         }
         if panel.is_none() || panel == Some("chooser") {
+            publish_chooser_hit_region(None);
             self.chooser.orderOut(None);
+            self.chooser_buttons.fill(None);
             self.chooser_state = None;
             self.chooser_event = None;
             self.target.ivars().enabled.borrow_mut().clear();
@@ -571,6 +636,7 @@ impl OverlayOwner {
         let mut commands = Vec::new();
         let environment = self.environment_signature();
         if environment != self.environment {
+            publish_chooser_hit_region(None);
             self.environment = environment;
             self.ghost.orderOut(None);
             self.chooser.orderOut(None);
@@ -705,8 +771,10 @@ impl OverlayOwner {
             self.chooser_state.as_ref(),
             visible(&self.chooser),
         ) {
+            publish_chooser_hit_region(None);
+            self.chooser.orderOut(None);
+            self.chooser_buttons.fill(None);
             let text = if rows.is_empty() {
-                self.chooser.orderOut(None);
                 String::new()
             } else {
                 let w = (rows
@@ -744,10 +812,11 @@ impl OverlayOwner {
                             1.
                         };
                         let _: () = msg_send![&*layer,setBorderWidth:border];
-                        let color: *const c_void = msg_send![&*NSColor::separatorColor(), CGColor];
+                        let color: *mut objc2_core_graphics::CGColor =
+                            msg_send![&*NSColor::separatorColor(), CGColor];
                         let _: () = msg_send![&*layer,setBorderColor:color];
                         if workspace.accessibilityDisplayShouldReduceTransparency() {
-                            let bg: *const c_void =
+                            let bg: *mut objc2_core_graphics::CGColor =
                                 msg_send![&*NSColor::windowBackgroundColor(), CGColor];
                             let _: () = msg_send![&*layer,setBackgroundColor:bg];
                         }
@@ -787,6 +856,7 @@ impl OverlayOwner {
                         }
                     }
                     surface.addSubview(&button);
+                    self.chooser_buttons[i] = Some(button);
                 }
                 self.chooser.setContentView(Some(&surface));
                 if let Some(mut anchor) = finite_rect(&event["rect"]) {
@@ -808,6 +878,7 @@ impl OverlayOwner {
             self.chooser_state = Some((identity, text));
         }
         self.chooser_event = Some(event.clone());
+        publish_chooser_hit_region(self.choice_targets());
         if let Some(c) = Self::ack(
             event,
             self.chooser_state
@@ -1002,6 +1073,7 @@ impl OverlayOwner {
         let mut commands = self.target.ivars().queue.take();
         let environment = self.environment_signature();
         if environment != self.environment {
+            publish_chooser_hit_region(None);
             self.environment = environment;
             self.ghost.orderOut(None);
             self.chooser.orderOut(None);
@@ -1026,6 +1098,7 @@ impl OverlayOwner {
             }
         }
         if !visible(&self.chooser) {
+            publish_chooser_hit_region(None);
             if let Some((_, text)) = self.chooser_state.as_mut() {
                 if !text.is_empty() {
                     text.clear();
@@ -1044,6 +1117,7 @@ impl OverlayOwner {
                 }
             }
         }
+        publish_chooser_hit_region(self.choice_targets());
         Ok(commands)
     }
     pub fn close(&mut self) -> Result<()> {
@@ -1075,6 +1149,21 @@ impl Drop for OverlayOwner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn numbered_clicks_use_the_same_zero_based_choices_as_keyboard_keys() {
+        for number in 1..=9 {
+            assert_eq!(
+                choice_action(number, &[number as usize]),
+                Some(Action::Choice((number - 1) as usize))
+            );
+        }
+        // A sole emoticon result must select index zero, not a nonexistent second row.
+        assert_eq!(choice_action(1, &[1]), Some(Action::Choice(0)));
+        for tag in [-1, 0, 2, 10, 100, isize::MAX] {
+            assert_eq!(choice_action(tag, &[1]), None);
+        }
+        assert_eq!(choice_action(1, &[]), None);
+    }
     #[test]
     fn accessory_stays_two_points_above_the_caret_line() {
         let screen = rect([0., 0., 800., 600.]);

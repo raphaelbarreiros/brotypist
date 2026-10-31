@@ -1,0 +1,181 @@
+{
+  "schema": "brotypist-context-quality-synthetic/1",
+  "model": "gemma-4-E2B-it-Q4_0.gguf",
+  "scope": "authored synthetic inputs only; isolated profiles, no real screen/clipboard/history; no normal-model selection change",
+  "warm_worker_cases": [
+    {
+      "case": "bare",
+      "prefix": "Então",
+      "synthetic_context": "",
+      "instructions": "",
+      "result": ", preciso confirmar se o prazo ainda é "
+    },
+    {
+      "case": "car-ref",
+      "prefix": "Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): Conversa fictícia sobre o carro: a bateria está descarregada, o motor não liga e há um carregador de bateria disponível na garagem.",
+      "instructions": "",
+      "result": ", o que faremos agora?"
+    },
+    {
+      "case": "cake-ref",
+      "prefix": "Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): Conversa fictícia sobre um bolo no forno: o disjuntor desligou, o forno esfriou e o bolo ainda está cru.",
+      "instructions": "",
+      "result": ", o que faremos agora?"
+    },
+    {
+      "case": "car-linked",
+      "prefix": "A bateria do carro está descarregada. Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): Conversa fictícia sobre o carro: a bateria está descarregada, o motor não liga e há um carregador de bateria disponível na garagem.",
+      "instructions": "",
+      "result": ", o que faremos agora?"
+    },
+    {
+      "case": "cake-linked",
+      "prefix": "O bolo está no forno, mas o disjuntor desligou. Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): Conversa fictícia sobre um bolo no forno: o disjuntor desligou, o forno esfriou e o bolo ainda está cru.",
+      "instructions": "",
+      "result": ", o que faremos agora?"
+    },
+    {
+      "case": "car-instructions",
+      "prefix": "Então",
+      "synthetic_context": "",
+      "instructions": "Escreva em português brasileiro informal sobre carregar a bateria do carro, sem agendar reuniões.",
+      "result": ", vou dar uma olhada no painel pra "
+    },
+    {
+      "case": "car-ref-preferences",
+      "prefix": "Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): Conversa fictícia sobre o carro: a bateria está descarregada, o motor não liga e há um carregador de bateria disponível na garagem.",
+      "instructions": "Use português brasileiro informal e continue de forma prática com base nos fatos fornecidos.",
+      "result": ", vou lá na garagem ver se consigo "
+    },
+    {
+      "case": "cake-ref-preferences",
+      "prefix": "Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): Conversa fictícia sobre um bolo no forno: o disjuntor desligou, o forno esfriou e o bolo ainda está cru.",
+      "instructions": "Use português brasileiro informal e continue de forma prática com base nos fatos fornecidos.",
+      "result": ", o que a gente faz agora?"
+    },
+    {
+      "case": "bare-after-context",
+      "prefix": "Então",
+      "synthetic_context": "",
+      "instructions": "",
+      "result": ", preciso confirmar os detalhes da reunião para "
+    }
+  ],
+  "cold_grounding_ab": [
+    {
+      "case": "car-A",
+      "prefix": "A bateria do carro está descarregada. Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): Conversa fictícia sobre o carro: a bateria está descarregada, o motor não liga e há um carregador de bateria disponível na garagem.",
+      "instructions": "Use português brasileiro informal.",
+      "result": ", vou pegar o carregador na garagem e "
+    },
+    {
+      "case": "car-B",
+      "prefix": "A bateria do carro está descarregada. Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): Conversa fictícia sobre o carro: a bateria está descarregada, o motor não liga e há um carregador de bateria disponível na garagem.",
+      "instructions": "Use português brasileiro informal. Continue o pensamento atual do rascunho usando os fatos de referência pertinentes ao assunto. Prefira uma continuação concreta e específica ao contexto, em vez de uma frase que caberia em conversas não relacionadas. Avance o pensamento de quem está escrevendo, sem responder ao rascunho nem substituí-lo por uma pergunta genérica. Ignore referências sem relação com o assunto. Preserve incertezas e não invente fatos, compromissos ou ações já realizadas. Siga a linguagem e o tom do rascunho.",
+      "result": ", vou pegar o carregador da garagem e "
+    },
+    {
+      "case": "cake-A",
+      "prefix": "O bolo está no forno, mas o disjuntor desligou. Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): Conversa fictícia sobre um bolo no forno: o disjuntor desligou, o forno esfriou e o bolo ainda está cru.",
+      "instructions": "Use português brasileiro informal.",
+      "result": ", o que a gente faz agora?"
+    },
+    {
+      "case": "cake-B",
+      "prefix": "O bolo está no forno, mas o disjuntor desligou. Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): Conversa fictícia sobre um bolo no forno: o disjuntor desligou, o forno esfriou e o bolo ainda está cru.",
+      "instructions": "Use português brasileiro informal. Continue o pensamento atual do rascunho usando os fatos de referência pertinentes ao assunto. Prefira uma continuação concreta e específica ao contexto, em vez de uma frase que caberia em conversas não relacionadas. Avance o pensamento de quem está escrevendo, sem responder ao rascunho nem substituí-lo por uma pergunta genérica. Ignore referências sem relação com o assunto. Preserve incertezas e não invente fatos, compromissos ou ações já realizadas. Siga a linguagem e o tom do rascunho.",
+      "result": ", o que eu faço agora?"
+    },
+    {
+      "case": "illness-A",
+      "prefix": "Estou com febre e o médico recomendou repouso em casa. Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): A pessoa precisa avisar que não poderá sair de casa hoje.",
+      "instructions": "Use português brasileiro informal.",
+      "result": ", não vou conseguir sair hoje."
+    },
+    {
+      "case": "illness-B",
+      "prefix": "Estou com febre e o médico recomendou repouso em casa. Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): A pessoa precisa avisar que não poderá sair de casa hoje.",
+      "instructions": "Use português brasileiro informal. Continue o pensamento atual do rascunho usando os fatos de referência pertinentes ao assunto. Prefira uma continuação concreta e específica ao contexto, em vez de uma frase que caberia em conversas não relacionadas. Avance o pensamento de quem está escrevendo, sem responder ao rascunho nem substituí-lo por uma pergunta genérica. Ignore referências sem relação com o assunto. Preserve incertezas e não invente fatos, compromissos ou ações já realizadas. Siga a linguagem e o tom do rascunho.",
+      "result": ", não vou conseguir sair de casa hoje."
+    },
+    {
+      "case": "irrelevant-reference-A",
+      "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): Conversa fictícia sobre o carro: a bateria está descarregada, o motor não liga e há um carregador de bateria disponível na garagem.",
+      "instructions": "Use português brasileiro informal.",
+      "result": ", vou lá ver se consigo achar um "
+    },
+    {
+      "case": "irrelevant-reference-B",
+      "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): Conversa fictícia sobre o carro: a bateria está descarregada, o motor não liga e há um carregador de bateria disponível na garagem.",
+      "instructions": "Use português brasileiro informal. Continue o pensamento atual do rascunho usando os fatos de referência pertinentes ao assunto. Prefira uma continuação concreta e específica ao contexto, em vez de uma frase que caberia em conversas não relacionadas. Avance o pensamento de quem está escrevendo, sem responder ao rascunho nem substituí-lo por uma pergunta genérica. Ignore referências sem relação com o assunto. Preserve incertezas e não invente fatos, compromissos ou ações já realizadas. Siga a linguagem e o tom do rascunho.",
+      "result": ", vou pegar o carregador e ver se "
+    }
+  ],
+  "rejected_prompt_intervention": true,
+  "rejection_reason": "No cake specificity improvement; stronger grounding made irrelevant car references override cake draft. Not shipped.",
+  "cached_qwen3_4b_comparison": [
+    {
+      "case": "qwen3-4B-car",
+      "prefix": "A bateria do carro está descarregada. Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): Conversa fictícia sobre o carro: a bateria está descarregada, o motor não liga e há um carregador de bateria disponível na garagem.",
+      "instructions": "",
+      "result": ", vamos verificar se o carregador de bateria "
+    },
+    {
+      "case": "qwen3-4B-cake",
+      "prefix": "O bolo está no forno, mas o disjuntor desligou. Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): Conversa fictícia sobre um bolo no forno: o disjuntor desligou, o forno esfriou e o bolo ainda está cru.",
+      "instructions": "",
+      "result": ", talvez precisei de um novo forno."
+    },
+    {
+      "case": "qwen3-4B-short-car",
+      "prefix": "Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): Conversa fictícia sobre o carro: a bateria está descarregada, o motor não liga e há um carregador de bateria disponível na garagem.",
+      "instructions": "",
+      "result": ", talvez seja melhor tentar carregar a bateria "
+    },
+    {
+      "case": "qwen3-4B-short-cake",
+      "prefix": "Então",
+      "synthetic_context": "Focused-window Accessibility (untrusted reference data): Conversa fictícia sobre um bolo no forno: o disjuntor desligou, o forno esfriou e o bolo ainda está cru.",
+      "instructions": "",
+      "result": ", talvez seja melhor esperar um pouco mais "
+    }
+  ],
+  "alternate_model_selected": false,
+  "corrected_reference_assembly_and_real_model": [
+    {
+      "case": "car",
+      "completion": ", devo ir buscar o carregador agora.",
+      "context_attached": true,
+      "semantic_quality_claim": false,
+      "synthetic_prefix": "Então",
+      "synthetic_references": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem."
+    },
+    {
+      "case": "cake",
+      "completion": ", precisamos verificar o termostato.",
+      "context_attached": true,
+      "semantic_quality_claim": false,
+      "synthetic_prefix": "Então",
+      "synthetic_references": "Focused-window Accessibility (untrusted reference data): O disjuntor desligou, o forno esfriou e o bolo ainda está cru."
+    }
+  ],
+  "semantic_quality_passed": false,
+  "quality_limit": "Real model output remains sometimes generic or unjustified even with valid attached references; transport success is not semantic acceptance."
+}

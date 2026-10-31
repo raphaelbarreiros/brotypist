@@ -1,5 +1,5 @@
 //! Family-specific trusted framing, byte-bounded references and short insertion streams.
-use crate::core::{casefold, is_alphanumeric, is_letter, is_mark, is_space};
+use crate::core::{casefold, is_alphanumeric, is_letter, is_mark, is_space, trim};
 use anyhow::{Result, bail};
 use regex::Regex;
 use std::{collections::HashSet, sync::LazyLock};
@@ -316,6 +316,18 @@ pub fn reference_context(
     ));
     let mut seen = HashSet::new();
     let mut candidates = Vec::new();
+    let mut nearby = Vec::new();
+    // A single-word draft provides no reliable lexical topic yet. Its already
+    // authorized focused-window facts can supply context; unrelated clipboard
+    // data and longer drafts still require positive lexical relevance.
+    let underspecified = terms.len() <= 1
+        && trim(prefix)
+            .split(is_space)
+            .filter(|word| !word.is_empty())
+            .take(2)
+            .count()
+            <= 1
+        && trim(suffix).is_empty();
     for (source, text) in sources {
         let label = match source.as_str() {
             "accessibility" => "Focused-window Accessibility",
@@ -340,12 +352,18 @@ pub fn reference_context(
             {
                 continue;
             }
-            seen.insert(normalized);
             let score = terms.intersection(&reference_terms(&line)).count();
             if score > 0 {
+                seen.insert(normalized);
                 candidates.push((score, index, label, line));
+            } else if underspecified && matches!(source.as_str(), "accessibility" | "screenshot") {
+                seen.insert(normalized);
+                nearby.push((score, index, label, line));
             }
         }
+    }
+    if candidates.is_empty() {
+        candidates = nearby;
     }
     candidates.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
     let mut remaining = max_bytes;
@@ -536,5 +554,39 @@ mod tests {
             reference_context("A manutenção", "", &source, 2400),
             reference_context("A manutenc\u{327}a\u{303}o", "", &source, 2400)
         );
+    }
+    #[test]
+    fn focused_references_survive_a_new_clause_without_shared_words() {
+        let sources = vec![
+            (
+                "accessibility".into(),
+                "A bateria do carro descarregou.".into(),
+            ),
+            (
+                "screenshot".into(),
+                "O carregador está disponível na garagem.".into(),
+            ),
+            (
+                "clipboard".into(),
+                "Reunião do condomínio na sexta-feira.".into(),
+            ),
+            (
+                "unknown".into(),
+                "Uma fonte sem autorização não pode contribuir.".into(),
+            ),
+        ];
+        let selected = reference_context("Então", "", &sources, 2400);
+        assert!(selected.contains("A bateria do carro descarregou."));
+        assert!(selected.contains("O carregador está disponível na garagem."));
+        assert!(!selected.contains("condomínio"));
+        assert!(!selected.contains("sem autorização"));
+        assert!(reference_context("Então", "", &sources, 20).is_empty());
+        // A topic-bearing draft must not acquire unrelated screen facts merely
+        // because the lexical ranker found no overlap.
+        let unrelated = vec![(
+            "accessibility".into(),
+            "Há um carregador disponível na garagem.".into(),
+        )];
+        assert!(reference_context("O bolo esfriou. Então", "", &unrelated, 2400).is_empty());
     }
 }

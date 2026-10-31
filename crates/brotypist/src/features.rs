@@ -447,6 +447,40 @@ mod tests {
         assert!(emoji_choices(":wave", &c).is_none());
     }
     #[test]
+    fn emoji_triggers_are_explicit_suffixes_not_semantic_word_predictions() {
+        let mut c = Config::default();
+        for (prefix, suffix, first) in [
+            (":", ":", "😀"),
+            ("Olá :sorriso", ":sorriso", "😄"),
+            ("Olá :obrigado:", ":obrigado:", "🙏"),
+            ("Olá :coração", ":coração", "❤️"),
+            ("Olá :coracao:", ":coracao:", "❤️"),
+            ("Hello :wave", ":wave", "👋"),
+            ("Hello :+1:", ":+1:", "👍"),
+            ("Hello :-)", ":-)", "🙂"),
+            ("Olá ;-)", ";-)", "😉"),
+            ("Olá <3", "<3", "❤️"),
+        ] {
+            let (typed, choices) = emoji_choices(prefix, &c).unwrap();
+            assert_eq!(typed, suffix);
+            assert_eq!(choices[0], first);
+            assert!(prefix.ends_with(&typed));
+        }
+        for prefix in [
+            "obrigado",
+            "sorriso",
+            "coração",
+            "happy",
+            "Hello :wave ",
+            "foo:)",
+        ] {
+            assert!(emoji_choices(prefix, &c).is_none(), "{prefix}");
+        }
+        c.emoticons_enabled = false;
+        assert!(emoji_choices("Olá <3", &c).is_none());
+        assert_eq!(emoji_choices("Olá :sorriso", &c).unwrap().1[0], "😄");
+    }
+    #[test]
     fn decoded_utility_rejects_lines_formats_protocols_and_allows_abstention() {
         let payload = r#"[" resposta", " resposta", " ótimo", "\nunsafe", "good\u2028next", "good\u2029next", "<think>reason", "<|im_start|>assistant", "x\u202eunsafe", "...", 3, {"x":1}]"#;
         assert_eq!(parse_choices(payload, 5), vec![" resposta", " ótimo"]);
