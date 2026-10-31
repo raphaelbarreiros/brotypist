@@ -1,0 +1,19 @@
+{
+  "schema": "brotypist-macos-prediction-repair-install/1",
+  "source_commit": "59f9621880d17964517acf40d0e580e16426ff5a",
+  "original_designated_requirement_preserved": true,
+  "candidate_installed_inventory_matches": true,
+  "strict_codesign_verified": true,
+  "graceful_quit_locked_backup_atomic_swap": true,
+  "settings_history_unchanged": true,
+  "startup_eight_seconds_no_exit": true,
+  "actual_gui_runtime_export_requested_and_written": true,
+  "runtime_export_mode": "0600",
+  "post_install_whatsapp_observed": false,
+  "external_whatsapp_prediction_passed": false,
+  "physical_global_emoji_click_passed": false,
+  "semantic_model_quality_passed": false,
+  "selected_model_changed": false,
+  "workspace_tests": 416,
+  "nested_child_invocations": 2
+}
