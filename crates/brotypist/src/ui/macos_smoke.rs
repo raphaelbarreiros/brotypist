@@ -433,6 +433,38 @@ fn layout_geometry(
 ) -> Result<Value> {
     let owned = window(app, "inklow.settings")?;
     let root = content(&owned)?;
+    let sidebar = settings.sidebar_layout_report()?;
+    ensure!(
+        sidebar["single_styled_highlight"] == true,
+        "Sidebar must have one styled selection without native button fills"
+    );
+    for row in sidebar["rows"]
+        .as_array()
+        .context("Missing native sidebar rows")?
+    {
+        let number = |key: &str| -> Result<f64> {
+            row[key]
+                .as_f64()
+                .with_context(|| format!("Missing sidebar geometry: {key}"))
+        };
+        ensure!(
+            row["tile_rect"]["width"].as_f64().unwrap_or(0.) >= 23.
+                && row["tile_rect"]["height"].as_f64().unwrap_or(0.) >= 23.
+                && number("tile_title_separation")? >= 7.,
+            "Sidebar icon is undersized or crowded against its title: {}",
+            row["key"]
+        );
+        if row["selected"] == true {
+            ensure!(
+                number("selection_leading_padding")? >= 7.
+                    && number("selection_top_padding")? >= 5.
+                    && number("selection_bottom_padding")? >= 5.
+                    && row["selection_matches_row"] == true
+                    && row["fully_visible_in_viewport"] == true,
+                "Selected sidebar item lost its inset padding or visibility"
+            );
+        }
+    }
     unsafe {
         let _: () = msg_send![&*root, layoutSubtreeIfNeeded];
         let _: () = msg_send![app, updateWindows];
@@ -449,7 +481,8 @@ fn layout_geometry(
             "window_frame":layout_rect(frame),
             "content_bounds":layout_rect(bounds),
             "content_visible_rect":layout_rect(visible),
-            "alignment":settings.alignment_report()?
+            "alignment":settings.alignment_report()?,
+            "sidebar":sidebar
         }))
     }
 }
@@ -561,6 +594,7 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
     unsafe {
         let _: bool = msg_send![&*app,setActivationPolicy:1isize];
     }
+    install_source_icon(&app);
     let kit = Kit::new(mtm, true);
     let config = Config {
         global_enabled: false,
@@ -645,14 +679,28 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
             ),
             (
                 "NSAppearanceNameDarkAqua",
-                &["general", "setup", "models", "context", "personalization"][..],
+                &[
+                    "general",
+                    "setup",
+                    "models",
+                    "context",
+                    "personalization",
+                    "about",
+                ][..],
                 760.,
                 560.,
                 "minimum",
             ),
             (
                 "NSAppearanceNameAqua",
-                &["general", "setup", "models", "context", "personalization"][..],
+                &[
+                    "general",
+                    "setup",
+                    "models",
+                    "context",
+                    "personalization",
+                    "about",
+                ][..],
                 1000.,
                 740.,
                 "resized",
@@ -755,7 +803,7 @@ pub(super) fn capture_layout(output: &Path) -> Result<i32> {
     settings.close();
     power.close()?;
     let receipt = json!({
-        "schema":"brotypist-macos-layout-capture/2", "passed":result.is_ok(),
+        "schema":"brotypist-macos-layout-capture/3", "passed":result.is_ok(),
         "scope":"Canonical owned native Settings controls and theme frame; synthetic preferences/status, no runtime services. Native menu inspected without opening it.",
         "safety":{"controller_started":false,"profile_loaded":false,"input_hooks_started":false,"foreground_activation_allowed":false,"external_screen_capture":false},
         "limits":"Native geometry assertions and NSView rasterization do not prove WindowServer vibrancy/compositing or external-host typing. Visual review of images is required.",

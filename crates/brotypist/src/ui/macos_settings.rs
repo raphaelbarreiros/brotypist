@@ -183,13 +183,18 @@ impl Settings {
             let _: () = msg_send![&*selection,setBoxType:4usize];
             let _: () = msg_send![&*selection,setBorderType:0usize];
             let _: () = msg_send![&*selection,setTitlePosition:0usize];
-            let _: () = msg_send![&*selection,setCornerRadius:6.0f64];
+            let _: () = msg_send![&*selection,setCornerRadius:8.0f64];
             let color: *mut AnyObject = msg_send![
                 AnyClass::get(c"NSColor").unwrap(),
                 unemphasizedSelectedContentBackgroundColor
             ];
             let _: () = msg_send![&*selection,setFillColor:color];
         }
+        identify(
+            &selection,
+            "inklow.sidebar.selection",
+            "Selected settings category",
+        );
         add(&navigation, &selection);
         self.sidebar_selection = Some(selection);
         for (key, title) in PANES {
@@ -204,21 +209,26 @@ impl Settings {
             let button = self.kit.button(
                 title,
                 &format!("inklow.sidebar.{key}"),
-                rect(0., y, 194., 30.),
+                rect(0., y, 194., 36.),
                 action,
             );
+            // Keep one native full-row button; the padded image supplies its content inset.
             sidebar_symbol(&button, key);
             unsafe {
                 let _: () = msg_send![&*button,setBordered:false];
                 let _: () = msg_send![&*button,setAlignment:0isize];
                 let _: () = msg_send![&*button,setButtonType:1usize];
+                let cell: *mut AnyObject = msg_send![&*button, cell];
+                // State remains available to AX and actions, but only our rounded box draws it.
+                let _: () = msg_send![cell,setHighlightsBy:0usize];
+                let _: () = msg_send![cell,setShowsStateBy:0usize];
             }
             add(&navigation, &button);
             self.sidebar_buttons.insert((*key).into(), button);
-            y += 31.;
+            y += 36.;
         }
         frame(&navigation, &rect(0., 0., 194., y));
-        let badge = self.kit.label("●", rect(171., 7., 12., 18.), 10., false);
+        let badge = self.kit.label("●", rect(171., 9., 12., 18.), 10., false);
         identify(
             &badge,
             "inklow.sidebar.setup.pending",
@@ -385,6 +395,163 @@ impl Settings {
             .ok_or_else(|| anyhow::anyhow!("Settings form has not been built"))?
             .alignment_report()
     }
+    /// Inspect AppKit's retained cells and rendered image pixels, without activating the window.
+    #[cfg(feature = "native-smoke")]
+    pub(super) fn sidebar_layout_report(&self) -> Result<Value> {
+        fn geometry(value: NSRect) -> Value {
+            json!({
+                "x": value.origin.x, "y": value.origin.y,
+                "width": value.size.width, "height": value.size.height,
+            })
+        }
+        let sidebar = self
+            .sidebar
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Sidebar not built"))?;
+        let scroll = self
+            .sidebar_scroll
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Sidebar scroll not built"))?;
+        let selection = self
+            .sidebar_selection
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Sidebar selection not built"))?;
+        let mut rows = Vec::with_capacity(PANES.len());
+        let mut selected_keys = Vec::new();
+        let mut automatic_highlights = 0;
+        unsafe {
+            let document: *mut AnyObject = msg_send![&**scroll, documentView];
+            let clip: *mut AnyObject = msg_send![&**scroll, contentView];
+            let document_bounds: NSRect = msg_send![document, bounds];
+            let viewport: NSRect = msg_send![clip, bounds];
+            let selection_frame: NSRect = msg_send![&**selection, frame];
+            let fill: *mut AnyObject = msg_send![&**selection, fillColor];
+            let fill_alpha: f64 = msg_send![fill, alphaComponent];
+            let radius: f64 = msg_send![&**selection, cornerRadius];
+            let hidden: bool = msg_send![&**selection, isHidden];
+            let children: *mut AnyObject = msg_send![document, subviews];
+            let child_count: usize = msg_send![children, count];
+            let mut background_count = 0usize;
+            let mut native_button_count = 0usize;
+            for index in 0..child_count {
+                let child: *mut AnyObject = msg_send![children,objectAtIndex:index];
+                let is_box: bool = msg_send![child,isKindOfClass:AnyClass::get(c"NSBox").unwrap()];
+                let is_button: bool =
+                    msg_send![child,isKindOfClass:AnyClass::get(c"NSButton").unwrap()];
+                background_count += usize::from(is_box);
+                native_button_count += usize::from(is_button);
+            }
+            for (key, _) in PANES {
+                let button = self
+                    .sidebar_buttons
+                    .get(*key)
+                    .ok_or_else(|| anyhow::anyhow!("Missing sidebar destination {key}"))?;
+                let bounds: NSRect = msg_send![&**button, bounds];
+                let button_frame: NSRect = msg_send![&**button, frame];
+                let cell: *mut AnyObject = msg_send![&**button, cell];
+                let image_rect: NSRect = msg_send![cell,imageRectForBounds:bounds];
+                let title_rect: NSRect = msg_send![cell,titleRectForBounds:bounds];
+                let image: *mut AnyObject = msg_send![&**button, image];
+                anyhow::ensure!(!image.is_null(), "Missing sidebar image for {key}");
+                let (canvas, ink, glyph, pixels) = sidebar_image_ink(&*image)?;
+                let project = |ink: NSRect| {
+                    rect(
+                        image_rect.origin.x + ink.origin.x * image_rect.size.width / canvas.width,
+                        image_rect.origin.y + ink.origin.y * image_rect.size.height / canvas.height,
+                        ink.size.width * image_rect.size.width / canvas.width,
+                        ink.size.height * image_rect.size.height / canvas.height,
+                    )
+                };
+                let tile = project(ink);
+                let tile_in_document: NSRect =
+                    msg_send![&**button,convertRect:tile,toView:document];
+                let state: isize = msg_send![&**button, state];
+                let highlights: usize = msg_send![cell, highlightsBy];
+                let shows_state: usize = msg_send![cell, showsStateBy];
+                let bordered: bool = msg_send![&**button, isBordered];
+                let selected = state == 1;
+                if selected {
+                    selected_keys.push(*key);
+                }
+                if highlights != 0 || shows_state != 0 || bordered {
+                    automatic_highlights += 1;
+                }
+                let target: *mut AnyObject = msg_send![&**button, target];
+                let action: Option<objc2::runtime::Sel> = msg_send![&**button, action];
+                let font: *mut AnyObject = msg_send![&**button, font];
+                let font_size: f64 = msg_send![font, pointSize];
+                let identifier: *mut NSString = msg_send![&**button, identifier];
+                let title: *mut NSString = msg_send![&**button, title];
+                rows.push(json!({
+                    "key": key,
+                    "identifier": identifier.as_ref().map(ToString::to_string),
+                    "title": title.as_ref().map(ToString::to_string),
+                    "selected": selected,
+                    "state": state,
+                    "button_frame": geometry(button_frame),
+                    "button_bounds": geometry(bounds),
+                    "image_cell_rect": geometry(image_rect),
+                    "title_cell_rect": geometry(title_rect),
+                    "tile_rect": geometry(tile),
+                    "glyph_ink_rect": geometry(project(glyph)),
+                    "image_canvas": {"width": canvas.width, "height": canvas.height},
+                    "image_pixels": {"width": pixels.width, "height": pixels.height},
+                    "tile_leading_padding": tile.origin.x - bounds.origin.x,
+                    "tile_top_padding": tile.origin.y - bounds.origin.y,
+                    "tile_bottom_padding": bounds.origin.y + bounds.size.height - tile.origin.y - tile.size.height,
+                    "tile_title_separation": title_rect.origin.x - tile.origin.x - tile.size.width,
+                    "selection_leading_padding": if selected { Some(tile_in_document.origin.x - selection_frame.origin.x) } else { None },
+                    "selection_top_padding": if selected { Some(tile_in_document.origin.y - selection_frame.origin.y) } else { None },
+                    "selection_bottom_padding": if selected { Some(selection_frame.origin.y + selection_frame.size.height - tile_in_document.origin.y - tile_in_document.size.height) } else { None },
+                    "font_size": font_size,
+                    "selection_matches_row": !selected || selection_frame == button_frame,
+                    "fully_visible_in_viewport": button_frame.origin.y >= viewport.origin.y
+                        && button_frame.origin.y + button_frame.size.height <= viewport.origin.y + viewport.size.height,
+                    "bordered": bordered,
+                    "cell_highlights_by": highlights,
+                    "cell_shows_state_by": shows_state,
+                    "has_native_action_target": !target.is_null() && action.is_some(),
+                    "image_identity": image as usize,
+                }));
+            }
+            let sidebar_frame: NSRect = msg_send![&**sidebar, frame];
+            let scroll_frame: NSRect = msg_send![&**scroll, frame];
+            let badge_frame = self.sidebar_badge.as_ref().map(|badge| {
+                let value: NSRect = msg_send![&**badge, frame];
+                geometry(value)
+            });
+            let footer_frame = self.sidebar_status.as_ref().map(|footer| {
+                let value: NSRect = msg_send![&**footer, frame];
+                geometry(value)
+            });
+            Ok(json!({
+                "coordinate_space": "row-local cell rectangles; button/selection frames in sidebar document",
+                "image_ink_measurement": "NSBitmapImageRep TIFF pixels: alpha > 0.05; white glyph RGB > 0.9",
+                "pane": self.current_pane,
+                "selected_keys": selected_keys,
+                "row_count": rows.len(),
+                "native_button_count": native_button_count,
+                "selection_background_count": background_count,
+                "sidebar_frame": geometry(sidebar_frame),
+                "scroll_frame": geometry(scroll_frame),
+                "document_bounds": geometry(document_bounds),
+                "viewport_bounds": geometry(viewport),
+                "requires_scrolling": document_bounds.size.height > viewport.size.height,
+                "selection": {
+                    "identifier": "inklow.sidebar.selection",
+                    "frame": geometry(selection_frame),
+                    "corner_radius": radius,
+                    "fill_alpha": fill_alpha,
+                    "hidden": hidden,
+                },
+                "automatic_highlight_count": automatic_highlights,
+                "single_styled_highlight": background_count == 1 && !hidden && selected_keys.len() == 1 && automatic_highlights == 0 && fill_alpha >= 0.99,
+                "badge_frame": badge_frame,
+                "footer_frame": footer_frame,
+                "rows": rows,
+            }))
+        }
+    }
     pub(super) fn close(&mut self) {
         self.remember_drafts();
         if let Some(window) = &self.window {
@@ -485,7 +652,24 @@ impl Settings {
         let content = (width - 210.).max(450.);
         frame(self.sidebar.as_ref().unwrap(), &rect(0., 0., 210., height));
         if let Some(scroll) = &self.sidebar_scroll {
+            let clip: *mut AnyObject = unsafe { msg_send![&**scroll, contentView] };
+            let previous: NSRect = unsafe { msg_send![clip, bounds] };
             frame(scroll, &rect(8., 50., 194., (height - 120.).max(1.)));
+            let viewport: NSRect = unsafe { msg_send![clip, bounds] };
+            if previous.size != viewport.size {
+                // Resizing may clip a previously visible selection; ordinary refreshes
+                // must not pull the user's independent sidebar scrolling back to it.
+                for button in self.sidebar_buttons.values() {
+                    unsafe {
+                        let state: isize = msg_send![&**button, state];
+                        if state == 1 {
+                            let bounds: NSRect = msg_send![&**button, bounds];
+                            let _: bool = msg_send![&**button,scrollRectToVisible:bounds];
+                            break;
+                        }
+                    }
+                }
+            }
         }
         if let Some(footer) = &self.sidebar_status {
             frame(footer, &rect(20., height - 66., 174., 48.));
@@ -1789,8 +1973,34 @@ impl Settings {
         self.config_values = data;
         for (key, button) in &self.sidebar_buttons {
             unsafe {
-                let selected = key == &self.current_pane;
-                let _: () = msg_send![&**button,setState:isize::from(selected)];
+                let destination = if self.current_pane.starts_with("rule:") {
+                    "appSettings"
+                } else {
+                    &self.current_pane
+                };
+                let selected = key == destination;
+                let state: isize = msg_send![&**button, state];
+                // A native push-on/push-off button can change state before its
+                // navigation action arrives. The owned highlight tracks selection.
+                let selection_moved = selected
+                    && self.sidebar_selection.as_ref().is_some_and(|background| {
+                        let previous: NSRect = msg_send![&**background, frame];
+                        let current: NSRect = msg_send![&**button, frame];
+                        previous != current
+                    });
+                if state != isize::from(selected) || selection_moved {
+                    let _: () = msg_send![&**button,setState:isize::from(selected)];
+                    let font: *mut AnyObject = msg_send![
+                        AnyClass::get(c"NSFont").unwrap(),
+                        systemFontOfSize:14.0f64,
+                        weight:if selected { 0.23f64 } else { 0.0f64 }
+                    ];
+                    let _: () = msg_send![&**button,setFont:font];
+                    if selected {
+                        let bounds: NSRect = msg_send![&**button, bounds];
+                        let _: bool = msg_send![&**button,scrollRectToVisible:bounds];
+                    }
+                }
                 if selected {
                     if let Some(background) = &self.sidebar_selection {
                         let bounds: NSRect = msg_send![&**button, frame];
@@ -2511,22 +2721,91 @@ fn sidebar_symbol(button: &AnyObject, pane: &str) {
         let config: *mut AnyObject = msg_send![AnyClass::get(c"NSImageSymbolConfiguration").unwrap(),configurationWithPaletteColors:&*colors];
         let symbol: *mut AnyObject = msg_send![symbol,imageWithSymbolConfiguration:config];
         let raw: *mut AnyObject = msg_send![image_class, alloc];
-        let raw: *mut AnyObject = msg_send![raw,initWithSize:NSSize::new(20.,20.)];
+        // The 24pt tile lives inside a transparent row-height canvas: 8pt on each
+        // horizontal edge keeps the native cell's image away from the selection edge
+        // and its title, without replacing NSButton's title, hit target or AXPress.
+        let raw: *mut AnyObject = msg_send![raw,initWithSize:NSSize::new(40.,36.)];
         let tile = Retained::from_raw(raw).expect("sidebar icon");
         let _: () = msg_send![&*tile, lockFocus];
         let color: *mut AnyObject =
             msg_send![color_class,colorWithSRGBRed:r/255.,green:g/255.,blue:b/255.,alpha:1.0f64];
         let _: () = msg_send![color, setFill];
-        let path: *mut AnyObject = msg_send![AnyClass::get(c"NSBezierPath").unwrap(),bezierPathWithRoundedRect:rect(0.,0.,20.,20.),xRadius:5.0f64,yRadius:5.0f64];
+        let path: *mut AnyObject = msg_send![AnyClass::get(c"NSBezierPath").unwrap(),bezierPathWithRoundedRect:rect(8.,6.,24.,24.),xRadius:6.0f64,yRadius:6.0f64];
         let _: () = msg_send![path, fill];
-        let _: () = msg_send![symbol,drawInRect:rect(3.,3.,14.,14.),fromRect:rect(0.,0.,0.,0.),operation:2usize,fraction:1.0f64,respectFlipped:false,hints:std::ptr::null::<AnyObject>()];
+        let _: () = msg_send![symbol,drawInRect:rect(12.,10.,16.,16.),fromRect:rect(0.,0.,0.,0.),operation:2usize,fraction:1.0f64,respectFlipped:false,hints:std::ptr::null::<AnyObject>()];
         let _: () = msg_send![&*tile, unlockFocus];
         let _: () = msg_send![&*tile,setTemplate:false];
         let _: () = msg_send![button,setImage:&*tile];
         let _: () = msg_send![button,setImagePosition:2usize];
+        let _: () = msg_send![button,setImageScaling:2usize];
         let font: *mut AnyObject =
-            msg_send![AnyClass::get(c"NSFont").unwrap(),systemFontOfSize:13.0f64];
+            msg_send![AnyClass::get(c"NSFont").unwrap(),systemFontOfSize:14.0f64];
         let _: () = msg_send![button,setFont:font];
+    }
+}
+/// Measure the actual retained image rather than repeating its drawing constants.
+#[cfg(feature = "native-smoke")]
+fn sidebar_image_ink(image: &AnyObject) -> Result<(NSSize, NSRect, NSRect, NSSize)> {
+    unsafe {
+        let canvas: NSSize = msg_send![image, size];
+        let data: *mut AnyObject = msg_send![image, TIFFRepresentation];
+        anyhow::ensure!(!data.is_null(), "Sidebar image has no TIFF representation");
+        let bitmap: *mut AnyObject =
+            msg_send![AnyClass::get(c"NSBitmapImageRep").unwrap(),imageRepWithData:data];
+        anyhow::ensure!(
+            !bitmap.is_null(),
+            "Sidebar image has no bitmap representation"
+        );
+        let width: isize = msg_send![bitmap, pixelsWide];
+        let height: isize = msg_send![bitmap, pixelsHigh];
+        anyhow::ensure!(
+            width > 0 && height > 0 && canvas.width > 0. && canvas.height > 0.,
+            "Sidebar image has empty dimensions"
+        );
+        let mut tile = (width, height, -1isize, -1isize);
+        let mut glyph = tile;
+        for y in 0..height {
+            for x in 0..width {
+                let color: *mut AnyObject = msg_send![bitmap,colorAtX:x,y:y];
+                if color.is_null() {
+                    continue;
+                }
+                let alpha: f64 = msg_send![color, alphaComponent];
+                if alpha <= 0.05 {
+                    continue;
+                }
+                tile = (tile.0.min(x), tile.1.min(y), tile.2.max(x), tile.3.max(y));
+                let red: f64 = msg_send![color, redComponent];
+                let green: f64 = msg_send![color, greenComponent];
+                let blue: f64 = msg_send![color, blueComponent];
+                if red > 0.9 && green > 0.9 && blue > 0.9 {
+                    glyph = (
+                        glyph.0.min(x),
+                        glyph.1.min(y),
+                        glyph.2.max(x),
+                        glyph.3.max(y),
+                    );
+                }
+            }
+        }
+        anyhow::ensure!(
+            tile.2 >= tile.0 && glyph.2 >= glyph.0,
+            "Sidebar image is missing its tile or white glyph"
+        );
+        let measured = |bounds: (isize, isize, isize, isize)| {
+            rect(
+                bounds.0 as f64 * canvas.width / width as f64,
+                bounds.1 as f64 * canvas.height / height as f64,
+                (bounds.2 - bounds.0 + 1) as f64 * canvas.width / width as f64,
+                (bounds.3 - bounds.1 + 1) as f64 * canvas.height / height as f64,
+            )
+        };
+        Ok((
+            canvas,
+            measured(tile),
+            measured(glyph),
+            NSSize::new(width as f64, height as f64),
+        ))
     }
 }
 fn text<'a>(value: &'a Value, key: &str) -> &'a str {
