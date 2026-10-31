@@ -61,6 +61,8 @@ const CHAT_BUNDLES: &[&str] = &[
     "com.tinyspeck.slackmacgap",
 ];
 const CHAT_EDITORS: &[&str] = &["com.microsoft.vscode", "com.microsoft.vscodeinsiders"];
+/// Distributed notification requesting one content-free WhatsApp capture export.
+const WHATSAPP_DIAGNOSTIC_NOTIFICATION: &str = "BroTypistExportWhatsAppDiagnostic";
 const CHAT_NAMES: &[&str] = &[
     "Chat Input (Agent), edit files in your workspace.",
     "Chat Input (Edit), edit files in your workspace.",
@@ -435,6 +437,7 @@ pub struct MacBridge {
     stopped: bool,
     config: Config,
     compatibility: Option<(i32, String, bool)>,
+    compatibility_outcome: serde_json::Value,
     observer: Option<AxObservation>,
     observer_pid: i32,
     focused_hash: Arc<AtomicU64>,
@@ -446,6 +449,9 @@ pub struct MacBridge {
     appearance: Option<Box<dyn AppearanceIntegration>>,
     docs: Option<docs::DocsHelper>,
     capture_diagnostic: &'static str,
+    capture_front: Option<(i32, String, String, String)>,
+    whatsapp_capture: Option<WhatsAppCapture>,
+    diagnostic_requested: Arc<AtomicBool>,
     not_send: PhantomData<Rc<()>>,
 }
 impl MacBridge {
@@ -463,8 +469,13 @@ impl MacBridge {
             .map_err(|_| anyhow!("Native document identity entropy unavailable"))?;
         let dirty = Arc::new(AtomicBool::new(true));
         let layout_dirty = Arc::new(AtomicBool::new(true));
-        let notifications =
-            AppNotifications::new(input.notifier(), dirty.clone(), layout_dirty.clone())?;
+        let diagnostic_requested = Arc::new(AtomicBool::new(false));
+        let notifications = AppNotifications::new(
+            input.notifier(),
+            dirty.clone(),
+            layout_dirty.clone(),
+            diagnostic_requested.clone(),
+        )?;
         let mut bridge = Self {
             owner: thread::current().id(),
             policy,
@@ -475,6 +486,7 @@ impl MacBridge {
             stopped: false,
             config,
             compatibility: None,
+            compatibility_outcome: serde_json::Value::Null,
             observer: None,
             observer_pid: 0,
             focused_hash: Arc::new(AtomicU64::new(0)),
@@ -486,6 +498,9 @@ impl MacBridge {
             appearance: None,
             docs: Some(docs::DocsHelper::new()),
             capture_diagnostic: "not_observed",
+            capture_front: None,
+            whatsapp_capture: None,
+            diagnostic_requested,
             not_send: PhantomData,
         };
         bridge.refresh_main_state()?;
@@ -609,6 +624,11 @@ impl MacBridge {
         if self.native_dirty.swap(false, Ordering::AcqRel) {
             self.input.clear_composition();
         }
+        if self.diagnostic_requested.swap(false, Ordering::AcqRel) {
+            if let Err(error) = self.export_whatsapp_diagnostic() {
+                eprintln!("BroTypist: WhatsApp diagnostic export failed: {error}");
+            }
+        }
         Ok(())
     }
     pub fn session(&mut self) -> Result<Option<MacSession>> {
@@ -617,10 +637,17 @@ impl MacBridge {
         if self.stopped {
             return Ok(None);
         }
+        self.capture_front = None;
         let Some((pid, app_id, executable, name)) = frontmost_application() else {
             self.capture_diagnostic = "foreground_unavailable";
             return Ok(None);
         };
+        if [&app_id, &executable, &name]
+            .iter()
+            .any(|value| value.to_ascii_lowercase().contains("whatsapp"))
+        {
+            self.capture_front = Some((pid, app_id.clone(), executable.clone(), name.clone()));
+        }
         let front = Foreground {
             app_id: app_id.clone(),
             executable: executable.clone(),
@@ -768,21 +795,35 @@ impl MacBridge {
             return;
         }
         self.compatibility = Some(target);
+        self.compatibility_outcome = serde_json::json!({"enabled":enabled,"forced":forced});
         if !enabled {
             return;
         }
-        if app.settable("AXManualAccessibility") && app.bool("AXManualAccessibility") == Some(false)
-        {
-            let _ = app.set_bool("AXManualAccessibility", true);
-        }
-        if (is_chromium_bundle(&front.app_id)
-            || exact_member(&front.app_id, CHAT_BUNDLES)
-            || forced)
-            && app.settable("AXEnhancedUserInterface")
-            && app.bool("AXEnhancedUserInterface") == Some(false)
-        {
-            let _ = app.set_bool("AXEnhancedUserInterface", true);
-        }
+        let outcome = |name: &str, eligible: bool| -> String {
+            if !eligible {
+                return "not_eligible".into();
+            }
+            if !app.settable(name) {
+                return "not_settable".into();
+            }
+            match app.bool(name) {
+                Some(false) => match app.set_bool(name, true) {
+                    Ok(()) => "set".into(),
+                    Err(error) => format!("set_error:{}", error.0),
+                },
+                Some(true) => "already_true".into(),
+                None => "unreadable_not_set".into(),
+            }
+        };
+        let manual = outcome("AXManualAccessibility", true);
+        let enhanced = outcome(
+            "AXEnhancedUserInterface",
+            is_chromium_bundle(&front.app_id)
+                || exact_member(&front.app_id, CHAT_BUNDLES)
+                || forced,
+        );
+        self.compatibility_outcome["manual_accessibility"] = manual.into();
+        self.compatibility_outcome["enhanced_user_interface"] = enhanced.into();
     }
     fn focused(&mut self) -> Result<Option<Focused>> {
         let Some(session) = self.session()? else {
@@ -1009,6 +1050,213 @@ impl MacBridge {
         };
         Ok(classify_readback(before, &after, &expected, dispatched))
     }
+    fn capture_native(&mut self) -> Result<Option<Snapshot>> {
+        if let Some(session) = self.session()? {
+            if exact_member(&session.foreground.app_id, TERMINALS) {
+                if !self.config.terminal_completion {
+                    return Ok(None);
+                }
+                let Some(mut adapter) = self.terminal.take() else {
+                    bail!("Terminal completion requires the native terminal integration")
+                };
+                let result = adapter.capture(&mut self.capture_services(), &session);
+                self.terminal = Some(adapter);
+                return result;
+            }
+        }
+        Ok(self.capture_ordinary()?.map(|(snapshot, _)| snapshot))
+    }
+    /// Retains only stage codes for WhatsApp captures; nothing is written until requested.
+    fn record_whatsapp_stage(&mut self) {
+        let Some((pid, app_id, executable, name)) = self.capture_front.clone() else {
+            return;
+        };
+        if !self
+            .whatsapp_capture
+            .as_ref()
+            .is_some_and(|capture| capture.pid == pid && capture.app_id == app_id)
+        {
+            self.whatsapp_capture = Some(WhatsAppCapture {
+                pid,
+                app_id,
+                executable,
+                name,
+                last_stage: "not_observed",
+                stages: BTreeMap::new(),
+                compatibility: serde_json::Value::Null,
+            });
+        }
+        let Some(capture) = self.whatsapp_capture.as_mut() else {
+            return;
+        };
+        capture.last_stage = self.capture_diagnostic;
+        let count = capture.stages.entry(self.capture_diagnostic).or_insert(0);
+        *count = count.saturating_add(1);
+        if self
+            .compatibility
+            .as_ref()
+            .is_some_and(|(owner, id, _)| *owner == pid && *id == capture.app_id)
+        {
+            capture.compatibility = self.compatibility_outcome.clone();
+        }
+    }
+    fn export_whatsapp_diagnostic(&self) -> Result<()> {
+        let whatsapp = self.whatsapp_capture.as_ref().map(|capture| {
+            serde_json::json!({
+                "app_id": capture.app_id,
+                "executable": capture.executable,
+                "name": capture.name,
+                "last_stage": capture.last_stage,
+                "stage_counts": capture.stages,
+                "compatibility": capture.compatibility,
+                "policy": {
+                    "excluded": self.policy.excluded(&[&capture.app_id, &capture.executable, &capture.name]),
+                    "allowed": self.policy.allowed(&capture.app_id, "", &[&capture.executable, &capture.name], false),
+                    "improve_compatibility": self.policy.rule_bool(&capture.app_id, "", "improve_compatibility", true),
+                },
+                "accessibility_shape": whatsapp_ax_shape(capture.pid),
+            })
+        });
+        let output = serde_json::json!({
+            "schema": "brotypist-whatsapp-capture-diagnostic/1",
+            "version": env!("CARGO_PKG_VERSION"),
+            "accessibility_trusted": ax::trusted(),
+            "secure_input": secure_event_input_enabled(),
+            "global_enabled": self.policy.global_enabled,
+            "last_capture_stage": self.capture_diagnostic,
+            "whatsapp": whatsapp,
+        });
+        let directory = crate::paths::config_dir()?.join("diagnostics");
+        crate::paths::private_directory(&directory)?;
+        let mut temporary = tempfile::Builder::new()
+            .prefix(".whatsapp-capture-")
+            .tempfile_in(&directory)?;
+        {
+            use std::{io::Write, os::unix::fs::PermissionsExt};
+            temporary
+                .as_file()
+                .set_permissions(std::fs::Permissions::from_mode(0o600))?;
+            serde_json::to_writer_pretty(temporary.as_file_mut(), &output)?;
+            temporary.write_all(b"\n")?;
+            temporary.as_file().sync_all()?;
+        }
+        temporary
+            .persist(directory.join("whatsapp-capture.json"))
+            .map_err(|error| anyhow!("Cannot write WhatsApp diagnostic: {}", error.error))?;
+        Ok(())
+    }
+}
+
+struct WhatsAppCapture {
+    pid: i32,
+    app_id: String,
+    executable: String,
+    name: String,
+    last_stage: &'static str,
+    stages: BTreeMap<&'static str, u32>,
+    compatibility: serde_json::Value,
+}
+
+/// Describes an AX attribute by type/count only; strings are exposed only for role constants.
+fn ax_shape(element: &AxElement, name: &str) -> String {
+    match element.attribute(name) {
+        Err(error) => format!("error:{}", error.0),
+        Ok(None) => "absent".into(),
+        Ok(Some(value)) => {
+            if let Some(value) = value.as_bool() {
+                format!("bool:{value}")
+            } else if value.as_element().is_some() {
+                "element".into()
+            } else if let Some(items) = value.as_elements() {
+                format!("array:{}", items.len())
+            } else if let Some(text) = value.as_string() {
+                if matches!(name, "AXRole" | "AXSubrole") {
+                    format!("string:{text}")
+                } else {
+                    "string".into()
+                }
+            } else if value.as_number().is_some() {
+                "number".into()
+            } else {
+                "other".into()
+            }
+        }
+    }
+}
+fn element_shape(element: &AxElement, pid: i32) -> serde_json::Value {
+    let mut ancestry = Vec::new();
+    let mut current = element.element("AXParent");
+    while let Some(parent) = current.take() {
+        if ancestry.len() == 24 {
+            ancestry.push("truncated".to_string());
+            break;
+        }
+        ancestry.push(ax_shape(&parent, "AXRole"));
+        current = parent.element("AXParent");
+    }
+    serde_json::json!({
+        "same_process": element.pid() == Some(pid),
+        "role": ax_shape(element, "AXRole"),
+        "subrole": ax_shape(element, "AXSubrole"),
+        "focused": ax_shape(element, "AXFocused"),
+        "enabled": ax_shape(element, "AXEnabled"),
+        "window": ax_shape(element, "AXWindow"),
+        "top_level": ax_shape(element, "AXTopLevelUIElement"),
+        "value": ax_shape(element, "AXValue"),
+        "selected_range": ax_shape(element, "AXSelectedTextRange"),
+        "value_settable": element.settable("AXValue"),
+        "selected_text_settable": element.settable("AXSelectedText"),
+        "ancestry_roles": ancestry,
+    })
+}
+fn whatsapp_ax_shape(pid: i32) -> serde_json::Value {
+    let Some(app) = AxElement::application(pid) else {
+        return serde_json::json!({"application":"unavailable"});
+    };
+    let attributes: serde_json::Map<String, serde_json::Value> = [
+        "AXRole",
+        "AXFrontmost",
+        "AXFocusedWindow",
+        "AXMainWindow",
+        "AXWindows",
+        "AXChildren",
+        "AXFocusedUIElement",
+        "AXManualAccessibility",
+        "AXEnhancedUserInterface",
+    ]
+    .into_iter()
+    .map(|name| (name.to_string(), ax_shape(&app, name).into()))
+    .collect();
+    let windows: Vec<serde_json::Value> = app
+        .attribute("AXWindows")
+        .ok()
+        .flatten()
+        .and_then(|value| value.as_elements())
+        .unwrap_or_default()
+        .iter()
+        .take(8)
+        .map(|window| {
+            serde_json::json!({
+                "role": ax_shape(window, "AXRole"),
+                "subrole": ax_shape(window, "AXSubrole"),
+                "focused": ax_shape(window, "AXFocused"),
+                "main": ax_shape(window, "AXMain"),
+                "minimized": ax_shape(window, "AXMinimized"),
+                "children": ax_shape(window, "AXChildren"),
+            })
+        })
+        .collect();
+    let system_focus = AxElement::system_wide()
+        .and_then(|system| system.element("AXFocusedUIElement"))
+        .filter(|element| element.pid() == Some(pid));
+    serde_json::json!({
+        "application": attributes,
+        "manual_accessibility_settable": app.settable("AXManualAccessibility"),
+        "enhanced_user_interface_settable": app.settable("AXEnhancedUserInterface"),
+        "windows": windows,
+        "application_focused_element": app.element("AXFocusedUIElement").map(|element| element_shape(&element, pid)),
+        "system_focused_element": system_focus.map(|element| element_shape(&element, pid)),
+    })
 }
 
 impl NativeBridge for MacBridge {
@@ -1037,20 +1285,9 @@ impl NativeBridge for MacBridge {
         if self.stopped {
             return Ok(None);
         }
-        if let Some(session) = self.session()? {
-            if exact_member(&session.foreground.app_id, TERMINALS) {
-                if !self.config.terminal_completion {
-                    return Ok(None);
-                }
-                let Some(mut adapter) = self.terminal.take() else {
-                    bail!("Terminal completion requires the native terminal integration")
-                };
-                let result = adapter.capture(&mut self.capture_services(), &session);
-                self.terminal = Some(adapter);
-                return result;
-            }
-        }
-        Ok(self.capture_ordinary()?.map(|(snapshot, _)| snapshot))
+        let result = self.capture_native();
+        self.record_whatsapp_stage();
+        result
     }
     fn foreground(&mut self) -> Result<Option<Foreground>> {
         self.owner()?;
@@ -1980,6 +2217,7 @@ struct NativeNotificationContext {
     note: Arc<dyn Fn(bool) + Send + Sync>,
     dirty: Arc<AtomicBool>,
     layout_dirty: Arc<AtomicBool>,
+    diagnostic: Arc<AtomicBool>,
 }
 struct AppNotifications {
     observer: ObjcRef,
@@ -1991,6 +2229,7 @@ impl AppNotifications {
         note: Arc<dyn Fn(bool) + Send + Sync>,
         dirty: Arc<AtomicBool>,
         layout_dirty: Arc<AtomicBool>,
+        diagnostic: Arc<AtomicBool>,
     ) -> Result<Self> {
         let _pool = Pool::new();
         unsafe extern "C" fn changed(object: ObjcRef, selector: ObjcRef, _notification: ObjcRef) {
@@ -2001,6 +2240,11 @@ impl AppNotifications {
                     return;
                 }
                 let context = unsafe { &*(raw as *const NativeNotificationContext) };
+                if selector == unsafe { sel_registerName(c"diagnosticRequested:".as_ptr()) } {
+                    context.diagnostic.store(true, Ordering::Release);
+                    (context.note)(true);
+                    return;
+                }
                 if selector == unsafe { sel_registerName(c"layoutChanged:".as_ptr()) } {
                     context.layout_dirty.store(true, Ordering::Release)
                 }
@@ -2028,7 +2272,11 @@ impl AppNotifications {
             }
             let implementation: unsafe extern "C" fn() =
                 std::mem::transmute(changed as unsafe extern "C" fn(ObjcRef, ObjcRef, ObjcRef));
-            for selector in [c"nativeChanged:", c"layoutChanged:"] {
+            for selector in [
+                c"nativeChanged:",
+                c"layoutChanged:",
+                c"diagnosticRequested:",
+            ] {
                 if !class_addMethod(
                     class,
                     sel_registerName(selector.as_ptr()),
@@ -2052,6 +2300,7 @@ impl AppNotifications {
             note,
             dirty,
             layout_dirty,
+            diagnostic,
         });
         unsafe {
             object_setInstanceVariable(
@@ -2082,6 +2331,11 @@ impl AppNotifications {
                 distributed,
                 "com.apple.Carbon.TISNotifySelectedKeyboardInputSourceChanged",
                 c"layoutChanged:",
+            ),
+            (
+                distributed,
+                WHATSAPP_DIAGNOSTIC_NOTIFICATION,
+                c"diagnosticRequested:",
             ),
         ] {
             let native = AxValue::string(name)
