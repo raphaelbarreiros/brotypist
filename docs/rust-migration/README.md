@@ -2,10 +2,10 @@
 
 # BroTypist: feature-preserving Rust conversion
 
-Status: **implementation and native integration in progress; native Rust UI, Rust 1.99.1/Cargo, a dedicated `migration/rust-native` branch, draft PR and native CI artifacts approved on 2026-10-30**. The user subsequently authorized local macOS installation; its backed-up signed candidate is recorded below. No main merge or release publication is authorized.
+Status: **Final macOS 0.5.0 source `52604fc3ff1a82cf36a04223cb80ee1f12997893` is built, Apple Development-signed, tested, locally installed and [published as a Mac-only prerelease](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.0). Latest stable remains `v0.4.13`.** Source was merged through PR #1 at `c307260084039e6a0c1d6ae4f96aaeb57bf72eee`; subsequent final Mac proof and the separately sourced `gamer-pc` 0.5.0 deployment are recorded in section 23. macOS model-quality limits and Windows/Linux acceptance gates remain open; this is not full three-platform parity.
 Baseline: `6eaeed5fe56e1ea8dcf878b1b7498f922c26fd59`, version 0.4.13.
 
-Requested outcome: convert the application to Rust for macOS, Windows and Linux while retaining all existing functionality. macOS remains the first parity gate; implemented Windows/Linux paths must also be migrated. This is not authorization to ship reduced-functionality builds, add cloud features or publish releases. Local macOS replacement was separately requested and completed with a rollback copy.
+Requested outcome: convert the application to Rust for macOS, Windows and Linux while retaining all existing functionality. macOS remains the first parity gate; implemented Windows/Linux paths must also be migrated. The subsequent explicit macOS-only prerelease approval permits that bounded preview after its final source/package gates, without making missing Windows/Linux evidence a pass or including those platforms in publication. It does not authorize reduced functionality, cloud features, security-policy changes or consent changes. Local Mac and PC replacements preserve rollback copies and external user data.
 
 Read only the section/artifact needed:
 
@@ -109,6 +109,8 @@ For each integrated packet, one independent reviewer checks semantic/data/securi
 
 ## 6. Current verification evidence and gates
 
+The table retains source-bound historical observations. Section 23 records the newer 0.5.0 deployment, approved release scope and outstanding verification; earlier passes do not automatically apply to later source revisions.
+
 | Boundary | Observed evidence | Limits / next gate |
 | --- | --- | --- |
 | Integrated Rust workspace | 451 passing invocations, including two child probes; native bins/examples and actual Tiny/Gemma worker/public CLI passed. Portuguese auto continuation, ready/proceed, stale-document refusal, release/reload and clean exit exercised. | Not a coverage comparison with Python. |
@@ -123,7 +125,7 @@ The full 51-case Gemma corpus matched every insertion/decoded-choice value and p
 
 Six selected direct/worker benchmark cases passed mechanical checks. Separate direct EN/PT diagnostics exercised the 256-token cap, sampler/BOS/token budgets and process-lifetime RSS. Direct cancellation passed; one after-result worker cancellation was explicitly inconclusive because the producer had already finished. These are not physical-typing latency or universal stochastic-output claims.
 
-Remaining acceptance boundaries: Windows installed runtime/repair/native Quit and registry-ownership diagnosis; signed external-host editing/readback and live TCC; actual KWin controls/refusal/input forwarding/cleanup; previous-release upgrades/rollback/OTA; unavailable large-model scenarios. No timeout, provider/model, ownership or paint-safety gate is relaxed to obtain a pass. Main and published releases remain unchanged.
+Remaining acceptance boundaries: current Windows MSI ownership/installation/repair/installed runtime; signed external-host editing/readback and live TCC beyond the bounded observations below; actual KWin controls/refusal/input forwarding/cleanup and personal PC typing; the full cross-platform previous-release upgrade/rollback/OTA matrix; unavailable large-model scenarios and semantic model quality. No provider/model, ownership or paint-safety gate is relaxed to obtain a pass. Section 23 records final Mac source-bound package verification, genuine healthy updater transactions and bounded negative component fixtures. Approved Mac prerelease publication remains pending; Latest stable remains `v0.4.13`.
 
 ## 7. Authorized local macOS installation
 
@@ -283,11 +285,102 @@ The requested PC is CachyOS x86_64 with KDE Wayland, not Windows. [Installation 
 
 The previous app's actual PID-owned tray Quit completed without termination signals. Its newer saved startup/setup preferences and KDE input-method choice differed from the initial snapshot; the guarded installer preserved the latest state rather than restoring the older snapshot. The original payload, opaque profile/launcher snapshots and exact portable remain in a private per-user rollback directory. The installed executable's hash, latest settings, login launcher and cached Gemma bytes were verified after startup. An actual PID-owned, responsive `BroTypist Settings` GTK frame was observed at 960×700 on the desktop; compositor pixels were not captured. The staged production CLI generated `a festa.` from synthetic cake text using the existing Gemma model in an isolated profile. No model, consent or input-method selection was changed by installation.
 
-Settings remains open for the user's test. **Ordinary Wayland inline predictions are unavailable**; model preview and explicitly selected experimental input-method controls are not general inline support. PC acceptance is pending, not inferred from process or inference success.
+This historical 0.4.13 installation is superseded by the actual 0.5.0 deployment in section 23. **Ordinary Wayland inline predictions remain unavailable**; model preview and explicitly selected experimental input-method controls are not general inline support. PC acceptance is pending, not inferred from process or inference success.
 
 ## 22. Branded README and conditional release preparation
 
 The main README now uses the supplied Typing Buddy identity with theme-aware wordmark assets, an actual owned native Settings capture, installation/usage guidance and explicit platform/privacy/model-quality limits. Relative links, self-contained SVGs and GitHub's actual GFM rendering were checked.
 
-Publication remains conditional on the user's PC test. The existing publisher credential's metadata-only Keychain handle is present; no signing secret was requested. Current Rust tooling supports clean native Mac/Linux package sealing and externally signed assembly, but holds Windows and has no per-target preview OTA channel. The conservative release scope is macOS; Linux remains a separately tested preview rather than silently entering Latest OTA. Final versioning, merge-bound provenance, clean packages, publisher signing and publication follow acceptance. Existing stable `v0.4.13` is unchanged.
+The user subsequently explicitly approved a **macOS-only 0.5.0 prerelease**, rather than waiting to publish for PC acceptance. Rust tooling supports clean native Mac/Linux package sealing and externally signed assembly, but holds Windows and has no per-target preview OTA channel. Linux remains a separately tested private preview, not a published prerelease asset or Latest OTA target. Final Mac source-bound rebuild, package verification and pinned-publisher metadata signing are now complete as recorded below; publication remains pending. No signing secret was exported or new permission granted. Stable `v0.4.13` is unchanged.
+
+## 23. Actual 0.5.0 deployment and approved Mac-only prerelease boundary
+
+### gamer-pc: canonical Linux package, native lifecycle and real worker
+
+The [sanitized 0.5.0 deployment receipt](../../evidence/rust-migration/gamer-pc-0.5.0-deployment.json) preserves the content-free verified receipt's substantive observations and all canonical source/artifact/package identities. Its original receipt SHA-256 is `6d9943cbd188490b99960746294a428606ba7e9c5f443a4e5da387ca7143c7b8`; absolute user/recovery paths are replaced with `$HOME`-relative paths and private recovery placeholders. That original digest identifies the private input receipt, not the sanitized copy.
+
+CI [run 41288799403](https://github.com/renan-brasilio/brotypist/actions/runs/41288799403), artifact `13077480393`, supplied the installed canonical Linux x86_64 0.5.0 portable. Its source is **PR synthetic merge `a7aec67228d1204ddaf1dce208eac47f837906ee`**, with parents `c307260084039e6a0c1d6ae4f96aaeb57bf72eee` and PR head `2f6e992f3571a9d028753c756dad18a1f2a8712e`; it is **not** the Mac head/build source. Archive SHA-256 is `6b2479fb89d5c341354f049b3131212e2cbee714a33f26e1b4270b58d4c118ac`, portable SHA-256 is `e85bcb144a065d4577b418a1f3af8a638a34fbabfad45a41739ac0e9b9e9ed32`, and all 535 payload files are bound by the retained manifest and binary hashes.
+
+Actual GTK/AT-SPI automation observed the owned Settings frame, clicked its real Close button, verified that the same PID stayed resident with zero visible owned frames, reopened Settings through the tray, and clicked the real Quit BroTypist button with PID exit confirmed. The canonical installed `_worker`, using existing Gemma weights without download and an isolated inference profile, emitted loading/ready/streamed-result/done events, produced 55 result bytes in 3.948 seconds, and stopped with exit 0 and no surviving worker. The separate successful public CLI completion uses the in-process provider; it is not a substitute for that child-worker proof. No personal writing was read or used for these observations.
+
+The final normal service is `brotypist-native-private-050-normal.service`, PID `3107248`, generation `6871792`, with the original `--settings --pane general` arguments restored. A temporary paused smoke process quit cleanly; **no runtime pause override or saved pause change remains**. The final launch was observed through its owned executable, unit MainPID and arguments, not a fresh final-frame/typing smoke. Normal profile bytes, launchers, symlink, model/cache, consent/login settings and `kwinrc` were preserved; rollback and earlier recovery remain private. The receipt's earlier doctor snapshot (`global_enabled=false`) is not the final saved-settings state: the last preservation observation was enabled, not reread or altered during the final launch correction.
+
+KWin reports virtual keyboard **available=true, active=false**. This user-service invocation has no compositor private socket and correctly refuses input-method transport. No socket was forged; input-method selection, compositor/session environment and policy were unchanged, with no reselect or compositor restart and no new autostart enabled. **Ordinary KDE inline/preedit remains disabled under baseline P25.** Manual completion/typing and personal desktop acceptance were not exercised. An unsigned private Linux deployment plus GTK/worker success is neither a full installer/upgrade/rollback matrix nor Linux publication or user-typing acceptance.
+
+### Mac source-bound rendering, context and model-quality limits
+
+An actual owned synthetic-window check on Mac source `2f6e992f3571a9d028753c756dad18a1f2a8712e` observed `Então, qual o próximo` (generic) and `Vou buscar o carregador agora.` with a visible car/charger reference. The [C0 native receipt and pixels](../../evidence/rust-migration/macos-prediction-repair/native-context-render.json) remain bound to that earlier source. Rendering code is unchanged in final `52604fc`, but **no final-source pixel claim is made**. This is supplied-context native rendering proof, not universal semantic quality, personal-message acceptance or a reconstructed WhatsApp request. The runtime context-prefetch cancellation defect has been fixed; the exact historical WhatsApp request cannot be reconstructed. The earlier user-confirmed visibility success remains source/scenario-bound, not a blanket acceptance of later model output.
+
+Gemma remains selected. Actual quality comparisons rejected the prompt rewrite and larger Qwen replacement rather than silently changing model selection. Generic or unjustified completions remain possible. C0 on `2f6e992` is superseded by the final updater deadline-fix build below; Linux's synthetic-merge identity must not be reused as that Mac identity.
+
+### Final Mac 52604fc: signed packages, actual updater transactions and local promotion
+
+The [sanitized final Mac proof receipt](../../evidence/rust-migration/macos-0.5.0-release-verification.json) binds source **`52604fc3ff1a82cf36a04223cb80ee1f12997893`** to the sealed native build and release manifests, final DMG/ZIP identities and four actual updater scenario receipts. Private-input SHA-256 values identify the exact underlying technical receipts, not the sanitized summary. It omits personal content, normal-profile contents/database hashes, absolute personal/recovery paths, signing-email identity and ephemeral process IDs.
+
+The final Mac integration source passed **429 workspace tests** and final native worker/GUI smoke. Its actual DMG/ZIP package smoke is **`passed=true`, `full_matrix=false`**: read-only DMG mount/layout and canonical payload, disposable drag-copy, bundled CLI/doctor, real Tiny worker, nonactivating LaunchServices background lifetime, normal OS Quit with exit 0, ZIP extraction/identity/traversal refusal and fixture-data-preserving removal passed. That package smoke did not access the normal profile, assert physical menu/keyboard/typing or visible-window acceptance, or itself exercise a genuine prior-version upgrade. The application is **Apple Development-signed, not notarized**; no OS protection bypass is authorized.
+
+| Final Mac asset | SHA-256 | Bytes |
+| --- | --- | --- |
+| `BroTypist-0.5.0-macos-arm64.dmg` | `23d9ea56e261ee202818ed848d40a08ee3adee42683fe8915909ec97b4e9b47c` | 18,800,132 |
+| `BroTypist-0.5.0-macos-arm64.zip` | `86d0df8d4b3eed2102fda27003cf3d9a4c45b87abd366ff6021bcefaced88811` | 18,012,876 |
+
+Separate actual owned GUI updater transactions verified the existing pinned-publisher signature and these final signed bytes. Both healthy paths used **genuine previous helpers**, actual retiring-parent exit and real first-GUI-loop acknowledgment: published Python `v0.4.13` helper/source `6eaeed5fe56e1ea8dcf878b1b7498f922c26fd59` (including its exact legacy three-field ACK), and the previously installed native helper/source `d1dc04518e657d505926b52019fc151549626080`. Both ended `healthy` with helper exit 0, complete previous signed build retained and synthetic data preserved.
+
+The two negative scenarios used the **current `52604fc` helper component fixture with a genuine old destination and parent**, not the old installed helper. A real enrolled replacement suspended before GUI ACK exercised delayed cancellation, owned-process resume/exit, restored complete previous build and confirmed `rolled_back` (helper exit 1). A held ownership lock exercised bounded **`rollback_pending`**, failed closed without swapping while ownership was unresolved, retained both complete signed builds, and the resumed cancelled process exited without a late ACK (helper exit 1). Those expected negative helper exits are successful scenario observations, not successful startup. No fake ACK, changed timeout, normal-profile use or permission/TCC grant was involved. They do **not** close an old-installed-helper negative full matrix or the cross-platform installer matrix.
+
+Final `52604fc` is now locally installed and its normal application was launched. Integration-owner preservation observations confirm unchanged settings and `local.sqlite3` hashes, with the exact prior C0 whole signed application and opaque-profile rollback retained privately. Only preservation booleans and rollback presence are published here; no normal-profile content, raw database hash or private recovery path is exposed. This local promotion is not publication, final-source pixel proof or expanded personal-message acceptance.
+
+### Windows and publication remain bounded
+
+Native CI [41297308730](https://github.com/renan-brasilio/brotypist/actions/runs/41297308730) passed Mac (17m40s) and Linux (27m29s); Windows failed after 23m9s only at the guarded installer gate. This CI observation is separate from the final Mac package's exact `52604fc` manifest binding. Windows artifact-reuse [41297558244](https://github.com/renan-brasilio/brotypist/actions/runs/41297558244) resolved the disposable fixture's **1625** and passed actual policy restoration/quiescence, but **the strict real HKLM64 ARP ownership gate still failed**. The approved fixture sets `DisableMSI=0` only when absent and transactionally restores it; existing policy and production settings remain unchanged. The direct-no-shell child-token fix is read-only-review-cleared but uncommitted at this observation, with new native verification pending—not passed. Earlier portable/runtime checks do not establish current installed-runtime, repair, upgrade or rollback acceptance.
+
+The subsequent [direct-client probe `41301762511`](https://github.com/renan-brasilio/brotypist/actions/runs/41301762511), committed source `2f189c3`, is recorded in the [sanitized ownership receipt](../../evidence/rust-migration/windows-direct-client-ownership.json). It authenticated the newer canonical 0.5.0 package from run `41297308730` (synthetic package source `db3c5df3bf10d50a03b0e1df57365abc6c2f2605`). The actual directly launched msiexec primary token independently passed medium integrity, same user, non-System, Administrator-disabled and restricted-rights assertions, while retaining elevation metadata 1/default type 1. Native user context 2/assignment 0 passed, but a matching **HKLM64 Uninstall entry still existed**, so the strict ownership gate correctly failed. Normal uninstall removed the installed product's ARP entry; both family products were absent in all views after cleanup. Synthetic settings/model/history fixtures remained unchanged, owned processes/MSI transactions were quiescent, and the absent-only policy fixture restored its initial state. Shell brokerage is therefore not a sufficient explanation for this runner. A genuine standard-user or UAC-filtered logon is the next discriminator; creating a test account or using alternate credentials is outside the current fixture approval and requires explicit authorization. No ownership gate was weakened and no genuine standard-user/upgrade/rollback pass is claimed.
+
+**Explicit user disposition:** keep Windows held. No new CI account, alternate credentials, additional security changes or Windows MSI publication are authorized. The genuine-user ownership/upgrade/rollback gate remains intentionally unaccepted; the Mac prerelease delivery is complete and this decision does not turn the failed Windows check into a pass.
+
+The approved **[Mac-only prerelease is published](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.0)** as release `430525839`, with `draft=false`, `prerelease=true` and the immutable `v0.5.0` tag resolving to Mac source `52604fc`. After CLI creation was denied with 403, the existing authenticated browser workflow uploaded exactly six authorized Mac assets without changing credentials or permissions. The integration owner independently downloaded all six server responses both before and after publication, verified every size/SHA-256 and the exact SHA256SUMS membership, and verified the downloaded update manifest/signature against the existing publisher pin. Post-publication API inspection confirmed the same uploaded asset identities and stable **`v0.4.13` still Latest** (`427862094`). Windows/Linux publication and acceptance remain held; Mac model-quality, notarization and external personal-message limits stay explicit. These bounded passes do not complete the full migration matrix.
+
+## 24. macOS 0.5.1 responsiveness, Monaco support and clean Setup
+
+Signed **0.5.1**, payload source **`751ee74e2275d81827412d8508cdb09d5f039f1f`**, is installed locally with the existing designated requirement. The [sanitized correction receipt](../../evidence/rust-migration/macos-0.5.1-responsiveness.json) binds the regression run, actual editor observations, measured desktop response and preservation checks. This is a local correction, **not a new published release**; existing `v0.5.0` assets and tag were not changed.
+
+### Runtime and native corrections
+
+- Preserve the exact unchanged-draft spelling verdict across automatic submission instead of discarding it and scheduling another assessment.
+- Start the next routine capture interval after the previous native capture completes. Slow AX reads no longer make that deadline immediately overdue; genuine input and forced captures remain fresh.
+- Drop the encrypted learning-store lock before native post-authorization. A blocked native check must not retain the mutex needed by history/statistics work. The regression uses a real temporary encrypted store and preserves revoked/latest-only learning refusal.
+- A benign native notification can disarm a completed visible ghost. Reauthorize an unchanged draft only after fresh capture and a new version-bound presentation acknowledgment, without another model submission. Presentation versions remain distinct from actual user-input revisions; an old queued acknowledgment cannot authorize a newer same-text offer.
+- Negotiate settable false editor accessibility capabilities once per PID. For the classic Monaco textarea relay, verify its native paint viewport, ancestry, owner/window, glyphs and containment; do not invent geometry or relax protected-field/draft/authority checks.
+- Remove the raw native-input/Quartz/capture sentence from normal Setup. Structured permission rows, actions and explicit diagnostics remain. The obsolete wording/raster test was removed rather than repinned. The [native Setup render](../../evidence/rust-migration/macos-0.5.1-setup.png) covers the former row area; baseline, compact and resized AppKit renders passed without starting the controller, profile or hooks.
+
+`cargo +1.99.1 test --locked --workspace` passed **441 workspace tests plus two additional child-process invocations**, with no failures. Formatting passed. These checks precede the source freeze; later repository additions are documentation and sanitized evidence, not a different installed payload.
+
+### Actual VS Code prediction, Tab and Save
+
+Installed VS Code **1.144.0 / Electron 43.8.3** exposes unusable zero caret geometry through its default EditContext backend. `editor.accessibilitySupport: "on"` alone does not repair that geometry. Together with `editor.editContext: false`, the classic textarea exposes verifiable native caret/glyph bounds.
+
+Two consecutive fresh disposable-profile runs observed the exact BroTypist-owned [prediction pixels](../../evidence/rust-migration/macos-0.5.1-code-prediction.png), posted session-tap Tab, read back insertion of `the `, and invoked the real File → Save action. The saved synthetic file matched the native readback. The [owned editor after Tab](../../evidence/rust-migration/macos-0.5.1-code-after-tab.png) was captured before Save. The final probe observed both original events at session head and the service's tagged Unicode emission; this is not physical-keyboard proof.
+
+An initial final-source attempt produced no edit and remains unattributed. Its tail-only missing-down observation did not identify a consuming process; no speculative event-routing workaround, native-guard relaxation or new permission grant was added.
+
+The isolated profiles disabled AI/inline suggestions and extensions, so the visible text was not Copilot. Normal user-level Copilot automatic completion was already disabled; workspace overrides and live Copilot/Cursor-Tab coexistence were not exercised. After end-to-end success, the user's conditional approval was applied: only the two Code compatibility preferences and BroTypist's Code-specific enabled/code-editor rule changed. All other Code preferences, including Copilot choices, were semantically unchanged. Code projects and normal extension state were not opened or modified.
+
+### Final desktop timing
+
+Owned AppKit text edits exercised real native capture, the existing cached Gemma 4 E2B model and the service's visible prediction panel on an M1 Pro / 16 GiB machine. Screen and screenshot context were enabled, clipboard/history/personalization disabled only in the private fixture, with 150 ms debounce. Normal model, context and learning preferences were not reduced.
+
+| Phase | Last local edit → prediction panel |
+| --- | ---: |
+| Cold idle | 783 ms |
+| Warm typing cadence 1 | 556 ms |
+| Warm idle | 524 ms |
+| Warm typing cadence 2 | 505 ms |
+
+The observer sampled WindowServer at 16 ms; actual [warm prediction glyphs](../../evidence/rust-migration/macos-0.5.1-warm-prediction.png) and the separate owned host window were inspected. These are four controlled local-edit observations, **not physical typing, a general latency SLA or a statistically established speedup ratio**. Earlier cold measurements varied materially.
+
+### Installation and remaining application boundaries
+
+The signed app was atomically replaced, its real GUI loop and eight-second startup liveness observed, and the exact previous signed 0.5.0 app plus opaque profile retained privately. The original Code settings also have a verified private rollback copy. History database bytes remained unchanged; normal BroTypist settings differ only by the approved Code rule. This is preservation/retained rollback evidence, not a new updater downgrade matrix. The app remains Apple Development-signed, **not notarized**.
+
+No usable Cursor bundle was present; the user chose installed Code instead of a Cursor download. The shared Monaco path is exercised, **direct Cursor support is unverified**. WordCraft 0.13.2's owned document reported writable AXValue but its setter returned success without changing text; the user chose BroTypist-only changes, so no upstream WordCraft edit or unsafe document-role fallback was made. **Windows remains held** under the existing explicit decision.
 

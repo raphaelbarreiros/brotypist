@@ -22,13 +22,13 @@ use. Accept what fits, dismiss what doesn't, and keep writing—without moving
 your draft into a chatbot. It lives in the menu bar or system tray, with
 OS-native Settings and local model inference.
 
-**Current source: Rust/native preview.** The installed signed macOS candidate's
-predictions have been confirmed working by its user, including in WhatsApp.
-This is not a claim of universal app compatibility or a newly published release.
-Downloads on the [Releases page](https://github.com/renan-brasilio/brotypist/releases)
-have their own version-specific notes. See the
-[migration and acceptance record](docs/rust-migration/README.md) for the cutover
-history and remaining platform gates.
+**Native Rust, with macOS first.** The [0.5.0 Mac preview](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.0)
+is available for Apple Silicon; **0.4.13 remains Latest stable**. The native
+prediction path has user confirmation, including in WhatsApp, but model relevance
+and text-field compatibility still vary. This is not cross-platform acceptance.
+Use the version-specific release notes and actual assets for download availability.
+The [migration and acceptance record](docs/rust-migration/README.md) tracks the
+verified Mac release, cutover history and remaining Windows/Linux gates.
 
 ## Writing, with you in control
 
@@ -69,6 +69,20 @@ rather than placing a completion in the wrong place. See
 On macOS, Electron/Chromium controls with unreliable replacement setters support
 ordinary completion only when safe inline geometry is available. Emoji,
 synonym and typo replacement are disabled in those append-only controls.
+
+For the macOS VS Code compatibility path in 0.5.1, code-editor completions remain
+an explicit per-app opt-in. VS Code 1.144's native EditContext backend does not
+expose reliable caret/glyph geometry. The verified native geometry path requires
+`"editor.accessibilitySupport": "on"` and `"editor.editContext": false` in VS Code.
+These change its accessibility/input mode; BroTypist does not silently apply them.
+Its textarea relay is clipped to the verified native editor viewport, not its
+one-point input element. Direct Cursor verification is still pending.
+
+Copilot and Cursor Tab also draw grey inline text and accept with Tab. Use one
+automatic inline provider in a given editor rather than assuming their overlays
+and shortcuts coordinate. BroTypist does not disable either assistant.
+WordCraft 0.13.2's advertised accessibility setter did not change the owned test
+document; BroTypist keeps that unverified editing target excluded.
 
 ## Install
 

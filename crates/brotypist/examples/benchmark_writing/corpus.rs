@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 pub const QUALITY_BYTES: &[u8] = include_bytes!("writing_quality.json");
+pub const CONTEXTUAL_BYTES: &[u8] = include_bytes!("contextual_quality.json");
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
@@ -54,7 +55,10 @@ pub struct FactCheck {
 }
 
 pub fn corpus() -> Result<(Value, Vec<Case>)> {
-    let quality: Value = serde_json::from_slice(QUALITY_BYTES)?;
+    let mut quality: Value = serde_json::from_slice(QUALITY_BYTES)?;
+    let mut contextual: Value = serde_json::from_slice(CONTEXTUAL_BYTES)?;
+    quality["rubric"]["contextual_utility"] = contextual["rubric"]["contextual_utility"].take();
+    quality["contextual_comparison_policy"] = contextual["comparison_policy"].take();
     let mut rows = vec![
         json!({"id":"email-en", "language":"English", "prefix":"Thank you for your help with the report. I really", "semantic_criteria":["Continue in English, naturally thanking the recipient."]}),
         json!({"id":"email-pt", "language":"Portuguese", "prefix":"Muito obrigado pela sua ajuda. Fico no aguardo da sua", "semantic_criteria":["Continue naturally in Portuguese without translating the draft."]}),
@@ -78,6 +82,9 @@ pub fn corpus() -> Result<(Value, Vec<Case>)> {
     ];
     if let Some(cases) = quality["cases"].as_array() {
         rows.extend(cases.iter().cloned());
+    }
+    if let Value::Array(cases) = contextual["cases"].take() {
+        rows.extend(cases);
     }
     let cases = rows
         .into_iter()

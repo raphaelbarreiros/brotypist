@@ -1,0 +1,263 @@
+{
+  "schema": 1,
+  "version": "0.5.0",
+  "source_commit": "52604fc3ff1a82cf36a04223cb80ee1f12997893",
+  "target": "macos-arm64",
+  "scope": "Final signed Mac package and actual owned updater transactions, integration-owner local-promotion observations, and independently downloaded published-asset verification; not full three-platform parity",
+  "publication": {
+    "approved_scope": "macOS-only prerelease",
+    "status": "published_prerelease",
+    "latest_stable": "v0.4.13",
+    "latest_stable_unchanged": true,
+    "cli_release_creation": "HTTP 403; no draft was created by that attempt",
+    "release_url": "https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.0",
+    "release_id": 430525839,
+    "published_at": "2026-11-01T11:18:20Z",
+    "draft": false,
+    "prerelease": true,
+    "annotated_tag_resolves_to_source_commit": "52604fc3ff1a82cf36a04223cb80ee1f12997893",
+    "all_six_assets_downloaded_before_and_after_publication": true,
+    "published_download_sizes_and_sha256_match_sealed_originals": true,
+    "published_download_pinned_publisher_signature_verified": true,
+    "sha256sums_exact_five_payloads_verified": true,
+    "latest_stable_release_id_verified": 427862094,
+    "windows_and_linux_assets_held": true
+  },
+  "input_provenance": {
+    "method": "Selected technical observations transcribed from the named private receipts; SHA-256 identifies the exact private input, not this sanitized public summary",
+    "private_inputs": [
+      {
+        "label": "release-final/installer-smoke/macos-installer-smoke.json",
+        "sha256": "c73f35ecae5672b065ce85fcf69281e889f8ddf6b3b87ccda67940b8ebb69394"
+      },
+      {
+        "label": "release-final/macos-assets/build-manifest.json",
+        "sha256": "c8a49042fd73e818b35957c36767a413c36618aa11f6a4362eecc30087d6cc2c"
+      },
+      {
+        "label": "release-0.5.0-final/release-manifest.json",
+        "sha256": "f4cfa56738dddece475a1badc2963ffbc263c9fb0830775bc9a139de6b54d195"
+      },
+      {
+        "label": "updater-proof-final-published/receipt.json",
+        "sha256": "f029928a02e33c3e994becabb059488e3ba0f0f8da04d392b88556d7bbe3c373"
+      },
+      {
+        "label": "updater-proof-final-native/receipt.json",
+        "sha256": "4e74942bc18eec7cc90bfeabf84b6069e76ba01f2d2560c9aab8cff95af12d16"
+      },
+      {
+        "label": "updater-proof-final-delayed/receipt.json",
+        "sha256": "aac21915eb0c27f3b1afd608bd299233616a636e0900f53c5be55aadcd913d53"
+      },
+      {
+        "label": "updater-proof-final-held-lock/receipt.json",
+        "sha256": "f9a6c3d3c2fca391b71f426aa3e2420992952b44c46b80e7ab91d1aaeda441d4"
+      }
+    ]
+  },
+  "artifacts": [
+    {
+      "name": "BroTypist-0.5.0-macos-arm64.dmg",
+      "sha256": "23d9ea56e261ee202818ed848d40a08ee3adee42683fe8915909ec97b4e9b47c",
+      "size": 18800132
+    },
+    {
+      "name": "BroTypist-0.5.0-macos-arm64.zip",
+      "sha256": "86d0df8d4b3eed2102fda27003cf3d9a4c45b87abd366ff6021bcefaced88811",
+      "size": 18012876
+    }
+  ],
+  "artifact_binding": {
+    "sealed_build_and_release_manifest_source_match": true,
+    "sealed_build_and_release_manifest_artifact_hashes_and_sizes_match": true,
+    "update_manifest_source_and_artifacts_match": true,
+    "release_manifest_sha256": "f4cfa56738dddece475a1badc2963ffbc263c9fb0830775bc9a139de6b54d195",
+    "update_manifest_sha256": "689310926f655028f8575b59c18f8d05cf3b57b536f864d6a8a96286e54b1c96",
+    "update_manifest_signature_sha256": "2ffb199edbf4389756403cf460e24e4abd59aecb550c52a03cc41be958fc899b",
+    "sha256sums_file_sha256": "362e77d3554df36ba76aa836af79e61e4fa80b904fad6795185e7272f753a335",
+    "publisher_signature_verified_in_actual_updater_receipts": true,
+    "independent_published_download_verification": "not_yet_exercised"
+  },
+  "signature": {
+    "kind": "Apple Development identity-signed",
+    "bundle_identifier": "com.inklow.Inklow",
+    "bundle_cdhash": "f17fb9a019829df075fa9d0a3a3676a116250096",
+    "notarized": false,
+    "distribution_signing_claimed": false
+  },
+  "mac_integration": {
+    "evidence_authority": "Integration-owner observations supplied with this documentation assignment; not rerun by the documentation worker",
+    "source_commit": "52604fc3ff1a82cf36a04223cb80ee1f12997893",
+    "workspace_tests_passed": 429,
+    "final_native_worker_smoke_passed": true,
+    "final_gui_smoke_passed": true
+  },
+  "package_smoke": {
+    "passed": true,
+    "full_matrix": false,
+    "source_commit": "52604fc3ff1a82cf36a04223cb80ee1f12997893",
+    "read_only_dmg_layout_and_payload": true,
+    "owned_assets_and_canonical_payload": true,
+    "disposable_drag_copy": true,
+    "actual_bundled_cli_version_and_doctor_passed": true,
+    "real_tiny_worker_passed": true,
+    "real_tiny_worker_receipt_sha256": "7887cba89f1baaaabb9d8bac9ec2c92ba5c5f131f64b4c8e9368587e6df61c25",
+    "launchservices_gui_and_os_quit": {
+      "passed": true,
+      "launch": "Exact disposable bundle, new background paused instance without activation",
+      "observed_background_lifetime_ms": 3049,
+      "normal_quit": "OS Quit AppleEvent",
+      "normal_quit_elapsed_ms": 64,
+      "raw_wait_status": 0,
+      "physical_menu_or_key_exercised": false,
+      "typing_exercised": false,
+      "visible_window_asserted": false
+    },
+    "zip_extraction_identity_and_traversal_refusal_passed": true,
+    "uninstall_preserves_owned_and_unrelated_profile_fixture": true,
+    "owned_dmg_detached": true,
+    "normal_profile_accessed": false,
+    "prior_version_upgrade_in_this_package_smoke": "not_exercised; genuine updater scenarios are recorded separately",
+    "release_wide_acceptance_asserted": false
+  },
+  "updater_transactions": {
+    "passed": true,
+    "scope": "Actual owned GUI/process transactions with the final signed package; no fake ACK, changed timeout, normal-profile use or permission grant",
+    "shared_observations": {
+      "publisher_signature_verified": true,
+      "actual_parent_exit_before_handoff": true,
+      "approval_did_not_replace_live_parent": true,
+      "original_settings_and_external_synthetic_fixtures_preserved": true,
+      "owned_process_cleanup_confirmed": true,
+      "normal_profile_used": false,
+      "tcc_grants_changed": false
+    },
+    "scenarios": [
+      {
+        "scenario": "published-python-to-rust-healthy",
+        "passed": true,
+        "helper_source_commit": "6eaeed5fe56e1ea8dcf878b1b7498f922c26fd59",
+        "previous_source_commit": "6eaeed5fe56e1ea8dcf878b1b7498f922c26fd59",
+        "previous_version": "0.4.13",
+        "genuine_previous_published_python_helper": true,
+        "current_helper_component_fixture": false,
+        "real_gui_loop_ack_verified": true,
+        "legacy_exact_three_field_ack": true,
+        "complete_previous_signed_build_retained": true,
+        "helper_exit_code": 0,
+        "transaction_status": "healthy"
+      },
+      {
+        "scenario": "native-to-rust-healthy",
+        "passed": true,
+        "helper_source_commit": "d1dc04518e657d505926b52019fc151549626080",
+        "previous_source_commit": "d1dc04518e657d505926b52019fc151549626080",
+        "previous_version": "0.4.13",
+        "genuine_previous_installed_native_helper": true,
+        "current_helper_component_fixture": false,
+        "real_gui_loop_ack_verified": true,
+        "complete_previous_signed_build_retained": true,
+        "helper_exit_code": 0,
+        "transaction_status": "healthy"
+      },
+      {
+        "scenario": "current-helper-delayed-start-rollback",
+        "passed": true,
+        "helper_source_commit": "52604fc3ff1a82cf36a04223cb80ee1f12997893",
+        "previous_source_commit": "d1dc04518e657d505926b52019fc151549626080",
+        "previous_version": "0.4.13",
+        "current_helper_component_fixture": true,
+        "genuine_old_destination_and_parent": true,
+        "old_installed_helper_full_matrix_proof": false,
+        "real_enrolled_process_suspended_before_gui_ack": true,
+        "cancelled_before_swap_back_with_live_owned_process": true,
+        "controller_resumed_only_its_owned_process": true,
+        "enrollment_lock_release_observed": true,
+        "owned_replacement_exited_before_confirmed_rollback": true,
+        "complete_previous_build_restored": true,
+        "unacknowledged_interval_seconds": 58.99,
+        "helper_exit_code": 1,
+        "transaction_status": "rolled_back"
+      },
+      {
+        "scenario": "current-helper-held-lock-refusal",
+        "passed": true,
+        "helper_source_commit": "52604fc3ff1a82cf36a04223cb80ee1f12997893",
+        "previous_source_commit": "d1dc04518e657d505926b52019fc151549626080",
+        "previous_version": "0.4.13",
+        "current_helper_component_fixture": true,
+        "genuine_old_destination_and_parent": true,
+        "old_installed_helper_full_matrix_proof": false,
+        "real_enrolled_process_suspended_before_gui_ack": true,
+        "held_ownership_lock": true,
+        "held_lock_failed_closed_without_swap": true,
+        "both_complete_signed_builds_retained": true,
+        "enrollment_lock_release_observed": true,
+        "resumed_cancelled_process_exited_without_late_ack": true,
+        "unacknowledged_interval_seconds": 79.778,
+        "helper_exit_code": 1,
+        "transaction_status": "rollback_pending"
+      }
+    ],
+    "full_cross_platform_matrix_passed": false
+  },
+  "local_promotion": {
+    "evidence_authority": "Completed integration-owner observation supplied with this documentation assignment; no normal-profile content was read by the documentation worker",
+    "installed_source_commit": "52604fc3ff1a82cf36a04223cb80ee1f12997893",
+    "normal_application_launched": true,
+    "settings_hash_preserved": true,
+    "local_sqlite3_hash_preserved": true,
+    "previous_c0_whole_signed_app_rollback_retained_privately": true,
+    "opaque_profile_rollback_retained_privately": true,
+    "raw_profile_hashes_personal_paths_and_ephemeral_pid_omitted": true
+  },
+  "rendering_evidence": {
+    "receipt": "evidence/rust-migration/macos-prediction-repair/native-context-render.json",
+    "source_commit": "2f6e992f3571a9d028753c756dad18a1f2a8712e",
+    "image": "evidence/rust-migration/macos-prediction-repair/native-context-render.png",
+    "image_sha256": "0b9d0dbd5a1e033484fd547391862cb41646449e21d0c1107a4171e65a92634e",
+    "owned_synthetic_native_render_observed": true,
+    "rendering_code_unchanged_in_final_source": "Integration-owner source observation",
+    "final_source_pixel_proof_claimed": false,
+    "personal_message_acceptance_claimed": false,
+    "universal_semantic_quality_claimed": false
+  },
+  "other_platform_ci": {
+    "evidence_authority": "Integration-owner native CI observations supplied with this documentation assignment",
+    "native_run": {
+      "id": 41297308730,
+      "url": "https://github.com/renan-brasilio/brotypist/actions/runs/41297308730",
+      "macos": {"conclusion": "success", "duration": "17m40s"},
+      "linux": {"conclusion": "success", "duration": "27m29s"},
+      "windows": {"conclusion": "failure", "duration": "23m9s", "failed_boundary": "guarded installer gate"},
+      "used_as_final_mac_package_source_binding": false
+    },
+    "windows_reuse_run": {
+      "id": 41297558244,
+      "url": "https://github.com/renan-brasilio/brotypist/actions/runs/41297558244",
+      "error_1625_resolved_in_disposable_fixture": true,
+      "policy_restore_passed": true,
+      "quiescence_passed": true,
+      "strict_real_hklm64_arp_gate": "failed",
+      "installer_matrix_passed": false,
+      "direct_no_shell_child_token_fix": "Read-only review cleared; uncommitted at this observation; native verification pending"
+    },
+    "gamer_pc_deployment_receipt": "evidence/rust-migration/gamer-pc-0.5.0-deployment.json",
+    "gamer_pc_source_commit": "a7aec67228d1204ddaf1dce208eac47f837906ee",
+    "gamer_pc_source_is_final_mac_source": false
+  },
+  "remaining_limits": [
+    "Apple Development-signed, not notarized; no Gatekeeper or other OS security bypass authorized.",
+    "The Mac package smoke remains full_matrix=false; actual updater scenarios do not establish the full cross-platform installer/upgrade/rollback matrix.",
+    "Delayed and held-lock negative scenarios use the current helper component with genuine older destination/parent, not the old installed helper.",
+    "429 Mac workspace tests, package smoke, worker/GUI smoke and local promotion do not certify every external host, physical typing workflow or later personal-message quality.",
+    "C0 native pixels remain bound to 2f6e992, not final 52604fc pixels.",
+    "Gemma remains selected; generic or context-irrelevant output remains possible. Prompt rewrite and larger-model substitution were rejected; no model selection change was made.",
+    "Windows strict ARP ownership and current native installer verification remain open; the direct child-token fix is not recorded as passed.",
+    "Linux gamer-pc GTK lifecycle and installed worker passed separately, but personal typing/KWin transport and full installer acceptance remain open; ordinary KDE inline/preedit stays disabled.",
+    "Mac-only prerelease publication and independent published-asset downloads are not yet established; Latest stable remains v0.4.13."
+  ],
+  "full_cross_platform_matrix_passed": false,
+  "sanitization": "No personal writing, profile contents, ciphertext database hashes, absolute personal/recovery paths, signing-email identity, tokens, secrets or live PID copied into this receipt"
+}

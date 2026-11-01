@@ -2,6 +2,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$ArtifactRun,
+    [string]$PreviousArtifactRun = '',
+    [switch]$ExerciseRollback,
     [Parameter(Mandatory)][string]$Work,
     [Parameter(Mandatory)][string]$Reports
 )
@@ -81,6 +83,35 @@ function Extract-Entry($Entry, [string]$Path, [long]$Limit) {
 function Get-Api([string]$Suffix) {
     return Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/$Suffix" -Headers $script:headers -TimeoutSec 60
 }
+function Read-CheckoutIdentity([string]$Path) {
+    # Read only the first checkout action. Later build output cannot manufacture
+    # an identity, and no raw Actions log is retained in the public receipt.
+    $reader = [IO.StreamReader]::new($Path, [Text.Encoding]::UTF8, $true)
+    $inside = $false; $expectCommit = $false; $commit = $null; $fetch = $null; $pull = $null
+    [long]$characters = 0
+    try {
+        while ($null -ne ($line = $reader.ReadLine())) {
+            $characters += $line.Length
+            Require ($characters -le 2097152) 'Checkout identity exceeds bounded log prefix'
+            if ($line -notmatch '^\d{4}-\d{2}-\d{2}T[0-9:.]+Z (?<message>.*)$') { continue }
+            $message = $Matches.message
+            if ($message -ceq '##[group]Run actions/checkout@v6') { Require (-not $inside) 'Ambiguous checkout action'; $inside = $true; continue }
+            if (-not $inside) { continue }
+            if ($message.StartsWith('##[group]Run ', [StringComparison]::Ordinal)) { break }
+            if ($expectCommit) {
+                Require ($message -cmatch '^[0-9a-f]{40}$' -and $null -eq $commit) 'Checkout commit output missing/ambiguous'
+                $commit = $message; $expectCommit = $false
+            }
+            if ($message -cmatch '^\[command\].*\\git\.exe" .* fetch .* \+(?<commit>[0-9a-f]{40}):refs/remotes/pull/(?<pull>[1-9][0-9]*)/merge$') {
+                Require ($null -eq $fetch) 'Ambiguous checkout fetch'
+                $fetch = $Matches.commit; $pull = $Matches.pull
+            }
+            if ($message -cmatch '^\[command\].*\\git\.exe" log -1 --format=%H$') { $expectCommit = $true }
+        }
+    } finally { $reader.Dispose() }
+    Require ($inside -and -not $expectCommit -and $null -ne $commit -and $commit -ceq $fetch -and $null -ne $pull) 'Exact historical PR checkout identity missing'
+    return @{ commit = $commit; pull_request = $pull }
+}
 function New-V5Guid([Guid]$Namespace, [string]$Name) {
     $bytes = $Namespace.ToByteArray()
     [Array]::Reverse($bytes, 0, 4); [Array]::Reverse($bytes, 4, 2); [Array]::Reverse($bytes, 6, 2)
@@ -113,6 +144,10 @@ try {
     Require ($env:GITHUB_SHA -cmatch '^[0-9a-f]{40}$') 'Probe checkout commit is missing'
     $script:headers = @{ Authorization = "Bearer $originalToken"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
 
+    function Get-AuthenticatedPackage([string]$ArtifactRun, [string]$Label, $metadata) {
+    Require ($ArtifactRun -cmatch '^[1-9][0-9]{0,19}$') 'Artifact run must be a positive decimal GitHub run ID'
+    $Work = Join-Path $Work $Label
+    New-PrivateDirectory $Work
     $stage = 'authenticated_artifact_identity'
     $run = Get-Api "actions/runs/$ArtifactRun"
     Require ([string]$run.id -ceq $ArtifactRun -and $run.repository.full_name -ceq $env:GITHUB_REPOSITORY -and $run.head_repository.full_name -ceq $env:GITHUB_REPOSITORY) 'Foreign workflow run refused'
@@ -140,7 +175,7 @@ try {
         $rawReceipt = Join-Path $assets $receiptName
         Extract-Entry $receiptEntry[0] $rawReceipt 8388608
         # This retained copy is byte-for-byte original, not the rebased InputFile adapter.
-        Copy-Item -LiteralPath $rawReceipt -Destination (Join-Path $Reports $receiptName)
+        Copy-Item -LiteralPath $rawReceipt -Destination (Join-Path $Reports "$Label-$receiptName")
         $metadata.raw_package_receipt_sha256 = (Get-FileHash -LiteralPath $rawReceipt -Algorithm SHA256).Hash.ToLowerInvariant()
         $package = Get-Content -LiteralPath $rawReceipt -Raw | ConvertFrom-Json
         Require ($package.application -ceq 'com.inklow.Inklow' -and $package.platform -ceq 'win32' -and $package.runtime -ceq 'rust' -and $package.architecture -ceq 'x86_64' -and $package.scope -ceq 'perUser' -and $package.signing -ceq 'unsigned' -and $package.signature -ceq 'unsigned' -and $package.release_eligible -eq $true) 'Expected canonical clean unsigned per-user Rust package'
@@ -153,16 +188,35 @@ try {
         $source = Get-Api "commits/$($package.source_commit)"
         Require ($source.sha -ceq $package.source_commit) 'Package source commit cannot be authenticated'
         $sourceBound = $package.source_commit -ceq $run.head_sha
-        # The run's head_sha is immutable; its embedded PR head follows later pushes.
+        # A merged PR can disappear from run.pull_requests. Bind the exact
+        # historical checkout, not today's PR metadata or a same-parent merge:
+        # different merge trees can have identical parents.
+        $checkoutBinding = $null
         if (-not $sourceBound -and $run.event -ceq 'pull_request' -and @($source.parents).Count -eq 2 -and $source.parents[1].sha -ceq $run.head_sha) {
-            $bindings = @($run.pull_requests | Where-Object { $_.head.repo.id -eq $run.repository.id -and $_.base.repo.id -eq $run.repository.id -and $_.base.sha -ceq $source.parents[0].sha })
-            $sourceBound = $bindings.Count -eq 1
+            Require ($run.run_attempt -ge 1) 'Historical run attempt missing'
+            $jobs = Get-Api "actions/runs/$ArtifactRun/attempts/$($run.run_attempt)/jobs?per_page=100"
+            Require ($jobs.total_count -le 100 -and @($jobs.jobs).Count -eq $jobs.total_count) 'Historical job listing incomplete'
+            $windowsJobs = @($jobs.jobs | Where-Object { $_.name -ceq 'Native windows-x86_64' })
+            Require ($windowsJobs.Count -eq 1) 'Exact historical Windows job missing/ambiguous'
+            $job = $windowsJobs[0]
+            Require ([string]$job.run_id -ceq $ArtifactRun -and $job.run_attempt -eq $run.run_attempt -and $job.head_sha -ceq $run.head_sha -and $job.status -ceq 'completed') 'Historical job/run identity differs'
+            $checkoutSteps = @($job.steps | Where-Object { $_.name -ceq 'Run actions/checkout@v6' -and $_.status -ceq 'completed' -and $_.conclusion -ceq 'success' })
+            Require ($checkoutSteps.Count -eq 1) 'Successful historical checkout step missing/ambiguous'
+            $logPath = Join-Path $Work 'authenticated-checkout-job.log'
+            try {
+                Invoke-WebRequest -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/jobs/$($job.id)/logs" -Headers $script:headers -OutFile $logPath -TimeoutSec 120 -MaximumRedirection 5
+                Require ((Get-Item -LiteralPath $logPath).Length -le 33554432) 'Historical job log oversized'
+                $checkoutBinding = Read-CheckoutIdentity $logPath
+            } finally { if (Test-Path -LiteralPath $logPath) { Remove-Item -LiteralPath $logPath -Force } }
+            Require ($source.commit.tree.sha -cmatch '^[0-9a-f]{40}$') 'Authenticated source tree missing'
+            $sourceBound = $checkoutBinding.commit -ceq $package.source_commit
+            $metadata.package_checkout = @{ job_id = $job.id; run_attempt = $job.run_attempt; commit = $checkoutBinding.commit; pull_request = $checkoutBinding.pull_request; tree = $source.commit.tree.sha; checkout_step_succeeded = $true }
         }
         Require $sourceBound 'Package source is neither the authenticated run head nor its exact same-repo PR merge'
         $metadata.package_source_commit = $package.source_commit
         $metadata.package_source_digest = $provenance.source.source_digest
         $metadata.package_version = $package.version
-        $metadata.package_source_binding = if ($package.source_commit -ceq $run.head_sha) { 'exact run head' } else { 'authenticated same-repo PR base/head merge parents' }
+        $metadata.package_source_binding = if ($package.source_commit -ceq $run.head_sha) { 'exact run head' } else { 'authenticated historical Windows checkout exact commit and Git tree; second parent equals immutable run head' }
         $metadata.package_source_parents = @($source.parents | ForEach-Object { $_.sha })
         $metadata.package_artifacts = [ordered]@{}
         Require (@($package.artifacts.PSObject.Properties).Count -eq 2) 'Unexpected package artifact kinds'
@@ -180,6 +234,21 @@ try {
             $record.path = $path
         }
     } finally { $archive.Dispose() }
+    return @{ package = $package; raw_receipt = $rawReceipt; provenance = $provenance }
+    }
+    $stage = 'authenticated_current_package'
+    $current = Get-AuthenticatedPackage $ArtifactRun 'current' $metadata
+    $package = $current.package; $rawReceipt = $current.raw_receipt; $provenance = $current.provenance
+    $previous = $null
+    if (-not [string]::IsNullOrWhiteSpace($PreviousArtifactRun)) {
+        $stage = 'authenticated_genuine_previous_package'
+        Require ($PreviousArtifactRun -cne $ArtifactRun) 'Previous package must come from a separate canonical run'
+        $metadata.previous = [ordered]@{}
+        $prior = Get-AuthenticatedPackage $PreviousArtifactRun 'previous' $metadata.previous
+        $previous = $prior.package
+        Require ([Version]$previous.version -lt [Version]$package.version -and $previous.upgrade_code -ceq $package.upgrade_code -and $previous.product_code -cne $package.product_code) 'Previous fixture must be genuinely older and in the same installer family'
+    }
+    Require (-not $ExerciseRollback -or $null -ne $previous) 'Requested rollback requires installer_previous_artifact_run'
 
     $stage = 'portable_exact_payload_and_identity'
     $portableRoot = Join-Path $Work 'verified-portable'; New-PrivateDirectory $portableRoot
@@ -224,29 +293,20 @@ try {
     }
     $metadata.portable_exact_payload_verified = $true
 
-    $stage = 'isolated_checksum_verified_tiny_acquisition'
-    # Same immutable URL construction as models.rs, but no default known-folder cache mutation.
-    $modelDirectory = Join-Path $Work 'models'; New-PrivateDirectory $modelDirectory
-    $model = Join-Path $modelDirectory 'SmolLM2-135M-Q4_K_M.gguf'
-    $modelHash = 'e3131339bf4e8065265593d4fd8f7bb7ff2d3abff1edb5618aa1197b89cad9f5'
-    Invoke-WebRequest -Uri 'https://huggingface.co/ggml-org/SmolLM2-135M-GGUF/resolve/1076b85d135017971845b19b8d07df1479155988/SmolLM2-135M-Q4_K_M.gguf' -OutFile $model -TimeoutSec 300 -MaximumRedirection 5
-    Assert-Hash $model $modelHash 101016128
-    $metadata.tiny_model = @{ preset = 'tiny'; sha256 = $modelHash; size = 101016128; verified = $true; acquisition = 'canonical immutable catalogue URL into private work; default cache untouched'; installed_worker_exercised = $false }
-
     $stage = 'probe_only_input_adapter'
     $coreWork = Join-Path $Work 'native'; New-PrivateDirectory $coreWork
     $inputPath = Join-Path $coreWork 'probe-only-input.json'
-    Write-NewJson $inputPath @{ package = $package; previous = $null; worker = $null; model = $model }
-    $metadata.input_adapter = @{ probe_only = $true; schema = 'package, previous, worker, model (canonical xtask contract)'; changed_fields = @('package.artifacts.msi.path', 'package.artifacts.zip.path'); sha256 = (Get-FileHash -LiteralPath $inputPath -Algorithm SHA256).Hash.ToLowerInvariant(); original_receipt_unchanged = $true }
+    # Canonical artifacts lack worker_smoke.exe. No unused model acquisition;
+    # installed/portable worker gates remain explicitly not exercised.
+    Write-NewJson $inputPath @{ package = $package; previous = $previous; worker = $null; model = $null; rollback_test_only = [bool]$ExerciseRollback }
+    $metadata.input_adapter = @{ probe_only = $true; schema = 'package, previous, worker, model plus explicit rollback_test_only boolean'; changed_fields = @('package.artifacts.msi.path', 'package.artifacts.zip.path', 'previous.artifacts.msi.path if supplied', 'previous.artifacts.zip.path if supplied'); sha256 = (Get-FileHash -LiteralPath $inputPath -Algorithm SHA256).Hash.ToLowerInvariant(); original_receipt_unchanged = $true; worker_and_model = 'not supplied; worker gates unexercised'; rollback_fixture = 'only separately derived audited NONDISTRIBUTABLE MSI, never the canonical artifact or its receipt' }
     Require ((Get-FileHash -LiteralPath $rawReceipt -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $metadata.raw_package_receipt_sha256) 'Original package receipt changed'
-    # Match package.rs: only the non-secret MSI leaf gets SYSTEM read. Profile/cache ACLs stay owner-only.
-    $acl = Get-Acl -LiteralPath $package.artifacts.msi.path
-    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-18'), 'Read', 'Allow'))
-    Set-Acl -LiteralPath $package.artifacts.msi.path -AclObject $acl
-    Assert-Hash $package.artifacts.msi.path $package.artifacts.msi.sha256 $package.artifacts.msi.size
-    $metadata.msi_system_read = 'non-secret MSI leaf only; no inherited profile/cache grants'
+    if ($null -ne $previous) {
+        Require ((Get-FileHash -LiteralPath $prior.raw_receipt -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $metadata.previous.raw_package_receipt_sha256) 'Original previous package receipt changed'
+    }
+    $metadata.rollback_fixture_requested = [bool]$ExerciseRollback
 
-    $stage = 'existing_guarded_native_core'
+    $stage = 'existing_guarded_native_core_restricted_rights'
     $pwsh = (Get-Process -Id $PID).Path
     $core = Join-Path $PSScriptRoot 'windows-installer-smoke.ps1'
     $metadata.probe_core_sha256 = (Get-FileHash -LiteralPath $core -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -254,20 +314,29 @@ try {
     $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
     $env:BROTYPIST_INSTALLER_SMOKE_DISPOSABLE = '1'
     $env:GH_TOKEN = $null; $script:headers = $null
-    $capture = [Text.StringBuilder]::new()
-    & $pwsh -NoLogo -NoProfile -NonInteractive -File $core -InputFile $inputPath -Work $coreWork 2>&1 | ForEach-Object {
-        if ($capture.Length -lt 32768) { [void]$capture.AppendLine((Redact ([string]$_))) }
-    }
+    $client = Join-Path $PSScriptRoot 'windows-installer-client.ps1'
+    $metadata.probe_client_sha256 = (Get-FileHash -LiteralPath $client -Algorithm SHA256).Hash.ToLowerInvariant()
+    $metadata.client_experiment = @{ method = 'shared SAFER NORMALUSER restricted primary rights + medium integrity + CreateProcessAsUserW'; genuine_uac_filtered_logon = $false; retained_elevation_metadata_reported = $true; child_verification_before_installer_required = $true; policy_changes = 'only approved absent HKLM64 DisableMSI-to-DWORD0 fixture; restored in finally'; global_acl_changes = $false; alternate_credentials = $false }
+    & $pwsh -NoLogo -NoProfile -NonInteractive -File $client -InputFile $inputPath -Work $coreWork
     $nativeExit = $LASTEXITCODE
+    foreach ($name in @('client-observations.json', 'observations.json')) {
+        $path = Join-Path $coreWork $name
+        if (Test-Path -LiteralPath $path) {
+            Require ((Get-Item -LiteralPath $path).Length -le 262144) 'Native evidence oversized'
+            $nameInReports = if ($name -ceq 'observations.json') { 'windows-core-installer-smoke.json' } else { 'windows-installer-client.json' }
+            Copy-Item -LiteralPath $path -Destination (Join-Path $Reports $nameInReports)
+        }
+    }
     $metadata.native_exit_code = $nativeExit
-    $metadata.native_output = $capture.ToString()
     $observationsPath = Join-Path $coreWork 'observations.json'
     Require ((Get-Item -LiteralPath $observationsPath).Length -le 262144) 'Native core receipt missing/oversized'
-    Copy-Item -LiteralPath $observationsPath -Destination (Join-Path $Reports 'windows-core-installer-smoke.json')
+    $clientObserved = Get-Content -LiteralPath (Join-Path $coreWork 'client-observations.json') -Raw | ConvertFrom-Json
+    Require ($clientObserved.passed -eq $true -and $clientObserved.restoration_verified -eq $true -and $clientObserved.quiescence_verified -eq $true) 'Shared restricted client/quiescence/policy restoration failed'
     $observations = Get-Content -LiteralPath $observationsPath -Raw | ConvertFrom-Json
+    Require (@($observations.observations | Where-Object { $_.check -ceq 'restricted_rights_client_verified_before_installer' -and $_.passed -eq $true }).Count -eq 1) 'Child did not independently verify restricted primary rights before installer access'
     Require ($nativeExit -eq 0 -and $observations.passed -eq $true) 'Native installer core assertions failed; inspect retained native receipt'
     $metadata.passed = $true
-    $stage = 'completed_core_scope_only'
+    $stage = 'completed_core_scope_only_restricted_rights'
 } catch {
     $metadata.diagnostics.Add((Redact $_.Exception.Message))
 } finally {

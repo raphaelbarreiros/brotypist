@@ -1,0 +1,212 @@
+{
+  "schema": "brotypist-macos-0.5.1-correction/1",
+  "version": "0.5.1",
+  "payload_source_commit": "751ee74e2275d81827412d8508cdb09d5f039f1f",
+  "verification": {
+    "command": "cargo +1.99.1 test --locked --workspace",
+    "workspace_tests_passed": 441,
+    "additional_child_process_test_invocations_passed": 2,
+    "failures": 0,
+    "cargo_fmt_passed": true
+  },
+  "fixed_behaviors": [
+    "preserve unchanged-draft spelling verdict across automatic submission",
+    "schedule routine capture from completion time while retaining immediate user-input and forced capture",
+    "release encrypted learning-store lock before native post-authorization",
+    "refresh completed visible completion only after fresh unchanged-authority capture and version-bound presentation acknowledgement",
+    "negotiate settable false macOS editor accessibility capabilities once per PID",
+    "verify classic Monaco relay paint viewport without accepting zero geometry",
+    "remove raw native-input/Quartz/capture sentence from normal Setup while retaining permission controls and explicit diagnostics"
+  ],
+  "layout": {
+    "schema": "brotypist-macos-layout-capture/6",
+    "passed": true,
+    "original_receipt_sha256": "6aeda87883bb0d69c66cccc30945e89b6240a2cc6a5983eca4dcb2cc9a4b8a2d",
+    "scope": "Actual AppKit control/view rendering at baseline, minimum and resized windows; controller/profile/input hooks not started. Not compositor or live permission proof.",
+    "normal_menu_entry_count": 8,
+    "debug_row_removed": true,
+    "permission_guidance_retained": true,
+    "obsolete_wording_test_removed": true
+  },
+  "vscode": {
+    "version": "1.144.0",
+    "electron_version": "43.8.3",
+    "profile": "disposable portable user-data and extension directory; owned plaintext file; no projects",
+    "compatibility_preferences": {
+      "editor.accessibilitySupport": "on",
+      "editor.editContext": false
+    },
+    "private_ai_and_inline_suggestions_disabled": true,
+    "attempts": [
+      {
+        "original_receipt_sha256": "715834f5ca1e1ed072d293826d0102a839db45dd65e377c8469bcf02830ec910",
+        "observer": "session-tail",
+        "passed": false,
+        "failure_code": 16,
+        "acceptance_matches_visible_prefix": false,
+        "saved_document_matches_native_readback": false,
+        "normal_profile_unchanged": true,
+        "observed_event_shapes": [
+          {
+            "stage": "tail",
+            "type": 11,
+            "keycode": 48,
+            "unicode_units": 1,
+            "source_is_service": false
+          }
+        ]
+      },
+      {
+        "original_receipt_sha256": "8104b92859e881ede450d31eef9b073ce61eeda02d3e67fe32123407f760d4c3",
+        "observer": "session-tail",
+        "passed": true,
+        "failure_code": null,
+        "acceptance_matches_visible_prefix": true,
+        "saved_document_matches_native_readback": true,
+        "normal_profile_unchanged": true,
+        "observed_event_shapes": [
+          {
+            "stage": "tail",
+            "type": 10,
+            "keycode": 0,
+            "unicode_units": 4,
+            "source_is_service": true
+          },
+          {
+            "stage": "tail",
+            "type": 11,
+            "keycode": 0,
+            "unicode_units": 4,
+            "source_is_service": true
+          }
+        ]
+      },
+      {
+        "original_receipt_sha256": "af674e09492ca3570e5f11d42439107f4323799448e64a80fb1c6d0e719bce7a",
+        "observer": "session-head-and-tail",
+        "passed": true,
+        "failure_code": null,
+        "acceptance_matches_visible_prefix": true,
+        "saved_document_matches_native_readback": true,
+        "normal_profile_unchanged": true,
+        "observed_event_shapes": [
+          {
+            "stage": "head",
+            "type": 10,
+            "keycode": 48,
+            "unicode_units": 1,
+            "source_is_service": false
+          },
+          {
+            "stage": "head",
+            "type": 11,
+            "keycode": 48,
+            "unicode_units": 1,
+            "source_is_service": false
+          },
+          {
+            "stage": "head",
+            "type": 10,
+            "keycode": 0,
+            "unicode_units": 4,
+            "source_is_service": true
+          },
+          {
+            "stage": "head",
+            "type": 11,
+            "keycode": 0,
+            "unicode_units": 4,
+            "source_is_service": true
+          },
+          {
+            "stage": "tail",
+            "type": 10,
+            "keycode": 0,
+            "unicode_units": 4,
+            "source_is_service": true
+          },
+          {
+            "stage": "tail",
+            "type": 11,
+            "keycode": 0,
+            "unicode_units": 4,
+            "source_is_service": true
+          }
+        ]
+      }
+    ],
+    "consecutive_successful_final_runs": 2,
+    "initial_missing_edit_cause": "unattributed; tail-only observation does not identify a consuming process",
+    "source_workaround_added_for_missing_key": false,
+    "physical_keyboard_claim": false,
+    "copilot_coexistence_claim": false
+  },
+  "desktop_timing": {
+    "hardware": "Apple M1 Pro, 16 GiB",
+    "model": "existing cached Gemma 4 E2B GGUF; unchanged selection",
+    "debounce_ms": 150,
+    "screen_and_screenshot_context": true,
+    "clipboard_context": false,
+    "history_and_personalization": false,
+    "method": "Owned AppKit NSTextView local synthetic edits; 16 ms WindowServer observation of the exact service-owned prediction panel. Not physical Quartz typing.",
+    "source_commit": "751ee74e2275d81827412d8508cdb09d5f039f1f",
+    "original_receipt_sha256": "6b18f6dfc1b18a301275bfe371ef07f7ae408145c5c7728514851cb55ba2d31e",
+    "samples": [
+      {
+        "phase": "cold-idle",
+        "last_edit_to_prediction_panel_ms": 783.005,
+        "draft_matches_authored_fixture": true
+      },
+      {
+        "phase": "warm-cadence-1",
+        "last_edit_to_prediction_panel_ms": 555.69,
+        "draft_matches_authored_fixture": true
+      },
+      {
+        "phase": "warm-idle",
+        "last_edit_to_prediction_panel_ms": 523.83,
+        "draft_matches_authored_fixture": true
+      },
+      {
+        "phase": "warm-cadence-2",
+        "last_edit_to_prediction_panel_ms": 505.487,
+        "draft_matches_authored_fixture": true
+      }
+    ],
+    "normal_profile_unchanged": true,
+    "limits": [
+      "single cold sample and three warm samples, not a general latency SLA",
+      "earlier cold runs varied; no statistically established speedup ratio",
+      "normal learning/context preferences were not disabled or changed",
+      "actual prediction-panel glyph pixels and separate owned-host window inspected"
+    ]
+  },
+  "installation": {
+    "source_commit": "751ee74e2275d81827412d8508cdb09d5f039f1f",
+    "version": "0.5.1",
+    "normal_app_running": true,
+    "normal_gui_loop_finished": true,
+    "startup_liveness_seconds": 8,
+    "only_approved_code_preferences_changed": true,
+    "other_code_preferences_including_copilot_preserved": true,
+    "only_approved_brotypist_app_rule_added": true,
+    "history_database_unchanged": true,
+    "opaque_code_settings_rollback_present": true,
+    "full_previous_app_and_profile_rollback_present": true,
+    "previous_signed_app_verified": true,
+    "opaque_previous_profile_verified": true,
+    "signature": "Apple Development; same designated requirement; not notarized",
+    "rollback_scope": "Complete previous signed 0.5.0 app and opaque normal-profile copy, plus exact prior Code settings retained privately. No new downgrade/updater matrix claimed."
+  },
+  "platform_boundaries": {
+    "cursor": "No usable local bundle; user selected VS Code shared-path verification instead of a Cursor download. Direct Cursor unverified.",
+    "wordcraft": "0.13.2 owned document AXValue reported settable, but setter returned success without changing the document. No upstream changes or unsafe document-role fallback.",
+    "windows": "User hold unchanged; no new accounts, security-policy changes, installer publication or native acceptance."
+  },
+  "publication": {
+    "this_version_published": false,
+    "existing_v0_5_0_assets_or_tag_modified": false,
+    "pr_2_remains_draft": true
+  },
+  "privacy": "No personal writing, project content, clipboard text, normal database contents/hashes, signing email, credentials, ephemeral PIDs or private recovery paths are included."
+}

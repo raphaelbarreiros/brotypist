@@ -20,7 +20,7 @@ pub mod vision;
 
 use super::{
     ContextRead, EditOutcome, Foreground, NativeBridge, Permission, ShortcutHandler,
-    policy::{ObservationPolicy, is_browser, is_chromium_bundle, native_domain},
+    policy::{ObservationPolicy, is_browser, native_domain},
 };
 use crate::{
     config::Config,
@@ -799,29 +799,12 @@ impl MacBridge {
         if !enabled {
             return;
         }
-        let outcome = |name: &str, eligible: bool| -> String {
-            if !eligible {
-                return "not_eligible".into();
-            }
-            if !app.settable(name) {
-                return "not_settable".into();
-            }
-            match app.bool(name) {
-                Some(false) => match app.set_bool(name, true) {
-                    Ok(()) => "set".into(),
-                    Err(error) => format!("set_error:{}", error.0),
-                },
-                Some(true) => "already_true".into(),
-                None => "unreadable_not_set".into(),
-            }
-        };
-        let manual = outcome("AXManualAccessibility", true);
-        let enhanced = outcome(
-            "AXEnhancedUserInterface",
-            is_chromium_bundle(&front.app_id)
-                || exact_member(&front.app_id, CHAT_BUNDLES)
-                || forced,
-        );
+        // AX exposure is a host capability, not a browser/chat bundle property.
+        // Electron editors and native lazy AX trees can advertise the same
+        // switch. Authorization happened before this call; this negotiates only
+        // readable, settable booleans and does not grant field/write authority.
+        let manual = enable_accessibility_attribute(app, "AXManualAccessibility");
+        let enhanced = enable_accessibility_attribute(app, "AXEnhancedUserInterface");
         self.compatibility_outcome["manual_accessibility"] = manual.into();
         self.compatibility_outcome["enhanced_user_interface"] = enhanced.into();
     }
@@ -1701,6 +1684,36 @@ impl Drop for MacBridge {
     }
 }
 
+trait AccessibilityPreparationHost {
+    fn settable(&self, name: &str) -> bool;
+    fn boolean(&self, name: &str) -> Option<bool>;
+    fn enable(&self, name: &str) -> std::result::Result<(), ax::AxError>;
+}
+impl AccessibilityPreparationHost for AxElement {
+    fn settable(&self, name: &str) -> bool {
+        AxElement::settable(self, name)
+    }
+    fn boolean(&self, name: &str) -> Option<bool> {
+        self.bool(name)
+    }
+    fn enable(&self, name: &str) -> std::result::Result<(), ax::AxError> {
+        self.set_bool(name, true)
+    }
+}
+fn enable_accessibility_attribute(host: &impl AccessibilityPreparationHost, name: &str) -> String {
+    if !host.settable(name) {
+        return "not_settable".into();
+    }
+    match host.boolean(name) {
+        Some(false) => match host.enable(name) {
+            Ok(()) => "set".into(),
+            Err(error) => format!("set_error:{}", error.0),
+        },
+        Some(true) => "already_true".into(),
+        None => "unreadable_not_set".into(),
+    }
+}
+
 fn exact_member(value: &str, values: &[&str]) -> bool {
     values.iter().any(|item| value.eq_ignore_ascii_case(item))
 }
@@ -2382,6 +2395,52 @@ impl Drop for AppNotifications {
 #[cfg(test)]
 mod tests {
     use super::*;
+    struct CompatibilityHost {
+        writable: bool,
+        state: Option<bool>,
+        error: Option<i32>,
+        reads: std::cell::Cell<usize>,
+        writes: std::cell::Cell<usize>,
+    }
+    impl AccessibilityPreparationHost for CompatibilityHost {
+        fn settable(&self, _: &str) -> bool {
+            self.writable
+        }
+        fn boolean(&self, _: &str) -> Option<bool> {
+            self.reads.set(self.reads.get() + 1);
+            self.state
+        }
+        fn enable(&self, _: &str) -> std::result::Result<(), ax::AxError> {
+            self.writes.set(self.writes.get() + 1);
+            self.error.map_or(Ok(()), |code| Err(ax::AxError(code)))
+        }
+    }
+    #[test]
+    fn accessibility_preparation_uses_host_capabilities_not_bundle_identity() {
+        // A newly encountered native/Electron host needs no bundle allowlist.
+        for name in ["AXManualAccessibility", "AXEnhancedUserInterface"] {
+            for (writable, state, error, expected, reads, writes) in [
+                (true, Some(false), None, "set", 1, 1),
+                (true, Some(true), None, "already_true", 1, 0),
+                (true, None, None, "unreadable_not_set", 1, 0),
+                (false, Some(false), None, "not_settable", 0, 0),
+                (false, None, None, "not_settable", 0, 0),
+                (true, Some(false), Some(-25204), "set_error:-25204", 1, 1),
+            ] {
+                let host = CompatibilityHost {
+                    writable,
+                    state,
+                    error,
+                    reads: std::cell::Cell::new(0),
+                    writes: std::cell::Cell::new(0),
+                };
+                assert_eq!(enable_accessibility_attribute(&host, name), expected);
+                assert_eq!(host.reads.get(), reads);
+                assert_eq!(host.writes.get(), writes);
+            }
+        }
+    }
+
     fn snapshot() -> Snapshot {
         Snapshot {
             app_id: "editor".into(),

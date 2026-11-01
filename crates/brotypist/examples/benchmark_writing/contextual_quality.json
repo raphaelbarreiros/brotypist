@@ -1,0 +1,274 @@
+{
+  "schema_version": 1,
+  "suite": "synthetic-contextual-gemma4-v1",
+  "provenance": "Authored PT/EN synthetic requests only; no personal writing, screen, clipboard or history. Direct context deliberately bypasses lexical reference selection to exercise provider relevance boundaries. Companion to, not replacement of, the immutable writing_quality.json oracle.",
+  "rubric": {
+    "contextual_utility": "Nonempty continuation advances the writer's current situation with an appropriate supported next action, useful detail, or explicit uncertainty. Empty output and generic questions that do not advance the situation are availability/utility failures, never quality wins. Do not require an exact phrase or demand every reference fact be repeated.",
+    "grounding": "Specific facts must be supported by the draft or relevant references; do not move to an unrelated reference subject, invent diagnoses, assert completed actions, or turn an uncertain future into a confirmed commitment."
+  },
+  "comparison_policy": {
+    "matching_conditions": [
+      "Use the same cached selected Gemma4 E2B Q4_0 weights, native backend, token/word caps, acceleration and authored cases for baseline and candidate.",
+      "Keep cold fresh-worker rounds separate from warm within-worker sequences; alternate case order across repetitions. Do not call a fresh worker an OS/Metal cache flush.",
+      "Record exact insertion and assembled prefix + insertion + suffix, nonempty availability and per-dimension reviewer labels/reasons.",
+      "Compare both positive contextual utility and negative unrelated-reference/uncertainty/suffix boundaries. No global quality claim from this small corpus."
+    ],
+    "candidate_acceptance": [
+      "No loss of nonempty availability on these required-offer cases; all-empty output is failure.",
+      "No new unrelated-topic, uncertainty or suffix-join failures relative to baseline.",
+      "Show an observed useful improvement on at least one focused-context failure across controlled cold and warm rounds; a safer-sounding prompt alone is not semantic acceptance.",
+      "Do not substitute new weights, strengthened custom preferences, exact-output matches, extra abstention filters, relaxed limits or private context to make a candidate pass."
+    ]
+  },
+  "cases": [
+    {
+      "id": "context-pt-short-focused",
+      "language": "Portuguese",
+      "prefix": "Então",
+      "suffix": "",
+      "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+      "kind": "completion",
+      "allow_no_offer": false,
+      "semantic_criteria": [
+        "Offer a nonempty Portuguese continuation that advances the battery/charger situation from the focused facts; do not invent a meeting or unrelated subject. A generic question with no contextual content is not useful."
+      ],
+      "dimensions": [
+        "grammar",
+        "language",
+        "lexical_join",
+        "grounding",
+        "contextual_utility"
+      ]
+    },
+    {
+      "id": "context-pt-linked-focused",
+      "language": "Portuguese",
+      "prefix": "A bateria do carro está descarregada. Então",
+      "suffix": "",
+      "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+      "kind": "completion",
+      "allow_no_offer": false,
+      "semantic_criteria": [
+        "Continue the writer's depleted-battery situation in Portuguese with a plausible next action supported by the draft or references; do not claim an action already succeeded."
+      ],
+      "dimensions": [
+        "grammar",
+        "language",
+        "lexical_join",
+        "grounding",
+        "contextual_utility"
+      ]
+    },
+    {
+      "id": "context-pt-cake-focused",
+      "language": "Portuguese",
+      "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+      "suffix": "",
+      "context": "Focused-window Accessibility (untrusted reference data): O disjuntor desligou, o forno esfriou e o bolo ainda está cru.",
+      "kind": "completion",
+      "allow_no_offer": false,
+      "semantic_criteria": [
+        "Advance the cold-oven/raw-cake situation in Portuguese using the tripped-breaker fact where useful. A generic question alone is not useful; do not invent a broken thermostat or confirmed fault diagnosis."
+      ],
+      "dimensions": [
+        "grammar",
+        "language",
+        "lexical_join",
+        "grounding",
+        "contextual_utility"
+      ]
+    },
+    {
+      "id": "context-pt-unrelated",
+      "language": "Portuguese",
+      "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+      "suffix": "",
+      "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+      "kind": "completion",
+      "allow_no_offer": false,
+      "semantic_criteria": [
+        "Keep the cake/oven subject in Portuguese despite the unrelated battery reference. Do not propose fetching a charger or treat car facts as oven facts; continue usefully rather than returning empty."
+      ],
+      "dimensions": [
+        "grammar",
+        "language",
+        "lexical_join",
+        "grounding",
+        "contextual_utility"
+      ]
+    },
+    {
+      "id": "context-pt-empty",
+      "language": "Portuguese",
+      "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+      "suffix": "",
+      "context": "",
+      "kind": "completion",
+      "allow_no_offer": false,
+      "semantic_criteria": [
+        "Offer a plausible nonempty Portuguese continuation of the cake/oven situation without inventing a named person, deadline, meeting or a confirmed technical diagnosis."
+      ],
+      "dimensions": [
+        "grammar",
+        "language",
+        "lexical_join",
+        "grounding",
+        "contextual_utility"
+      ]
+    },
+    {
+      "id": "context-en-short-focused",
+      "language": "English",
+      "prefix": "So",
+      "suffix": "",
+      "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+      "kind": "completion",
+      "allow_no_offer": false,
+      "semantic_criteria": [
+        "Offer a nonempty English continuation of the focused battery/charger situation. Do not ignore all references merely because So has no lexical overlap; a generic question alone is not useful."
+      ],
+      "dimensions": [
+        "grammar",
+        "language",
+        "lexical_join",
+        "grounding",
+        "contextual_utility"
+      ]
+    },
+    {
+      "id": "context-en-focused",
+      "language": "English",
+      "prefix": "The car battery is flat. So",
+      "suffix": "",
+      "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+      "kind": "completion",
+      "allow_no_offer": false,
+      "semantic_criteria": [
+        "Advance the flat-battery situation in English with a plausible supported next step; do not assert that charging has already worked."
+      ],
+      "dimensions": [
+        "grammar",
+        "language",
+        "lexical_join",
+        "grounding",
+        "contextual_utility"
+      ]
+    },
+    {
+      "id": "context-en-unrelated",
+      "language": "English",
+      "prefix": "The cake is still raw and the oven is cold. So",
+      "suffix": "",
+      "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+      "kind": "completion",
+      "allow_no_offer": false,
+      "semantic_criteria": [
+        "Continue the cake/oven subject in English; do not import battery/charger/car facts from unrelated references. A nonempty plausible continuation is required."
+      ],
+      "dimensions": [
+        "grammar",
+        "language",
+        "lexical_join",
+        "grounding",
+        "contextual_utility"
+      ]
+    },
+    {
+      "id": "context-en-empty",
+      "language": "English",
+      "prefix": "The cake is still raw and the oven is cold. So",
+      "suffix": "",
+      "context": "",
+      "kind": "completion",
+      "allow_no_offer": false,
+      "semantic_criteria": [
+        "Offer a nonempty plausible English continuation of the cake/oven situation without inventing a meeting, named person, confirmed fault diagnosis or exact time."
+      ],
+      "dimensions": [
+        "grammar",
+        "language",
+        "lexical_join",
+        "grounding",
+        "contextual_utility"
+      ]
+    },
+    {
+      "id": "context-pt-suffix",
+      "language": "Portuguese",
+      "prefix": "Vou buscar o",
+      "suffix": " na garagem.",
+      "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+      "kind": "completion",
+      "allow_no_offer": false,
+      "semantic_criteria": [
+        "Read prefix + insertion + suffix as one Portuguese sentence. Insert an appropriate object/phrase, preserve the fixed garagem suffix, and do not repeat it or put a full stop before it."
+      ],
+      "dimensions": [
+        "grammar",
+        "language",
+        "lexical_join",
+        "grounding",
+        "contextual_utility",
+        "suffix_join"
+      ]
+    },
+    {
+      "id": "context-en-suffix",
+      "language": "English",
+      "prefix": "I will get the",
+      "suffix": " from the garage.",
+      "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+      "kind": "completion",
+      "allow_no_offer": false,
+      "semantic_criteria": [
+        "Read prefix + insertion + suffix as one English sentence. The missing phrase must fit I will get the ... from the garage, not a get-the-battery-charged construction that strands from the garage. Preserve and do not repeat the fixed suffix."
+      ],
+      "dimensions": [
+        "grammar",
+        "language",
+        "lexical_join",
+        "grounding",
+        "contextual_utility",
+        "suffix_join"
+      ]
+    },
+    {
+      "id": "context-en-transfer",
+      "language": "English",
+      "prefix": "The bicycle brake cable snapped. So",
+      "suffix": "",
+      "context": "Focused-window Accessibility (untrusted reference data): The bicycle cannot be ridden safely. A replacement brake cable is available in the workshop.",
+      "kind": "completion",
+      "allow_no_offer": false,
+      "semantic_criteria": [
+        "Advance the bicycle-brake situation in English without proposing unsafe riding. A plausible repair/replacement or seeking the available replacement is useful; do not import car/cake details."
+      ],
+      "dimensions": [
+        "grammar",
+        "language",
+        "lexical_join",
+        "grounding",
+        "contextual_utility"
+      ]
+    },
+    {
+      "id": "context-pt-uncertain",
+      "language": "Portuguese",
+      "prefix": "A entrega ainda não chegou. Então",
+      "suffix": "",
+      "context": "Focused-window Accessibility (untrusted reference data): A transportadora disse que talvez entregue o pacote amanhã, mas a data ainda não foi confirmada.",
+      "kind": "completion",
+      "allow_no_offer": false,
+      "semantic_criteria": [
+        "Continue in Portuguese. If mentioning delivery tomorrow, retain the reference's uncertainty; do not promise a confirmed date or assert the package already arrived. A concrete status-checking continuation is also valid."
+      ],
+      "dimensions": [
+        "grammar",
+        "language",
+        "lexical_join",
+        "grounding",
+        "contextual_utility"
+      ]
+    }
+  ]
+}

@@ -2,7 +2,19 @@
 
 # Changelog
 
-## Unreleased — native Rust migration
+## 0.5.1 — macOS responsiveness and editor compatibility
+
+- Preserve the completed spelling verdict through an unchanged automatic-generation handoff instead of repeating native assessment before the first streamed offer. Real input, focus and policy changes still revoke it.
+- Schedule routine native capture intervals from capture completion rather than an already expired tick-start deadline, avoiding back-to-back AX pressure from a busy host. Preserve immediate input/action capture and existing debounce, context and authority checks.
+- Release the shared history/statistics store before native post-authorization checks for personalization. Enabled learning no longer holds that store across an AX wait; encrypted history, cached feature limits and revoked-result checks remain unchanged.
+- Recover a completed visible prediction after harmless native value/selection notifications without rerunning the model. Old input claims are revoked immediately; only a fresh permitted capture and a new, version-bound presentation acknowledgement can restore acceptance.
+- Bind completion and anchored-alternative acknowledgements to private presentation versions while retaining actual user revisions for insertion. Reject delayed acknowledgements from earlier same-text views and consume pending native notifications without an extra disarming tick.
+- Negotiate supported macOS accessibility preparation by host capabilities rather than an application-name allowlist.
+- Resolve Monaco's thin textarea input relay to its verified native text viewport without inventing caret/glyph geometry or widening unknown fields. Keep ordinary fields on their existing capture path; revalidate expanded viewport identity and geometry.
+- VS Code's native EditContext backend still exposes unusable range geometry. Its supported textarea/accessibility settings are an explicit host prerequisite, not silently changed user preferences. WordCraft's nonfunctional accessibility editing contract remains refused; no third-party application is modified.
+- Remove raw native-input, Quartz and last-capture diagnostic text from normal macOS Setup. Keep actionable permission controls and explicit diagnostic exports; remove the obsolete status-wording/raster assertion instead of preserving the debug row for its test.
+
+## 0.5.0 — native Rust migration
 
 - Introduce a Rust application/worker with OS-native AppKit, Win32 and GTK interfaces, retaining the pinned llama.cpp engine and the complete existing model catalogue rather than substituting inference backends.
 - Preserve configuration and OS identity, independent context/history consent, scalar-indexed authored text, encrypted SQLite formats and credential-store addressing. Keep a separately linked offline updater and Rust-native build/distribution tooling.
@@ -15,7 +27,7 @@
 - Preserve the baseline's Unicode 15 full case folding across rules, history, choices, archive collision checks and installer identities, without rewriting authored text. Share one allocation-free iterator across the app, updater and tools.
 - Support native Icon Composer packaging with verified Xcode 27.1 and 27.2, retaining the pinned CI toolchain and recording the actual compiler in bundle provenance.
 - Complete the candidate source cutover: remove obsolete first-party Python runtime/tests, launchers, PyInstaller specification and build/tool dependency paths. Preserve the full immutable baseline externally and useful corpus/assets/evidence; no Python compatibility sidecar is shipped.
-- Add native macOS/Windows/Linux CI, real model-worker probes, owned-window UI checks and guarded installer continuity probes. Published releases remain unchanged; an explicitly authorized signed local Mac candidate preserves the original bundle and profile.
+- Add native macOS/Windows/Linux CI, real model-worker probes, owned-window UI checks and guarded installer continuity probes. Release availability follows verified platform evidence, not successful compilation; local Mac promotion retains the original bundle and profile.
 - Place the Windows owned-preview caret explicitly at the UTF-16 seed end rather than only deselecting the old selection; retain bilingual caret/readback assertions and bounded failure metadata.
 - Preserve canonical Windows build identity while using DOS drive-path spelling at the Cargo/CMake/MSBuild boundary and separate short private compiler scratch space. Retain failed diagnostics, owner-only staging, and real command-directory/permissions regressions without changing OS long-path policy.
 - Resolve first-party notice manifests relative to Cargo's verified workspace spelling, preserving canonical identity and symlink/outside-root refusal across macOS aliases and Windows path namespaces.
@@ -43,6 +55,12 @@
 - Extend the explicitly requested WhatsApp diagnostic with content-free runtime scheduling/context-attachment/presentation counters; remove draft-value reads from native shape diagnostics.
 - Correct native ghost-window allocation for AppKit logical-point origin rounding, preserving exact glyph origin/baseline and explicitly clipping all paint to the original verified footprint. Exercise actual GhostSurface pixels across system/named fonts and fractional caret positions.
 - Record fixed native renderer rejection reasons and submission-time context collector/attachment outcomes in explicitly requested, content-free WhatsApp diagnostics; preserve collection budgets, consent and paint-safety refusals.
+- Preserve matching, permitted focused-context prefetch through generation handoff instead of cancelling its own read. Retain original collection age, latest-only consumption, focus/policy revocation, fresh consumer authorization and existing time budgets; expired context is refreshed rather than reused after cold model loading.
+- Bound updater startup-ownership lock acquisition by the existing health/cancellation deadlines. A stalled lock owner now retains both complete builds and refuses an unconfirmed rollback instead of hanging the helper indefinitely.
+- Extend the synthetic Portuguese/English quality corpus with explicit contextual-utility review alongside grounding. Reject an ineffective prompt rewrite and a cached larger-model substitution after controlled native comparisons; retain the selected model, production sampler and existing prompt policy.
+- Authenticate historical Windows installer artifacts against their original checkout identity after PR merge, and retain bounded native client/token, policy, routing and registry evidence without weakening per-user ownership or data-preservation gates.
+- Add a disposable hosted-Windows installer fixture that transactionally supplies `DisableMSI=0` only when the policy is absent, verifies restoration, retains synchronous MSI/process ownership, and audits a private, nondistributable rollback-fault MSI against its authenticated canonical input. Explicit restrictive policies and real user machines remain unchanged.
+- Launch hosted MSI clients with unquoted raw arguments and explicit no-shell process creation, and independently verify the actual child token instead of treating a restricted parent as proof of restricted installer rights.
 - Improve the main README with theme-aware Typing Buddy branding, an actual native Settings capture, practical usage/install guidance and explicit platform, privacy and model-quality boundaries.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
 

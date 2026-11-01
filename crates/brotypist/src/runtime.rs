@@ -38,6 +38,7 @@ pub enum Command {
     PresentationResult {
         key: SnapshotKey,
         authority: Authority,
+        /// Echo the presentation's version unchanged, not the current native revision.
         revision: u64,
         visible_text: String,
         mode: String,
@@ -507,11 +508,41 @@ struct ScreenJob {
     config: Config,
     ticket: Box<dyn platform::DetachedContextRead>,
 }
+struct ScreenOwner {
+    job_token: u64,
+    consumer_token: u64,
+    epoch: u64,
+    key: SnapshotKey,
+    authority: Authority,
+    accessibility: bool,
+    screenshot: bool,
+}
+impl ScreenOwner {
+    fn new(token: u64, epoch: u64, snapshot: &Snapshot, config: &Config) -> Self {
+        Self {
+            job_token: token,
+            consumer_token: token,
+            epoch,
+            key: snapshot.key(),
+            authority: snapshot.authority(),
+            accessibility: config.screen_context,
+            screenshot: config.screenshot_context,
+        }
+    }
+    fn matches(&self, request: &Preparation) -> bool {
+        self.epoch == request.epoch
+            && self.key == request.snapshot.key()
+            && self.authority == request.snapshot.authority()
+            && self.accessibility == request.config.screen_context
+            && self.screenshot == request.config.screenshot_context
+    }
+}
 struct PreparationState {
     pending: Option<Preparation>,
     results: VecDeque<Prepared>,
     stopped: bool,
     screen_pending: Option<ScreenJob>,
+    screen_owner: Option<ScreenOwner>,
     screen_result: Option<(u64, u64, ContextRead, Instant)>,
     context_updates: VecDeque<ContextUpdate>,
 }
@@ -532,6 +563,7 @@ impl AsyncPreparer {
                 results: VecDeque::new(),
                 stopped: false,
                 screen_pending: None,
+                screen_owner: None,
                 screen_result: None,
                 context_updates: VecDeque::new(),
             }),
@@ -577,7 +609,12 @@ impl AsyncPreparer {
                             source: String::new(),
                         });
                     let mut s = locked(&shared.0);
-                    if !s.stopped && guard_epoch(&screen_epoch, job.epoch) {
+                    if !s.stopped
+                        && guard_epoch(&screen_epoch, job.epoch)
+                        && s.screen_owner.as_ref().is_some_and(|owner| {
+                            owner.job_token == job.token && owner.epoch == job.epoch
+                        })
+                    {
                         s.context_updates.clear();
                         s.context_updates.push_back(ContextUpdate {
                             epoch: job.epoch,
@@ -585,7 +622,12 @@ impl AsyncPreparer {
                             authority: job.snapshot.authority(),
                             status: result.status.clone(),
                         });
-                        s.screen_result = Some((job.token, job.epoch, result, Instant::now()));
+                        let token = s
+                            .screen_owner
+                            .as_ref()
+                            .expect("screen owner")
+                            .consumer_token;
+                        s.screen_result = Some((token, job.epoch, result, Instant::now()));
                         shared.1.notify_all();
                     }
                 }
@@ -616,16 +658,30 @@ impl AsyncPreparer {
                 let (mut s, _) = shared.1.wait_timeout_while(s, Duration::from_millis(250), |s| !s.stopped && guard_epoch(&epoch, expected)
                     && s.pending.is_none() && s.screen_result.as_ref().is_none_or(|(token, ep, _, _)| *token != request.token || *ep != expected))
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                if !s.stopped && guard_epoch(&epoch, expected) {
+                let collected = if !s.stopped && guard_epoch(&epoch, expected) {
                     context_diagnostic.screen = if s.screen_result.is_some() { ContextCollectorOutcome::TokenStale } else { ContextCollectorOutcome::TimedOut };
                     status = "unavailable".into();
                     if s.screen_result.as_ref().is_some_and(|(token, ep, _, _)| *token == request.token && *ep == expected) {
-                        let (_, _, read, at) = s.screen_result.take().expect("screen result");
+                        s.screen_owner = None;
+                        s.screen_result.take()
+                    } else { None }
+                } else { None };
+                drop(s);
+                if let Some((_, _, read, at)) = collected {
+                    // A handed-off result keeps its original collection time.
+                    // Revalidate the fresh consumer ticket outside the queue lock.
+                    let ticket_current = request.context_ticket.as_ref().is_none_or(|ticket| {
+                        guard() && ticket.matches_snapshot(snapshot) && ticket.matches().unwrap_or(false) && guard()
+                    });
+                    if ticket_current {
                         status = if context_status(&read.status) { read.status } else { "error".into() };
                         context_diagnostic.screen = ContextCollectorOutcome::from_status(&status);
                         if status == "ready" && ((read.source == "accessibility" && c.screen_context) || (read.source == "screenshot" && c.screenshot_context)) {
                             references.push((read.source, first(&read.text, 2400))); expires = Some(at + Duration::from_secs(2));
                         }
+                    } else {
+                        status = "stale".into();
+                        context_diagnostic.screen = ContextCollectorOutcome::Stale;
                     }
                 }
             }
@@ -648,7 +704,13 @@ impl AsyncPreparer {
             let mut warning = String::new();
             let source_allowed = |app: &str, host: &str| !request.hard_disabled_apps.contains(app) && history_allowed(c, app, host);
             let personalization = if c.personalization_strength != 0 && source_allowed(&snapshot.app_id, &snapshot.domain) && private_guard() {
-                match locked(&storage).personalization(&snapshot.app_id, &snapshot.domain, snapshot.prefix(), c.personalization_strength, &|app, host| guard() && source_allowed(app, host)) {
+                let result = {
+                    let store = locked(&storage);
+                    store.personalization(&snapshot.app_id, &snapshot.domain, snapshot.prefix(), c.personalization_strength, &|app, host| guard() && source_allowed(app, host))
+                };
+                // Native post-authorization may block; history flushes must
+                // not inherit that wait through the shared storage mutex.
+                match result {
                     Ok(text) if private_guard() => text, Ok(_) => String::new(), Err(_) => { warning = "Encrypted history is unavailable for personalization. Unlock your OS credential store or clear damaged history.".into(); String::new() }
                 }
             } else { String::new() };
@@ -693,25 +755,54 @@ impl Preparer for AsyncPreparer {
         if s.stopped {
             return;
         }
-        s.screen_result = None;
-        s.screen_pending = request.context_ticket.take().map(|ticket| ScreenJob {
-            token: request.token,
-            epoch: request.epoch,
-            snapshot: request.snapshot.clone(),
-            config: request.config.clone(),
-            ticket,
-        });
-        if s.screen_pending.is_none() {
-            s.screen_result = Some((
-                request.token,
-                request.epoch,
-                ContextRead {
-                    text: String::new(),
-                    status: "unavailable".into(),
-                    source: String::new(),
-                },
-                Instant::now(),
-            ));
+        let handoff = request.context_ticket.is_some()
+            && s.screen_owner
+                .as_ref()
+                .is_some_and(|owner| owner.matches(&request))
+            && s.screen_result
+                .as_ref()
+                .is_none_or(|(token, epoch, _, at)| {
+                    s.screen_owner.as_ref().is_some_and(|owner| {
+                        *token == owner.consumer_token && *epoch == owner.epoch
+                    }) && Instant::now().saturating_duration_since(*at) < Duration::from_secs(2)
+                });
+        if handoff {
+            s.screen_owner
+                .as_mut()
+                .expect("screen owner")
+                .consumer_token = request.token;
+            if let Some((token, _, _, _)) = s.screen_result.as_mut() {
+                *token = request.token;
+            }
+        } else {
+            s.screen_result = None;
+            s.screen_owner = request.context_ticket.as_ref().map(|_| {
+                ScreenOwner::new(
+                    request.token,
+                    request.epoch,
+                    &request.snapshot,
+                    &request.config,
+                )
+            });
+            s.screen_pending = request.context_ticket.take().map(|ticket| ScreenJob {
+                token: request.token,
+                epoch: request.epoch,
+                snapshot: request.snapshot.clone(),
+                config: request.config.clone(),
+                ticket,
+            });
+            if s.screen_pending.is_none() {
+                s.screen_result = Some((
+                    request.token,
+                    request.epoch,
+                    ContextRead {
+                        text: String::new(),
+                        status: "unavailable".into(),
+                        source: String::new(),
+                    },
+                    Instant::now(),
+                ));
+            }
         }
         s.pending = Some(request);
         s.results.clear();
@@ -723,6 +814,13 @@ impl Preparer for AsyncPreparer {
             return;
         }
         if s.pending.is_none() {
+            s.screen_result = None;
+            s.screen_owner = Some(ScreenOwner::new(
+                request.token,
+                request.epoch,
+                &request.snapshot,
+                &request.config,
+            ));
             s.screen_pending = Some(ScreenJob {
                 token: request.token,
                 epoch: request.epoch,
@@ -740,6 +838,7 @@ impl Preparer for AsyncPreparer {
         let mut s = locked(&self.state.0);
         s.pending = None;
         s.screen_pending = None;
+        s.screen_owner = None;
         s.screen_result = None;
         s.results.clear();
         s.context_updates.clear();
@@ -753,6 +852,7 @@ impl Preparer for AsyncPreparer {
         s.stopped = true;
         s.pending = None;
         s.screen_pending = None;
+        s.screen_owner = None;
         s.screen_result = None;
         s.results.clear();
         s.context_updates.clear();
@@ -791,6 +891,12 @@ struct Claim {
     visible: String,
     mode: String,
     count: usize,
+}
+#[derive(Clone, Copy)]
+struct CompletionOffer {
+    epoch: u64,
+    revision: u64,
+    serial: u64,
 }
 #[derive(Default)]
 struct Armed {
@@ -1241,6 +1347,8 @@ pub struct Engine {
     capture_after: Instant,
     input_revision: u64,
     suggestion: SuggestionState,
+    completion_offer: Option<CompletionOffer>,
+    completion_serial: u64,
     request: Option<Request>,
     preparing: Option<PendingPreparation>,
     serial: u64,
@@ -1475,6 +1583,8 @@ impl Engine {
             capture_after: now,
             input_revision: 0,
             suggestion: SuggestionState::new(),
+            completion_offer: None,
+            completion_serial: 0,
             request: None,
             preparing: None,
             serial: 0,
@@ -2010,6 +2120,12 @@ impl Engine {
         }
     }
     fn clear(&mut self, hide: bool, cancel: bool) {
+        self.clear_state(hide, cancel, false);
+        if let Some(s) = &self.spelling {
+            s.invalidate();
+        }
+    }
+    fn clear_state(&mut self, hide: bool, cancel: bool, preserve_context: bool) {
         let whatsapp = self.whatsapp_relevant();
         if whatsapp {
             self.whatsapp_stage(DiagnosticStage::Cleared);
@@ -2021,26 +2137,30 @@ impl Engine {
                 counters.inflight_cancellations = counters.inflight_cancellations.saturating_add(1);
             }
         }
-        self.bump_epoch();
+        if !preserve_context {
+            self.bump_epoch();
+        }
         if cancel {
             let _ = self.worker.cancel();
             if whatsapp {
                 self.whatsapp_worker();
             }
         }
-        self.preparer.cancel();
+        if !preserve_context {
+            self.preparer.cancel();
+        }
         self.preparing = None;
         self.request = None;
         self.suggestion.invalidate();
+        self.completion_offer = None;
         self.choices = None;
         self.correction = None;
         self.pending_edit = None;
-        self.context_prefetched = None;
+        if !preserve_context {
+            self.context_prefetched = None;
+        }
         self.advance = None;
         self.redraw_pending = false;
-        if let Some(s) = &self.spelling {
-            s.invalidate();
-        }
         self.disarm();
         self.clear_docs();
         self.context_status = if self.config.screen_context
@@ -2214,6 +2334,7 @@ impl Engine {
     }
     fn publish_completion(&mut self) {
         self.claims.retain(|c| c.mode != "completion");
+        self.completion_offer = None;
         self.refresh_arming();
         let Some(s) = self.suggestion.snapshot.clone() else {
             return;
@@ -2253,6 +2374,18 @@ impl Engine {
         if !choices.is_empty() {
             event["choices_mode"] = json!("alternatives");
         }
+        self.completion_serial = self
+            .completion_serial
+            .checked_add(1)
+            .expect("completion presentation sequence exhausted");
+        // Overlays echo this existing field. Bind their acknowledgement to
+        // this emitted view, independently of the native user-input revision.
+        event["revision"] = json!(self.completion_serial);
+        self.completion_offer = Some(CompletionOffer {
+            epoch: self.current_epoch(),
+            revision: self.candidate_revision,
+            serial: self.completion_serial,
+        });
         self.emit(event);
         self.whatsapp_stage(DiagnosticStage::Offered);
     }
@@ -2483,7 +2616,23 @@ impl Engine {
             self.choices = None;
             self.publish_completion();
         } else {
-            self.clear(false, true);
+            // Scheduling this exact unchanged lease is a consumer handoff, not
+            // a focus/policy revocation. Do not discard its bounded prefetch.
+            // Spelling is also keyed to this draft and authority. Revoking
+            // clear() invalidates it; this handoff must not make the first
+            // result wait for the same spelling assessment a second time.
+            let preserve_context = self.preparing.is_none()
+                && self.request.is_none()
+                && self
+                    .context_prefetched
+                    .as_ref()
+                    .is_some_and(|(key, authority, epoch, at)| {
+                        *key == s.key()
+                            && *authority == s.authority()
+                            && *epoch == self.current_epoch()
+                            && self.now().saturating_duration_since(*at) < Duration::from_secs(2)
+                    });
+            self.clear_state(false, true, preserve_context);
             self.completion_counted = false;
         }
         self.error.clear();
@@ -3060,10 +3209,21 @@ impl Engine {
         visible: String,
         mode: String,
     ) {
+        let completion_view = mode == "completion"
+            || (mode == "alternatives" && self.choices.as_ref().is_some_and(|c| c.anchored));
         let candidate = self.candidate.as_ref();
         let current = candidate.is_some_and(|s| s.key() == key && s.authority() == authority)
-            && revision == self.candidate_revision
-            && Some(revision) == self.user_revision();
+            && Some(self.candidate_revision) == self.user_revision()
+            && if completion_view {
+                self.completion_offer.is_some_and(|offer| {
+                    offer.serial == revision
+                        && offer.epoch == self.current_epoch()
+                        && offer.revision == self.candidate_revision
+                }) && !self.input_pending.load(Ordering::Acquire)
+                    && self.native_input_revision() == Some(self.input_revision)
+            } else {
+                revision == self.candidate_revision
+            };
         let mut count = 0;
         let valid = current
             && !visible.is_empty()
@@ -3121,7 +3281,7 @@ impl Engine {
             self.claims.push(Arc::new(Claim {
                 key,
                 authority,
-                revision,
+                revision: self.candidate_revision,
                 epoch: self.current_epoch(),
                 visible,
                 mode,
@@ -4079,7 +4239,18 @@ impl Engine {
             self.configure_native();
         }
         if let Some(revision) = self.native_input_revision() {
-            if revision != self.input_revision || self.input_pending.swap(false, Ordering::AcqRel) {
+            let input_pending = self.input_pending.swap(false, Ordering::AcqRel);
+            if revision != self.input_revision || input_pending {
+                // A non-user native notification revokes the old claim, but
+                // an unchanged permitted recapture may request a fresh paint
+                // acknowledgement for a completed offer. Never carry it across
+                // an intervening user-input revision.
+                self.redraw_pending |= self.request.is_none()
+                    && self.preparing.is_none()
+                    && !self.suggestion.text.is_empty()
+                    && self
+                        .completion_offer
+                        .is_some_and(|offer| Some(offer.revision) == self.user_revision());
                 self.input_revision = revision;
                 self.capture_after = now;
                 self.disarm();
@@ -4092,10 +4263,13 @@ impl Engine {
         } else if now >= self.capture_after {
             let snapshot = self.capture();
             self.observe(snapshot);
-            self.capture_after = now
+            // Slow native reads must not leave the next routine deadline
+            // expired; input notifications and explicit actions still recapture.
+            let captured_at = self.now();
+            self.capture_after = captured_at
                 + if self.request.is_some()
                     || self.preparing.is_some()
-                    || now.duration_since(self.candidate_since) < Duration::from_secs(2)
+                    || captured_at.duration_since(self.candidate_since) < Duration::from_secs(2)
                 {
                     Duration::from_millis(50)
                 } else {
@@ -4693,7 +4867,7 @@ fn primary_claim_index(claims: &[Arc<Claim>], alternatives: bool) -> Option<usiz
 mod tests {
     use super::*;
     use crate::core::InlineRender;
-    use crate::platform::{Foreground, Permission, ShortcutHandler};
+    use crate::platform::{DetachedContextRead, Foreground, Permission, ShortcutHandler};
 
     #[derive(Clone, Copy, Default)]
     enum Outcome {
@@ -4708,6 +4882,8 @@ mod tests {
     struct NativeState {
         snapshot: Option<Snapshot>,
         revision: u64,
+        notification_revision: u64,
+        input_at: Option<Instant>,
         secure: Option<bool>,
         hook: Option<ShortcutHandler>,
         wake: Option<Arc<dyn Fn() + Send + Sync>>,
@@ -4716,6 +4892,7 @@ mod tests {
         finished: Vec<bool>,
         ui_callback: Option<Arc<dyn Fn(String) + Send + Sync>>,
         capture_count: usize,
+        capture_time: Option<(Rc<RefCell<Instant>>, Duration)>,
         stop_calls: usize,
         stop_failures: usize,
         shortcuts: bool,
@@ -4726,6 +4903,7 @@ mod tests {
         docs_reads: usize,
         metadata: Option<Foreground>,
         enables: usize,
+        context: Option<ContextTicket>,
         configured: Config,
     }
     struct Native(Rc<RefCell<NativeState>>);
@@ -4742,7 +4920,23 @@ mod tests {
         fn capture(&mut self) -> Result<Option<Snapshot>> {
             let mut s = self.0.borrow_mut();
             s.capture_count += 1;
+            if let Some((clock, duration)) = &s.capture_time {
+                *clock.borrow_mut() += *duration;
+            }
             Ok(s.snapshot.clone())
+        }
+        fn context_ticket(
+            &mut self,
+            snapshot: &Snapshot,
+        ) -> Result<Option<Box<dyn platform::DetachedContextRead>>> {
+            Ok(self
+                .0
+                .borrow()
+                .context
+                .as_ref()
+                .filter(|ticket| ticket.matches_snapshot(snapshot))
+                .cloned()
+                .map(|ticket| Box::new(ticket) as Box<dyn platform::DetachedContextRead>))
         }
         fn foreground(&mut self) -> Result<Option<Foreground>> {
             let s = self.0.borrow();
@@ -4825,13 +5019,14 @@ mod tests {
             Ok(())
         }
         fn input_revision(&self) -> u64 {
-            self.0.borrow().revision
+            let native = self.0.borrow();
+            native.revision.wrapping_add(native.notification_revision)
         }
         fn user_input_revision(&self) -> u64 {
             self.0.borrow().revision
         }
         fn input_timestamp(&self) -> Option<Instant> {
-            None
+            self.0.borrow().input_at
         }
         fn secure_input_enabled(&self) -> Option<bool> {
             self.0.borrow().secure
@@ -5097,6 +5292,8 @@ mod tests {
         Rc::new(RefCell::new(NativeState {
             snapshot: Some(field("The update")),
             revision: 1,
+            notification_revision: 0,
+            input_at: None,
             secure: Some(false),
             hook: None,
             wake: None,
@@ -5105,6 +5302,7 @@ mod tests {
             edits: Vec::new(),
             finished: Vec::new(),
             capture_count: 0,
+            capture_time: None,
             stop_calls: 0,
             stop_failures: 0,
             shortcuts: false,
@@ -5115,6 +5313,7 @@ mod tests {
             docs_reads: 0,
             metadata: None,
             enables: 0,
+            context: None,
             configured: config.clone(),
         }))
     }
@@ -5183,6 +5382,18 @@ mod tests {
         fn elapse(&mut self, millis: u64) {
             *self.time.borrow_mut() += Duration::from_millis(millis);
         }
+        fn type_text(&mut self, text: &str, capture_delay_ms: u64) {
+            let wake = {
+                let mut native = self.native.borrow_mut();
+                native.snapshot = Some(field(text));
+                native.revision += 1;
+                native.input_at = Some(self.engine.now());
+                native.wake.clone().unwrap()
+            };
+            wake();
+            self.elapse(capture_delay_ms);
+            self.engine.tick();
+        }
         fn observe(&mut self) {
             self.elapse(101);
             self.engine.tick();
@@ -5229,13 +5440,32 @@ mod tests {
         }
         fn drawn(&mut self, visible: &str, mode: &str) {
             let s = self.native.borrow().snapshot.clone().unwrap();
-            let revision = self.native.borrow().revision;
+            let native_revision = self.native.borrow().revision;
+            let completion_view = mode == "completion"
+                || (mode == "alternatives"
+                    && self.engine.choices.as_ref().is_some_and(|c| c.anchored));
+            let revision = if completion_view {
+                self.engine
+                    .completion_offer
+                    .map_or(native_revision, |offer| offer.serial)
+            } else {
+                native_revision
+            };
             self.engine.command(Command::PresentationResult {
                 key: s.key(),
                 authority: s.authority(),
                 revision,
                 visible_text: visible.into(),
                 mode: mode.into(),
+            });
+        }
+        fn acknowledge_offer(&mut self, event: &Value) {
+            self.engine.command(Command::PresentationResult {
+                key: serde_json::from_value(event["key"].clone()).unwrap(),
+                authority: serde_json::from_value(event["authority"].clone()).unwrap(),
+                revision: event["revision"].as_u64().unwrap(),
+                visible_text: event["text"].as_str().unwrap().into(),
+                mode: event["mode"].as_str().unwrap().into(),
             });
         }
         fn invoke_hook(&self, action: Action) -> bool {
@@ -5400,6 +5630,57 @@ mod tests {
         );
         let serialized = serde_json::to_string(&h.engine.whatsapp_diagnostic).unwrap();
         assert!(!serialized.contains("SYNTHETIC_PRIVATE"));
+    }
+
+    #[test]
+    fn ready_after_cold_load_refuses_expired_context_before_writing_proceeds() {
+        let mut config = Config::default();
+        config.typo_suppression = false;
+        config.typo_fixes = false;
+        config.personalization_strength = 0;
+        let mut h = harness(config, None);
+        h.force();
+        for (context, expires_after) in [
+            ("SYNTHETIC_OLD_CONTEXT", 2000),
+            ("SYNTHETIC_FRESH_CONTEXT", 2000),
+        ] {
+            if context == "SYNTHETIC_FRESH_CONTEXT" {
+                h.engine.tick();
+            }
+            let pending = h.preparation.borrow_mut().pending.take().unwrap();
+            h.preparation.borrow_mut().results.push(Prepared {
+                token: pending.token,
+                epoch: pending.epoch,
+                options: GenerationOptions {
+                    context: context.into(),
+                    ..Default::default()
+                },
+                context_status: "ready".into(),
+                context_diagnostic: ContextPreparationDiagnostic {
+                    screen: ContextCollectorOutcome::Ready,
+                    attachment: ContextAttachmentOutcome::Attached,
+                    ..Default::default()
+                },
+                warning: String::new(),
+                reference_expires: Some(*h.time.borrow() + Duration::from_millis(expires_after)),
+            });
+            h.engine.tick();
+            assert!(h.worker.borrow().proceeds.is_empty());
+            if context == "SYNTHETIC_OLD_CONTEXT" {
+                h.elapse(2001);
+                h.response("ready", "", false);
+                assert!(h.worker.borrow().proceeds.is_empty());
+                assert!(h.engine.preparing.is_some());
+                assert!(h.engine.request.is_none());
+            } else {
+                h.response("ready", "", false);
+                assert_eq!(h.worker.borrow().proceeds, vec![2]);
+            }
+        }
+        let worker = h.worker.borrow();
+        assert_eq!(worker.submitted.len(), 2);
+        assert_eq!(worker.submitted[0].3.context, "SYNTHETIC_OLD_CONTEXT");
+        assert_eq!(worker.submitted[1].3.context, "SYNTHETIC_FRESH_CONTEXT");
     }
 
     #[test]
@@ -5613,6 +5894,256 @@ mod tests {
         assert_eq!(h.worker.borrow().released, 1);
     }
     #[test]
+    fn automatic_completion_handoff_retains_current_spelling_verdict() {
+        use crate::spelling::{SpellBackend, SpellWorkScope};
+        use std::sync::atomic::AtomicUsize;
+
+        struct CountingDictionary(Arc<AtomicUsize>);
+        impl SpellBackend for CountingDictionary {
+            fn work_scope(&mut self) -> Result<Box<dyn SpellWorkScope>> {
+                self.0.fetch_add(1, Ordering::AcqRel);
+                Ok(Box::new(()))
+            }
+            fn languages(&mut self) -> Result<(Vec<String>, Vec<String>)> {
+                Ok((vec!["en".into()], vec!["en".into()]))
+            }
+            fn identify(&mut self, _: &str) -> Result<BTreeMap<String, f64>> {
+                Ok(BTreeMap::from([("en".into(), 1.0)]))
+            }
+            fn misspelled(&mut self, _: &str, _: &str) -> Result<Vec<(usize, usize)>> {
+                Ok(Vec::new())
+            }
+            fn has_completions(&mut self, _: &str, _: &str) -> Result<bool> {
+                Ok(true)
+            }
+            fn suggestions(
+                &mut self,
+                _: &str,
+                _: usize,
+                _: usize,
+                _: &str,
+            ) -> Result<(String, Vec<String>)> {
+                Ok((String::new(), Vec::new()))
+            }
+            fn close(&mut self) -> Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut config = Config::default();
+        config.debounce_ms = 200;
+        config.typo_suppression = true;
+        config.typo_fixes = false;
+        let assessments = Arc::new(AtomicUsize::new(0));
+        let (ready, completed) = mpsc::channel();
+        let spelling = Arc::new(SpellingService::new(
+            Some(Box::new(CountingDictionary(assessments.clone()))),
+            Some(Arc::new(move || {
+                let _ = ready.send(());
+            })),
+        ));
+        let mut h = harness(config, Some(spelling.clone()));
+        h.engine.tick();
+        assert!(
+            h.engine.preparing.is_none(),
+            "pending spelling blocks scheduling"
+        );
+        completed.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(assessments.load(Ordering::Acquire), 1);
+        h.elapse(200);
+        h.engine.tick();
+        assert!(h.engine.preparing.is_some());
+        let snapshot = h.native.borrow().snapshot.clone().unwrap();
+        assert!(
+            spelling.assess(&snapshot).is_some(),
+            "unchanged handoff discarded the ready verdict and queued a duplicate assessment"
+        );
+        h.engine.tick();
+        h.prepared();
+        h.response("ready", "", false);
+        h.response("result", " arrives", false);
+        assert_eq!(h.engine.suggestion.text, " arrives");
+        assert_eq!(assessments.load(Ordering::Acquire), 1);
+        assert!(
+            h.engine.claims.is_empty(),
+            "offering is not a paint acknowledgement"
+        );
+        h.drawn(" arrives", "completion");
+        assert_eq!(h.engine.claims.len(), 1);
+
+        // Real input must still revoke the stream and its acceptance authority.
+        h.native.borrow_mut().snapshot = Some(field("A different draft"));
+        h.native.borrow_mut().revision += 1;
+        let wake = h.native.borrow().wake.clone().unwrap();
+        wake();
+        h.engine.tick();
+        assert!(h.engine.request.is_none());
+        assert!(h.engine.suggestion.text.is_empty());
+        assert!(h.engine.claims.is_empty());
+    }
+
+    #[test]
+    fn slow_capture_deadline_starts_after_completion_but_input_and_force_stay_fresh() {
+        let mut config = Config::default();
+        config.debounce_ms = 5000;
+        config.typo_suppression = false;
+        config.typo_fixes = false;
+        let mut h = harness(config, None);
+        h.native.borrow_mut().capture_time = Some((h.time.clone(), Duration::from_millis(80)));
+        h.engine.capture_after = h.engine.now();
+        let initial_captures = h.native.borrow().capture_count;
+        h.engine.tick();
+        let captured = h.native.borrow().capture_count;
+        assert_eq!(captured, initial_captures + 1);
+        assert_eq!(
+            h.engine.capture_after,
+            h.engine.now() + Duration::from_millis(50),
+            "slow native capture left the next routine deadline already expired"
+        );
+        h.engine.tick();
+        assert_eq!(h.native.borrow().capture_count, captured);
+        h.elapse(49);
+        h.engine.tick();
+        assert_eq!(h.native.borrow().capture_count, captured);
+        h.elapse(1);
+        h.engine.tick();
+        assert_eq!(h.native.borrow().capture_count, captured + 1);
+        assert_eq!(
+            h.engine.capture_after,
+            h.engine.now() + Duration::from_millis(50)
+        );
+
+        // A real input callback still bypasses the routine deadline immediately.
+        let epoch = h.engine.current_epoch();
+        assert!(h.engine.now() < h.engine.capture_after);
+        h.type_text("The latest typed draft", 0);
+        assert_eq!(h.native.borrow().capture_count, captured + 2);
+        assert!(h.engine.current_epoch() > epoch);
+        let current = h.native.borrow().snapshot.clone().unwrap();
+        assert!(h.engine.candidate.as_ref().unwrap().same_key(&current));
+        assert_eq!(h.engine.candidate_revision, h.native.borrow().revision);
+        assert!(h.engine.preparing.is_none());
+
+        // Explicit actions must capture new native text even without a wake.
+        let latest = field("A fresh explicit draft");
+        h.native.borrow_mut().snapshot = Some(latest.clone());
+        assert!(h.engine.now() < h.engine.capture_after);
+        h.engine.command(Command::Action(Action::Force));
+        assert!(h.native.borrow().capture_count > captured + 2);
+        let preparation = h.engine.preparing.as_ref().unwrap();
+        assert!(preparation.lease.snapshot.same_key(&latest));
+        assert_eq!(preparation.lease.revision, h.native.borrow().revision);
+        assert!(h.worker.borrow().proceeds.is_empty());
+    }
+
+    #[test]
+    fn typing_cadence_cancels_obsolete_work_and_paints_only_latest_draft() {
+        let mut config = Config::default();
+        config.debounce_ms = 150;
+        config.typo_suppression = false;
+        config.typo_fixes = false;
+        let mut h = harness(config, None);
+        h.engine.tick();
+        for text in ["The update i", "The update is", "The update is "] {
+            h.elapse(80);
+            h.type_text(text, 20);
+            assert!(h.engine.preparing.is_none());
+            assert!(h.worker.borrow().submitted.is_empty());
+        }
+        h.elapse(129);
+        h.engine.tick();
+        assert!(h.engine.preparing.is_none());
+        h.elapse(1);
+        h.engine.tick();
+        assert!(h.engine.preparing.is_some());
+        h.elapse(10);
+        h.engine.tick();
+        h.prepared();
+        h.elapse(10);
+        h.response("ready", "", false);
+        assert_eq!(h.worker.borrow().proceeds, [1]);
+        let cancelled = h.worker.borrow().cancelled;
+
+        // Type again before the first token, then deliver every obsolete event.
+        h.elapse(80);
+        h.type_text("The update is now", 20);
+        let last_key = h.native.borrow().input_at.unwrap();
+        assert_eq!(h.engine.candidate_since, last_key);
+        assert_eq!(h.worker.borrow().cancelled - cancelled, 1);
+        assert!(h.engine.request.is_none());
+        for kind in ["ready", "result", "done"] {
+            h.worker.borrow_mut().events.push(WorkerEvent {
+                id: 1,
+                kind: kind.into(),
+                text: " obsolete draft".into(),
+                final_: true,
+                model_loaded: true,
+                message: String::new(),
+            });
+        }
+        h.engine.tick();
+        assert_eq!(h.worker.borrow().proceeds, [1]);
+        assert!(h.engine.suggestion.text.is_empty());
+        assert!(h.engine.claims.is_empty());
+        assert_eq!(h.engine.candidate_since, last_key);
+
+        h.elapse(129);
+        h.engine.tick();
+        assert!(h.engine.preparing.is_none());
+        h.elapse(1);
+        h.engine.tick();
+        assert!(h.engine.preparing.is_some());
+        let scheduled = h.engine.now();
+        h.elapse(10);
+        h.engine.tick();
+        h.prepared();
+        let submitted = h.engine.now();
+        assert_eq!(h.worker.borrow().submitted.len(), 2);
+        assert_eq!(h.worker.borrow().submitted[1].1, "The update is now");
+        h.elapse(10);
+        h.response("ready", "", false);
+        let proceeded = h.engine.now();
+        assert_eq!(h.worker.borrow().proceeds, [1, 2]);
+        h.elapse(300);
+        h.response("result", " ready for review", false);
+        let offered = h.engine.now();
+        assert_eq!(h.engine.suggestion.text, " ready for review");
+        assert_eq!(
+            h.engine.suggestion.snapshot.as_ref().unwrap().text.as_ref(),
+            "The update is now"
+        );
+        assert!(h.engine.claims.is_empty());
+        h.elapse(16);
+        h.drawn(" ready for review", "completion");
+        let painted = h.engine.now();
+        assert_eq!(h.engine.claims.len(), 1);
+        let elapsed = |at: Instant| at.duration_since(last_key).as_millis() as u64;
+        assert_eq!(
+            [scheduled, submitted, proceeded, offered, painted].map(elapsed),
+            [150, 160, 170, 470, 486]
+        );
+        println!(
+            "{}",
+            json!({
+                "scenario":"typing_cadence_latest_only",
+                "clock":"synthetic",
+                "capture_delay_ms":20,
+                "debounce_ms":150,
+                "injected_generation_ms":300,
+                "last_key_to_schedule_ms":elapsed(scheduled),
+                "last_key_to_submit_ms":elapsed(submitted),
+                "last_key_to_proceed_ms":elapsed(proceeded),
+                "last_key_to_offer_ms":elapsed(offered),
+                "last_key_to_paint_ack_ms":elapsed(painted),
+                "submitted_requests":h.worker.borrow().submitted.len(),
+                "typing_cancel_calls":1,
+                "obsolete_events_discarded":3,
+                "captures":h.native.borrow().capture_count
+            })
+        );
+    }
+
+    #[test]
     fn transient_inline_geometry_rejection_does_not_latch_the_unchanged_draft() {
         for stage in 0..3 {
             let mut config = Config::default();
@@ -5756,6 +6287,172 @@ mod tests {
     }
 
     #[test]
+    fn completed_completion_repaints_after_native_notification_and_accepts_fresh_ack() {
+        let mut config = Config::default();
+        config.debounce_ms = 5000;
+        config.typo_suppression = false;
+        config.typo_fixes = false;
+        let mut h = harness(config, None);
+        h.offer(" ready for review");
+        let original = h
+            .engine
+            .drain_events()
+            .into_iter()
+            .rev()
+            .find(|event| event["type"] == "suggestion" && event["mode"] == "completion")
+            .unwrap();
+        h.acknowledge_offer(&original);
+        assert_eq!(h.engine.claims.len(), 1);
+        assert!(h.engine.request.is_none());
+        h.elapse(1000);
+        h.engine.tick();
+        assert_eq!(
+            h.engine.claims.len(),
+            1,
+            "idle time alone must not expire a claim"
+        );
+        h.engine.drain_events();
+        let user_revision = h.native.borrow().revision;
+        h.native.borrow_mut().notification_revision += 1;
+        let wake = h.native.borrow().wake.clone().unwrap();
+        wake();
+        assert!(
+            !h.invoke_hook(Action::All),
+            "notification immediately revokes old authority"
+        );
+        h.engine.tick();
+        assert_eq!(h.native.borrow().revision, user_revision);
+        assert!(h.engine.claims.is_empty());
+        let refreshed = h
+            .engine
+            .drain_events()
+            .into_iter()
+            .find(|event| event["type"] == "suggestion" && event["mode"] == "completion")
+            .expect("fresh unchanged capture must request another presentation acknowledgement");
+        assert_eq!(refreshed["text"], original["text"]);
+        assert!(
+            !h.invoke_hook(Action::All),
+            "capture alone is not a paint acknowledgement"
+        );
+        h.acknowledge_offer(&original);
+        assert!(
+            h.engine.claims.is_empty(),
+            "old queued acknowledgement must not authorize a newer same-text presentation"
+        );
+        assert!(!h.invoke_hook(Action::All));
+        h.acknowledge_offer(&refreshed);
+        assert_eq!(h.engine.claims.len(), 1);
+        h.engine.tick();
+        assert_eq!(
+            h.engine.claims.len(),
+            1,
+            "leftover pending notification must not disarm the fresh paint acknowledgement"
+        );
+        assert_eq!(h.worker.borrow().submitted.len(), 1);
+        assert!(h.invoke_hook(Action::All));
+        h.engine.tick();
+        assert_eq!(h.native.borrow().edits, [" ready for review"]);
+        assert_eq!(
+            h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+            "The update ready for review"
+        );
+        assert!(h.engine.pending_edit.is_none());
+    }
+
+    #[test]
+    fn completed_completion_stale_ack_cannot_restore_revoked_input_focus_policy_or_epoch() {
+        for change in [
+            "typing",
+            "same_text_input",
+            "focus",
+            "policy",
+            "epoch",
+            "pending",
+        ] {
+            let mut config = Config::default();
+            config.debounce_ms = 5000;
+            config.typo_suppression = false;
+            config.typo_fixes = false;
+            let mut h = harness(config, None);
+            h.offer(" ready for review");
+            let original = h
+                .engine
+                .drain_events()
+                .into_iter()
+                .rev()
+                .find(|event| event["type"] == "suggestion" && event["mode"] == "completion")
+                .unwrap();
+            h.acknowledge_offer(&original);
+            assert_eq!(h.engine.claims.len(), 1);
+            match change {
+                "typing" | "same_text_input" | "focus" => {
+                    {
+                        let mut native = h.native.borrow_mut();
+                        native.revision += 1;
+                        if change == "typing" {
+                            native.snapshot = Some(field("The update changed"));
+                        } else if change == "focus" {
+                            native.snapshot.as_mut().unwrap().window_id = "other-window".into();
+                        }
+                    }
+                    let wake = h.native.borrow().wake.clone().unwrap();
+                    wake();
+                    h.engine.tick();
+                    if change == "same_text_input" {
+                        // A later harmless notification cannot rehabilitate an
+                        // offer that was already revoked by real user input.
+                        h.native.borrow_mut().notification_revision += 1;
+                        wake();
+                        h.engine.tick();
+                    }
+                }
+                "policy" => {
+                    h.engine.command(Command::Pause { minutes: 1 });
+                    h.engine.tick();
+                }
+                "epoch" => {
+                    h.engine.bump_epoch();
+                    h.engine.tick();
+                }
+                "pending" => {
+                    h.native.borrow_mut().notification_revision += 1;
+                    let wake = h.native.borrow().wake.clone().unwrap();
+                    wake();
+                    // The old queued paint acknowledgement arrives before a
+                    // native capture has observed this notification.
+                }
+                _ => unreachable!(),
+            }
+            let before = h.native.borrow().snapshot.clone().unwrap();
+            h.acknowledge_offer(&original);
+            assert!(
+                h.engine.claims.is_empty(),
+                "old paint acknowledgement restored authority after {change}"
+            );
+            assert!(!h.invoke_hook(Action::All));
+            assert!(h.native.borrow().edits.is_empty());
+            assert!(
+                h.native
+                    .borrow()
+                    .snapshot
+                    .as_ref()
+                    .unwrap()
+                    .same_key(&before)
+            );
+            assert_eq!(h.worker.borrow().submitted.len(), 1);
+            if change != "pending" {
+                assert!(
+                    h.engine
+                        .drain_events()
+                        .iter()
+                        .all(|event| event["type"] != "suggestion" || event["mode"] != "completion"),
+                    "genuine revocation must not republish the stale completion after {change}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn same_text_after_real_input_revokes_acceptance_but_passthrough_dismissal_keeps_actual_emoji_mode()
      {
         let mut c = Config::default();
@@ -5865,6 +6562,55 @@ mod tests {
             assert_eq!(h.engine.suggestion.text, "tomorrow");
         }
     }
+    #[test]
+    fn anchored_alternatives_echo_completion_view_version_but_accept_native_user_revision() {
+        let mut config = Config::default();
+        config.alternatives_enabled = true;
+        config.typo_suppression = false;
+        config.typo_fixes = false;
+        let mut h = harness(config, None);
+        h.native.borrow_mut().revision = 41;
+        h.offer(" arrives tomorrow");
+        h.engine.drain_events();
+        h.engine.command(Command::Action(Action::Alternatives));
+        h.engine.tick();
+        h.prepared();
+        h.response("ready", "", false);
+        h.response("result", "[\" is ready\", \" arrives tonight\"]", true);
+        let event = h
+            .engine
+            .drain_events()
+            .into_iter()
+            .rev()
+            .find(|event| {
+                event["type"] == "suggestion"
+                    && event["mode"] == "completion"
+                    && event["choices_mode"] == "alternatives"
+            })
+            .unwrap();
+        assert_ne!(event["revision"].as_u64().unwrap(), 41);
+        h.acknowledge_offer(&event);
+        let mut alternatives_ack = event.clone();
+        alternatives_ack["mode"] = json!("alternatives");
+        alternatives_ack["text"] = json!(" is ready\n arrives tonight");
+        h.acknowledge_offer(&alternatives_ack);
+        let claim = h
+            .engine
+            .claims
+            .iter()
+            .find(|claim| claim.mode == "alternatives")
+            .unwrap();
+        assert_eq!(claim.revision, 41);
+        assert!(h.invoke_hook(Action::Choice(1)));
+        h.engine.tick();
+        assert_eq!(h.native.borrow().edits, [" arrives tonight"]);
+        assert_eq!(
+            h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+            "The update arrives tonight"
+        );
+        assert!(h.engine.pending_edit.is_none());
+    }
+
     #[test]
     fn on_demand_append_only_fields_allow_force_but_no_automatic_tools() {
         let mut c = Config::default();
@@ -6161,6 +6907,7 @@ mod tests {
         assert!(locked(&state).close_calls > 0);
         assert!(h.engine.shutdown_step().unwrap());
     }
+    #[derive(Clone)]
     struct ContextTicket {
         snapshot: Snapshot,
         gate: Option<Arc<(Mutex<bool>, Condvar)>>,
@@ -6244,6 +6991,462 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn focused_context_prefetch_handoff_reaches_the_generation_consumer_once() {
+        for completed_before_submit in [false, true] {
+            let mut config = Config::default();
+            config.screen_context = true;
+            config.personalization_strength = 0;
+            config.typo_suppression = false;
+            config.typo_fixes = false;
+            config.debounce_ms = 1000;
+            let mut h = harness(config, None);
+            let snapshot = field("Thank you for the launch review");
+            let gate = Arc::new((Mutex::new(completed_before_submit), Condvar::new()));
+            let (entered, receive) = mpsc::sync_channel(1);
+            {
+                let mut native = h.native.borrow_mut();
+                native.snapshot = Some(snapshot.clone());
+                native.context = Some(ContextTicket {
+                    snapshot,
+                    gate: Some(gate.clone()),
+                    entered: Some(entered),
+                    text: "The launch review confirmed Friday's release.".into(),
+                });
+            }
+            let storage: SharedStorage = Arc::new(Mutex::new(Box::new(Memory(h.storage.clone()))));
+            let service =
+                AsyncPreparer::new(storage, h.engine.epoch.clone(), Arc::new(SyntheticSources))
+                    .unwrap();
+            let state = service.state.clone();
+            h.engine.preparer = Box::new(service);
+            h.observe();
+            receive.recv_timeout(Duration::from_secs(1)).unwrap();
+            if completed_before_submit {
+                let locked_state = locked(&state.0);
+                let (ready_state, wait) = state
+                    .1
+                    .wait_timeout_while(locked_state, Duration::from_secs(1), |s| {
+                        s.screen_result.is_none()
+                    })
+                    .unwrap();
+                assert!(!wait.timed_out());
+                drop(ready_state);
+                *locked(&gate.0) = false;
+            }
+            let epoch = h.engine.current_epoch();
+            h.force();
+            assert_eq!(h.engine.current_epoch(), epoch);
+            if !completed_before_submit {
+                *locked(&gate.0) = true;
+                gate.1.notify_all();
+            }
+            let locked_state = locked(&state.0);
+            let (locked_state, wait) = state
+                .1
+                .wait_timeout_while(locked_state, Duration::from_secs(1), |s| {
+                    s.results.is_empty()
+                })
+                .unwrap();
+            assert!(!wait.timed_out());
+            drop(locked_state);
+            h.engine.tick();
+            let submitted = h.worker.borrow();
+            assert_eq!(submitted.submitted.len(), 1);
+            assert!(submitted.submitted[0].3.context.contains("Friday"));
+            drop(submitted);
+            h.response("ready", "", false);
+            assert_eq!(h.worker.borrow().proceeds, vec![1]);
+            assert!(
+                receive.try_recv().is_err(),
+                "handoff repeated the native read"
+            );
+            *locked(&gate.0) = true;
+            gate.1.notify_all();
+            h.engine.preparer.request_stop();
+        }
+    }
+    #[test]
+    fn focused_context_prefetch_handoff_refuses_stale_epoch_window_age_and_token() {
+        for stale in ["epoch", "window", "age", "token"] {
+            let stored = Arc::new(Mutex::new(Stored::default()));
+            let storage: SharedStorage = Arc::new(Mutex::new(Box::new(Memory(stored))));
+            let epoch = Arc::new(AtomicU64::new(1));
+            let mut service =
+                AsyncPreparer::new(storage, epoch.clone(), Arc::new(SyntheticSources)).unwrap();
+            let snapshot = field("Thank you for the launch review");
+            service.prefetch(ContextPreparation {
+                token: 1,
+                epoch: 1,
+                snapshot: snapshot.clone(),
+                config: preparation(snapshot.clone(), 1, 1, None).config,
+                ticket: Box::new(ContextTicket {
+                    snapshot: snapshot.clone(),
+                    gate: None,
+                    entered: None,
+                    text: "OLD_PRIVATE_REFERENCE".into(),
+                }),
+            });
+            let state = locked(&service.state.0);
+            let (state, wait) = service
+                .state
+                .1
+                .wait_timeout_while(state, Duration::from_secs(1), |s| s.screen_result.is_none())
+                .unwrap();
+            assert!(!wait.timed_out());
+            drop(state);
+            let mut next = snapshot;
+            match stale {
+                "window" => next.window_id = "another-window".into(),
+                "epoch" => epoch.store(2, Ordering::Release),
+                "age" => {
+                    locked(&service.state.0).screen_result.as_mut().unwrap().3 =
+                        Instant::now() - Duration::from_secs(3);
+                }
+                "token" => {
+                    locked(&service.state.0).screen_result.as_mut().unwrap().0 = 99;
+                }
+                _ => unreachable!(),
+            }
+            let next_epoch = epoch.load(Ordering::Acquire);
+            service.submit(preparation(
+                next.clone(),
+                2,
+                next_epoch,
+                Some(Box::new(ContextTicket {
+                    snapshot: next,
+                    gate: None,
+                    entered: None,
+                    text: "The launch review confirmed Monday's release.".into(),
+                })),
+            ));
+            let state = locked(&service.state.0);
+            let (mut state, wait) = service
+                .state
+                .1
+                .wait_timeout_while(state, Duration::from_secs(1), |s| s.results.is_empty())
+                .unwrap();
+            assert!(!wait.timed_out());
+            let prepared = state.results.pop_front().unwrap();
+            drop(state);
+            assert_eq!(prepared.token, 2);
+            assert!(!prepared.options.context.contains("OLD_PRIVATE_REFERENCE"));
+            assert!(prepared.options.context.contains("Monday"));
+            service.request_stop();
+        }
+    }
+    #[test]
+    fn focused_context_prefetch_handoff_only_delivers_to_latest_consumer() {
+        let stored = Arc::new(Mutex::new(Stored::default()));
+        let storage: SharedStorage = Arc::new(Mutex::new(Box::new(Memory(stored))));
+        let epoch = Arc::new(AtomicU64::new(1));
+        let mut service = AsyncPreparer::new(storage, epoch, Arc::new(SyntheticSources)).unwrap();
+        let snapshot = field("Thank you for the launch review");
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let (entered, receive) = mpsc::sync_channel(1);
+        let ticket = ContextTicket {
+            snapshot: snapshot.clone(),
+            gate: Some(gate.clone()),
+            entered: Some(entered),
+            text: "The launch review confirmed Friday's release.".into(),
+        };
+        service.prefetch(ContextPreparation {
+            token: 1,
+            epoch: 1,
+            snapshot: snapshot.clone(),
+            config: preparation(snapshot.clone(), 1, 1, None).config,
+            ticket: Box::new(ticket.clone()),
+        });
+        receive.recv_timeout(Duration::from_secs(1)).unwrap();
+        service.submit(preparation(
+            snapshot.clone(),
+            2,
+            1,
+            Some(Box::new(ticket.clone())),
+        ));
+        service.submit(preparation(snapshot, 3, 1, Some(Box::new(ticket))));
+        *locked(&gate.0) = true;
+        gate.1.notify_all();
+        let state = locked(&service.state.0);
+        let (state, wait) = service
+            .state
+            .1
+            .wait_timeout_while(state, Duration::from_secs(1), |s| s.results.is_empty())
+            .unwrap();
+        assert!(!wait.timed_out());
+        drop(state);
+        let mut prepared = service.poll();
+        assert_eq!(prepared.len(), 1);
+        let prepared = prepared.pop().unwrap();
+        assert_eq!(prepared.token, 3);
+        assert!(prepared.options.context.contains("Friday"));
+        assert!(service.poll().is_empty());
+        assert!(
+            receive.try_recv().is_err(),
+            "latest consumer repeated collection"
+        );
+        service.request_stop();
+    }
+    #[test]
+    fn focused_context_prefetch_handoff_cancellation_never_releases_old_reference() {
+        let stored = Arc::new(Mutex::new(Stored::default()));
+        let storage: SharedStorage = Arc::new(Mutex::new(Box::new(Memory(stored))));
+        let epoch = Arc::new(AtomicU64::new(1));
+        let mut service =
+            AsyncPreparer::new(storage, epoch.clone(), Arc::new(SyntheticSources)).unwrap();
+        let snapshot = field("Thank you for the launch review");
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let (entered, receive) = mpsc::sync_channel(1);
+        let ticket = ContextTicket {
+            snapshot: snapshot.clone(),
+            gate: Some(gate.clone()),
+            entered: Some(entered),
+            text: "The launch review confirmed Friday's release.".into(),
+        };
+        service.prefetch(ContextPreparation {
+            token: 1,
+            epoch: 1,
+            snapshot: snapshot.clone(),
+            config: preparation(snapshot.clone(), 1, 1, None).config,
+            ticket: Box::new(ticket.clone()),
+        });
+        receive.recv_timeout(Duration::from_secs(1)).unwrap();
+        service.submit(preparation(snapshot.clone(), 2, 1, Some(Box::new(ticket))));
+        epoch.store(2, Ordering::Release);
+        service.cancel();
+        service.submit(preparation(snapshot, 3, 2, None));
+        let state = locked(&service.state.0);
+        let (state, wait) = service
+            .state
+            .1
+            .wait_timeout_while(state, Duration::from_secs(1), |s| s.results.is_empty())
+            .unwrap();
+        assert!(!wait.timed_out());
+        drop(state);
+        let mut results = service.poll();
+        assert_eq!(results.len(), 1);
+        let prepared = results.pop().unwrap();
+        assert_eq!(prepared.token, 3);
+        assert!(prepared.options.context.is_empty());
+        *locked(&gate.0) = true;
+        gate.1.notify_all();
+        service.request_stop();
+    }
+    #[test]
+    fn focused_context_prefetch_handoff_revalidates_consumer_authority() {
+        struct RevokedTicket;
+        impl platform::DetachedContextRead for RevokedTicket {
+            fn matches_snapshot(&self, _: &Snapshot) -> bool {
+                true
+            }
+            fn matches(&self) -> Result<bool> {
+                Ok(false)
+            }
+            fn read(&self, _: &dyn Fn() -> bool, _: usize) -> Result<ContextRead> {
+                panic!("revoked consumer must not collect")
+            }
+        }
+        let stored = Arc::new(Mutex::new(Stored::default()));
+        let storage: SharedStorage = Arc::new(Mutex::new(Box::new(Memory(stored))));
+        let epoch = Arc::new(AtomicU64::new(1));
+        let mut service = AsyncPreparer::new(storage, epoch, Arc::new(SyntheticSources)).unwrap();
+        let snapshot = field("Thank you for the launch review");
+        service.prefetch(ContextPreparation {
+            token: 1,
+            epoch: 1,
+            snapshot: snapshot.clone(),
+            config: preparation(snapshot.clone(), 1, 1, None).config,
+            ticket: Box::new(ContextTicket {
+                snapshot: snapshot.clone(),
+                gate: None,
+                entered: None,
+                text: "The launch review confirmed Friday's release.".into(),
+            }),
+        });
+        let state = locked(&service.state.0);
+        let (state, wait) = service
+            .state
+            .1
+            .wait_timeout_while(state, Duration::from_secs(1), |s| s.screen_result.is_none())
+            .unwrap();
+        assert!(!wait.timed_out());
+        drop(state);
+        service.submit(preparation(snapshot, 2, 1, Some(Box::new(RevokedTicket))));
+        let state = locked(&service.state.0);
+        let (mut state, wait) = service
+            .state
+            .1
+            .wait_timeout_while(state, Duration::from_secs(1), |s| s.results.is_empty())
+            .unwrap();
+        assert!(!wait.timed_out());
+        let prepared = state.results.pop_front().unwrap();
+        drop(state);
+        assert_eq!(
+            prepared.context_diagnostic.screen,
+            ContextCollectorOutcome::Stale
+        );
+        assert!(prepared.options.context.is_empty());
+        service.request_stop();
+    }
+    #[test]
+    fn personalization_post_authorization_releases_store_and_refuses_revoked_learning() {
+        use std::sync::atomic::AtomicUsize;
+
+        struct PostAuthorization {
+            snapshot: Snapshot,
+            calls: Arc<AtomicUsize>,
+            entered: SyncSender<()>,
+            decision: Arc<(Mutex<Option<bool>>, Condvar)>,
+        }
+        impl platform::DetachedContextRead for PostAuthorization {
+            fn matches_snapshot(&self, snapshot: &Snapshot) -> bool {
+                self.snapshot.same_key(snapshot) && self.snapshot.same_authority(snapshot)
+            }
+            fn matches(&self) -> Result<bool> {
+                if self.calls.fetch_add(1, Ordering::AcqRel) == 0 {
+                    return Ok(true);
+                }
+                let _ = self.entered.try_send(());
+                let (decision, wait) = self
+                    .decision
+                    .1
+                    .wait_timeout_while(
+                        locked(&self.decision.0),
+                        Duration::from_secs(3),
+                        |decision| decision.is_none(),
+                    )
+                    .unwrap();
+                ensure!(
+                    !wait.timed_out(),
+                    "synthetic post-authorization was not released"
+                );
+                Ok(decision.unwrap())
+            }
+            fn read(&self, _: &dyn Fn() -> bool, _: usize) -> Result<ContextRead> {
+                panic!("personalization authorization must not read screen or clipboard")
+            }
+        }
+
+        const TEXT: &str = "We discussed observability and instrumentation during the planning meeting. The observability review needs more instrumentation examples before the next team meeting.";
+        for revocation in ["none", "ticket", "epoch"] {
+            let directory = tempfile::tempdir().unwrap();
+            let mut history =
+                HistoryStore::with_path_and_key(directory.path().join("local.sqlite3"), [b'a'; 32]);
+            history.unlock().unwrap();
+            assert!(
+                history
+                    .record_identified_at(
+                        "synthetic-authored",
+                        "writer",
+                        "",
+                        TEXT,
+                        &[(0, TEXT.chars().count())],
+                        chrono::Utc::now(),
+                    )
+                    .unwrap()
+            );
+            let expected = history
+                .personalization("writer", "", TEXT, 50, &|_, _| true)
+                .unwrap();
+            assert!(
+                !expected.is_empty(),
+                "fixture must contribute real learned features"
+            );
+            let storage: SharedStorage = Arc::new(Mutex::new(Box::new(history)));
+            let epoch = Arc::new(AtomicU64::new(1));
+            let mut service = AsyncPreparer::new(
+                storage.clone(),
+                epoch.clone(),
+                Arc::new(NativeBackgroundReaders),
+            )
+            .unwrap();
+            let decision = Arc::new((Mutex::new(None), Condvar::new()));
+            let calls = Arc::new(AtomicUsize::new(0));
+            let (entered, receive) = mpsc::sync_channel(1);
+            let snapshot = field(TEXT);
+            let mut request = preparation(snapshot.clone(), 1, 1, None);
+            request.config.record_history = true;
+            request.config.personalization_strength = 50;
+            request.config.screen_context = false;
+            request.config.screenshot_context = false;
+            request.config.clipboard_context = false;
+            let config = request.config.clone();
+            request.authorization_ticket = Some(Box::new(PostAuthorization {
+                snapshot: snapshot.clone(),
+                calls: calls.clone(),
+                entered,
+                decision: decision.clone(),
+            }));
+            service.submit(request);
+            receive.recv_timeout(Duration::from_secs(2)).unwrap();
+            assert_eq!(calls.load(Ordering::Acquire), 2);
+
+            // Exercise a real encrypted history flush while the preparation's
+            // native-authorization boundary is deliberately still blocked.
+            let concurrent_flush = match storage.try_lock() {
+                Ok(mut store) => {
+                    store
+                        .record(
+                            "synthetic-parallel-flush",
+                            "writer",
+                            "",
+                            TEXT,
+                            &[(0, TEXT.chars().count())],
+                        )
+                        .unwrap();
+                    true
+                }
+                Err(std::sync::TryLockError::WouldBlock) => false,
+                Err(std::sync::TryLockError::Poisoned(_)) => {
+                    panic!("synthetic history storage was poisoned")
+                }
+            };
+            if revocation == "epoch" {
+                epoch.store(2, Ordering::Release);
+                service.cancel();
+                let mut latest = preparation(snapshot.clone(), 2, 2, None);
+                latest.config = config;
+                latest.authorization_ticket = Some(Box::new(ContextTicket {
+                    snapshot,
+                    gate: None,
+                    entered: None,
+                    text: String::new(),
+                }));
+                service.submit(latest);
+            }
+            *locked(&decision.0) = Some(revocation != "ticket");
+            decision.1.notify_all();
+            let (state, wait) = service
+                .state
+                .1
+                .wait_timeout_while(locked(&service.state.0), Duration::from_secs(2), |state| {
+                    state.results.is_empty()
+                })
+                .unwrap();
+            assert!(!wait.timed_out());
+            drop(state);
+            let results = service.poll();
+            service.request_stop();
+            drop(service);
+            assert!(
+                concurrent_flush,
+                "post-authorization validation held SharedStorage across its native wait"
+            );
+            assert_eq!(results.len(), 1);
+            let prepared = &results[0];
+            assert_eq!(prepared.token, if revocation == "epoch" { 2 } else { 1 });
+            match revocation {
+                "none" => assert_eq!(prepared.options.personalization, expected),
+                "ticket" => assert!(prepared.options.personalization.is_empty()),
+                "epoch" => {
+                    assert_eq!(prepared.epoch, 2);
+                    assert!(!prepared.options.personalization.is_empty());
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+
     #[test]
     fn obsolete_blocked_window_reader_does_not_hold_latest_preparation_or_reuse_reference() {
         let stored = Arc::new(Mutex::new(Stored::default()));

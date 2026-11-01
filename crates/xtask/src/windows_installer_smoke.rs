@@ -143,7 +143,7 @@ fn execute(bundle: &Path, assets: &Path, output: &Path, receipt: &mut Value) -> 
         &json!({"package":package, "previous":previous,
         "worker":worker, "model":model}),
     )?;
-    let script = root.join(".github/native/windows-installer-smoke.ps1");
+    let script = root.join(".github/native/windows-installer-client.ps1");
     regular(&script)?;
     receipt["stage"] = json!("native_per_user_installer_lifecycle");
     let status = Command::new("pwsh.exe")
@@ -156,6 +156,14 @@ fn execute(bundle: &Path, assets: &Path, output: &Path, receipt: &mut Value) -> 
         .stdin(std::process::Stdio::null())
         .status()
         .context("cannot invoke owned native installer probe")?;
+    let client_path = work.join("client-observations.json");
+    regular(&client_path).context("shared restricted client did not produce policy evidence")?;
+    ensure!(
+        fs::metadata(&client_path)?.len() <= 256 * 1024,
+        "restricted client evidence exceeds limit"
+    );
+    let client: Value = serde_json::from_slice(&fs::read(client_path)?)?;
+    receipt["restricted_client"] = client.clone();
     let observed_path = work.join("observations.json");
     regular(&observed_path).context("native installer probe did not produce evidence")?;
     ensure!(
@@ -183,7 +191,21 @@ fn execute(bundle: &Path, assets: &Path, output: &Path, receipt: &mut Value) -> 
         }
     }
     ensure!(
-        status.success() && observed["passed"] == true,
+        status.success()
+            && client["passed"] == true
+            && client["restoration_verified"] == true
+            && client["quiescence_verified"] == true
+            && observed["passed"] == true
+            && observed["observations"]
+                .as_array()
+                .context("native observations missing")?
+                .iter()
+                .filter(|row| {
+                    row["check"] == "restricted_rights_client_verified_before_installer"
+                        && row["passed"] == true
+                })
+                .count()
+                == 1,
         "native installer assertions failed"
     );
     receipt["stage"] = json!("completed_core_scope_only");
@@ -314,6 +336,230 @@ fn verify_zip(path: &Path, rows: &[Row]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn bounded_policy_and_real_write_rollback_evidence_fail_closed() {
+        let temp = tempfile::tempdir().unwrap();
+        let script = temp.path().join("bounded-installer-fixture.ps1");
+        // Parse/extract pure guards only. This test never touches HKLM, launches
+        // MSI, or promotes its synthetic logs to native lifecycle evidence.
+        fs::write(
+            &script,
+            r#"
+param([string]$Native, [string]$Work)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+function Load-Guards([string]$File, [string[]]$Names) {
+    $tokens = $null; $errors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $Native $File), [ref]$tokens, [ref]$errors)
+    if ($errors.Count -ne 0) { throw "Owned script syntax errors: $File" }
+    foreach ($name in $Names) {
+        $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name }, $true)
+        if ($null -eq $definition) { throw "Missing guard: $name" }
+        # Dot-source into this caller's scope, not a discarded nested scope.
+        $definition.Extent.Text
+    }
+}
+foreach ($definition in @(Load-Guards 'windows-installer-client.ps1' @('Require', 'Assert-DisableMsiPolicy', 'Assert-NativeQuiescence', 'Initialize-InstallerNative'))) { . ([scriptblock]::Create($definition)) }
+# Compile owned P/Invoke declarations without calling any token/registry API.
+Initialize-InstallerNative
+Assert-DisableMsiPolicy @{ present = $false; kind = $null; value = $null }
+Assert-DisableMsiPolicy @{ present = $true; kind = 'DWord'; value = 0 }
+$rejected = 0
+foreach ($policy in @(
+    @{ present = $true; kind = 'DWord'; value = 1 },
+    @{ present = $true; kind = 'DWord'; value = 2 },
+    @{ present = $true; kind = 'DWord'; value = -1 },
+    @{ present = $true; kind = 'String'; value = '0' },
+    @{ present = $true; kind = 'QWord'; value = 0 },
+    @{ present = $true; kind = 'Binary'; value = @(0) }
+)) {
+    try { Assert-DisableMsiPolicy $policy } catch { $rejected++ }
+}
+if ($rejected -ne 6) { throw 'Explicit restrictive/type-invalid policy accepted' }
+Assert-NativeQuiescence @{ quiescence = @{ installer_transactions_quiescent = $true; owned_processes_quiescent = $true } }
+$rejected = 0
+foreach ($outcome in @(
+    @{ quiescence = @{ installer_transactions_quiescent = $false; owned_processes_quiescent = $true } },
+    @{ quiescence = @{ installer_transactions_quiescent = $true; owned_processes_quiescent = $false } },
+    @{ quiescence = @{ installer_transactions_quiescent = 'true'; owned_processes_quiescent = $true } },
+    @{ quiescence = @{ installer_transactions_quiescent = $true; owned_processes_quiescent = 'true' } },
+    @{ quiescence = @{} },
+    @{}
+)) {
+    try { Assert-NativeQuiescence $outcome } catch { $rejected++ }
+}
+if ($rejected -ne 6) { throw 'Unknown/untyped quiescence accepted as permission to restore host policy' }
+foreach ($definition in @(Load-Guards 'windows-installer-smoke.ps1' @('Observe', 'Assert-RollbackLog', 'New-MsiStartInfo'))) { . ([scriptblock]::Create($definition)) }
+foreach ($operation in @('/i', '/fa', '/x')) {
+    $msi = Join-Path $Work 'canonical package Unicode é.msi'
+    $log = Join-Path $Work 'native MSI Unicode é.log'
+    $start = New-MsiStartInfo @($operation, $msi) $log
+    $expected = @($operation, $msi, '/qn', '/norestart', '/L*v', $log)
+    if ($start.UseShellExecute -or -not [string]::IsNullOrEmpty($start.Arguments) -or $start.ArgumentList.Count -ne $expected.Count) { throw 'MSI direct raw-argv launch contract lost' }
+    for ($i = 0; $i -lt $expected.Count; $i++) {
+        if ($start.ArgumentList[$i] -cne $expected[$i]) { throw 'MSI argv element was pre-quoted, split, or rewritten' }
+    }
+}
+$receipt = @{ observations = [Collections.Generic.List[object]]::new() }
+$path = Join-Path $Work 'rollback.log'
+$copy = 'MSI (s): Executing op: FileCopy(SourceName=synthetic,DestName=synthetic)'
+$execute = 'Action ended 12:00:00: InstallExecute. Return value 1.'
+$fault = 'Action start 12:00:01: BroTypist_CI_ONLY_RollbackFault.'
+$message = 'BROTYPIST CI ONLY: intentional rollback after deferred MSI writes; NOT DISTRIBUTABLE'
+$rollback = 'Rollback: synthetic'
+[IO.File]::WriteAllText($path, (@($copy, $execute, $fault, $message, $rollback) -join "`n"), [Text.Encoding]::Unicode)
+Assert-RollbackLog $path
+if ($receipt.observations.Count -ne 1 -or -not $receipt.observations[0].passed) { throw 'Complete ordered fixture rejected' }
+$rejected = 0
+foreach ($fixture in @(
+    @{ lines = @($execute, $fault, $message, $rollback) },
+    @{ lines = @($copy, $fault, $message, $rollback) },
+    @{ lines = @($copy, $execute, $message, $rollback) },
+    @{ lines = @($copy, $execute, $fault, $rollback) },
+    @{ lines = @($copy, $execute, $fault, $message) },
+    @{ lines = @($fault, $copy, $execute, $message, $rollback) }
+)) {
+    [IO.File]::WriteAllText($path, ($fixture.lines -join "`n"), [Text.Encoding]::UTF8)
+    try { Assert-RollbackLog $path } catch { $rejected++ }
+}
+if ($rejected -ne 6 -or $receipt.observations.Count -ne 1) { throw 'Pre-write or incomplete rollback evidence accepted' }
+"#,
+        )
+        .unwrap();
+        let native = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/native");
+        let status = Command::new("pwsh.exe")
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-File"])
+            .arg(script)
+            .arg(native)
+            .arg(temp.path())
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn historical_checkout_binding_requires_exact_initial_checkout_sha() {
+        let temp = tempfile::tempdir().unwrap();
+        let script = temp.path().join("checkout-fixture.ps1");
+        fs::write(
+            &script,
+            r#"
+param([string]$Source, [string]$Work)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($Source, [ref]$tokens, [ref]$errors)
+if ($errors.Count -ne 0) { throw 'Adapter syntax errors' }
+foreach ($name in @('Require', 'Read-CheckoutIdentity')) {
+    $definition = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name }, $true)
+    Invoke-Expression $definition.Extent.Text
+}
+$sha = '3a47450006b9ec09bffab38ca23465441c38e502'
+$other = '0000000000000000000000000000000000000000'
+$prefix = '2026-10-31T22:17:42.2047551Z '
+$start = $prefix + '##[group]Run actions/checkout@v6'
+$fetch = $prefix + '[command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --depth=1 origin +' + $sha + ':refs/remotes/pull/1/merge'
+$command = $prefix + '[command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H'
+$finish = $prefix + '##[group]Run build'
+$valid = @($start, $fetch, $command, ($prefix + $sha), $finish)
+$path = Join-Path $Work 'checkout.log'
+function Parse-Fixture([string[]]$Lines) {
+    [IO.File]::WriteAllText($path, ($Lines -join "`n"))
+    Read-CheckoutIdentity $path
+}
+$identity = Parse-Fixture $valid
+if ($identity.commit -cne $sha -or $identity.pull_request -cne '1') { throw 'Historical exact checkout lost' }
+# Later build output cannot replace the original checkout identity.
+$identity = Parse-Fixture ($valid + @($command, ($prefix + $other)))
+if ($identity.commit -cne $sha) { throw 'Later log output replaced checkout identity' }
+$rejected = 0
+foreach ($fixture in @(
+    @{ lines = @($start, $fetch, $command, ($prefix + $other), $finish) },
+    @{ lines = @($start, $fetch, $finish) },
+    @{ lines = @($fetch, $command, ($prefix + $sha), $finish) },
+    @{ lines = @($start, $fetch, $fetch, $command, ($prefix + $sha), $finish) },
+    @{ lines = @($start, $fetch, $finish, $command, ($prefix + $sha)) }
+)) {
+    try { $null = Parse-Fixture $fixture.lines } catch { $rejected++ }
+}
+if ($rejected -ne 5) { throw 'Checkout missing/mismatched/duplicate/out-of-step evidence accepted' }
+"#,
+        )
+        .unwrap();
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.github/native/windows-installer-reuse.ps1");
+        let status = Command::new("pwsh.exe")
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-File"])
+            .arg(script)
+            .arg(source)
+            .arg(temp.path())
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn routing_evidence_retains_owned_hives_without_raw_log_content() {
+        let temp = tempfile::tempdir().unwrap();
+        let script = temp.path().join("scope-fixture.ps1");
+        // Load only the parser's function AST: never execute the installer probe.
+        // Both native roots must survive; other products, properties and paths must not.
+        fs::write(
+            &script,
+            r#"
+param([string]$Source, [string]$Work)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+$tokens = $null; $errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($Source, [ref]$tokens, [ref]$errors)
+if ($errors.Count -ne 0) { throw 'Probe syntax errors' }
+$definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Observe-MsiRouting' }, $true)
+Invoke-Expression $definition.Extent.Text
+$products = @('{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88}')
+$receipt = @{ observations = [Collections.Generic.List[object]]::new() }
+$path = Join-Path $Work 'fixture.log'
+$fixture = @'
+Action start 22:34:44: RegisterProduct.
+MSI (s) (04:E0): Executing op: RegOpenKey(Root=-2147483646,Key=Software\Microsoft\Windows\CurrentVersion\Uninstall\{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88},BinaryType=1,)
+MSI (s) (04:E0): Executing op: RegOpenKey(Root=-2147483647,Key=Software\Microsoft\Windows\CurrentVersion\Uninstall\{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88},BinaryType=1,)
+MSI (s) (04:E0): Executing op: RegOpenKey(Root=-2147483646,Key=Software\Microsoft\Windows\CurrentVersion\Uninstall\{00000000-0000-0000-0000-000000000000},BinaryType=1,)
+Property(S): ALLUSERS = 1
+Property(S): MSIINSTALLPERUSER = 1
+Property(S): Privileged = 1
+Property(S): AdminUser = 1
+Property(S): MsiRunningElevated = 1
+MSI (s) (04:E0): Machine policy value 'AlwaysInstallElevated' is 0
+Property(S): PRIVATE = never-retain-this-value
+MSI (s): C:\Users\never-retain-this-path\payload
+'@
+[IO.File]::WriteAllText($path, $fixture, [Text.Encoding]::Unicode)
+Observe-MsiRouting 'fixture' $path
+$facts = @($receipt.observations[0].evidence.facts)
+if ($facts.Count -ne 9) { throw 'Owned routing or allowlisted engine facts missing or unrelated content retained' }
+if (@($facts | Where-Object { $_.event -eq 'owned_arp_reg_open' }).Count -ne 2) { throw 'Native hive distinction lost' }
+if (@($facts | Where-Object { $_.event -eq 'engine_privilege_property' }).Count -ne 3) { throw 'Actual engine privilege diagnostics lost' }
+if (@($facts | Where-Object { $_.event -eq 'engine_installer_policy' -and $_.scope -ceq 'Machine' -and $_.policy -ceq 'AlwaysInstallElevated' -and $_.value -ceq '0' }).Count -ne 1) { throw 'Actual engine policy diagnostic lost' }
+$json = $receipt | ConvertTo-Json -Depth 16
+if ($json.Contains('never-retain') -or $json.Contains('00000000-0000')) { throw 'Private or unrelated log content retained' }
+[IO.File]::WriteAllText($path, ('Property(S): ALLUSERS = 1' + "`n") * 300)
+Observe-MsiRouting 'bounded' $path
+if (-not $receipt.observations[1].evidence.truncated -or @($receipt.observations[1].evidence.facts).Count -ne 256) { throw 'Routing fact limit failed' }
+if ($null -ne $receipt.observations[1].passed) { throw 'Diagnostic observation was promoted to passing gate' }
+"#,
+        )
+        .unwrap();
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.github/native/windows-installer-smoke.ps1");
+        let status = Command::new("pwsh.exe")
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-File"])
+            .arg(script)
+            .arg(source)
+            .arg(temp.path())
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
     #[test]
     fn portable_zip_rejects_extra_and_traversal_members() {
         let temp = tempfile::tempdir().unwrap();

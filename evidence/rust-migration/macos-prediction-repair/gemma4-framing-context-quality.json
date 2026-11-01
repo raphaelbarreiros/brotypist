@@ -1,0 +1,3505 @@
+{
+  "schema": "brotypist-gemma4-framing-context-quality/1",
+  "scope": "Static GGUF metadata inspection, actual installed native-worker comparisons on authored synthetic PT/EN requests in fresh INKLOW_HOME directories, and a separately identified parent-compiled prompt comparison. Parent build/test evidence is separate. No cloud, TCC, normal-model-selection or normal-profile mutation was performed by these quality experiments.",
+  "model": {
+    "filename": "gemma-4-E2B-it-Q4_0.gguf",
+    "expected_sha256_from_assignment": "8e30dff3ac4c8434c49a7036fa15564bdbb6044e42bf04550bf1a096ad7e6a52",
+    "sha256_recomputed_by_this_worker": false,
+    "gguf_version": 3,
+    "architecture": "gemma4",
+    "tokenizer_model": "gemma4",
+    "token_count": 262144,
+    "bos_token_id": 2,
+    "eos_token_id": 1,
+    "add_bos_token": true,
+    "add_space_prefix": false,
+    "gemma4_expert_count_metadata_present": false,
+    "chat_template_sha256": "0a2c8073c878ab1da004bee933a998606537bbb62016310352c7285c3f01c5b5",
+    "framing_tokens": [
+      {
+        "id": 1,
+        "text": "<eos>",
+        "type": 3
+      },
+      {
+        "id": 2,
+        "text": "<bos>",
+        "type": 3
+      },
+      {
+        "id": 98,
+        "text": "<|think|>",
+        "type": 3
+      },
+      {
+        "id": 100,
+        "text": "<|channel>",
+        "type": 4
+      },
+      {
+        "id": 101,
+        "text": "<channel|>",
+        "type": 4
+      },
+      {
+        "id": 105,
+        "text": "<|turn>",
+        "type": 3
+      },
+      {
+        "id": 106,
+        "text": "<turn|>",
+        "type": 3
+      }
+    ],
+    "gemma3_turn_tokens_present": false
+  },
+  "template_comparison": {
+    "method": "Read actual cached GGUF tokenizer.chat_template string and static Rust serialization/tokenizer bridge; did not assume Gemma3 compatibility. Jinja rendering was not performed because Jinja2 is not installed; no dependency installed.",
+    "actual_template_lines": [
+      {
+        "line": 186,
+        "bytes": "{%- set enable_thinking = enable_thinking | default(false) -%}"
+      },
+      {
+        "line": 188,
+        "bytes": "{{- bos_token -}}"
+      },
+      {
+        "line": 191,
+        "bytes": "    {{- '<|turn>system\\n' -}}"
+      },
+      {
+        "line": 193,
+        "bytes": "    {%- if enable_thinking -%}"
+      },
+      {
+        "line": 194,
+        "bytes": "        {{- '<|think|>\\n' -}}"
+      },
+      {
+        "line": 215,
+        "bytes": "    {{- '<turn|>\\n' -}}"
+      },
+      {
+        "line": 230,
+        "bytes": "    {%- set role = 'model' if message['role'] == 'assistant' else message['role'] -%}"
+      },
+      {
+        "line": 234,
+        "bytes": "        {{- '<|turn>' + role + '\\n' }}"
+      },
+      {
+        "line": 372,
+        "bytes": "            {{- '<turn|>\\n' -}}"
+      },
+      {
+        "line": 380,
+        "bytes": "{%- if add_generation_prompt -%}"
+      },
+      {
+        "line": 381,
+        "bytes": "    {%- if ns.prev_message_type != 'tool_response' and ns.prev_message_type != 'tool_call' -%}"
+      },
+      {
+        "line": 382,
+        "bytes": "        {{- '<|turn>model\\n' -}}"
+      }
+    ],
+    "current_dense_gemma4_framing": [
+      "<bos><|turn>system\n",
+      "<turn|>\n<|turn>user\n",
+      "<turn|>\n<|turn>model\n"
+    ],
+    "framing_matches": true,
+    "reason": "Actual template has separate system role, maps assistant to model, closes normal turns with <turn|> newline and defaults enable_thinking=false. Dense gemma4 emits these same bytes and no thought channel. It must not be rewritten to Gemma3 start_of_turn/end_of_turn.",
+    "tokenizer_framing": "FramingCache supplies add_bos=false for explicit <bos>-prefixed Gemma families and parse_special=true for trusted framing, avoiding duplicate automatic BOS. Data spans use parse_special=false and data_tokens splits tag-shaped strings so USER_DEFINED channel tokens cannot become control framing. Actual GGUF add_space_prefix=false means these separate span tokenizations do not each acquire an implicit leading space. Native bridge passes booleans directly to llama_tokenize.",
+    "source_files": [
+      "crates/brotypist/src/writing.rs",
+      "crates/brotypist/src/providers.rs",
+      "crates/brotypist/native/llama_bridge.c"
+    ],
+    "framing_fix_required": false
+  },
+  "prior_rejected_intervention": {
+    "source": "evidence/rust-migration/macos-prediction-repair/model-quality-synthetic.json",
+    "finding": "Long stronger-grounding preferences did not improve cake specificity and changed an unrelated car-reference continuation into fetching a charger. Not repeated. Cached alternative Qwen evidence was read through that file; no alternative model selected."
+  },
+  "baseline_run": {
+    "executable": "target/debug/BroTypist-cli",
+    "binary_sha256": "b3e56169fa7fa741948589b6f0bf65546ab0b3668493709623ecfd35d0e5d5f6",
+    "executable_build_source_commit": "not established by this worker; already-built artifact, not rebuilt after candidate",
+    "native_protocol": "prepare -> generate -> ready -> explicit proceed -> result/final -> done; owned stop exits 0",
+    "config": {
+      "backend": "gguf",
+      "model_path": "/Users/renanrocha/Library/Caches/inklow/models/gemma-4-E2B-it-Q4_0.gguf",
+      "prompt_style": "writing",
+      "acceleration": "auto",
+      "max_tokens": 32,
+      "context_chars": 2000,
+      "record_history": false,
+      "record_unaccepted": false,
+      "statistics_enabled": false,
+      "personalization_strength": 0,
+      "clipboard_context": false,
+      "screen_context": false,
+      "screenshot_context": false,
+      "launch_at_login": false,
+      "check_updates_automatically": false,
+      "idle_release_seconds": 0
+    },
+    "max_words": 8,
+    "fresh_worker_sessions": 2,
+    "cold_os_or_metal_cache_flush": false,
+    "same_worker_case_order": [
+      "pt-short-focused",
+      "pt-linked-focused",
+      "pt-cake-focused",
+      "pt-unrelated",
+      "pt-empty",
+      "pt-suffix",
+      "en-short-focused",
+      "en-focused",
+      "en-unrelated",
+      "en-empty",
+      "en-suffix"
+    ],
+    "second_worker_case_order": [
+      "pt-suffix",
+      "en-suffix",
+      "en-transfer",
+      "pt-uncertain"
+    ],
+    "observations": [
+      {
+        "case": "pt-short-focused",
+        "prefix": "Então",
+        "suffix": "",
+        "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+        "completion": ", devo ir buscar o carregador agora.",
+        "assembled": "Então, devo ir buscar o carregador agora.",
+        "review": {
+          "kind": "assistant",
+          "calibrated": false,
+          "label": "acceptable",
+          "reason": "A concrete charger-fetching next step uses the focused battery subject."
+        }
+      },
+      {
+        "case": "pt-linked-focused",
+        "prefix": "A bateria do carro está descarregada. Então",
+        "suffix": "",
+        "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+        "completion": ", devo procurar o carregador na garagem.",
+        "assembled": "A bateria do carro está descarregada. Então, devo procurar o carregador na garagem.",
+        "review": {
+          "kind": "assistant",
+          "calibrated": false,
+          "label": "acceptable",
+          "reason": "Concrete next step uses the available charger and garage without claiming completed repair."
+        }
+      },
+      {
+        "case": "pt-cake-focused",
+        "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+        "suffix": "",
+        "context": "Focused-window Accessibility (untrusted reference data): O disjuntor desligou, o forno esfriou e o bolo ainda está cru.",
+        "completion": ", o que faremos agora?",
+        "assembled": "O bolo ainda está cru e o forno esfriou. Então, o que faremos agora?",
+        "review": {
+          "kind": "assistant",
+          "calibrated": false,
+          "label": "unacceptable",
+          "reason": "Generic question does not advance the raw-cake/cold-oven situation; contextual utility fails."
+        }
+      },
+      {
+        "case": "pt-unrelated",
+        "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+        "suffix": "",
+        "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+        "completion": ", devo ligar para o técnico?",
+        "assembled": "O bolo ainda está cru e o forno esfriou. Então, devo ligar para o técnico?",
+        "review": {
+          "kind": "assistant",
+          "calibrated": false,
+          "label": "uncertain",
+          "reason": "Does not leak car/charger facts; calling a technician is plausible but reference utility is not established."
+        }
+      },
+      {
+        "case": "pt-empty",
+        "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+        "suffix": "",
+        "context": "",
+        "completion": ", o que faremos agora?",
+        "assembled": "O bolo ainda está cru e o forno esfriou. Então, o que faremos agora?",
+        "review": {
+          "kind": "assistant",
+          "calibrated": false,
+          "label": "unacceptable",
+          "reason": "Nonempty but generic question alone fails contextual utility."
+        }
+      },
+      {
+        "case": "en-short-focused",
+        "prefix": "So",
+        "suffix": "",
+        "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+        "completion": " I will check if the charger works.",
+        "assembled": "So I will check if the charger works.",
+        "review": {
+          "kind": "assistant",
+          "calibrated": false,
+          "label": "acceptable",
+          "reason": "Checking the charger is a plausible supported next action."
+        }
+      },
+      {
+        "case": "en-focused",
+        "prefix": "The car battery is flat. So",
+        "suffix": "",
+        "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+        "completion": " I will use the battery charger in the ",
+        "assembled": "The car battery is flat. So I will use the battery charger in the ",
+        "review": {
+          "kind": "assistant",
+          "calibrated": false,
+          "label": "acceptable",
+          "reason": "Useful charger action; final in the is deliberately unfinished at the eight-word cap, not itself a grammatical failure."
+        }
+      },
+      {
+        "case": "en-unrelated",
+        "prefix": "The cake is still raw and the oven is cold. So",
+        "suffix": "",
+        "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+        "completion": " I guess we'll have to order a pizza.",
+        "assembled": "The cake is still raw and the oven is cold. So I guess we'll have to order a pizza.",
+        "review": {
+          "kind": "assistant",
+          "calibrated": false,
+          "label": "acceptable",
+          "reason": "Stays on the meal/cake situation without importing car facts; ordering pizza is a proposed action, not an asserted reference fact."
+        }
+      },
+      {
+        "case": "en-empty",
+        "prefix": "The cake is still raw and the oven is cold. So",
+        "suffix": "",
+        "context": "",
+        "completion": " I guess we'll have to order something else.",
+        "assembled": "The cake is still raw and the oven is cold. So I guess we'll have to order something else.",
+        "review": {
+          "kind": "assistant",
+          "calibrated": false,
+          "label": "acceptable",
+          "reason": "A plausible meal-related proposed next step; no concrete technical diagnosis invented."
+        }
+      },
+      {
+        "case": "pt-suffix",
+        "prefix": "Vou buscar o",
+        "suffix": " na garagem.",
+        "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+        "completion": " carregador agora",
+        "assembled": "Vou buscar o carregador agora na garagem.",
+        "review": {
+          "kind": "assistant",
+          "calibrated": false,
+          "label": "acceptable",
+          "reason": "Vou buscar o carregador agora na garagem. forms a natural supported draft."
+        }
+      },
+      {
+        "case": "en-suffix",
+        "prefix": "I will get the",
+        "suffix": " from the garage.",
+        "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+        "completion": " battery charged",
+        "assembled": "I will get the battery charged from the garage.",
+        "review": {
+          "kind": "assistant",
+          "calibrated": false,
+          "label": "unacceptable",
+          "reason": "I will get the battery charged from the garage. does not bridge the fixed suffix grammatically/naturally."
+        }
+      },
+      {
+        "case": "en-transfer",
+        "prefix": "The bicycle brake cable snapped. So",
+        "suffix": "",
+        "context": "Focused-window Accessibility (untrusted reference data): The bicycle cannot be ridden safely. A replacement brake cable is available in the workshop.",
+        "completion": ", we need to replace it immediately.",
+        "assembled": "The bicycle brake cable snapped. So, we need to replace it immediately.",
+        "review": {
+          "kind": "assistant",
+          "calibrated": false,
+          "label": "acceptable",
+          "reason": "Replacing the broken cable is a supported next step and does not propose unsafe riding."
+        }
+      },
+      {
+        "case": "pt-uncertain",
+        "prefix": "A entrega ainda não chegou. Então",
+        "suffix": "",
+        "context": "Focused-window Accessibility (untrusted reference data): A transportadora disse que talvez entregue o pacote amanhã, mas a data ainda não foi confirmada.",
+        "completion": ", preciso verificar o status novamente.",
+        "assembled": "A entrega ainda não chegou. Então, preciso verificar o status novamente.",
+        "review": {
+          "kind": "assistant",
+          "calibrated": false,
+          "label": "acceptable",
+          "reason": "Status check is useful without converting tentative tomorrow into a promise."
+        }
+      }
+    ],
+    "superseded_suffix_input_observations": [
+      {
+        "case": "pt-suffix",
+        "prefix": "Vou buscar o",
+        "suffix": "na garagem.",
+        "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+        "completion": " carregador agora"
+      },
+      {
+        "case": "en-suffix",
+        "prefix": "I will get the",
+        "suffix": "from the garage.",
+        "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+        "completion": " car battery charged"
+      }
+    ],
+    "superseded_reason": "Initial suffix strings omitted the leading space. Corrected fixed-text inputs were measured in the second session; keep exact discarded observations separate rather than treating them as fair joins.",
+    "runner_issue": "A preliminary TextIO/select reader timed out after buffering worker events; its owned worker was stopped and exited 0. No model-latency claim is based on that harness timeout."
+  },
+  "candidate": {
+    "prompt_version": "gemma4-draft-v10-optional-reference",
+    "change": "Dense gemma4 only: replace unconditional Use reference facts with optional applicability to the draft plus fixed suffix and preservation of uncertainty. No stronger instruction to copy facts, force specificity, or abstain. Other families, tokenizer framing, provider budgets and reference selection remain unchanged.",
+    "text": "Reference facts are optional. Use only facts relevant to the draft and the fixed text after the cursor; ignore unrelated references. Preserve names and uncertainty without copying the reference language or tone. ",
+    "status": "rejected; source restored to gemma4-draft-v9-clause-register",
+    "actual_after_build_experiment_performed": true,
+    "acceptance": "Rejected by the parent-controlled compiled 13-case warm comparison at medium length (4 words, 32 tokens): no useful improvement in the failing focused-cake or English retrieval-suffix cases. This differs from the separately recorded 8-word cached-model comparison; do not pool them. No prompt-policy change is accepted.",
+    "compiled_comparison": {
+      "baseline_executable_sha256": "9fe8174b1010f4f4dc354e05a0086da47abec9674967a0901519b093d04156c2",
+      "candidate_executable_sha256": "d2d60e93fb2a89807b40a753f8a53cae7647e31f773c9ab2ae177efe8ee20071",
+      "generation_rows_passed_per_executable": 13,
+      "whole_benchmark_passed": false,
+      "whole_benchmark_limit": "After-result cancellation was inconclusive because the request had already completed; before-proceed cancellation, release and child shutdown passed.",
+      "decision": "Keep the original prompt and selected Gemma model. Correct the independently demonstrated context handoff defect instead of shipping an unproven wording or model substitution."
+    }
+  },
+  "limits": [
+    "Observed transport and correct template framing do not establish semantic quality.",
+    "Baseline still produces generic Portuguese cake continuations and an ungrammatical English suffix join.",
+    "Assistant review is uncalibrated, 13 authored cases are small, and first case per fresh worker is not an OS cache flush.",
+    "The optional-reference candidate is a bounded causal hypothesis, not a demonstrated fix; no candidate inference, tests or builds were run by this worker.",
+    "No broad multilingual, user-acceptance or production-quality guarantee is made."
+  ],
+  "controlled_cached_model_comparison": {
+  "schema": "brotypist-cached-gemma4-qwen25-context-comparison/1",
+  "executable": "/Applications/BroTypist.app/Contents/MacOS/BroTypist",
+  "driver_path": "/var/folders/2h/7z2f0bh908b86yf16trkkp0r0000gn/T/brotypist-cached-comparison-gg2xfvzn/comparison_driver.py",
+  "method": "13 cold fresh-worker cases/model, alternating model order between case pairs; then one matched 13-case warm sequence/model. Exactly one owned worker at a time. max_tokens=32 and explicit max_words=8 with completion_length=long; no model/normal-setting/consent changes. Fresh workers do not flush OS/Metal caches. Uses canonical production sampler through installed app _worker.",
+  "cold": [
+    {
+      "model": "gemma4-e2b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/gemma-4-E2B-it-Q4_0.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-pt-short-focused",
+          "prefix": "Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+          "completion": ", devo ir buscar o carregador agora.",
+          "assembled": "Então, devo ir buscar o carregador agora.",
+          "semantic_criteria": [
+            "Offer a nonempty Portuguese continuation that advances the battery/charger situation from the focused facts; do not invent a meeting or unrelated subject. A generic question with no contextual content is not useful."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 1.2313330000068845,
+          "proceed_to_first_text_ms": 453.2194169999997,
+          "proceed_to_final_result_ms": 729.7826249999986,
+          "request_to_done_ms": 731.071208000003,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 2318.1500840000026,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3176218624,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.873695,
+        "system_cpu_seconds": 0.588455,
+        "lifetime_wall_ms": 3147.3225840000014
+      }
+    },
+    {
+      "model": "qwen2.5-7b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-pt-short-focused",
+          "prefix": "Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+          "completion": ", vamos tentar usar o carregador da garagem ",
+          "assembled": "Então, vamos tentar usar o carregador da garagem ",
+          "semantic_criteria": [
+            "Offer a nonempty Portuguese continuation that advances the battery/charger situation from the focused facts; do not invent a meeting or unrelated subject. A generic question with no contextual content is not useful."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.32391699999578805,
+          "proceed_to_first_text_ms": 1321.0166249999986,
+          "proceed_to_final_result_ms": 1890.2409579999996,
+          "request_to_done_ms": 1890.6573749999964,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 4898.358875,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3339272192,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.451534,
+        "system_cpu_seconds": 1.008114,
+        "lifetime_wall_ms": 6863.053499999999
+      }
+    },
+    {
+      "model": "qwen2.5-7b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-pt-linked-focused",
+          "prefix": "A bateria do carro está descarregada. Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+          "completion": ", vou tentar usar o carregador disponível na ",
+          "assembled": "A bateria do carro está descarregada. Então, vou tentar usar o carregador disponível na ",
+          "semantic_criteria": [
+            "Continue the writer's depleted-battery situation in Portuguese with a plausible next action supported by the draft or references; do not claim an action already succeeded."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.2595420000019999,
+          "proceed_to_first_text_ms": 1193.5219160000017,
+          "proceed_to_final_result_ms": 1688.1076250000006,
+          "request_to_done_ms": 1688.4153330000017,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 1624.8549590000039,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 4982423552,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.415161,
+        "system_cpu_seconds": 0.605073,
+        "lifetime_wall_ms": 3406.1502500000033
+      }
+    },
+    {
+      "model": "gemma4-e2b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/gemma-4-E2B-it-Q4_0.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-pt-linked-focused",
+          "prefix": "A bateria do carro está descarregada. Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+          "completion": ", devo procurar o carregador na garagem.",
+          "assembled": "A bateria do carro está descarregada. Então, devo procurar o carregador na garagem.",
+          "semantic_criteria": [
+            "Continue the writer's depleted-battery situation in Portuguese with a plausible next action supported by the draft or references; do not claim an action already succeeded."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.23120899999895528,
+          "proceed_to_first_text_ms": 459.0743330000038,
+          "proceed_to_final_result_ms": 738.4385830000042,
+          "request_to_done_ms": 738.7077500000032,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 2059.7736250000053,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3142041600,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.824047,
+        "system_cpu_seconds": 0.506224,
+        "lifetime_wall_ms": 2919.661542
+      }
+    },
+    {
+      "model": "gemma4-e2b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/gemma-4-E2B-it-Q4_0.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-pt-cake-focused",
+          "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): O disjuntor desligou, o forno esfriou e o bolo ainda está cru.",
+          "completion": ", o que faremos agora?",
+          "assembled": "O bolo ainda está cru e o forno esfriou. Então, o que faremos agora?",
+          "semantic_criteria": [
+            "Advance the cold-oven/raw-cake situation in Portuguese using the tripped-breaker fact where useful. A generic question alone is not useful; do not invent a broken thermostat or confirmed fault diagnosis."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.2153329999998732,
+          "proceed_to_first_text_ms": 481.5857079999972,
+          "proceed_to_final_result_ms": 683.697666999997,
+          "request_to_done_ms": 683.9372079999962,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "unacceptable"
+            },
+            "reason": "Generic question alone does not advance the cake/oven situation, even though Portuguese and grammar are intact.",
+            "overall": "unacceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 974.0096250000008,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3283009536,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.7959919999999999,
+        "system_cpu_seconds": 0.318693,
+        "lifetime_wall_ms": 1758.2393750000024
+      }
+    },
+    {
+      "model": "qwen2.5-7b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-pt-cake-focused",
+          "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): O disjuntor desligou, o forno esfriou e o bolo ainda está cru.",
+          "completion": ", talvez eu devesse ajustar o tempo de ",
+          "assembled": "O bolo ainda está cru e o forno esfriou. Então, talvez eu devesse ajustar o tempo de ",
+          "semantic_criteria": [
+            "Advance the cold-oven/raw-cake situation in Portuguese using the tripped-breaker fact where useful. A generic question alone is not useful; do not invent a broken thermostat or confirmed fault diagnosis."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 1.2909579999984544,
+          "proceed_to_first_text_ms": 1299.563875000004,
+          "proceed_to_final_result_ms": 1795.578833999997,
+          "request_to_done_ms": 1796.9599580000022,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "uncertain"
+            },
+            "reason": "Adjusting baking time is on-topic but does not address the supplied tripped-breaker/cold-oven condition. The truncated phrase is not itself a grammar failure.",
+            "overall": "uncertain"
+          }
+        }
+      ],
+      "cold_prepare_ms": 4729.795207999999,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3075375104,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.43196399999999996,
+        "system_cpu_seconds": 1.07002,
+        "lifetime_wall_ms": 6625.890542000007
+      }
+    },
+    {
+      "model": "qwen2.5-7b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-pt-unrelated",
+          "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+          "completion": ", primeiro precisamos carregar o carro.",
+          "assembled": "O bolo ainda está cru e o forno esfriou. Então, primeiro precisamos carregar o carro.",
+          "semantic_criteria": [
+            "Keep the cake/oven subject in Portuguese despite the unrelated battery reference. Do not propose fetching a charger or treat car facts as oven facts; continue usefully rather than returning empty."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.2695829999908028,
+          "proceed_to_first_text_ms": 1174.8527920000101,
+          "proceed_to_final_result_ms": 1540.8598330000132,
+          "request_to_done_ms": 1541.1814160000006,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "unacceptable",
+              "contextual_utility": "unacceptable"
+            },
+            "reason": "Car/charger references override the cake/oven draft, directly failing the unrelated-reference boundary.",
+            "overall": "unacceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 1980.5923330000041,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 4700733440,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.396092,
+        "system_cpu_seconds": 0.70536,
+        "lifetime_wall_ms": 3631.0365829999964
+      }
+    },
+    {
+      "model": "gemma4-e2b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/gemma-4-E2B-it-Q4_0.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-pt-unrelated",
+          "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+          "completion": ", o que faremos agora?",
+          "assembled": "O bolo ainda está cru e o forno esfriou. Então, o que faremos agora?",
+          "semantic_criteria": [
+            "Keep the cake/oven subject in Portuguese despite the unrelated battery reference. Do not propose fetching a charger or treat car facts as oven facts; continue usefully rather than returning empty."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.3159580000016149,
+          "proceed_to_first_text_ms": 518.5181249999999,
+          "proceed_to_final_result_ms": 739.078125000006,
+          "request_to_done_ms": 739.6020829999941,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "unacceptable"
+            },
+            "reason": "No car-fact leakage, but the generic question does not advance the cake/oven situation.",
+            "overall": "unacceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 2218.7092089999965,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3058647040,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.8329519999999999,
+        "system_cpu_seconds": 0.534414,
+        "lifetime_wall_ms": 3083.8294590000005
+      }
+    },
+    {
+      "model": "gemma4-e2b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/gemma-4-E2B-it-Q4_0.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-pt-empty",
+          "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+          "suffix": "",
+          "context": "",
+          "completion": ", o que faremos agora?",
+          "assembled": "O bolo ainda está cru e o forno esfriou. Então, o que faremos agora?",
+          "semantic_criteria": [
+            "Offer a plausible nonempty Portuguese continuation of the cake/oven situation without inventing a named person, deadline, meeting or a confirmed technical diagnosis."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.16349999999931697,
+          "proceed_to_first_text_ms": 371.42237499999453,
+          "proceed_to_final_result_ms": 583.8587909999973,
+          "request_to_done_ms": 584.0518329999895,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "unacceptable"
+            },
+            "reason": "Generic question alone does not advance the cake/oven situation, even though Portuguese and grammar are intact.",
+            "overall": "unacceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 1182.1471250000002,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3134291968,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.851907,
+        "system_cpu_seconds": 0.391277,
+        "lifetime_wall_ms": 1895.2569579999904
+      }
+    },
+    {
+      "model": "qwen2.5-7b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-pt-empty",
+          "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+          "suffix": "",
+          "context": "",
+          "completion": ", vamos aquecer o forno novamente e verificar ",
+          "assembled": "O bolo ainda está cru e o forno esfriou. Então, vamos aquecer o forno novamente e verificar ",
+          "semantic_criteria": [
+            "Offer a plausible nonempty Portuguese continuation of the cake/oven situation without inventing a named person, deadline, meeting or a confirmed technical diagnosis."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.7312500000011823,
+          "proceed_to_first_text_ms": 1211.8593330000067,
+          "proceed_to_final_result_ms": 1660.4264580000035,
+          "request_to_done_ms": 1661.2531250000018,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 4707.996667000003,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 4040065024,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.40313499999999997,
+        "system_cpu_seconds": 1.093644,
+        "lifetime_wall_ms": 6465.386208000013
+      }
+    },
+    {
+      "model": "qwen2.5-7b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-en-short-focused",
+          "prefix": "So",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+          "completion": " I decided to use the battery charger from ",
+          "assembled": "So I decided to use the battery charger from ",
+          "semantic_criteria": [
+            "Offer a nonempty English continuation of the focused battery/charger situation. Do not ignore all references merely because So has no lexical overlap; a generic question alone is not useful."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.28095800000471627,
+          "proceed_to_first_text_ms": 1033.06920899999,
+          "proceed_to_final_result_ms": 1414.608458999993,
+          "request_to_done_ms": 1414.9324170000027,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "uncertain",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "The charger subject is relevant and useful, but I decided invents a past decision not present in the references. No completed charging/repair is claimed; review remains uncertain rather than asserting a factual pass.",
+            "overall": "uncertain"
+          }
+        }
+      ],
+      "cold_prepare_ms": 1727.1947919999916,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 4962467840,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.38364299999999996,
+        "system_cpu_seconds": 0.6371249999999999,
+        "lifetime_wall_ms": 3250.896541999992
+      }
+    },
+    {
+      "model": "gemma4-e2b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/gemma-4-E2B-it-Q4_0.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-en-short-focused",
+          "prefix": "So",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+          "completion": " I will check if the charger works.",
+          "assembled": "So I will check if the charger works.",
+          "semantic_criteria": [
+            "Offer a nonempty English continuation of the focused battery/charger situation. Do not ignore all references merely because So has no lexical overlap; a generic question alone is not useful."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.2435000000104992,
+          "proceed_to_first_text_ms": 392.23145900000134,
+          "proceed_to_final_result_ms": 681.0424170000005,
+          "request_to_done_ms": 681.3258750000131,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 2098.7150410000054,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3136241664,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.7994779999999999,
+        "system_cpu_seconds": 0.509953,
+        "lifetime_wall_ms": 2883.5253750000047
+      }
+    },
+    {
+      "model": "gemma4-e2b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/gemma-4-E2B-it-Q4_0.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-en-focused",
+          "prefix": "The car battery is flat. So",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+          "completion": " I need to find the charger in the ",
+          "assembled": "The car battery is flat. So I need to find the charger in the ",
+          "semantic_criteria": [
+            "Advance the flat-battery situation in English with a plausible supported next step; do not assert that charging has already worked."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.1609589999986838,
+          "proceed_to_first_text_ms": 416.8432080000031,
+          "proceed_to_final_result_ms": 708.5753330000131,
+          "request_to_done_ms": 708.7601670000083,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 1046.8348750000018,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3249520640,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.8080569999999999,
+        "system_cpu_seconds": 0.350234,
+        "lifetime_wall_ms": 1850.989708
+      }
+    },
+    {
+      "model": "qwen2.5-7b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-en-focused",
+          "prefix": "The car battery is flat. So",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+          "completion": ", I'll need to use the charger in ",
+          "assembled": "The car battery is flat. So, I'll need to use the charger in ",
+          "semantic_criteria": [
+            "Advance the flat-battery situation in English with a plausible supported next step; do not assert that charging has already worked."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 1.1383340000037379,
+          "proceed_to_first_text_ms": 1209.8345830000028,
+          "proceed_to_final_result_ms": 1524.1280829999937,
+          "request_to_done_ms": 1525.4176250000028,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 4595.186041000005,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3125395456,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.40951899999999997,
+        "system_cpu_seconds": 0.9913219999999999,
+        "lifetime_wall_ms": 6204.993665999993
+      }
+    },
+    {
+      "model": "qwen2.5-7b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-en-unrelated",
+          "prefix": "The cake is still raw and the oven is cold. So",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+          "completion": ", we need to wait a bit longer.",
+          "assembled": "The cake is still raw and the oven is cold. So, we need to wait a bit longer.",
+          "semantic_criteria": [
+            "Continue the cake/oven subject in English; do not import battery/charger/car facts from unrelated references. A nonempty plausible continuation is required."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.44820899999820085,
+          "proceed_to_first_text_ms": 1234.0496249999974,
+          "proceed_to_final_result_ms": 1642.2463330000028,
+          "request_to_done_ms": 1642.740291999999,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "unacceptable"
+            },
+            "reason": "No car facts leak, but waiting longer with a cold oven does not advance cooking; contextual utility is poor, not a declared factual contradiction.",
+            "overall": "unacceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 2043.2978340000004,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 4867964928,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.399813,
+        "system_cpu_seconds": 0.7086319999999999,
+        "lifetime_wall_ms": 3809.6587919999934
+      }
+    },
+    {
+      "model": "gemma4-e2b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/gemma-4-E2B-it-Q4_0.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-en-unrelated",
+          "prefix": "The cake is still raw and the oven is cold. So",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+          "completion": " I guess we'll have to order some pizza.",
+          "assembled": "The cake is still raw and the oven is cold. So I guess we'll have to order some pizza.",
+          "semantic_criteria": [
+            "Continue the cake/oven subject in English; do not import battery/charger/car facts from unrelated references. A nonempty plausible continuation is required."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.21587500000919135,
+          "proceed_to_first_text_ms": 407.1052080000044,
+          "proceed_to_final_result_ms": 810.5421249999978,
+          "request_to_done_ms": 810.7844170000078,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 2117.068875000001,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3137847296,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.885185,
+        "system_cpu_seconds": 0.563508,
+        "lifetime_wall_ms": 3067.7595830000114
+      }
+    },
+    {
+      "model": "gemma4-e2b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/gemma-4-E2B-it-Q4_0.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-en-empty",
+          "prefix": "The cake is still raw and the oven is cold. So",
+          "suffix": "",
+          "context": "",
+          "completion": "rry about that.",
+          "assembled": "The cake is still raw and the oven is cold. Sorry about that.",
+          "semantic_criteria": [
+            "Offer a nonempty plausible English continuation of the cake/oven situation without inventing a meeting, named person, confirmed fault diagnosis or exact time."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.12687500000652108,
+          "proceed_to_first_text_ms": 276.54516699999476,
+          "proceed_to_final_result_ms": 401.77004199999544,
+          "request_to_done_ms": 401.9185840000006,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "unacceptable"
+            },
+            "reason": "So + rry legitimately spells Sorry, so this is not a malformed lexical join. The resulting apology does not advance the cold-oven/cake situation.",
+            "overall": "unacceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 1050.6757499999962,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3242033152,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.684461,
+        "system_cpu_seconds": 0.357309,
+        "lifetime_wall_ms": 1562.8821250000015
+      }
+    },
+    {
+      "model": "qwen2.5-7b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-en-empty",
+          "prefix": "The cake is still raw and the oven is cold. So",
+          "suffix": "",
+          "context": "",
+          "completion": ", we need to check the recipe again.",
+          "assembled": "The cake is still raw and the oven is cold. So, we need to check the recipe again.",
+          "semantic_criteria": [
+            "Offer a nonempty plausible English continuation of the cake/oven situation without inventing a meeting, named person, confirmed fault diagnosis or exact time."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 1.4378749999934826,
+          "proceed_to_first_text_ms": 859.5160410000062,
+          "proceed_to_final_result_ms": 1227.1187910000094,
+          "request_to_done_ms": 1228.6504159999936,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 3581.8621250000006,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3347841024,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.394999,
+        "system_cpu_seconds": 0.8761559999999999,
+        "lifetime_wall_ms": 4901.505
+      }
+    },
+    {
+      "model": "qwen2.5-7b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-pt-suffix",
+          "prefix": "Vou buscar o",
+          "suffix": " na garagem.",
+          "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+          "completion": " carregador",
+          "assembled": "Vou buscar o carregador na garagem.",
+          "semantic_criteria": [
+            "Read prefix + insertion + suffix as one Portuguese sentence. Insert an appropriate object/phrase, preserve the fixed garagem suffix, and do not repeat it or put a full stop before it."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility",
+            "suffix_join"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.26983299999017163,
+          "proceed_to_first_text_ms": 1620.1952080000126,
+          "proceed_to_final_result_ms": 1840.3009580000003,
+          "request_to_done_ms": 1840.6255409999944,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable",
+              "suffix_join": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 1781.4613339999994,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 4967759872,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.36149899999999996,
+        "system_cpu_seconds": 0.681425,
+        "lifetime_wall_ms": 3710.672334000009
+      }
+    },
+    {
+      "model": "gemma4-e2b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/gemma-4-E2B-it-Q4_0.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-pt-suffix",
+          "prefix": "Vou buscar o",
+          "suffix": " na garagem.",
+          "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+          "completion": " carregador agora",
+          "assembled": "Vou buscar o carregador agora na garagem.",
+          "semantic_criteria": [
+            "Read prefix + insertion + suffix as one Portuguese sentence. Insert an appropriate object/phrase, preserve the fixed garagem suffix, and do not repeat it or put a full stop before it."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility",
+            "suffix_join"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.20533300001090993,
+          "proceed_to_first_text_ms": 604.2045419999909,
+          "proceed_to_final_result_ms": 645.5014999999946,
+          "request_to_done_ms": 645.7421250000124,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable",
+              "suffix_join": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 2146.7600829999897,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3137994752,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.701328,
+        "system_cpu_seconds": 0.531422,
+        "lifetime_wall_ms": 2923.132291999991
+      }
+    },
+    {
+      "model": "gemma4-e2b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/gemma-4-E2B-it-Q4_0.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-en-suffix",
+          "prefix": "I will get the",
+          "suffix": " from the garage.",
+          "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+          "completion": " car battery charged",
+          "assembled": "I will get the car battery charged from the garage.",
+          "semantic_criteria": [
+            "Read prefix + insertion + suffix as one English sentence. The missing phrase must fit I will get the ... from the garage, not a get-the-battery-charged construction that strands from the garage. Preserve and do not repeat the fixed suffix."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility",
+            "suffix_join"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.1681660000087959,
+          "proceed_to_first_text_ms": 550.5587919999897,
+          "proceed_to_final_result_ms": 655.4476249999936,
+          "request_to_done_ms": 655.6431660000044,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "unacceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "unacceptable",
+              "suffix_join": "unacceptable"
+            },
+            "reason": "I will get the car battery charged from the garage. strands the fixed from-the-garage phrase rather than supplying an object to retrieve.",
+            "overall": "unacceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 1049.182166999998,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3202826240,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.678721,
+        "system_cpu_seconds": 0.387717,
+        "lifetime_wall_ms": 1824.027333999993
+      }
+    },
+    {
+      "model": "qwen2.5-7b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-en-suffix",
+          "prefix": "I will get the",
+          "suffix": " from the garage.",
+          "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+          "completion": " battery charger",
+          "assembled": "I will get the battery charger from the garage.",
+          "semantic_criteria": [
+            "Read prefix + insertion + suffix as one English sentence. The missing phrase must fit I will get the ... from the garage, not a get-the-battery-charged construction that strands from the garage. Preserve and do not repeat the fixed suffix."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility",
+            "suffix_join"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.7288750000071786,
+          "proceed_to_first_text_ms": 1507.3979590000022,
+          "proceed_to_final_result_ms": 1784.2883339999958,
+          "request_to_done_ms": 1785.1076250000092,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable",
+              "suffix_join": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 4698.970041999999,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 4384030720,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.361693,
+        "system_cpu_seconds": 1.111139,
+        "lifetime_wall_ms": 6567.844292000003
+      }
+    },
+    {
+      "model": "qwen2.5-7b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-en-transfer",
+          "prefix": "The bicycle brake cable snapped. So",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): The bicycle cannot be ridden safely. A replacement brake cable is available in the workshop.",
+          "completion": " I'll need to get a replacement as soon ",
+          "assembled": "The bicycle brake cable snapped. So I'll need to get a replacement as soon ",
+          "semantic_criteria": [
+            "Advance the bicycle-brake situation in English without proposing unsafe riding. A plausible repair/replacement or seeking the available replacement is useful; do not import car/cake details."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.19724999998516068,
+          "proceed_to_first_text_ms": 1486.2402079999981,
+          "proceed_to_final_result_ms": 1879.6197919999997,
+          "request_to_done_ms": 1879.8497500000053,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 1394.2544170000133,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 5084053504,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.389216,
+        "system_cpu_seconds": 0.509169,
+        "lifetime_wall_ms": 3381.351708000011
+      }
+    },
+    {
+      "model": "gemma4-e2b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/gemma-4-E2B-it-Q4_0.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-en-transfer",
+          "prefix": "The bicycle brake cable snapped. So",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): The bicycle cannot be ridden safely. A replacement brake cable is available in the workshop.",
+          "completion": ", we need to replace it immediately.",
+          "assembled": "The bicycle brake cable snapped. So, we need to replace it immediately.",
+          "semantic_criteria": [
+            "Advance the bicycle-brake situation in English without proposing unsafe riding. A plausible repair/replacement or seeking the available replacement is useful; do not import car/cake details."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.22812500000668479,
+          "proceed_to_first_text_ms": 447.6327079999862,
+          "proceed_to_final_result_ms": 695.9973330000082,
+          "request_to_done_ms": 696.2646249999977,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 2020.9142079999936,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3141943296,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.771755,
+        "system_cpu_seconds": 0.511724,
+        "lifetime_wall_ms": 2835.3575000000146
+      }
+    },
+    {
+      "model": "gemma4-e2b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/gemma-4-E2B-it-Q4_0.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-pt-uncertain",
+          "prefix": "A entrega ainda não chegou. Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): A transportadora disse que talvez entregue o pacote amanhã, mas a data ainda não foi confirmada.",
+          "completion": ", preciso verificar o status novamente.",
+          "assembled": "A entrega ainda não chegou. Então, preciso verificar o status novamente.",
+          "semantic_criteria": [
+            "Continue in Portuguese. If mentioning delivery tomorrow, retain the reference's uncertainty; do not promise a confirmed date or assert the package already arrived. A concrete status-checking continuation is also valid."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.17712499999333886,
+          "proceed_to_first_text_ms": 431.83462499999337,
+          "proceed_to_final_result_ms": 630.198374999992,
+          "request_to_done_ms": 630.4056669999909,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 1066.7992500000025,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3200385024,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.761447,
+        "system_cpu_seconds": 0.378938,
+        "lifetime_wall_ms": 1795.72675
+      }
+    },
+    {
+      "model": "qwen2.5-7b",
+      "mode": "cold_fresh_worker",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-pt-uncertain",
+          "prefix": "A entrega ainda não chegou. Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): A transportadora disse que talvez entregue o pacote amanhã, mas a data ainda não foi confirmada.",
+          "completion": ", aguardaremos até amanhã para ver se o ",
+          "assembled": "A entrega ainda não chegou. Então, aguardaremos até amanhã para ver se o ",
+          "semantic_criteria": [
+            "Continue in Portuguese. If mentioning delivery tomorrow, retain the reference's uncertainty; do not promise a confirmed date or assert the package already arrived. A concrete status-checking continuation is also valid."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 1.2631250000083583,
+          "proceed_to_first_text_ms": 1309.0051659999915,
+          "proceed_to_final_result_ms": 1727.4055830000066,
+          "request_to_done_ms": 1728.7465409999925,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Waiting until tomorrow to see whether delivery occurs retains uncertainty rather than promising an arrival date.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 3683.1032919999984,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 3477372928,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 0.427859,
+        "system_cpu_seconds": 0.859775,
+        "lifetime_wall_ms": 5514.639541999997
+      }
+    }
+  ],
+  "warm": [
+    {
+      "model": "gemma4-e2b",
+      "mode": "warm_matched_sequence",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/gemma-4-E2B-it-Q4_0.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-pt-short-focused",
+          "prefix": "Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+          "completion": ", devo ir buscar o carregador agora.",
+          "assembled": "Então, devo ir buscar o carregador agora.",
+          "semantic_criteria": [
+            "Offer a nonempty Portuguese continuation that advances the battery/charger situation from the focused facts; do not invent a meeting or unrelated subject. A generic question with no contextual content is not useful."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.238083999988703,
+          "proceed_to_first_text_ms": 424.7483750000072,
+          "proceed_to_final_result_ms": 700.2237910000133,
+          "request_to_done_ms": 700.4898339999954,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        },
+        {
+          "case": "context-pt-linked-focused",
+          "prefix": "A bateria do carro está descarregada. Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+          "completion": ", devo procurar o carregador na garagem.",
+          "assembled": "A bateria do carro está descarregada. Então, devo procurar o carregador na garagem.",
+          "semantic_criteria": [
+            "Continue the writer's depleted-battery situation in Portuguese with a plausible next action supported by the draft or references; do not claim an action already succeeded."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.11937499999703505,
+          "proceed_to_first_text_ms": 190.17691700000228,
+          "proceed_to_final_result_ms": 465.00604199999884,
+          "request_to_done_ms": 465.1381669999921,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        },
+        {
+          "case": "context-pt-cake-focused",
+          "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): O disjuntor desligou, o forno esfriou e o bolo ainda está cru.",
+          "completion": ", o que faremos agora?",
+          "assembled": "O bolo ainda está cru e o forno esfriou. Então, o que faremos agora?",
+          "semantic_criteria": [
+            "Advance the cold-oven/raw-cake situation in Portuguese using the tripped-breaker fact where useful. A generic question alone is not useful; do not invent a broken thermostat or confirmed fault diagnosis."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.10241699999369303,
+          "proceed_to_first_text_ms": 254.85683300001938,
+          "proceed_to_final_result_ms": 462.33941600002026,
+          "request_to_done_ms": 462.4633749999987,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "unacceptable"
+            },
+            "reason": "Generic question alone does not advance the cake/oven situation, even though Portuguese and grammar are intact.",
+            "overall": "unacceptable"
+          }
+        },
+        {
+          "case": "context-pt-unrelated",
+          "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+          "completion": ", devo ligar para o técnico?",
+          "assembled": "O bolo ainda está cru e o forno esfriou. Então, devo ligar para o técnico?",
+          "semantic_criteria": [
+            "Keep the cake/oven subject in Portuguese despite the unrelated battery reference. Do not propose fetching a charger or treat car facts as oven facts; continue usefully rather than returning empty."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.16270900002268718,
+          "proceed_to_first_text_ms": 250.6945829999836,
+          "proceed_to_final_result_ms": 486.2952499999835,
+          "request_to_done_ms": 486.4783339999974,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "uncertain"
+            },
+            "reason": "Asking about a technician does not import car facts or assert a diagnosis; usefulness is uncertain rather than established.",
+            "overall": "uncertain"
+          }
+        },
+        {
+          "case": "context-pt-empty",
+          "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+          "suffix": "",
+          "context": "",
+          "completion": ", o que faremos agora?",
+          "assembled": "O bolo ainda está cru e o forno esfriou. Então, o que faremos agora?",
+          "semantic_criteria": [
+            "Offer a plausible nonempty Portuguese continuation of the cake/oven situation without inventing a named person, deadline, meeting or a confirmed technical diagnosis."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.12495800001488533,
+          "proceed_to_first_text_ms": 327.06920900000114,
+          "proceed_to_final_result_ms": 524.5472919999941,
+          "request_to_done_ms": 524.6861669999987,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "unacceptable"
+            },
+            "reason": "Generic question alone does not advance the cake/oven situation, even though Portuguese and grammar are intact.",
+            "overall": "unacceptable"
+          }
+        },
+        {
+          "case": "context-en-short-focused",
+          "prefix": "So",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+          "completion": " I will check if the charger works.",
+          "assembled": "So I will check if the charger works.",
+          "semantic_criteria": [
+            "Offer a nonempty English continuation of the focused battery/charger situation. Do not ignore all references merely because So has no lexical overlap; a generic question alone is not useful."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.1645829999858961,
+          "proceed_to_first_text_ms": 309.71895800001903,
+          "proceed_to_final_result_ms": 581.960792000018,
+          "request_to_done_ms": 582.1409579999965,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        },
+        {
+          "case": "context-en-focused",
+          "prefix": "The car battery is flat. So",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+          "completion": " I should probably check if the charger works.",
+          "assembled": "The car battery is flat. So I should probably check if the charger works.",
+          "semantic_criteria": [
+            "Advance the flat-battery situation in English with a plausible supported next step; do not assert that charging has already worked."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.10154200001011304,
+          "proceed_to_first_text_ms": 149.63874999997984,
+          "proceed_to_final_result_ms": 461.8982499999902,
+          "request_to_done_ms": 462.01500000000806,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        },
+        {
+          "case": "context-en-unrelated",
+          "prefix": "The cake is still raw and the oven is cold. So",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+          "completion": " I guess we'll have to order some pizza.",
+          "assembled": "The cake is still raw and the oven is cold. So I guess we'll have to order some pizza.",
+          "semantic_criteria": [
+            "Continue the cake/oven subject in English; do not import battery/charger/car facts from unrelated references. A nonempty plausible continuation is required."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.10366699999053708,
+          "proceed_to_first_text_ms": 150.0456250000184,
+          "proceed_to_final_result_ms": 543.656249999998,
+          "request_to_done_ms": 543.7739169999816,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        },
+        {
+          "case": "context-en-empty",
+          "prefix": "The cake is still raw and the oven is cold. So",
+          "suffix": "",
+          "context": "",
+          "completion": "rry about that.",
+          "assembled": "The cake is still raw and the oven is cold. Sorry about that.",
+          "semantic_criteria": [
+            "Offer a nonempty plausible English continuation of the cake/oven situation without inventing a meeting, named person, confirmed fault diagnosis or exact time."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.3433340000071894,
+          "proceed_to_first_text_ms": 247.5269159999982,
+          "proceed_to_final_result_ms": 363.8981249999915,
+          "request_to_done_ms": 364.25387500000284,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "unacceptable"
+            },
+            "reason": "So + rry legitimately spells Sorry, so this is not a malformed lexical join. The resulting apology does not advance the cold-oven/cake situation.",
+            "overall": "unacceptable"
+          }
+        },
+        {
+          "case": "context-pt-suffix",
+          "prefix": "Vou buscar o",
+          "suffix": " na garagem.",
+          "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+          "completion": " carregador agora",
+          "assembled": "Vou buscar o carregador agora na garagem.",
+          "semantic_criteria": [
+            "Read prefix + insertion + suffix as one Portuguese sentence. Insert an appropriate object/phrase, preserve the fixed garagem suffix, and do not repeat it or put a full stop before it."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility",
+            "suffix_join"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.17395899999428366,
+          "proceed_to_first_text_ms": 539.6856250000042,
+          "proceed_to_final_result_ms": 582.6284999999984,
+          "request_to_done_ms": 582.8448750000064,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable",
+              "suffix_join": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        },
+        {
+          "case": "context-en-suffix",
+          "prefix": "I will get the",
+          "suffix": " from the garage.",
+          "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+          "completion": " car battery charged",
+          "assembled": "I will get the car battery charged from the garage.",
+          "semantic_criteria": [
+            "Read prefix + insertion + suffix as one English sentence. The missing phrase must fit I will get the ... from the garage, not a get-the-battery-charged construction that strands from the garage. Preserve and do not repeat the fixed suffix."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility",
+            "suffix_join"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.13225000000716136,
+          "proceed_to_first_text_ms": 281.2286249999829,
+          "proceed_to_final_result_ms": 369.7404170000027,
+          "request_to_done_ms": 369.8891250000145,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "unacceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "unacceptable",
+              "suffix_join": "unacceptable"
+            },
+            "reason": "I will get the car battery charged from the garage. strands the fixed from-the-garage phrase rather than supplying an object to retrieve.",
+            "overall": "unacceptable"
+          }
+        },
+        {
+          "case": "context-en-transfer",
+          "prefix": "The bicycle brake cable snapped. So",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): The bicycle cannot be ridden safely. A replacement brake cable is available in the workshop.",
+          "completion": ", we need to replace it immediately.",
+          "assembled": "The bicycle brake cable snapped. So, we need to replace it immediately.",
+          "semantic_criteria": [
+            "Advance the bicycle-brake situation in English without proposing unsafe riding. A plausible repair/replacement or seeking the available replacement is useful; do not import car/cake details."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.21795899999688118,
+          "proceed_to_first_text_ms": 404.16254100000515,
+          "proceed_to_final_result_ms": 638.6324999999999,
+          "request_to_done_ms": 638.8639589999912,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        },
+        {
+          "case": "context-pt-uncertain",
+          "prefix": "A entrega ainda não chegou. Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): A transportadora disse que talvez entregue o pacote amanhã, mas a data ainda não foi confirmada.",
+          "completion": ", preciso verificar o status novamente.",
+          "assembled": "A entrega ainda não chegou. Então, preciso verificar o status novamente.",
+          "semantic_criteria": [
+            "Continue in Portuguese. If mentioning delivery tomorrow, retain the reference's uncertainty; do not promise a confirmed date or assert the package already arrived. A concrete status-checking continuation is also valid."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.13383399999611356,
+          "proceed_to_first_text_ms": 313.32554099998333,
+          "proceed_to_final_result_ms": 521.670333000003,
+          "request_to_done_ms": 521.8171669999947,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 2393.111875000017,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 2649571328,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 3.608156,
+        "system_cpu_seconds": 0.703145,
+        "lifetime_wall_ms": 9191.369083000012
+      }
+    },
+    {
+      "model": "qwen2.5-7b",
+      "mode": "warm_matched_sequence",
+      "config": {
+        "backend": "gguf",
+        "prompt_style": "writing",
+        "acceleration": "auto",
+        "max_tokens": 32,
+        "context_chars": 2000,
+        "completion_length": "long",
+        "record_history": false,
+        "record_unaccepted": false,
+        "statistics_enabled": false,
+        "personalization_strength": 0,
+        "clipboard_context": false,
+        "screen_context": false,
+        "screenshot_context": false,
+        "launch_at_login": false,
+        "check_updates_automatically": false,
+        "idle_release_seconds": 0,
+        "model_path": "/Users/renanrocha/Library/Caches/inklow/models/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf"
+      },
+      "max_words": 8,
+      "cases": [
+        {
+          "case": "context-pt-short-focused",
+          "prefix": "Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+          "completion": ", vamos tentar usar o carregador da garagem ",
+          "assembled": "Então, vamos tentar usar o carregador da garagem ",
+          "semantic_criteria": [
+            "Offer a nonempty Portuguese continuation that advances the battery/charger situation from the focused facts; do not invent a meeting or unrelated subject. A generic question with no contextual content is not useful."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 1.1971669999866208,
+          "proceed_to_first_text_ms": 1172.0252500000186,
+          "proceed_to_final_result_ms": 1735.217958000021,
+          "request_to_done_ms": 1736.493457999984,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        },
+        {
+          "case": "context-pt-linked-focused",
+          "prefix": "A bateria do carro está descarregada. Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+          "completion": ", vou tentar usar o carregador disponível na ",
+          "assembled": "A bateria do carro está descarregada. Então, vou tentar usar o carregador disponível na ",
+          "semantic_criteria": [
+            "Continue the writer's depleted-battery situation in Portuguese with a plausible next action supported by the draft or references; do not claim an action already succeeded."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.15816700002346806,
+          "proceed_to_first_text_ms": 316.1092080000003,
+          "proceed_to_final_result_ms": 783.1731249999905,
+          "request_to_done_ms": 783.4056670000109,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        },
+        {
+          "case": "context-pt-cake-focused",
+          "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): O disjuntor desligou, o forno esfriou e o bolo ainda está cru.",
+          "completion": ", talvez devamos revisar a temperatura do forno.",
+          "assembled": "O bolo ainda está cru e o forno esfriou. Então, talvez devamos revisar a temperatura do forno.",
+          "semantic_criteria": [
+            "Advance the cold-oven/raw-cake situation in Portuguese using the tripped-breaker fact where useful. A generic question alone is not useful; do not invent a broken thermostat or confirmed fault diagnosis."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.16920900000627626,
+          "proceed_to_first_text_ms": 594.6811659999867,
+          "proceed_to_final_result_ms": 1117.6965829999972,
+          "request_to_done_ms": 1117.920166999994,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "uncertain"
+            },
+            "reason": "Reviewing oven temperature is on-topic but only a weak next step for a known tripped breaker and cold oven; no clear useful improvement is established on this focused case.",
+            "overall": "uncertain"
+          }
+        },
+        {
+          "case": "context-pt-unrelated",
+          "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+          "completion": ", primeiro precisamos verificar o carregador na garagem.",
+          "assembled": "O bolo ainda está cru e o forno esfriou. Então, primeiro precisamos verificar o carregador na garagem.",
+          "semantic_criteria": [
+            "Keep the cake/oven subject in Portuguese despite the unrelated battery reference. Do not propose fetching a charger or treat car facts as oven facts; continue usefully rather than returning empty."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.12837500000273394,
+          "proceed_to_first_text_ms": 461.3206669999954,
+          "proceed_to_final_result_ms": 1057.6928339999938,
+          "request_to_done_ms": 1057.85695900002,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "unacceptable",
+              "contextual_utility": "unacceptable"
+            },
+            "reason": "Car/charger references override the cake/oven draft, directly failing the unrelated-reference boundary.",
+            "overall": "unacceptable"
+          }
+        },
+        {
+          "case": "context-pt-empty",
+          "prefix": "O bolo ainda está cru e o forno esfriou. Então",
+          "suffix": "",
+          "context": "",
+          "completion": ", vamos aquecer o forno novamente e verificar ",
+          "assembled": "O bolo ainda está cru e o forno esfriou. Então, vamos aquecer o forno novamente e verificar ",
+          "semantic_criteria": [
+            "Offer a plausible nonempty Portuguese continuation of the cake/oven situation without inventing a named person, deadline, meeting or a confirmed technical diagnosis."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.12508399998978348,
+          "proceed_to_first_text_ms": 881.3142080000205,
+          "proceed_to_final_result_ms": 1333.4338749999972,
+          "request_to_done_ms": 1333.5731669999973,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        },
+        {
+          "case": "context-en-short-focused",
+          "prefix": "So",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+          "completion": " I decided to use the battery charger from ",
+          "assembled": "So I decided to use the battery charger from ",
+          "semantic_criteria": [
+            "Offer a nonempty English continuation of the focused battery/charger situation. Do not ignore all references merely because So has no lexical overlap; a generic question alone is not useful."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.10725000001343687,
+          "proceed_to_first_text_ms": 893.32675,
+          "proceed_to_final_result_ms": 1285.5176659999756,
+          "request_to_done_ms": 1285.6418329999997,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "uncertain",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "The charger subject is relevant and useful, but I decided invents a past decision not present in the references. No completed charging/repair is claimed; review remains uncertain rather than asserting a factual pass.",
+            "overall": "uncertain"
+          }
+        },
+        {
+          "case": "context-en-focused",
+          "prefix": "The car battery is flat. So",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+          "completion": ", I'll need to use the charger in ",
+          "assembled": "The car battery is flat. So, I'll need to use the charger in ",
+          "semantic_criteria": [
+            "Advance the flat-battery situation in English with a plausible supported next step; do not assert that charging has already worked."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.11416699999244884,
+          "proceed_to_first_text_ms": 364.61137500000973,
+          "proceed_to_final_result_ms": 680.3721670000016,
+          "request_to_done_ms": 680.5051249999963,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        },
+        {
+          "case": "context-en-unrelated",
+          "prefix": "The cake is still raw and the oven is cold. So",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+          "completion": ", let's check the battery charger in the ",
+          "assembled": "The cake is still raw and the oven is cold. So, let's check the battery charger in the ",
+          "semantic_criteria": [
+            "Continue the cake/oven subject in English; do not import battery/charger/car facts from unrelated references. A nonempty plausible continuation is required."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.1055409999821677,
+          "proceed_to_first_text_ms": 363.19504200000097,
+          "proceed_to_final_result_ms": 677.279709000004,
+          "request_to_done_ms": 677.3997500000064,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "unacceptable",
+              "contextual_utility": "unacceptable"
+            },
+            "reason": "Battery-charger action overrides the cake/oven draft, directly failing the unrelated-reference boundary.",
+            "overall": "unacceptable"
+          }
+        },
+        {
+          "case": "context-en-empty",
+          "prefix": "The cake is still raw and the oven is cold. So",
+          "suffix": "",
+          "context": "",
+          "completion": ", we need to adjust the cooking time ",
+          "assembled": "The cake is still raw and the oven is cold. So, we need to adjust the cooking time ",
+          "semantic_criteria": [
+            "Offer a nonempty plausible English continuation of the cake/oven situation without inventing a meeting, named person, confirmed fault diagnosis or exact time."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 1.058916999994608,
+          "proceed_to_first_text_ms": 862.4496250000107,
+          "proceed_to_final_result_ms": 1216.2721669999996,
+          "request_to_done_ms": 1217.34733400001,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        },
+        {
+          "case": "context-pt-suffix",
+          "prefix": "Vou buscar o",
+          "suffix": " na garagem.",
+          "context": "Focused-window Accessibility (untrusted reference data): A bateria do carro descarregou e há um carregador disponível na garagem.",
+          "completion": " carregador",
+          "assembled": "Vou buscar o carregador na garagem.",
+          "semantic_criteria": [
+            "Read prefix + insertion + suffix as one Portuguese sentence. Insert an appropriate object/phrase, preserve the fixed garagem suffix, and do not repeat it or put a full stop before it."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility",
+            "suffix_join"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.12441699999499178,
+          "proceed_to_first_text_ms": 1489.3708330000095,
+          "proceed_to_final_result_ms": 1709.6103330000005,
+          "request_to_done_ms": 1709.7505000000126,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable",
+              "suffix_join": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        },
+        {
+          "case": "context-en-suffix",
+          "prefix": "I will get the",
+          "suffix": " from the garage.",
+          "context": "Focused-window Accessibility (untrusted reference data): The car battery is flat. There is a battery charger in the garage.",
+          "completion": " battery charger",
+          "assembled": "I will get the battery charger from the garage.",
+          "semantic_criteria": [
+            "Read prefix + insertion + suffix as one English sentence. The missing phrase must fit I will get the ... from the garage, not a get-the-battery-charged construction that strands from the garage. Preserve and do not repeat the fixed suffix."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility",
+            "suffix_join"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.10841699997854448,
+          "proceed_to_first_text_ms": 810.9675000000038,
+          "proceed_to_final_result_ms": 1081.0934170000053,
+          "request_to_done_ms": 1081.215458999992,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable",
+              "suffix_join": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        },
+        {
+          "case": "context-en-transfer",
+          "prefix": "The bicycle brake cable snapped. So",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): The bicycle cannot be ridden safely. A replacement brake cable is available in the workshop.",
+          "completion": " I'll need to pick up a replacement from ",
+          "assembled": "The bicycle brake cable snapped. So I'll need to pick up a replacement from ",
+          "semantic_criteria": [
+            "Advance the bicycle-brake situation in English without proposing unsafe riding. A plausible repair/replacement or seeking the available replacement is useful; do not import car/cake details."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.09925000000521322,
+          "proceed_to_first_text_ms": 1164.5374579999839,
+          "proceed_to_final_result_ms": 1589.3738749999784,
+          "request_to_done_ms": 1589.4877499999893,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Nonempty coherent continuation fits the current draft and relevant facts; deliberately unfinished phrases at the eight-word cap are not penalized for lacking a full stop.",
+            "overall": "acceptable"
+          }
+        },
+        {
+          "case": "context-pt-uncertain",
+          "prefix": "A entrega ainda não chegou. Então",
+          "suffix": "",
+          "context": "Focused-window Accessibility (untrusted reference data): A transportadora disse que talvez entregue o pacote amanhã, mas a data ainda não foi confirmada.",
+          "completion": ", aguardaremos até amanhã para ver se o ",
+          "assembled": "A entrega ainda não chegou. Então, aguardaremos até amanhã para ver se o ",
+          "semantic_criteria": [
+            "Continue in Portuguese. If mentioning delivery tomorrow, retain the reference's uncertainty; do not promise a confirmed date or assert the package already arrived. A concrete status-checking continuation is also valid."
+          ],
+          "dimensions": [
+            "grammar",
+            "language",
+            "lexical_join",
+            "grounding",
+            "contextual_utility"
+          ],
+          "nonempty": true,
+          "final_result_received": true,
+          "done_received": true,
+          "request_to_ready_ms": 0.11799999998629573,
+          "proceed_to_first_text_ms": 602.6456250000081,
+          "proceed_to_final_result_ms": 1046.8194580000159,
+          "request_to_done_ms": 1046.954707999987,
+          "review": {
+            "kind": "assistant",
+            "calibrated": false,
+            "dimension_labels": {
+              "grammar": "acceptable",
+              "language": "acceptable",
+              "lexical_join": "acceptable",
+              "grounding": "acceptable",
+              "contextual_utility": "acceptable"
+            },
+            "reason": "Waiting until tomorrow to see whether delivery occurs retains uncertainty rather than promising an arrival date.",
+            "overall": "acceptable"
+          }
+        }
+      ],
+      "cold_prepare_ms": 3232.316125000011,
+      "close": {
+        "exit_code": 0,
+        "lifetime_peak_rss_bytes": 4148117504,
+        "rss_unit": "bytes on darwin; process lifetime, not per-case allocation",
+        "user_cpu_seconds": 2.578356,
+        "system_cpu_seconds": 0.915945,
+        "lifetime_wall_ms": 18629.231874999987
+      }
+    }
+  ],
+  "executable_sha256_observed_after_run": "9fe8174b1010f4f4dc354e05a0086da47abec9674967a0901519b093d04156c2",
+  "source_commit_parent_declared": "d1dc04518e657d505926b52019fc151549626080",
+  "executable_identity_limit": "Parent identified the installed artifact source. This worker recorded binary digest after the sequence, not before every process launch.",
+  "resource_summary": {
+    "gemma4-e2b": {
+      "cold_case_count": 13,
+      "warm_case_count": 13,
+      "cold_prepare_ms_median": 2020.91,
+      "cold_prepare_ms_range": [
+        974.01,
+        2318.15
+      ],
+      "cold_request_to_done_ms_median": 683.94,
+      "cold_proceed_to_first_text_ms_median": 447.63,
+      "cold_worker_lifetime_ms_median": 2835.36,
+      "cold_lifetime_peak_rss_bytes_median": 3142041600,
+      "cold_lifetime_peak_rss_bytes_range": [
+        3058647040,
+        3283009536
+      ],
+      "warm_initial_prepare_ms": 2393.11,
+      "warm_request_to_done_ms_median_including_first": 521.82,
+      "warm_request_to_done_ms_median_excluding_first": 504.15,
+      "warm_proceed_to_first_text_ms_median_excluding_first": 268.04,
+      "warm_lifetime_peak_rss_bytes": 2649571328,
+      "all_worker_exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "nonempty_final_done_count": 26
+    },
+    "qwen2.5-7b": {
+      "cold_case_count": 13,
+      "warm_case_count": 13,
+      "cold_prepare_ms_median": 3581.86,
+      "cold_prepare_ms_range": [
+        1394.25,
+        4898.36
+      ],
+      "cold_request_to_done_ms_median": 1688.42,
+      "cold_proceed_to_first_text_ms_median": 1234.05,
+      "cold_worker_lifetime_ms_median": 4901.51,
+      "cold_lifetime_peak_rss_bytes_median": 4384030720,
+      "cold_lifetime_peak_rss_bytes_range": [
+        3075375104,
+        5084053504
+      ],
+      "warm_initial_prepare_ms": 3232.32,
+      "warm_request_to_done_ms_median_including_first": 1117.92,
+      "warm_request_to_done_ms_median_excluding_first": 1099.57,
+      "warm_proceed_to_first_text_ms_median_excluding_first": 706.81,
+      "warm_lifetime_peak_rss_bytes": 4148117504,
+      "all_worker_exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "nonempty_final_done_count": 26
+    }
+  },
+  "review_policy": "Assistant per-dimension review against recorded fixture criteria, not exact-output matches. Not independently calibrated and not human acceptance. Word-cap truncation is not automatically a grammar failure; empty output is never a quality win.",
+  "decision": {
+    "cached_qwen25_7b_recommended_as_replacement": false,
+    "normal_model_changed": false,
+    "reason": "Qwen improves the EN retrieval suffix and empty-reference cake continuations, but introduces clear unrelated-reference topic takeover (PT cold/warm and EN warm), has weaker/uncertain focused-cake utility, and consumes more measured latency/resident memory. It does not satisfy positive-plus-negative contextual quality criteria.",
+    "prompt_v10_status": "Parent reports controlled compiled warm comparison rejected v10: all 13 streamed mechanically, no useful failed-case improvement, cake remained generic and EN suffix broken. Parent restored v9 policy/version. This is parent-reported evidence, not this worker rerunning that rejected candidate.",
+    "mechanical_scope": "All 52 measured generations returned nonempty text with final result and done; all 28 owned workers exited 0. No cancellation benchmark was run here; do not interpret this as whole benchmark pass or semantic pass.",
+    "limits": [
+      "One cold fresh-worker sample per case/model plus one matched warm sequence, not a calibrated population-quality or latency study.",
+      "Cold means fresh process; OS page/Metal caches were not flushed. Cold model order alternates by case; warm Gemma sequence ran before warm Qwen sequence.",
+      "Darwin wait4 ru_maxrss is process-lifetime peak resident memory, not complete GPU/unified-memory or system memory accounting. No per-case warm memory claim.",
+      "Sampler, tiny outputs, prompt reuse and contextual ambiguous So/Então can change outcomes across cold/warm sequences.",
+      "No model change, consent change, extra safety relaxation, private context, dependency installation, build or new prompt tweak was used."
+    ]
+  },
+  "review_counts": {
+    "gemma4-e2b": {
+      "cold": {
+        "acceptable": 8,
+        "uncertain": 0,
+        "unacceptable": 5
+      },
+      "warm": {
+        "acceptable": 8,
+        "uncertain": 1,
+        "unacceptable": 4
+      }
+    },
+    "qwen2.5-7b": {
+      "cold": {
+        "acceptable": 9,
+        "uncertain": 2,
+        "unacceptable": 2
+      },
+      "warm": {
+        "acceptable": 9,
+        "uncertain": 2,
+        "unacceptable": 2
+      }
+    }
+  }
+}
+}
