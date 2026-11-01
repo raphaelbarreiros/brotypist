@@ -703,7 +703,13 @@ impl AsyncPreparer {
             let mut warning = String::new();
             let source_allowed = |app: &str, host: &str| !request.hard_disabled_apps.contains(app) && history_allowed(c, app, host);
             let personalization = if c.personalization_strength != 0 && source_allowed(&snapshot.app_id, &snapshot.domain) && private_guard() {
-                match locked(&storage).personalization(&snapshot.app_id, &snapshot.domain, snapshot.prefix(), c.personalization_strength, &|app, host| guard() && source_allowed(app, host)) {
+                let result = {
+                    let store = locked(&storage);
+                    store.personalization(&snapshot.app_id, &snapshot.domain, snapshot.prefix(), c.personalization_strength, &|app, host| guard() && source_allowed(app, host))
+                };
+                // Native post-authorization may block; history flushes must
+                // not inherit that wait through the shared storage mutex.
+                match result {
                     Ok(text) if private_guard() => text, Ok(_) => String::new(), Err(_) => { warning = "Encrypted history is unavailable for personalization. Unlock your OS credential store or clear damaged history.".into(); String::new() }
                 }
             } else { String::new() };
@@ -6998,6 +7004,165 @@ mod tests {
         assert!(prepared.options.context.is_empty());
         service.request_stop();
     }
+    #[test]
+    fn personalization_post_authorization_releases_store_and_refuses_revoked_learning() {
+        use std::sync::atomic::AtomicUsize;
+
+        struct PostAuthorization {
+            snapshot: Snapshot,
+            calls: Arc<AtomicUsize>,
+            entered: SyncSender<()>,
+            decision: Arc<(Mutex<Option<bool>>, Condvar)>,
+        }
+        impl platform::DetachedContextRead for PostAuthorization {
+            fn matches_snapshot(&self, snapshot: &Snapshot) -> bool {
+                self.snapshot.same_key(snapshot) && self.snapshot.same_authority(snapshot)
+            }
+            fn matches(&self) -> Result<bool> {
+                if self.calls.fetch_add(1, Ordering::AcqRel) == 0 {
+                    return Ok(true);
+                }
+                let _ = self.entered.try_send(());
+                let (decision, wait) = self
+                    .decision
+                    .1
+                    .wait_timeout_while(
+                        locked(&self.decision.0),
+                        Duration::from_secs(3),
+                        |decision| decision.is_none(),
+                    )
+                    .unwrap();
+                ensure!(
+                    !wait.timed_out(),
+                    "synthetic post-authorization was not released"
+                );
+                Ok(decision.unwrap())
+            }
+            fn read(&self, _: &dyn Fn() -> bool, _: usize) -> Result<ContextRead> {
+                panic!("personalization authorization must not read screen or clipboard")
+            }
+        }
+
+        const TEXT: &str = "We discussed observability and instrumentation during the planning meeting. The observability review needs more instrumentation examples before the next team meeting.";
+        for revocation in ["none", "ticket", "epoch"] {
+            let directory = tempfile::tempdir().unwrap();
+            let mut history =
+                HistoryStore::with_path_and_key(directory.path().join("local.sqlite3"), [b'a'; 32]);
+            history.unlock().unwrap();
+            assert!(
+                history
+                    .record_identified_at(
+                        "synthetic-authored",
+                        "writer",
+                        "",
+                        TEXT,
+                        &[(0, TEXT.chars().count())],
+                        chrono::Utc::now(),
+                    )
+                    .unwrap()
+            );
+            let expected = history
+                .personalization("writer", "", TEXT, 50, &|_, _| true)
+                .unwrap();
+            assert!(
+                !expected.is_empty(),
+                "fixture must contribute real learned features"
+            );
+            let storage: SharedStorage = Arc::new(Mutex::new(Box::new(history)));
+            let epoch = Arc::new(AtomicU64::new(1));
+            let mut service = AsyncPreparer::new(
+                storage.clone(),
+                epoch.clone(),
+                Arc::new(NativeBackgroundReaders),
+            )
+            .unwrap();
+            let decision = Arc::new((Mutex::new(None), Condvar::new()));
+            let calls = Arc::new(AtomicUsize::new(0));
+            let (entered, receive) = mpsc::sync_channel(1);
+            let snapshot = field(TEXT);
+            let mut request = preparation(snapshot.clone(), 1, 1, None);
+            request.config.record_history = true;
+            request.config.personalization_strength = 50;
+            request.config.screen_context = false;
+            request.config.screenshot_context = false;
+            request.config.clipboard_context = false;
+            let config = request.config.clone();
+            request.authorization_ticket = Some(Box::new(PostAuthorization {
+                snapshot: snapshot.clone(),
+                calls: calls.clone(),
+                entered,
+                decision: decision.clone(),
+            }));
+            service.submit(request);
+            receive.recv_timeout(Duration::from_secs(2)).unwrap();
+            assert_eq!(calls.load(Ordering::Acquire), 2);
+
+            // Exercise a real encrypted history flush while the preparation's
+            // native-authorization boundary is deliberately still blocked.
+            let concurrent_flush = match storage.try_lock() {
+                Ok(mut store) => {
+                    store
+                        .record(
+                            "synthetic-parallel-flush",
+                            "writer",
+                            "",
+                            TEXT,
+                            &[(0, TEXT.chars().count())],
+                        )
+                        .unwrap();
+                    true
+                }
+                Err(std::sync::TryLockError::WouldBlock) => false,
+                Err(std::sync::TryLockError::Poisoned(_)) => {
+                    panic!("synthetic history storage was poisoned")
+                }
+            };
+            if revocation == "epoch" {
+                epoch.store(2, Ordering::Release);
+                service.cancel();
+                let mut latest = preparation(snapshot.clone(), 2, 2, None);
+                latest.config = config;
+                latest.authorization_ticket = Some(Box::new(ContextTicket {
+                    snapshot,
+                    gate: None,
+                    entered: None,
+                    text: String::new(),
+                }));
+                service.submit(latest);
+            }
+            *locked(&decision.0) = Some(revocation != "ticket");
+            decision.1.notify_all();
+            let (state, wait) = service
+                .state
+                .1
+                .wait_timeout_while(locked(&service.state.0), Duration::from_secs(2), |state| {
+                    state.results.is_empty()
+                })
+                .unwrap();
+            assert!(!wait.timed_out());
+            drop(state);
+            let results = service.poll();
+            service.request_stop();
+            drop(service);
+            assert!(
+                concurrent_flush,
+                "post-authorization validation held SharedStorage across its native wait"
+            );
+            assert_eq!(results.len(), 1);
+            let prepared = &results[0];
+            assert_eq!(prepared.token, if revocation == "epoch" { 2 } else { 1 });
+            match revocation {
+                "none" => assert_eq!(prepared.options.personalization, expected),
+                "ticket" => assert!(prepared.options.personalization.is_empty()),
+                "epoch" => {
+                    assert_eq!(prepared.epoch, 2);
+                    assert!(!prepared.options.personalization.is_empty());
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+
     #[test]
     fn obsolete_blocked_window_reader_does_not_hold_latest_preparation_or_reuse_reference() {
         let stored = Arc::new(Mutex::new(Stored::default()));

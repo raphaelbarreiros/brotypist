@@ -70,6 +70,20 @@ On macOS, Electron/Chromium controls with unreliable replacement setters support
 ordinary completion only when safe inline geometry is available. Emoji,
 synonym and typo replacement are disabled in those append-only controls.
 
+For the macOS VS Code compatibility path in 0.5.1, code-editor completions remain
+an explicit per-app opt-in. VS Code 1.144's native EditContext backend does not
+expose reliable caret/glyph geometry. The verified native geometry path requires
+`"editor.accessibilitySupport": "on"` and `"editor.editContext": false` in VS Code.
+These change its accessibility/input mode; BroTypist does not silently apply them.
+Its textarea relay is clipped to the verified native editor viewport, not its
+one-point input element. Direct Cursor verification is still pending.
+
+Copilot and Cursor Tab also draw grey inline text and accept with Tab. Use one
+automatic inline provider in a given editor rather than assuming their overlays
+and shortcuts coordinate. BroTypist does not disable either assistant.
+WordCraft 0.13.2's advertised accessibility setter did not change the owned test
+document; BroTypist keeps that unverified editing target excluded.
+
 ## Install
 
 Use only assets actually listed for your platform in
