@@ -211,6 +211,7 @@ function Observe-ClientAndPolicy {
         $token = [BroTypistInstallerNative]::TokenFacts($identity.AccessToken.DangerousGetHandle())
         $client = @{
             elevated = $token[0] -ne 0; elevation_type = $token[1]; integrity_rid = $token[2]
+            token_elevation = $token[0]; token_has_restrictions = $token[3]; token_type = $token[4]
             administrator_role_enabled = ([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
             administrator_group_present = $identity.Groups -contains [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
             is_system = $identity.IsSystem; impersonation_level = $identity.ImpersonationLevel.ToString()
@@ -233,8 +234,8 @@ function Observe-ClientAndPolicy {
     )
     $receipt.observations.Add(@{ check = 'installer_client_token_and_policies'; status = 'observed'; passed = $null; evidence = @{ client = $client; policies = $policies; policies_modified = $false } })
     if ($RequireRestrictedClient) {
-        Require ($client.same_user_as_launcher -and -not $client.is_system -and -not $client.elevated -and -not $client.administrator_role_enabled -and $client.integrity_rid -eq 8192 -and $client.impersonation_level -ceq 'None') 'Restricted experiment requires verified same-user non-elevated medium-integrity primary client'
-        Observe 'restricted_client_verified_before_installer' @{ same_user = $true; elevated = $false; administrator_role_enabled = $false; integrity_rid = 8192; primary_process_token = $true }
+        Require ($client.same_user_as_launcher -and -not $client.is_system -and -not $client.administrator_role_enabled -and $client.integrity_rid -eq 8192 -and $client.token_has_restrictions -eq 1 -and $client.token_type -eq 1 -and $client.impersonation_level -ceq 'None') 'Restricted experiment requires verified same-user non-System Administrator-disabled medium-integrity restricted primary client'
+        Observe 'restricted_rights_client_verified_before_installer' @{ same_user = $true; administrator_role_enabled = $false; integrity_rid = 8192; token_has_restrictions = 1; token_type = 1; token_elevation = $client.token_elevation; elevation_type = $client.elevation_type; scope = 'SAFER-restricted rights, not a genuine UAC-filtered logon or full desktop compatibility proof' }
     }
 }
 function Observe-ArpScope([string]$Stage, [string]$Product) {
@@ -505,8 +506,8 @@ public static class BroTypistInstallerNative {
     [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthorityCount(IntPtr sid);
     [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthority(IntPtr sid,uint index);
     public static uint[] TokenFacts(IntPtr token) {
-        uint elevated,type; int needed;
-        if(!TokenUInt(token,20,out elevated,4,out needed) || !TokenUInt(token,18,out type,4,out needed))
+        uint elevated,type,restricted,tokenType; int needed;
+        if(!TokenUInt(token,20,out elevated,4,out needed) || !TokenUInt(token,18,out type,4,out needed) || !TokenUInt(token,21,out restricted,4,out needed) || !TokenUInt(token,8,out tokenType,4,out needed))
             throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
         TokenBuffer(token,25,IntPtr.Zero,0,out needed);
         if(needed<IntPtr.Size || needed>1024) throw new InvalidOperationException("Invalid token label length");
@@ -517,7 +518,7 @@ public static class BroTypistInstallerNative {
             byte count=Marshal.ReadByte(GetSidSubAuthorityCount(sid));
             if(count==0) throw new InvalidOperationException("Invalid integrity SID");
             uint integrity=unchecked((uint)Marshal.ReadInt32(GetSidSubAuthority(sid,(uint)count-1)));
-            return new uint[] { elevated,type,integrity };
+            return new uint[] { elevated,type,integrity,restricted,tokenType };
         } finally { Marshal.FreeHGlobal(buffer); }
     }
     public static async System.Threading.Tasks.Task<long> Capture(System.IO.Stream source,System.IO.Stream destination,int limit) {

@@ -81,17 +81,30 @@ function Extract-Entry($Entry, [string]$Path, [long]$Limit) {
 function Get-Api([string]$Suffix) {
     return Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/$Suffix" -Headers $script:headers -TimeoutSec 60
 }
-function Get-RestrictedTokenDiagnostics {
-    # Diagnostic-only: no process creation, impersonation, token duplication,
-    # alternate credentials, policy writes, or desktop/window-station ACL writes.
+function Invoke-RestrictedCore([string]$Executable, [string]$Core, [string]$InputPath, [string]$CoreWork) {
+    # SAFER rights restriction is not a UAC-filtered logon. Native diagnostic
+    # 41285568481 proved elevation metadata stays 1 after rights restriction.
     Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
-public static class BroTypistInstallerTokenDiagnostics {
+using System.Text;
+public static class BroTypistRestrictedInstallerClient {
+    public static Dictionary<string,object> PreparedToken;
+    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
+    struct Startup {
+        public int size;
+        public string reserved,desktop,title;
+        public uint x,y,width,height,xChars,yChars,fill,flags;
+        public ushort show,reservedCount;
+        public IntPtr reservedBytes,input,output,error;
+    }
+    [StructLayout(LayoutKind.Sequential)] struct ProcessInfo {
+        public IntPtr process,thread;
+        public uint processId,threadId;
+    }
     [StructLayout(LayoutKind.Sequential)] struct Label { public IntPtr sid; public uint attributes; }
     [DllImport("advapi32.dll", SetLastError=true)] static extern bool SaferCreateLevel(uint scope,uint level,uint flags,out IntPtr handle,IntPtr reserved);
     [DllImport("advapi32.dll", SetLastError=true)] static extern bool SaferComputeTokenFromLevel(IntPtr level,IntPtr source,out IntPtr token,uint flags,IntPtr reserved);
@@ -100,43 +113,20 @@ public static class BroTypistInstallerTokenDiagnostics {
     [DllImport("advapi32.dll")] static extern uint GetLengthSid(IntPtr sid);
     [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthorityCount(IntPtr sid);
     [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthority(IntPtr sid,uint index);
-    [DllImport("advapi32.dll")] static extern bool IsWellKnownSid(IntPtr sid,int kind);
     [DllImport("advapi32.dll", SetLastError=true)] static extern bool SetTokenInformation(IntPtr token,int kind,IntPtr value,int size);
     [DllImport("advapi32.dll", EntryPoint="GetTokenInformation", SetLastError=true)] static extern bool TokenUInt(IntPtr token,int kind,out uint value,int size,out int needed);
     [DllImport("advapi32.dll", EntryPoint="GetTokenInformation", SetLastError=true)] static extern bool TokenBuffer(IntPtr token,int kind,IntPtr value,int size,out int needed);
+    [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern bool CreateProcessAsUserW(IntPtr token,string application,StringBuilder command,IntPtr processAttributes,IntPtr threadAttributes,bool inherit,uint flags,IntPtr environment,string directory,ref Startup startup,out ProcessInfo process);
     [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr memory);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
-    [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr OpenProcess(uint access,bool inherit,uint process);
-    [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr process,uint access,out IntPtr token);
-    [DllImport("user32.dll")] static extern IntPtr GetShellWindow();
-    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window,out uint process);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern uint WaitForSingleObject(IntPtr handle,uint timeout);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetExitCodeProcess(IntPtr handle,out uint code);
     static void Check(bool value) { if(!value) throw new Win32Exception(Marshal.GetLastWin32Error()); }
     static uint UInt(IntPtr token,int kind) {
         uint value; int needed; Check(TokenUInt(token,kind,out value,4,out needed)); return value;
     }
-    static bool AdministratorEnabled(IntPtr token) {
-        // Query the one well-known group internally. Do not duplicate an
-        // Explorer token for CheckTokenMembership, or expose a group inventory.
-        int needed; TokenBuffer(token,2,IntPtr.Zero,0,out needed);
-        if(needed<8 || needed>1048576) throw new InvalidOperationException("Invalid group buffer length");
-        IntPtr buffer=Marshal.AllocHGlobal(needed);
-        try {
-            Check(TokenBuffer(token,2,buffer,needed,out needed));
-            int count=Marshal.ReadInt32(buffer),offset=IntPtr.Size==8 ? 8 : 4;
-            int stride=Marshal.SizeOf<Label>();
-            if(count<0 || count>4096 || (long)offset+(long)count*stride>needed)
-                throw new InvalidOperationException("Invalid group count");
-            for(int index=0;index<count;index++) {
-                IntPtr entry=IntPtr.Add(buffer,offset+index*stride);
-                if(IsWellKnownSid(Marshal.ReadIntPtr(entry),26)) {
-                    int attributes=Marshal.ReadInt32(entry,IntPtr.Size);
-                    return (attributes&4)!=0 && (attributes&16)==0;
-                }
-            }
-            return false;
-        } finally { Marshal.FreeHGlobal(buffer); }
-    }
-    static Dictionary<string,object> Facts(IntPtr token,string expectedSid) {
+    static uint Integrity(IntPtr token) {
         int needed; TokenBuffer(token,25,IntPtr.Zero,0,out needed);
         if(needed<IntPtr.Size || needed>1024) throw new InvalidOperationException("Invalid integrity label length");
         IntPtr buffer=Marshal.AllocHGlobal(needed);
@@ -145,101 +135,65 @@ public static class BroTypistInstallerTokenDiagnostics {
             IntPtr sid=Marshal.ReadIntPtr(buffer);
             byte count=Marshal.ReadByte(GetSidSubAuthorityCount(sid));
             if(count==0) throw new InvalidOperationException("Invalid integrity SID");
-            uint integrity=unchecked((uint)Marshal.ReadInt32(GetSidSubAuthority(sid,(uint)count-1)));
-            using(var identity=new WindowsIdentity(token)) {
-                return new Dictionary<string,object> {
-                    {"same_user",identity.User.Value==expectedSid},
-                    {"is_system",identity.IsSystem},
-                    {"administrator_role_enabled",AdministratorEnabled(token)},
-                    {"token_elevation",UInt(token,20)},
-                    {"token_elevation_type",UInt(token,18)},
-                    {"integrity_rid",integrity},
-                    {"token_has_restrictions",UInt(token,21)}
-                };
-            }
+            return unchecked((uint)Marshal.ReadInt32(GetSidSubAuthority(sid,(uint)count-1)));
         } finally { Marshal.FreeHGlobal(buffer); }
     }
-    static Dictionary<string,object> Desktop(string expectedSid) {
-        var result=new Dictionary<string,object> { {"present",false}, {"token_query_only",true} };
-        IntPtr process=IntPtr.Zero,token=IntPtr.Zero;
-        try {
-            IntPtr shell=GetShellWindow();
-            if(shell==IntPtr.Zero) return result;
-            result["present"]=true;
-            uint pid; GetWindowThreadProcessId(shell,out pid);
-            using(var candidate=Process.GetProcessById(checked((int)pid))) {
-                bool explorer=String.Equals(candidate.ProcessName,"explorer",StringComparison.OrdinalIgnoreCase);
-                result["is_explorer"]=explorer;
-                if(!explorer) return result;
-            }
-            // PROCESS_QUERY_LIMITED_INFORMATION and TOKEN_QUERY only.
-            process=OpenProcess(0x1000,false,pid); Check(process!=IntPtr.Zero);
-            Check(OpenProcessToken(process,8,out token));
-            using(var identity=new WindowsIdentity(token)) {
-                bool same=identity.User.Value==expectedSid; result["same_user"]=same;
-                if(!same) return result;
-            }
-            result["facts"]=Facts(token,expectedSid);
-        } catch(Exception error) {
-            result["error_kind"]=error.GetType().Name;
-            if(error is Win32Exception native) result["native_error"]=native.NativeErrorCode;
-        } finally {
-            if(token!=IntPtr.Zero) CloseHandle(token);
-            if(process!=IntPtr.Zero) CloseHandle(process);
-        }
-        return result;
-    }
-    public static Dictionary<string,object> Inspect() {
-        var result=new Dictionary<string,object> { {"diagnostic_only",true}, {"client_launched",false} };
+    public static int Run(string executable,string command,string directory,string expectedSid) {
         IntPtr level=IntPtr.Zero,token=IntPtr.Zero,sid=IntPtr.Zero,label=IntPtr.Zero;
-        string stage="original_token";
+        ProcessInfo process=new ProcessInfo();
         try {
-            using(var original=WindowsIdentity.GetCurrent()) {
-                string expectedSid=original.User.Value;
-                result["original"]=Facts(original.AccessToken.DangerousGetHandle(),expectedSid);
-                result["desktop_shell"]=Desktop(expectedSid);
-                stage="safer_create_level";
-                Check(SaferCreateLevel(2,0x20000,1,out level,IntPtr.Zero));
-                stage="safer_compute_token";
-                // NORMALUSER, flags=0: never bypass AppLocker/SRP with MAKE_INERT.
-                Check(SaferComputeTokenFromLevel(level,IntPtr.Zero,out token,0,IntPtr.Zero));
-                if(token==IntPtr.Zero) throw new InvalidOperationException("SAFER returned no token");
-                stage="safer_before_medium";
-                result["safer_before_medium"]=Facts(token,expectedSid);
-                stage="lower_integrity";
-                Check(ConvertStringSidToSidW("S-1-16-8192",out sid));
-                int size=checked(Marshal.SizeOf<Label>()+(int)GetLengthSid(sid));
-                label=Marshal.AllocHGlobal(size);
-                Marshal.StructureToPtr(new Label { sid=sid,attributes=0x20 },label,false);
-                Check(SetTokenInformation(token,25,label,size));
-                stage="safer_after_medium";
-                result["safer_after_medium"]=Facts(token,expectedSid);
-                stage="diagnostic_complete_no_launch";
+            Check(SaferCreateLevel(2,0x20000,1,out level,IntPtr.Zero));
+            // NORMALUSER removes Administrator/Power User rights. Flags=0
+            // preserves AppLocker/software-restriction enforcement.
+            Check(SaferComputeTokenFromLevel(level,IntPtr.Zero,out token,0,IntPtr.Zero));
+            if(token==IntPtr.Zero) throw new InvalidOperationException("SAFER returned no token");
+            Check(ConvertStringSidToSidW("S-1-16-8192",out sid));
+            int size=checked(Marshal.SizeOf<Label>()+(int)GetLengthSid(sid));
+            label=Marshal.AllocHGlobal(size);
+            Marshal.StructureToPtr(new Label { sid=sid,attributes=0x20 },label,false);
+            Check(SetTokenInformation(token,25,label,size));
+            uint integrity=Integrity(token),restricted=UInt(token,21),tokenType=UInt(token,8);
+            using(var identity=new WindowsIdentity(token)) {
+                bool same=identity.User.Value==expectedSid,system=identity.IsSystem;
+                bool administrator=new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+                PreparedToken=new Dictionary<string,object> {
+                    {"same_user",same}, {"is_system",system}, {"administrator_role_enabled",administrator},
+                    {"token_elevation",UInt(token,20)}, {"token_elevation_type",UInt(token,18)},
+                    {"integrity_rid",integrity}, {"token_has_restrictions",restricted}, {"token_type",tokenType},
+                    {"client_launched",false}
+                };
+                if(!same || system || administrator || integrity!=8192 || restricted!=1 || tokenType!=1)
+                    throw new InvalidOperationException("SAFER token lacks required same-user restricted primary rights");
             }
-        } catch(Exception error) {
-            result["error_kind"]=error.GetType().Name;
-            if(error is Win32Exception native) result["native_error"]=native.NativeErrorCode;
+            var startup=new Startup { size=Marshal.SizeOf<Startup>() };
+            // Same SID/profile/environment/desktop; no inherited handles,
+            // alternate credentials or desktop/window-station ACL changes.
+            Check(CreateProcessAsUserW(token,executable,new StringBuilder(command),IntPtr.Zero,IntPtr.Zero,false,0,IntPtr.Zero,directory,ref startup,out process));
+            PreparedToken["client_launched"]=true;
+            uint wait=WaitForSingleObject(process.process,900000);
+            if(wait==258) throw new TimeoutException("Restricted probe timed out; transaction state unknown; no racing retry or uninstall launched");
+            if(wait!=0) throw new Win32Exception(Marshal.GetLastWin32Error());
+            uint code; Check(GetExitCodeProcess(process.process,out code));
+            return unchecked((int)code);
         } finally {
+            if(process.thread!=IntPtr.Zero) CloseHandle(process.thread);
+            if(process.process!=IntPtr.Zero) CloseHandle(process.process);
             if(label!=IntPtr.Zero) Marshal.FreeHGlobal(label);
             if(sid!=IntPtr.Zero) LocalFree(sid);
             if(token!=IntPtr.Zero) CloseHandle(token);
             if(level!=IntPtr.Zero) SaferCloseLevel(level);
         }
-        result["stage"]=stage;
-        return result;
     }
 }
 '@
-    $result = [BroTypistInstallerTokenDiagnostics]::Inspect()
-    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
-    $key = $null
-    try {
-        $key = $base.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Policies\System', $false)
-        $present = $null -ne $key -and $key.GetValueNames() -contains 'EnableLUA'
-        $dword = $present -and $key.GetValueKind('EnableLUA') -eq [Microsoft.Win32.RegistryValueKind]::DWord
-        $result['enable_lua'] = @{ hive = 'LocalMachine'; view = 'Registry64'; present = $present; dword = $dword; value = $(if ($dword) { [int]$key.GetValue('EnableLUA') } else { $null }); modified = $false }
-    } finally { if ($null -ne $key) { $key.Dispose() }; $base.Dispose() }
-    return $result
+    foreach ($path in @($Executable, $Core, $InputPath, $CoreWork)) {
+        Require ([IO.Path]::IsPathFullyQualified($path) -and $path -cnotmatch '["\r\n]') 'Unsafe restricted child path'
+    }
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    try { $expectedSid = $identity.User.Value } finally { $identity.Dispose() }
+    $command = '"{0}" -NoLogo -NoProfile -NonInteractive -File "{1}" -InputFile "{2}" -Work "{3}" -RequireRestrictedClient -ExpectedUserSid "{4}"' -f $Executable, $Core, $InputPath, $CoreWork, $expectedSid
+    try { return [BroTypistRestrictedInstallerClient]::Run($Executable, $command, $CoreWork, $expectedSid) }
+    finally { $metadata.prepared_restricted_token = [BroTypistRestrictedInstallerClient]::PreparedToken }
 }
 function Read-CheckoutIdentity([string]$Path) {
     # Read only the first checkout action. Later build output cannot manufacture
@@ -432,18 +386,41 @@ try {
     }
     $metadata.portable_exact_payload_verified = $true
 
-    # Token diagnostics need no model, installer InputFile or SYSTEM MSI grant.
-    # Keep the authenticated package/source evidence; do not run its payload.
+    $stage = 'probe_only_input_adapter'
+    $coreWork = Join-Path $Work 'native'; New-PrivateDirectory $coreWork
+    $inputPath = Join-Path $coreWork 'probe-only-input.json'
+    # Canonical artifacts lack worker_smoke.exe. No unused model acquisition;
+    # installed/portable worker gates remain explicitly not exercised.
+    Write-NewJson $inputPath @{ package = $package; previous = $null; worker = $null; model = $null }
+    $metadata.input_adapter = @{ probe_only = $true; schema = 'package, previous, worker, model (canonical xtask contract)'; changed_fields = @('package.artifacts.msi.path', 'package.artifacts.zip.path'); sha256 = (Get-FileHash -LiteralPath $inputPath -Algorithm SHA256).Hash.ToLowerInvariant(); original_receipt_unchanged = $true; worker_and_model = 'not supplied; worker gates unexercised' }
     Require ((Get-FileHash -LiteralPath $rawReceipt -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $metadata.raw_package_receipt_sha256) 'Original package receipt changed'
-    $metadata.msi_system_read = 'not granted; diagnostic-only token investigation'
+    # Original reviewed prerequisite: SYSTEM Read on this non-secret MSI leaf
+    # only. No inherited directory, model, profile, cache or desktop grants.
+    $acl = Get-Acl -LiteralPath $package.artifacts.msi.path
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-18'), 'Read', 'Allow'))
+    Set-Acl -LiteralPath $package.artifacts.msi.path -AclObject $acl
+    Assert-Hash $package.artifacts.msi.path $package.artifacts.msi.sha256 $package.artifacts.msi.size
+    $metadata.msi_system_read = 'non-secret MSI leaf only; no inherited profile/cache grants'
 
-    $stage = 'restricted_token_diagnostics_only'
-    $metadata.probe_core_sha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'windows-installer-smoke.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()
+    $stage = 'existing_guarded_native_core_restricted_rights'
+    $pwsh = (Get-Process -Id $PID).Path
+    $core = Join-Path $PSScriptRoot 'windows-installer-smoke.ps1'
+    $metadata.probe_core_sha256 = (Get-FileHash -LiteralPath $core -Algorithm SHA256).Hash.ToLowerInvariant()
     $metadata.probe_adapter_sha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+    $env:BROTYPIST_INSTALLER_SMOKE_DISPOSABLE = '1'
     $env:GH_TOKEN = $null; $script:headers = $null
-    $metadata.client_experiment = @{ method = 'SAFER NORMALUSER token preparation/readout only'; client_launched = $false; installer_exercised = $false; policy_changes = $false; global_acl_changes = $false; alternate_credentials = $false; linked_token_assumed = $false }
-    $metadata.token_observations = Get-RestrictedTokenDiagnostics
-    throw 'Diagnostic-only token investigation completed; no client or installer launched; ownership gates remain unexercised'
+    $metadata.client_experiment = @{ method = 'SAFER NORMALUSER restricted primary rights + medium integrity + CreateProcessAsUserW'; genuine_uac_filtered_logon = $false; retained_elevation_metadata_reported = $true; child_verification_before_installer_required = $true; policy_changes = $false; global_acl_changes = $false; alternate_credentials = $false }
+    $nativeExit = Invoke-RestrictedCore $pwsh $core $inputPath $coreWork
+    $metadata.native_exit_code = $nativeExit
+    $observationsPath = Join-Path $coreWork 'observations.json'
+    Require ((Get-Item -LiteralPath $observationsPath).Length -le 262144) 'Native core receipt missing/oversized'
+    Copy-Item -LiteralPath $observationsPath -Destination (Join-Path $Reports 'windows-core-installer-smoke.json')
+    $observations = Get-Content -LiteralPath $observationsPath -Raw | ConvertFrom-Json
+    Require (@($observations.observations | Where-Object { $_.check -ceq 'restricted_rights_client_verified_before_installer' -and $_.passed -eq $true }).Count -eq 1) 'Child did not independently verify restricted primary rights before installer access'
+    Require ($nativeExit -eq 0 -and $observations.passed -eq $true) 'Native installer core assertions failed; inspect retained native receipt'
+    $metadata.passed = $true
+    $stage = 'completed_core_scope_only_restricted_rights'
 } catch {
     $metadata.diagnostics.Add((Redact $_.Exception.Message))
 } finally {
