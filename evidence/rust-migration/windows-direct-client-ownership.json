@@ -250,6 +250,7 @@
   "failure": "Machine ARP registration exists",
   "interpretation": "Direct no-shell launch and verified medium/admin-disabled restricted child did not remove the real HKLM64 ARP registration. Retained elevation metadata is not genuine UAC filtering; a genuine standard-user or UAC-filtered logon is needed to distinguish hosted-token behavior from package behavior. No definitive root-cause attribution or per-user pass is claimed.",
   "required_authority": "Existing approval covers only the absent-only disposable DisableMSI fixture. A new standard test account, alternate credentials or another genuine standard-user runner requires explicit approval.",
+  "user_disposition": "Explicitly selected Keep Windows held on 2026-11-01. No new standard account, alternate credentials or additional security changes are authorized; MSI publication and genuine-user upgrade/rollback acceptance remain blocked.",
   "windows_publication": "held",
   "full_installer_matrix_passed": false
 }
