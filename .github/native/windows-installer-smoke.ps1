@@ -123,6 +123,12 @@ function Validate-Msi($Package) {
         Equal (Property $database 'INKLOW_SOURCE_COMMIT') $Package.source_commit 'MSI source differs'
         Equal (Property $database 'INKLOW_ARCHITECTURE') 'x86_64' 'MSI architecture differs'
         Equal (Property $database 'ALLUSERS' -Optional) '' 'Machine-scope MSI refused'
+        Equal (Property $database 'MSIINSTALLPERUSER' -Optional) '' 'Dual-purpose MSI refused'
+        $summary = $database.GetType().InvokeMember('SummaryInformation', [Reflection.BindingFlags]::GetProperty, $null, $database, @([int]0))
+        try { $wordCount = [int]$summary.GetType().InvokeMember('Property', [Reflection.BindingFlags]::GetProperty, $null, $summary, @([int]15)) }
+        finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($summary) }
+        Require (($wordCount -band 8) -eq 8) 'MSI does not declare limited install privileges'
+        Observe 'immutable_msi_scope' @{ product_code = (Guid-Code $Package); sha256 = $Package.artifacts.msi.sha256; summary_word_count = $wordCount; limited_privileges = $true; allusers_absent = $true; msiinstallperuser_absent = $true }
         # Canonical WiX package has no executable custom actions and authors
         # only HKCU registration. Never run an arbitrary fixture as trusted MSI.
         $tableView = Msi-Call $database 'OpenView' @('SELECT `Name` FROM `_Tables`')
@@ -191,8 +197,92 @@ function Arp-Keys([string]$Product) {
     # It is read-only here; no probe code writes HKLM.
     return @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$Product", "HKLM:\Software\Microsoft\Windows\CurrentVersion\Installer\UserData\$sid\Products\$packed\InstallProperties")
 }
+function Machine-ArpKeys([string]$Product) {
+    return @("HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$Product", "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$Product")
+}
+function Observe-ClientAndPolicy {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    try {
+        $token = [BroTypistInstallerNative]::TokenFacts($identity.AccessToken.DangerousGetHandle())
+        $client = @{
+            elevated = $token[0] -ne 0; elevation_type = $token[1]; integrity_rid = $token[2]
+            administrator_role_enabled = ([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+            administrator_group_present = $identity.Groups -contains [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+            is_system = $identity.IsSystem; impersonation_level = $identity.ImpersonationLevel.ToString()
+        }
+    } finally { $identity.Dispose() }
+    $policies = @(
+        foreach ($hive in @([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryHive]::CurrentUser)) {
+            $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, [Microsoft.Win32.RegistryView]::Registry64)
+            $key = $null
+            try {
+                $key = $base.OpenSubKey('Software\Policies\Microsoft\Windows\Installer', $false)
+                foreach ($name in @('AlwaysInstallElevated', 'DisableMSI')) {
+                    $present = $null -ne $key -and $key.GetValueNames() -contains $name
+                    $dword = $present -and $key.GetValueKind($name) -eq [Microsoft.Win32.RegistryValueKind]::DWord
+                    @{ hive = $hive.ToString(); view = 'Registry64'; policy = $name; present = $present; dword = $dword; value = $(if ($dword) { [int]$key.GetValue($name) } else { $null }) }
+                }
+            } finally { if ($null -ne $key) { $key.Dispose() }; $base.Dispose() }
+        }
+    )
+    $receipt.observations.Add(@{ check = 'installer_client_token_and_policies'; status = 'observed'; passed = $null; evidence = @{ client = $client; policies = $policies; policies_modified = $false } })
+}
+function Observe-ArpScope([string]$Stage, [string]$Product) {
+    # Open explicit native views independently of PowerShell provider resolution.
+    # Retain only identity comparisons, never usernames, paths or arbitrary values.
+    $entries = @(
+        foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
+            foreach ($hive in @([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryHive]::CurrentUser)) {
+                $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, $view)
+                $key = $null
+                try {
+                    $key = $base.OpenSubKey("Software\Microsoft\Windows\CurrentVersion\Uninstall\$Product", $false)
+                    @{
+                        hive = $hive.ToString(); view = $view.ToString(); exists = $null -ne $key
+                        product_name_matches = $null -ne $key -and $key.GetValue('DisplayName') -ceq 'BroTypist'
+                        uninstall_references_product = $null -ne $key -and ([string]$key.GetValue('UninstallString')).IndexOf($Product, [StringComparison]::OrdinalIgnoreCase) -ge 0
+                    }
+                } finally { if ($null -ne $key) { $key.Dispose() }; $base.Dispose() }
+            }
+        }
+    )
+    $receipt.observations.Add(@{ check = 'explicit_arp_scope'; status = 'observed'; passed = $null; evidence = @{ stage = $Stage; product_code = $Product; entries = $entries } })
+}
+function Observe-MsiRouting([string]$Stage, [string]$Path) {
+    # The previous tail-only log retention discarded RegisterProduct's actual
+    # routing. Stream a bounded log and emit allowlisted routing facts, not logs.
+    $facts = [System.Collections.Generic.List[object]]::new()
+    $reader = [IO.StreamReader]::new($Path, [Text.Encoding]::UTF8, $true)
+    [int]$lines = 0
+    $truncated = $false
+    try {
+        while ($null -ne ($line = $reader.ReadLine())) {
+            $lines++
+            if ($lines -gt 250000 -or $facts.Count -ge 256) { $truncated = $true; break }
+            if ($line -match 'Action start [^\r\n]*:\s+(RegisterProduct|PublishProduct|UnpublishFeatures|RemoveExistingProducts)\.') {
+                $facts.Add(@{ event = 'standard_action_start'; action = $Matches[1] })
+            }
+            if ($line -match 'MSI_LUA:.*(Per-User|Per-Machine)') {
+                $facts.Add(@{ event = 'msi_lua_context'; context = $Matches[1]; dual_mode = $line.Contains('dual mode') })
+            }
+            if ($line -match 'Property\([CS]\): (ALLUSERS|MSIINSTALLPERUSER) = ([012]?)\s*$') {
+                $facts.Add(@{ event = 'final_scope_property'; property = $Matches[1]; value = $Matches[2] })
+            }
+            if ($line -match 'Executing op: RegOpenKey\(Root=(-?\d+),Key=([^,]+)') {
+                $root = $Matches[1]; $key = $Matches[2]
+                foreach ($product in $products) {
+                    if ($key -ieq "Software\Microsoft\Windows\CurrentVersion\Uninstall\$product" -or $key -ieq "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$product") {
+                        $facts.Add(@{ event = 'owned_arp_reg_open'; root = $root; product_code = $product; wow6432node = $key.Contains('WOW6432Node') })
+                    }
+                }
+            }
+        }
+    } finally { $reader.Dispose() }
+    $receipt.observations.Add(@{ check = 'msi_standard_action_routing'; status = 'observed'; passed = $null; evidence = @{ stage = $Stage; lines_examined = $lines; truncated = $truncated; facts = @($facts.ToArray()); missing_event_is_not_proof_of_absence = $true } })
+}
 function Assert-Installed($Package) {
     $product = Guid-Code $Package
+    Observe-ArpScope 'installed_before_scope_assertions' $product
     $contexts = @(Contexts $product)
     Require ($contexts.Count -eq 1 -and $contexts[0].context -eq 2 -and $contexts[0].state -eq '5') 'Product is not exclusively per-user unmanaged'
     $assignment = Product-Info $product 2 'AssignmentType'
@@ -253,6 +343,7 @@ function Msi-Transaction([string]$Stage, [string[]]$Arguments, [switch]$Expected
         throw 'Owned msiexec timed out; Windows Installer transaction state is unknown; no racing retry/uninstall attempted'
     }
     $code = $process.ExitCode
+    Observe-MsiRouting $Stage $log
     $rejected = $false
     if ($ExpectedFailure -and $code -eq 1603) {
         $text = Bounded-Text $log 65536
@@ -399,6 +490,26 @@ using System;
 using System.Text;
 using System.Runtime.InteropServices;
 public static class BroTypistInstallerNative {
+    [DllImport("advapi32.dll", SetLastError=true, EntryPoint="GetTokenInformation")] static extern bool TokenUInt(IntPtr token,int kind,out uint value,int length,out int needed);
+    [DllImport("advapi32.dll", SetLastError=true, EntryPoint="GetTokenInformation")] static extern bool TokenBuffer(IntPtr token,int kind,IntPtr value,int length,out int needed);
+    [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthorityCount(IntPtr sid);
+    [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthority(IntPtr sid,uint index);
+    public static uint[] TokenFacts(IntPtr token) {
+        uint elevated,type; int needed;
+        if(!TokenUInt(token,20,out elevated,4,out needed) || !TokenUInt(token,18,out type,4,out needed))
+            throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        TokenBuffer(token,25,IntPtr.Zero,0,out needed);
+        if(needed<IntPtr.Size || needed>1024) throw new InvalidOperationException("Invalid token label length");
+        IntPtr buffer=Marshal.AllocHGlobal(needed);
+        try {
+            if(!TokenBuffer(token,25,buffer,needed,out needed)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            IntPtr sid=Marshal.ReadIntPtr(buffer);
+            byte count=Marshal.ReadByte(GetSidSubAuthorityCount(sid));
+            if(count==0) throw new InvalidOperationException("Invalid integrity SID");
+            uint integrity=unchecked((uint)Marshal.ReadInt32(GetSidSubAuthority(sid,(uint)count-1)));
+            return new uint[] { elevated,type,integrity };
+        } finally { Marshal.FreeHGlobal(buffer); }
+    }
     public static async System.Threading.Tasks.Task<long> Capture(System.IO.Stream source,System.IO.Stream destination,int limit) {
         byte[] buffer=new byte[8192]; long total=0; int retained=0;
         for (;;) {
@@ -443,6 +554,7 @@ public static class BroTypistInstallerNative {
     }
 }
 '@
+    Observe-ClientAndPolicy
     $installDirectory = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\BroTypist'
     $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'BroTypist.lnk'
     Require (-not (Test-Path -LiteralPath $installDirectory) -and -not (Test-Path -LiteralPath $shortcut) -and -not (Test-Path -LiteralPath 'HKCU:\Software\Inklow\Installer')) 'Existing BroTypist installation/registration refused'
@@ -458,6 +570,8 @@ public static class BroTypistInstallerNative {
         Hash-Equal $candidate.artifacts.msi.path $candidate.artifacts.msi.sha256
         Hash-Equal $candidate.artifacts.zip.path $candidate.artifacts.zip.sha256
         Validate-Msi $candidate
+        Observe-ArpScope 'preflight' (Guid-Code $candidate)
+        foreach ($key in @(Machine-ArpKeys (Guid-Code $candidate))) { Require (-not (Test-Path -LiteralPath $key)) 'Preexisting machine ARP registration refused' }
         $code = Guid-Code $candidate
         Require (@(Contexts $code).Count -eq 0) 'Existing product context refused'
         foreach ($key in @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$code", "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$code", "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$code")) { Require (-not (Test-Path -LiteralPath $key)) 'Existing ARP product refused' }
@@ -553,6 +667,8 @@ public static class BroTypistInstallerNative {
                     if (@(Contexts $product).Count -gt 0) { [void](Msi-Transaction 'uninstall_transaction' @('/x', $product)) }
                 }
                 foreach ($product in $products) {
+                    Observe-ArpScope 'after_uninstall' $product
+                    foreach ($key in @(Machine-ArpKeys $product)) { Require (-not (Test-Path -LiteralPath $key)) 'Uninstall left machine ARP registration' }
                     Require (@(Contexts $product).Count -eq 0) 'Uninstall left MSI registration'
                     foreach ($key in @(Arp-Keys $product)) { Require (-not (Test-Path -LiteralPath $key)) 'Uninstall left per-user ARP registration' }
                 }

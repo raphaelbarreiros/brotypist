@@ -314,6 +314,62 @@ fn verify_zip(path: &Path, rows: &[Row]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn routing_evidence_retains_owned_hives_without_raw_log_content() {
+        let temp = tempfile::tempdir().unwrap();
+        let script = temp.path().join("scope-fixture.ps1");
+        // Load only the parser's function AST: never execute the installer probe.
+        // Both native roots must survive; other products, properties and paths must not.
+        fs::write(
+            &script,
+            r#"
+param([string]$Source, [string]$Work)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+$tokens = $null; $errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($Source, [ref]$tokens, [ref]$errors)
+if ($errors.Count -ne 0) { throw 'Probe syntax errors' }
+$definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Observe-MsiRouting' }, $true)
+Invoke-Expression $definition.Extent.Text
+$products = @('{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88}')
+$receipt = @{ observations = [Collections.Generic.List[object]]::new() }
+$path = Join-Path $Work 'fixture.log'
+$fixture = @'
+Action start 22:34:44: RegisterProduct.
+MSI (s) (04:E0): Executing op: RegOpenKey(Root=-2147483646,Key=Software\Microsoft\Windows\CurrentVersion\Uninstall\{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88},BinaryType=1,)
+MSI (s) (04:E0): Executing op: RegOpenKey(Root=-2147483647,Key=Software\Microsoft\Windows\CurrentVersion\Uninstall\{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88},BinaryType=1,)
+MSI (s) (04:E0): Executing op: RegOpenKey(Root=-2147483646,Key=Software\Microsoft\Windows\CurrentVersion\Uninstall\{00000000-0000-0000-0000-000000000000},BinaryType=1,)
+Property(S): ALLUSERS = 1
+Property(S): MSIINSTALLPERUSER = 1
+Property(S): PRIVATE = never-retain-this-value
+MSI (s): C:\Users\never-retain-this-path\payload
+'@
+[IO.File]::WriteAllText($path, $fixture, [Text.Encoding]::Unicode)
+Observe-MsiRouting 'fixture' $path
+$facts = @($receipt.observations[0].evidence.facts)
+if ($facts.Count -ne 5) { throw 'Owned routing facts missing or unrelated content retained' }
+if (@($facts | Where-Object { $_.event -eq 'owned_arp_reg_open' }).Count -ne 2) { throw 'Native hive distinction lost' }
+$json = $receipt | ConvertTo-Json -Depth 16
+if ($json.Contains('never-retain') -or $json.Contains('00000000-0000')) { throw 'Private or unrelated log content retained' }
+[IO.File]::WriteAllText($path, ('Property(S): ALLUSERS = 1' + "`n") * 300)
+Observe-MsiRouting 'bounded' $path
+if (-not $receipt.observations[1].evidence.truncated -or @($receipt.observations[1].evidence.facts).Count -ne 256) { throw 'Routing fact limit failed' }
+if ($null -ne $receipt.observations[1].passed) { throw 'Diagnostic observation was promoted to passing gate' }
+"#,
+        )
+        .unwrap();
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.github/native/windows-installer-smoke.ps1");
+        let status = Command::new("pwsh.exe")
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-File"])
+            .arg(script)
+            .arg(source)
+            .arg(temp.path())
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
     #[test]
     fn portable_zip_rejects_extra_and_traversal_members() {
         let temp = tempfile::tempdir().unwrap();
