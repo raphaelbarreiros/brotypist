@@ -2,6 +2,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$ArtifactRun,
+    [string]$PreviousArtifactRun = '',
+    [switch]$ExerciseRollback,
     [Parameter(Mandatory)][string]$Work,
     [Parameter(Mandatory)][string]$Reports
 )
@@ -81,120 +83,6 @@ function Extract-Entry($Entry, [string]$Path, [long]$Limit) {
 function Get-Api([string]$Suffix) {
     return Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/$Suffix" -Headers $script:headers -TimeoutSec 60
 }
-function Invoke-RestrictedCore([string]$Executable, [string]$Core, [string]$InputPath, [string]$CoreWork) {
-    # SAFER rights restriction is not a UAC-filtered logon. Native diagnostic
-    # 41285568481 proved elevation metadata stays 1 after rights restriction.
-    Add-Type -TypeDefinition @'
-using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Runtime.InteropServices;
-using System.Security.Principal;
-using System.Text;
-public static class BroTypistRestrictedInstallerClient {
-    public static Dictionary<string,object> PreparedToken;
-    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
-    struct Startup {
-        public int size;
-        public string reserved,desktop,title;
-        public uint x,y,width,height,xChars,yChars,fill,flags;
-        public ushort show,reservedCount;
-        public IntPtr reservedBytes,input,output,error;
-    }
-    [StructLayout(LayoutKind.Sequential)] struct ProcessInfo {
-        public IntPtr process,thread;
-        public uint processId,threadId;
-    }
-    [StructLayout(LayoutKind.Sequential)] struct Label { public IntPtr sid; public uint attributes; }
-    [DllImport("advapi32.dll", SetLastError=true)] static extern bool SaferCreateLevel(uint scope,uint level,uint flags,out IntPtr handle,IntPtr reserved);
-    [DllImport("advapi32.dll", SetLastError=true)] static extern bool SaferComputeTokenFromLevel(IntPtr level,IntPtr source,out IntPtr token,uint flags,IntPtr reserved);
-    [DllImport("advapi32.dll")] static extern bool SaferCloseLevel(IntPtr handle);
-    [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool ConvertStringSidToSidW(string text,out IntPtr sid);
-    [DllImport("advapi32.dll")] static extern uint GetLengthSid(IntPtr sid);
-    [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthorityCount(IntPtr sid);
-    [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthority(IntPtr sid,uint index);
-    [DllImport("advapi32.dll", SetLastError=true)] static extern bool SetTokenInformation(IntPtr token,int kind,IntPtr value,int size);
-    [DllImport("advapi32.dll", EntryPoint="GetTokenInformation", SetLastError=true)] static extern bool TokenUInt(IntPtr token,int kind,out uint value,int size,out int needed);
-    [DllImport("advapi32.dll", EntryPoint="GetTokenInformation", SetLastError=true)] static extern bool TokenBuffer(IntPtr token,int kind,IntPtr value,int size,out int needed);
-    [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
-    static extern bool CreateProcessAsUserW(IntPtr token,string application,StringBuilder command,IntPtr processAttributes,IntPtr threadAttributes,bool inherit,uint flags,IntPtr environment,string directory,ref Startup startup,out ProcessInfo process);
-    [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr memory);
-    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
-    [DllImport("kernel32.dll", SetLastError=true)] static extern uint WaitForSingleObject(IntPtr handle,uint timeout);
-    [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetExitCodeProcess(IntPtr handle,out uint code);
-    static void Check(bool value) { if(!value) throw new Win32Exception(Marshal.GetLastWin32Error()); }
-    static uint UInt(IntPtr token,int kind) {
-        uint value; int needed; Check(TokenUInt(token,kind,out value,4,out needed)); return value;
-    }
-    static uint Integrity(IntPtr token) {
-        int needed; TokenBuffer(token,25,IntPtr.Zero,0,out needed);
-        if(needed<IntPtr.Size || needed>1024) throw new InvalidOperationException("Invalid integrity label length");
-        IntPtr buffer=Marshal.AllocHGlobal(needed);
-        try {
-            Check(TokenBuffer(token,25,buffer,needed,out needed));
-            IntPtr sid=Marshal.ReadIntPtr(buffer);
-            byte count=Marshal.ReadByte(GetSidSubAuthorityCount(sid));
-            if(count==0) throw new InvalidOperationException("Invalid integrity SID");
-            return unchecked((uint)Marshal.ReadInt32(GetSidSubAuthority(sid,(uint)count-1)));
-        } finally { Marshal.FreeHGlobal(buffer); }
-    }
-    public static int Run(string executable,string command,string directory,string expectedSid) {
-        IntPtr level=IntPtr.Zero,token=IntPtr.Zero,sid=IntPtr.Zero,label=IntPtr.Zero;
-        ProcessInfo process=new ProcessInfo();
-        try {
-            Check(SaferCreateLevel(2,0x20000,1,out level,IntPtr.Zero));
-            // NORMALUSER removes Administrator/Power User rights. Flags=0
-            // preserves AppLocker/software-restriction enforcement.
-            Check(SaferComputeTokenFromLevel(level,IntPtr.Zero,out token,0,IntPtr.Zero));
-            if(token==IntPtr.Zero) throw new InvalidOperationException("SAFER returned no token");
-            Check(ConvertStringSidToSidW("S-1-16-8192",out sid));
-            int size=checked(Marshal.SizeOf<Label>()+(int)GetLengthSid(sid));
-            label=Marshal.AllocHGlobal(size);
-            Marshal.StructureToPtr(new Label { sid=sid,attributes=0x20 },label,false);
-            Check(SetTokenInformation(token,25,label,size));
-            uint integrity=Integrity(token),restricted=UInt(token,21),tokenType=UInt(token,8);
-            using(var identity=new WindowsIdentity(token)) {
-                bool same=identity.User.Value==expectedSid,system=identity.IsSystem;
-                bool administrator=new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
-                PreparedToken=new Dictionary<string,object> {
-                    {"same_user",same}, {"is_system",system}, {"administrator_role_enabled",administrator},
-                    {"token_elevation",UInt(token,20)}, {"token_elevation_type",UInt(token,18)},
-                    {"integrity_rid",integrity}, {"token_has_restrictions",restricted}, {"token_type",tokenType},
-                    {"client_launched",false}
-                };
-                if(!same || system || administrator || integrity!=8192 || restricted!=1 || tokenType!=1)
-                    throw new InvalidOperationException("SAFER token lacks required same-user restricted primary rights");
-            }
-            var startup=new Startup { size=Marshal.SizeOf<Startup>() };
-            // Same SID/profile/environment/desktop; no inherited handles,
-            // alternate credentials or desktop/window-station ACL changes.
-            Check(CreateProcessAsUserW(token,executable,new StringBuilder(command),IntPtr.Zero,IntPtr.Zero,false,0,IntPtr.Zero,directory,ref startup,out process));
-            PreparedToken["client_launched"]=true;
-            uint wait=WaitForSingleObject(process.process,900000);
-            if(wait==258) throw new TimeoutException("Restricted probe timed out; transaction state unknown; no racing retry or uninstall launched");
-            if(wait!=0) throw new Win32Exception(Marshal.GetLastWin32Error());
-            uint code; Check(GetExitCodeProcess(process.process,out code));
-            return unchecked((int)code);
-        } finally {
-            if(process.thread!=IntPtr.Zero) CloseHandle(process.thread);
-            if(process.process!=IntPtr.Zero) CloseHandle(process.process);
-            if(label!=IntPtr.Zero) Marshal.FreeHGlobal(label);
-            if(sid!=IntPtr.Zero) LocalFree(sid);
-            if(token!=IntPtr.Zero) CloseHandle(token);
-            if(level!=IntPtr.Zero) SaferCloseLevel(level);
-        }
-    }
-}
-'@
-    foreach ($path in @($Executable, $Core, $InputPath, $CoreWork)) {
-        Require ([IO.Path]::IsPathFullyQualified($path) -and $path -cnotmatch '["\r\n]') 'Unsafe restricted child path'
-    }
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    try { $expectedSid = $identity.User.Value } finally { $identity.Dispose() }
-    $command = '"{0}" -NoLogo -NoProfile -NonInteractive -File "{1}" -InputFile "{2}" -Work "{3}" -RequireRestrictedClient -ExpectedUserSid "{4}"' -f $Executable, $Core, $InputPath, $CoreWork, $expectedSid
-    try { return [BroTypistRestrictedInstallerClient]::Run($Executable, $command, $CoreWork, $expectedSid) }
-    finally { $metadata.prepared_restricted_token = [BroTypistRestrictedInstallerClient]::PreparedToken }
-}
 function Read-CheckoutIdentity([string]$Path) {
     # Read only the first checkout action. Later build output cannot manufacture
     # an identity, and no raw Actions log is retained in the public receipt.
@@ -256,6 +144,10 @@ try {
     Require ($env:GITHUB_SHA -cmatch '^[0-9a-f]{40}$') 'Probe checkout commit is missing'
     $script:headers = @{ Authorization = "Bearer $originalToken"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
 
+    function Get-AuthenticatedPackage([string]$ArtifactRun, [string]$Label, $metadata) {
+    Require ($ArtifactRun -cmatch '^[1-9][0-9]{0,19}$') 'Artifact run must be a positive decimal GitHub run ID'
+    $Work = Join-Path $Work $Label
+    New-PrivateDirectory $Work
     $stage = 'authenticated_artifact_identity'
     $run = Get-Api "actions/runs/$ArtifactRun"
     Require ([string]$run.id -ceq $ArtifactRun -and $run.repository.full_name -ceq $env:GITHUB_REPOSITORY -and $run.head_repository.full_name -ceq $env:GITHUB_REPOSITORY) 'Foreign workflow run refused'
@@ -283,7 +175,7 @@ try {
         $rawReceipt = Join-Path $assets $receiptName
         Extract-Entry $receiptEntry[0] $rawReceipt 8388608
         # This retained copy is byte-for-byte original, not the rebased InputFile adapter.
-        Copy-Item -LiteralPath $rawReceipt -Destination (Join-Path $Reports $receiptName)
+        Copy-Item -LiteralPath $rawReceipt -Destination (Join-Path $Reports "$Label-$receiptName")
         $metadata.raw_package_receipt_sha256 = (Get-FileHash -LiteralPath $rawReceipt -Algorithm SHA256).Hash.ToLowerInvariant()
         $package = Get-Content -LiteralPath $rawReceipt -Raw | ConvertFrom-Json
         Require ($package.application -ceq 'com.inklow.Inklow' -and $package.platform -ceq 'win32' -and $package.runtime -ceq 'rust' -and $package.architecture -ceq 'x86_64' -and $package.scope -ceq 'perUser' -and $package.signing -ceq 'unsigned' -and $package.signature -ceq 'unsigned' -and $package.release_eligible -eq $true) 'Expected canonical clean unsigned per-user Rust package'
@@ -342,6 +234,21 @@ try {
             $record.path = $path
         }
     } finally { $archive.Dispose() }
+    return @{ package = $package; raw_receipt = $rawReceipt; provenance = $provenance }
+    }
+    $stage = 'authenticated_current_package'
+    $current = Get-AuthenticatedPackage $ArtifactRun 'current' $metadata
+    $package = $current.package; $rawReceipt = $current.raw_receipt; $provenance = $current.provenance
+    $previous = $null
+    if (-not [string]::IsNullOrWhiteSpace($PreviousArtifactRun)) {
+        $stage = 'authenticated_genuine_previous_package'
+        Require ($PreviousArtifactRun -cne $ArtifactRun) 'Previous package must come from a separate canonical run'
+        $metadata.previous = [ordered]@{}
+        $prior = Get-AuthenticatedPackage $PreviousArtifactRun 'previous' $metadata.previous
+        $previous = $prior.package
+        Require ([Version]$previous.version -lt [Version]$package.version -and $previous.upgrade_code -ceq $package.upgrade_code -and $previous.product_code -cne $package.product_code) 'Previous fixture must be genuinely older and in the same installer family'
+    }
+    Require (-not $ExerciseRollback -or $null -ne $previous) 'Requested rollback requires installer_previous_artifact_run'
 
     $stage = 'portable_exact_payload_and_identity'
     $portableRoot = Join-Path $Work 'verified-portable'; New-PrivateDirectory $portableRoot
@@ -391,16 +298,13 @@ try {
     $inputPath = Join-Path $coreWork 'probe-only-input.json'
     # Canonical artifacts lack worker_smoke.exe. No unused model acquisition;
     # installed/portable worker gates remain explicitly not exercised.
-    Write-NewJson $inputPath @{ package = $package; previous = $null; worker = $null; model = $null }
-    $metadata.input_adapter = @{ probe_only = $true; schema = 'package, previous, worker, model (canonical xtask contract)'; changed_fields = @('package.artifacts.msi.path', 'package.artifacts.zip.path'); sha256 = (Get-FileHash -LiteralPath $inputPath -Algorithm SHA256).Hash.ToLowerInvariant(); original_receipt_unchanged = $true; worker_and_model = 'not supplied; worker gates unexercised' }
+    Write-NewJson $inputPath @{ package = $package; previous = $previous; worker = $null; model = $null; rollback_test_only = [bool]$ExerciseRollback }
+    $metadata.input_adapter = @{ probe_only = $true; schema = 'package, previous, worker, model plus explicit rollback_test_only boolean'; changed_fields = @('package.artifacts.msi.path', 'package.artifacts.zip.path', 'previous.artifacts.msi.path if supplied', 'previous.artifacts.zip.path if supplied'); sha256 = (Get-FileHash -LiteralPath $inputPath -Algorithm SHA256).Hash.ToLowerInvariant(); original_receipt_unchanged = $true; worker_and_model = 'not supplied; worker gates unexercised'; rollback_fixture = 'only separately derived audited NONDISTRIBUTABLE MSI, never the canonical artifact or its receipt' }
     Require ((Get-FileHash -LiteralPath $rawReceipt -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $metadata.raw_package_receipt_sha256) 'Original package receipt changed'
-    # Original reviewed prerequisite: SYSTEM Read on this non-secret MSI leaf
-    # only. No inherited directory, model, profile, cache or desktop grants.
-    $acl = Get-Acl -LiteralPath $package.artifacts.msi.path
-    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-18'), 'Read', 'Allow'))
-    Set-Acl -LiteralPath $package.artifacts.msi.path -AclObject $acl
-    Assert-Hash $package.artifacts.msi.path $package.artifacts.msi.sha256 $package.artifacts.msi.size
-    $metadata.msi_system_read = 'non-secret MSI leaf only; no inherited profile/cache grants'
+    if ($null -ne $previous) {
+        Require ((Get-FileHash -LiteralPath $prior.raw_receipt -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $metadata.previous.raw_package_receipt_sha256) 'Original previous package receipt changed'
+    }
+    $metadata.rollback_fixture_requested = [bool]$ExerciseRollback
 
     $stage = 'existing_guarded_native_core_restricted_rights'
     $pwsh = (Get-Process -Id $PID).Path
@@ -410,12 +314,24 @@ try {
     $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
     $env:BROTYPIST_INSTALLER_SMOKE_DISPOSABLE = '1'
     $env:GH_TOKEN = $null; $script:headers = $null
-    $metadata.client_experiment = @{ method = 'SAFER NORMALUSER restricted primary rights + medium integrity + CreateProcessAsUserW'; genuine_uac_filtered_logon = $false; retained_elevation_metadata_reported = $true; child_verification_before_installer_required = $true; policy_changes = $false; global_acl_changes = $false; alternate_credentials = $false }
-    $nativeExit = Invoke-RestrictedCore $pwsh $core $inputPath $coreWork
+    $client = Join-Path $PSScriptRoot 'windows-installer-client.ps1'
+    $metadata.probe_client_sha256 = (Get-FileHash -LiteralPath $client -Algorithm SHA256).Hash.ToLowerInvariant()
+    $metadata.client_experiment = @{ method = 'shared SAFER NORMALUSER restricted primary rights + medium integrity + CreateProcessAsUserW'; genuine_uac_filtered_logon = $false; retained_elevation_metadata_reported = $true; child_verification_before_installer_required = $true; policy_changes = 'only approved absent HKLM64 DisableMSI-to-DWORD0 fixture; restored in finally'; global_acl_changes = $false; alternate_credentials = $false }
+    & $pwsh -NoLogo -NoProfile -NonInteractive -File $client -InputFile $inputPath -Work $coreWork
+    $nativeExit = $LASTEXITCODE
+    foreach ($name in @('client-observations.json', 'observations.json')) {
+        $path = Join-Path $coreWork $name
+        if (Test-Path -LiteralPath $path) {
+            Require ((Get-Item -LiteralPath $path).Length -le 262144) 'Native evidence oversized'
+            $nameInReports = if ($name -ceq 'observations.json') { 'windows-core-installer-smoke.json' } else { 'windows-installer-client.json' }
+            Copy-Item -LiteralPath $path -Destination (Join-Path $Reports $nameInReports)
+        }
+    }
     $metadata.native_exit_code = $nativeExit
     $observationsPath = Join-Path $coreWork 'observations.json'
     Require ((Get-Item -LiteralPath $observationsPath).Length -le 262144) 'Native core receipt missing/oversized'
-    Copy-Item -LiteralPath $observationsPath -Destination (Join-Path $Reports 'windows-core-installer-smoke.json')
+    $clientObserved = Get-Content -LiteralPath (Join-Path $coreWork 'client-observations.json') -Raw | ConvertFrom-Json
+    Require ($clientObserved.passed -eq $true -and $clientObserved.restoration_verified -eq $true -and $clientObserved.quiescence_verified -eq $true) 'Shared restricted client/quiescence/policy restoration failed'
     $observations = Get-Content -LiteralPath $observationsPath -Raw | ConvertFrom-Json
     Require (@($observations.observations | Where-Object { $_.check -ceq 'restricted_rights_client_verified_before_installer' -and $_.passed -eq $true }).Count -eq 1) 'Child did not independently verify restricted primary rights before installer access'
     Require ($nativeExit -eq 0 -and $observations.passed -eq $true) 'Native installer core assertions failed; inspect retained native receipt'

@@ -1570,9 +1570,28 @@ fn receipt(
     updates::write_private(&root.join("transaction.json"), &serde_json::to_vec(&value)?)
 }
 fn transaction_lock(root: &Path) -> Result<File> {
+    transaction_lock_before(root, Instant::now() + STOP_TIMEOUT)
+}
+fn transaction_lock_before(root: &Path, deadline: Instant) -> Result<File> {
     let file = open_regular(&root.join("startup.lock"), true)?;
-    file.lock_exclusive()?;
-    Ok(file)
+    loop {
+        match FileExt::try_lock_exclusive(&file) {
+            Ok(()) => return Ok(file),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if Instant::now() >= deadline {
+                    return Err(error).context(
+                        "Startup ownership lock did not release before the deadline; both builds are retained.",
+                    );
+                }
+                thread::sleep(
+                    deadline
+                        .saturating_duration_since(Instant::now())
+                        .min(Duration::from_millis(25)),
+                );
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
 }
 fn transaction_status(root: &Path, r: &Request) -> Result<String> {
     let v: TransactionReceipt = serde_json::from_value(updates::strict_json(&read_file(
@@ -1978,7 +1997,7 @@ fn wait_startup(root: &Path, r: &Request, launcher: &mut Child, timeout: Duratio
     let deadline = Instant::now() + timeout;
     loop {
         {
-            let _lock = transaction_lock(root)?;
+            let _lock = transaction_lock_before(root, deadline)?;
             ensure!(
                 transaction_status(root, r)? == "promoted",
                 "Startup transaction is no longer promoted."
@@ -2019,15 +2038,15 @@ fn wait_startup(root: &Path, r: &Request, launcher: &mut Child, timeout: Duratio
     }
 }
 fn cancel_and_wait(root: &Path, r: &Request, rollback: &Path, timeout: Duration) -> Result<()> {
+    let deadline = Instant::now() + timeout;
     let active = {
-        let _lock = transaction_lock(root)?;
+        let _lock = transaction_lock_before(root, deadline)?;
         // This invalidates delayed LaunchServices launches before any swap back.
         // Enrollment uses the same lock and requires promoted, so the resulting
         // owned process set is closed. No launcher-derived PID is ever signaled.
         receipt(root, r, "cancelled", Some(rollback), None)?;
         leases(root, r)?
     };
-    let deadline = Instant::now() + timeout;
     loop {
         let mut live = false;
         for lease in &active {
@@ -3438,6 +3457,39 @@ finally:
             !f.root
                 .join(format!("process-{}.json", std::process::id()))
                 .exists()
+        );
+    }
+    #[test]
+    fn busy_startup_lock_respects_health_and_cancellation_deadlines() {
+        let f = fixture();
+        promoted(&f);
+        let previous = f.root.join("previous");
+        make_bundle(&previous, "1.2.3", &"1".repeat(40));
+        let held = transaction_lock(&f.root).unwrap();
+        let mut launcher = Command::new("/bin/sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .unwrap();
+        launcher.wait().unwrap();
+        for result in [
+            wait_startup(&f.root, &f.request, &mut launcher, Duration::ZERO),
+            cancel_and_wait(&f.root, &f.request, &previous, Duration::ZERO),
+        ] {
+            let error = result.unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<std::io::Error>().unwrap().kind(),
+                std::io::ErrorKind::WouldBlock
+            );
+        }
+        assert_eq!(transaction_status(&f.root, &f.request).unwrap(), "promoted");
+        assert!(!f.root.join("startup.json").exists());
+        assert_eq!(marker(&f.destination, native()).unwrap().version, "1.2.4");
+        assert_eq!(marker(&previous, native()).unwrap().version, "1.2.3");
+        drop(held);
+        cancel_and_wait(&f.root, &f.request, &previous, Duration::ZERO).unwrap();
+        assert_eq!(
+            transaction_status(&f.root, &f.request).unwrap(),
+            "cancelled"
         );
     }
     #[test]

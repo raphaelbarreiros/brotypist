@@ -24,6 +24,7 @@ $owned = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
 $products = [System.Collections.Generic.List[string]]::new()
 $logs = [System.Collections.Generic.List[string]]::new()
 $transactionUnknown = $false
+$installerTransactionActive = $false
 $installAttempted = $false
 $profile = $null
 $sentinels = @()
@@ -33,6 +34,8 @@ $originalRun = $null
 $runObserved = $false
 $installDirectory = $null
 $shortcut = $null
+$rollbackFixture = $null
+$rollbackFixtureOwned = $false
 
 function Require([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 function Equal($Actual, $Expected, [string]$Message) { Require ($Actual -ceq $Expected) $Message }
@@ -173,6 +176,153 @@ function Validate-Msi($Package) {
         [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($installer)
     }
 }
+# The only rollback fixture is derived locally from the just-validated canonical
+# MSI. No caller-supplied MSI, failure property or JSON result is trusted.
+function Msi-Get($Object, [string]$Name, [object[]]$Arguments = @()) {
+    return $Object.GetType().InvokeMember($Name, [Reflection.BindingFlags]::GetProperty, $null, $Object, $Arguments)
+}
+function Msi-Rows($Database, [string]$Sql) {
+    $view = Msi-Call $Database 'OpenView' @($Sql)
+    try {
+        [void](Msi-Call $view 'Execute')
+        $types = Msi-Get $view 'ColumnInfo' @([int]1)
+        try {
+            $count = [int](Msi-Get $types 'FieldCount')
+            while ($null -ne ($row = Msi-Call $view 'Fetch')) {
+                try {
+                    $fields = [Collections.Generic.List[object]]::new()
+                    for ($i = 1; $i -le $count; $i++) {
+                        $type = [string](Msi-Get $types 'StringData' @([int]$i))
+                        if ([bool](Msi-Get $row 'IsNull' @([int]$i))) { $fields.Add($null) }
+                        elseif ($type -imatch '^v') {
+                            $hash = [Security.Cryptography.IncrementalHash]::CreateHash([Security.Cryptography.HashAlgorithmName]::SHA256)
+                            [long]$length = 0
+                            try {
+                                while ($true) {
+                                    $chunk = [string](Msi-Call $row 'ReadStream' @([int]$i, [int]65536, [int]1))
+                                    if ($chunk.Length -eq 0) { break }
+                                    $bytes = [Text.Encoding]::Latin1.GetBytes($chunk)
+                                    $length += $bytes.Length
+                                    Require ($length -le 268435456) 'MSI audit stream exceeds bound'
+                                    $hash.AppendData($bytes)
+                                }
+                                $fields.Add([ordered]@{ size = $length; sha256 = [Convert]::ToHexString($hash.GetHashAndReset()).ToLowerInvariant() })
+                            } finally { $hash.Dispose() }
+                        } else { $fields.Add([string](Msi-Get $row 'StringData' @([int]$i))) }
+                    }
+                    # Preserve row boundaries/nulls; never concatenate raw SQL values.
+                    ConvertTo-Json -InputObject @($fields.ToArray()) -Depth 8 -Compress
+                } finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($row) }
+            }
+        } finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($types) }
+    } finally { [void](Msi-Call $view 'Close'); [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($view) }
+}
+function Msi-Audit($Database, [bool]$OmitFixtureRows, [bool]$OmitInstallExecute) {
+    $audit = [Collections.Generic.SortedDictionary[string,object]]::new([StringComparer]::Ordinal)
+    $names = @(Msi-Rows $Database 'SELECT `Name` FROM `_Tables`' | ForEach-Object { (ConvertFrom-Json -InputObject $_ -NoEnumerate)[0] })
+    Require ($names.Count -gt 0 -and $names.Count -le 256) 'MSI table inventory exceeds bound'
+    foreach ($name in @($names) + @('_Columns', '_Streams', '_Storages')) {
+        Require ($name -cmatch '^[A-Za-z_][A-Za-z_0-9]*$') 'Noncanonical MSI table name refused'
+        $sql = 'SELECT * FROM `' + $name + '`'
+        # SummaryInformation is audited property-by-property below so only its
+        # explicitly changed PackageCode is excluded, not cabinet/payload bytes.
+        if ($name -ceq '_Streams') { $sql += " WHERE ``Name`` <> '$([char]5)SummaryInformation'" }
+        if ($OmitFixtureRows -and $name -ceq 'CustomAction') { $sql += " WHERE ``Action`` <> 'BroTypist_CI_ONLY_RollbackFault'" }
+        if ($name -ceq 'InstallExecuteSequence') {
+            if ($OmitFixtureRows) { $sql += " WHERE ``Action`` <> 'BroTypist_CI_ONLY_RollbackFault'" }
+            if ($OmitInstallExecute) { $sql += $(if ($OmitFixtureRows) { " AND" } else { " WHERE" }) + " ``Action`` <> 'InstallExecute'" }
+        }
+        $rows = @(Msi-Rows $Database $sql)
+        Require ($rows.Count -le 32768) 'MSI table row count exceeds bound'
+        if ($name -ceq '_Storages') { Require ($rows.Count -eq 0) 'Nested MSI storage/transform fixture unsupported' }
+        $audit[$name] = @($rows | Sort-Object -CaseSensitive)
+    }
+    $summary = Msi-Get $Database 'SummaryInformation' @([int]0)
+    try {
+        $values = [ordered]@{}
+        foreach ($index in 1..19) {
+            if ($index -ne 9) { $values[[string]$index] = Msi-Get $summary 'Property' @([int]$index) }
+        }
+        $audit['summary_except_explicit_fixture_package_code'] = $values
+    } finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($summary) }
+    return ConvertTo-Json -InputObject $audit -Depth 16 -Compress
+}
+function New-RollbackFixture($Package) {
+    $path = Join-Path $Work 'CI-ONLY-NONDISTRIBUTABLE-rollback.msi'
+    Require (-not (Test-Path -LiteralPath $path)) 'Rollback fixture path already exists'
+    Hash-Equal $Package.artifacts.msi.path $Package.artifacts.msi.sha256
+    Copy-Item -LiteralPath $Package.artifacts.msi.path -Destination $path
+    $script:rollbackFixtureOwned = $true
+    Hash-Equal $path $Package.artifacts.msi.sha256
+    $installer = New-Object -ComObject WindowsInstaller.Installer
+    $original = $null; $fixture = $null
+    try {
+        $original = Msi-Call $installer 'OpenDatabase' @([string]$Package.artifacts.msi.path, [int]0)
+        $fixture = Msi-Call $installer 'OpenDatabase' @($path, [int]1)
+        $sequence = @(Msi-Rows $original 'SELECT `Action`, `Condition`, `Sequence` FROM `InstallExecuteSequence`' | ForEach-Object { ,(ConvertFrom-Json -InputObject $_ -NoEnumerate) })
+        $initialize = @($sequence | Where-Object { $_[0] -ceq 'InstallInitialize' })
+        $remove = @($sequence | Where-Object { $_[0] -ceq 'RemoveExistingProducts' })
+        $finalize = @($sequence | Where-Object { $_[0] -ceq 'InstallFinalize' })
+        $execute = @($sequence | Where-Object { $_[0] -ceq 'InstallExecute' })
+        Require ($initialize.Count -eq 1 -and $remove.Count -eq 1 -and $finalize.Count -eq 1 -and $execute.Count -le 1) 'Canonical transactional upgrade schedule missing'
+        Require ([int]$initialize[0][2] -lt [int]$remove[0][2] -and [int]$remove[0][2] -lt 6500 -and [int]$finalize[0][2] -gt 6501) 'Old-product removal must be within the rollback transaction before deferred writes'
+        Require (@($sequence | Where-Object { [int]$_[2] -eq 6501 -or $_[0] -ceq 'BroTypist_CI_ONLY_RollbackFault' }).Count -eq 0) 'Fixture sequence slot/action is already occupied'
+        if ($execute.Count -eq 1) { Require ([int]$execute[0][2] -eq 6500 -and [string]::IsNullOrEmpty([string]$execute[0][1])) 'Unexpected canonical InstallExecute schedule' }
+        else { Require (@($sequence | Where-Object { [int]$_[2] -eq 6500 }).Count -eq 0) 'InstallExecute fixture slot occupied' }
+        $before = Msi-Audit $original $false $false
+        $sql = @(
+            "INSERT INTO ``CustomAction`` (``Action``, ``Type``, ``Target``) VALUES ('BroTypist_CI_ONLY_RollbackFault', 19, 'BROTYPIST CI ONLY: intentional rollback after deferred MSI writes; NOT DISTRIBUTABLE')",
+            "INSERT INTO ``InstallExecuteSequence`` (``Action``, ``Condition``, ``Sequence``) VALUES ('BroTypist_CI_ONLY_RollbackFault', 'NOT Installed', 6501)"
+        )
+        if ($execute.Count -eq 0) { $sql += "INSERT INTO ``InstallExecuteSequence`` (``Action``, ``Sequence``) VALUES ('InstallExecute', 6500)" }
+        foreach ($statement in $sql) {
+            $view = Msi-Call $fixture 'OpenView' @($statement)
+            try { [void](Msi-Call $view 'Execute') } finally { [void](Msi-Call $view 'Close'); [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($view) }
+        }
+        # A distinct PackageCode prevents the failed test-only copy from sharing
+        # the canonical package cache identity. Product/family/source stay exact.
+        $fixturePackageCode = '{' + [Guid]::NewGuid().ToString().ToUpperInvariant() + '}'
+        $summary = Msi-Get $fixture 'SummaryInformation' @([int]1)
+        try {
+            [void]$summary.GetType().InvokeMember('Property', [Reflection.BindingFlags]::SetProperty, $null, $summary, @([int]9, $fixturePackageCode))
+            [void](Msi-Call $summary 'Persist')
+        } finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($summary) }
+        [void](Msi-Call $fixture 'Commit')
+        [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($fixture)
+        $fixture = Msi-Call $installer 'OpenDatabase' @($path, [int]0)
+        $after = Msi-Audit $fixture $true ($execute.Count -eq 0)
+        Equal $after $before 'Rollback fixture altered non-allowlisted tables, schema, streams or summary properties'
+        $auditHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.UTF8Encoding]::new($false).GetBytes($before))).ToLowerInvariant()
+        $fault = @(Msi-Rows $fixture "SELECT ``Action``, ``Type``, ``Source``, ``Target`` FROM ``CustomAction`` WHERE ``Action`` = 'BroTypist_CI_ONLY_RollbackFault'")
+        Equal ($fault.Count) 1 'Fixture error action missing/duplicated'
+        $faultRow = ConvertFrom-Json -InputObject $fault[0] -NoEnumerate
+        Require ($faultRow[0] -ceq 'BroTypist_CI_ONLY_RollbackFault' -and $faultRow[1] -ceq '19' -and $null -eq $faultRow[2] -and $faultRow[3] -ceq 'BROTYPIST CI ONLY: intentional rollback after deferred MSI writes; NOT DISTRIBUTABLE') 'Fixture has a noncanonical error action'
+        $faultSequence = @(Msi-Rows $fixture "SELECT ``Action``, ``Condition``, ``Sequence`` FROM ``InstallExecuteSequence`` WHERE ``Action`` = 'BroTypist_CI_ONLY_RollbackFault'")
+        Equal ($faultSequence.Count) 1 'Fixture error sequence missing'
+        $faultSchedule = ConvertFrom-Json -InputObject $faultSequence[0] -NoEnumerate
+        Require ($faultSchedule[1] -ceq 'NOT Installed' -and $faultSchedule[2] -ceq '6501') 'Fixture error is not scheduled after deferred writes'
+        $executeSequence = @(Msi-Rows $fixture "SELECT ``Action``, ``Condition``, ``Sequence`` FROM ``InstallExecuteSequence`` WHERE ``Action`` = 'InstallExecute'")
+        Equal ($executeSequence.Count) 1 'Fixture must execute queued writes before failure'
+        $executeSchedule = ConvertFrom-Json -InputObject $executeSequence[0] -NoEnumerate
+        Require ([string]::IsNullOrEmpty([string]$executeSchedule[1]) -and $executeSchedule[2] -ceq '6500') 'Fixture write action schedule differs'
+        $summary = Msi-Get $fixture 'SummaryInformation' @([int]0)
+        try { Equal (Msi-Get $summary 'Property' @([int]9)) $fixturePackageCode 'Fixture PackageCode differs' }
+        finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($summary) }
+    } finally {
+        if ($null -ne $fixture) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($fixture) }
+        if ($null -ne $original) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($original) }
+        [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($installer)
+    }
+    Hash-Equal $Package.artifacts.msi.path $Package.artifacts.msi.sha256
+    $fixtureHash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+    Require ($fixtureHash -cne $Package.artifacts.msi.sha256) 'Rollback fixture was not derived'
+    $acl = Get-Acl -LiteralPath $path
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-18'), 'Read', 'Allow'))
+    Set-Acl -LiteralPath $path -AclObject $acl
+    Hash-Equal $path $fixtureHash
+    Observe 'nondistributable_rollback_fixture_audit' @{ canonical_sha256 = $Package.artifacts.msi.sha256; derived_sha256 = $fixtureHash; normalized_before_and_after_audit_sha256 = $auditHash; production_unchanged = $true; package_code = $fixturePackageCode; table_diff = 'one type19 non-executable CustomAction + its InstallExecuteSequence row; standard InstallExecute at6500 only if absent; SummaryInformation9 unique PackageCode; every other table/schema/stream/summary property exact'; added_action = @($faultRow); added_sequence = @($faultSchedule); write_sequence = @($executeSchedule); executable_actions_added = 0; nondistributable = $true }
+    return @{ path = $path; sha256 = $fixtureHash }
+}
 function Product-Info([string]$Product, [uint32]$Context, [string]$Name) {
     [uint32]$length = 0
     # A PowerShell $null string binds as empty; MSI requires a native NULL SID.
@@ -199,7 +349,8 @@ function Arp-Keys([string]$Product) {
     for ($index = 0; $index -lt $tail.Length; $index += 2) { $packed += [string]$tail[$index + 1] + [string]$tail[$index] }
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     # This exact SID-scoped MSI database entry is not machine installation.
-    # It is read-only here; no probe code writes HKLM.
+    # Read-only here: the separate CI launcher owns only the bounded DisableMSI
+    # fixture, never this product registration or any installer/user-data key.
     return @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$Product", "HKLM:\Software\Microsoft\Windows\CurrentVersion\Installer\UserData\$sid\Products\$packed\InstallProperties")
 }
 function Machine-ArpKeys([string]$Product) {
@@ -224,7 +375,7 @@ function Observe-ClientAndPolicy {
             $key = $null
             try {
                 $key = $base.OpenSubKey('Software\Policies\Microsoft\Windows\Installer', $false)
-                foreach ($name in @('AlwaysInstallElevated', 'DisableMSI')) {
+                foreach ($name in @('AlwaysInstallElevated', 'DisableMSI', 'DisableUserInstalls')) {
                     $present = $null -ne $key -and $key.GetValueNames() -contains $name
                     $dword = $present -and $key.GetValueKind($name) -eq [Microsoft.Win32.RegistryValueKind]::DWord
                     @{ hive = $hive.ToString(); view = 'Registry64'; policy = $name; present = $present; dword = $dword; value = $(if ($dword) { [int]$key.GetValue($name) } else { $null }) }
@@ -232,9 +383,10 @@ function Observe-ClientAndPolicy {
             } finally { if ($null -ne $key) { $key.Dispose() }; $base.Dispose() }
         }
     )
-    $receipt.observations.Add(@{ check = 'installer_client_token_and_policies'; status = 'observed'; passed = $null; evidence = @{ client = $client; policies = $policies; policies_modified = $false } })
+    $receipt.observations.Add(@{ check = 'installer_client_token_and_policies'; status = 'observed'; passed = $null; evidence = @{ client = $client; policies = $policies; modified_by_this_core = $false; launcher_policy_fixture = 'separate client-observations.json before/during/restored evidence, not a core claim of unchanged host policy' } })
     if ($RequireRestrictedClient) {
         Require ($client.same_user_as_launcher -and -not $client.is_system -and -not $client.administrator_role_enabled -and $client.integrity_rid -eq 8192 -and $client.token_has_restrictions -eq 1 -and $client.token_type -eq 1 -and $client.impersonation_level -ceq 'None') 'Restricted experiment requires verified same-user non-System Administrator-disabled medium-integrity restricted primary client'
+        Require (@($policies | Where-Object { $_.hive -ceq 'LocalMachine' -and $_.policy -ceq 'DisableMSI' -and $_.present -and $_.dword -and $_.value -eq 0 }).Count -eq 1) 'Restricted child did not observe the explicit bounded DisableMSI0 host fixture'
         Observe 'restricted_rights_client_verified_before_installer' @{ same_user = $true; administrator_role_enabled = $false; integrity_rid = 8192; token_has_restrictions = 1; token_type = 1; token_elevation = $client.token_elevation; elevation_type = $client.elevation_type; scope = 'SAFER-restricted rights, not a genuine UAC-filtered logon or full desktop compatibility proof' }
     }
 }
@@ -339,9 +491,32 @@ function Assert-Installed($Package) {
     Assert-Sentinels
     Assert-Run
 }
-function Msi-Transaction([string]$Stage, [string[]]$Arguments, [switch]$ExpectedFailure) {
+function Assert-RollbackLog([string]$Path) {
+    Require ((Get-Item -LiteralPath $Path).Length -le 33554432) 'Rollback log exceeds bounded audit size'
+    $reader = [IO.StreamReader]::new($Path, [Text.Encoding]::UTF8, $true)
+    $writes = 0; $executed = $false; $fault = $false; $message = $false; $rollback = $false
+    try {
+        while ($null -ne ($line = $reader.ReadLine())) {
+            if (-not $fault -and $line.Contains('Executing op: FileCopy(')) { $writes++ }
+            if (-not $fault -and $line -match 'Action ended .*: InstallExecute\. Return value 1\.') { $executed = $true }
+            if ($line -match 'Action start .*: BroTypist_CI_ONLY_RollbackFault\.') {
+                Require ($executed -and $writes -gt 0) 'Fault occurred before real deferred file writes'
+                $fault = $true
+            }
+            if ($fault -and $line.Contains('BROTYPIST CI ONLY: intentional rollback after deferred MSI writes; NOT DISTRIBUTABLE')) { $message = $true }
+            if ($fault -and $line.Contains('Rollback:')) { $rollback = $true }
+        }
+    } finally { $reader.Dispose() }
+    Require ($executed -and $fault -and $message -and $rollback -and $writes -gt 0) 'Native log did not establish deferred writes, authored fault and rollback'
+    Observe 'rollback_native_transaction_log' @{ install_execute_completed_before_fault = $executed; file_copy_operations_before_fault = $writes; exact_type19_error_observed = $message; native_rollback_observed = $rollback }
+}
+function Msi-Transaction([string]$Stage, [string[]]$Arguments, [switch]$ExpectedFailure, [switch]$RollbackFailure) {
+    Require (-not ($ExpectedFailure -and $RollbackFailure)) 'Ambiguous expected MSI failure refused'
     $log = Join-Path $Work ($Stage + '.msi.log')
     $logs.Add($log)
+    # Set before launch and clear only after a synchronous client exit. Any
+    # intervening exception leaves service transaction quiescence unprovable.
+    $script:installerTransactionActive = $true
     $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\msiexec.exe') -ArgumentList ($Arguments + @('/qn', '/norestart', '/L*v', ('"' + $log + '"'))) -PassThru
     $owned.Add($process)
     [void]$process.Handle
@@ -354,16 +529,21 @@ function Msi-Transaction([string]$Stage, [string[]]$Arguments, [switch]$Expected
         throw 'Owned msiexec timed out; Windows Installer transaction state is unknown; no racing retry/uninstall attempted'
     }
     $code = $process.ExitCode
+    $script:installerTransactionActive = $false
     Observe-MsiRouting $Stage $log
     $rejected = $false
     if ($ExpectedFailure -and $code -eq 1603) {
         $text = Bounded-Text $log 65536
         $rejected = $text.Contains('A newer version of BroTypist is already installed.')
     }
-    $receipt.observations.Add(@{ check = $Stage; passed = if ($ExpectedFailure) { $rejected } else { $code -in @(0, 3010) }; exit_code = $code; reboot_required = $code -eq 3010; authored_downgrade_message_observed = $rejected })
+    if ($RollbackFailure) {
+        Require ($code -eq 1603) 'Rollback fixture did not return native MSI failure1603'
+        Assert-RollbackLog $log
+    }
+    $receipt.observations.Add(@{ check = $Stage; passed = if ($RollbackFailure) { $code -eq 1603 } elseif ($ExpectedFailure) { $rejected } else { $code -in @(0, 3010) }; exit_code = $code; reboot_required = $code -eq 3010; authored_downgrade_message_observed = $rejected; rollback_failure_fixture = [bool]$RollbackFailure })
     Require ($code -ne 1641) 'Installer initiated an unexpected reboot'
     if ($ExpectedFailure) { Require $rejected 'Expected authored MSI downgrade rejection was not observed' }
-    else { Require ($code -in @(0, 3010)) 'MSI transaction failed' }
+    elseif (-not $RollbackFailure) { Require ($code -in @(0, 3010)) 'MSI transaction failed' }
     return $code
 }
 function Invoke-NativeCli([string]$Executable, [string[]]$Arguments, [string]$Stage, [int]$Timeout = 30) {
@@ -496,6 +676,13 @@ try {
     Require (-not (Test-Path -LiteralPath (Join-Path $Work 'observations.json'))) 'Refusing existing evidence output'
     $input = Get-Content -LiteralPath $InputFile -Raw | ConvertFrom-Json
     $package = $input.package
+    $exerciseRollback = $null -ne $input.PSObject.Properties['rollback_test_only'] -and $input.rollback_test_only -eq $true
+    Require (-not $exerciseRollback -or $null -ne $input.previous) 'Real rollback requires a genuine authenticated previous package'
+    if ($null -ne $input.previous) {
+        Require ([Version]$input.previous.version -lt [Version]$package.version -and $input.previous.upgrade_code -ceq $package.upgrade_code -and $input.previous.product_code -cne $package.product_code) 'Upgrade requires a genuine older same-family product'
+        $receipt.required_gates.upgrade = @{ status = 'failed'; reason = 'requested prior-package lifecycle has not reached passing assertions' }
+    }
+    if ($exerciseRollback) { $receipt.required_gates.rollback = @{ status = 'failed'; reason = 'requested real-write rollback has not reached restored prior-product/files/data assertions' } }
     Add-Type -TypeDefinition @'
 using System;
 using System.Text;
@@ -637,6 +824,19 @@ public static class BroTypistInstallerNative {
         [void](Msi-Transaction 'prior_install' @('/i', ('"' + $input.previous.artifacts.msi.path + '"')))
         Assert-Installed $input.previous
         Probe-Cli $installDirectory $input.previous 'prior_installed_cli_doctor'
+        if ($exerciseRollback) {
+            $rollbackFixture = New-RollbackFixture $package
+            Hash-Equal $rollbackFixture.path $rollbackFixture.sha256
+            [void](Msi-Transaction 'real_upgrade_rollback' @('/i', ('"' + $rollbackFixture.path + '"')) -RollbackFailure)
+            Assert-Installed $input.previous
+            Probe-Cli $installDirectory $input.previous 'rollback_restored_prior_cli_doctor'
+            Require (@(Contexts (Guid-Code $package)).Count -eq 0) 'Failed upgrade left new product registered'
+            Observe-ArpScope 'after_rollback_new_product_absent' (Guid-Code $package)
+            foreach ($key in @((Arp-Keys (Guid-Code $package))) + @((Machine-ArpKeys (Guid-Code $package)))) { Require (-not (Test-Path -LiteralPath $key)) 'Failed upgrade left new-product ARP registration' }
+            Assert-Sentinels; Assert-Run
+            Hash-Equal $package.artifacts.msi.path $package.artifacts.msi.sha256
+            $receipt.required_gates.rollback = @{ status = 'passed'; from_version = $input.previous.version; attempted_version = $package.version; prior_product_files_data_restored = $true; new_product_absent = $true; real_deferred_writes_before_type19_fault = $true; nondistributable_fixture = $true; fixture_sha256 = $rollbackFixture.sha256 }
+        }
         [void](Msi-Transaction 'major_upgrade' @('/i', ('"' + $package.artifacts.msi.path + '"')))
         Assert-Installed $package
         Require (@(Contexts (Guid-Code $input.previous)).Count -eq 0) 'Prior product remained registered after major upgrade'
@@ -671,7 +871,7 @@ public static class BroTypistInstallerNative {
         } catch { $receipt.diagnostics.Add((Redact ('Owned process cleanup: ' + $_.Exception.Message))) }
     }
     if ($installAttempted) {
-        if ($transactionUnknown) { $receipt.diagnostics.Add('Installer transaction state unknown; uninstall safely withheld instead of racing MSI service') }
+        if ($transactionUnknown -or $installerTransactionActive) { $receipt.diagnostics.Add('Installer transaction state unknown; uninstall safely withheld instead of racing MSI service') }
         else {
             try {
                 foreach ($product in $products) {
@@ -702,6 +902,7 @@ public static class BroTypistInstallerNative {
     # Keep only bounded/redacted diagnostics, not arbitrary MSI/CLI environment
     # dumps. Raw logs were confined to the ACL-private work directory.
     foreach ($log in $logs) {
+        if ($transactionUnknown -or $installerTransactionActive) { continue }
         try {
             if (Test-Path -LiteralPath $log -PathType Leaf) {
                 if ($receipt.diagnostics.Count -gt 0 -and $receipt.diagnostics.Count -lt 8) { $receipt.diagnostics.Add((Redact (Bounded-Text $log 4096))) }
@@ -709,10 +910,24 @@ public static class BroTypistInstallerNative {
             }
         } catch { $receipt.diagnostics.Add('Could not remove owned raw diagnostic log') }
     }
-    $receipt.passed = $receipt.diagnostics.Count -eq 0 -and $installAttempted -and @($receipt.observations | Where-Object { $_.check -eq 'installed_native_settings_quit' }).Count -eq 1 -and @($receipt.observations | Where-Object { $_.check -eq 'uninstall' -and $_.passed }).Count -eq 1
+    if ($rollbackFixtureOwned -and -not $transactionUnknown -and -not $installerTransactionActive) {
+        try { Remove-Item -LiteralPath (Join-Path $Work 'CI-ONLY-NONDISTRIBUTABLE-rollback.msi') -Force }
+        catch { $receipt.diagnostics.Add('Owned nondistributable rollback fixture cleanup failed') }
+    }
+    $ownedQuiescent = $true
+    foreach ($process in $owned) {
+        try { if (-not $process.HasExited) { $ownedQuiescent = $false } }
+        catch { $ownedQuiescent = $false }
+    }
+    $receipt.quiescence = @{
+        installer_transactions_quiescent = -not $transactionUnknown -and -not $installerTransactionActive
+        owned_processes_quiescent = $ownedQuiescent
+        unknown_transaction_is_not_exit_evidence = $true
+    }
+    $receipt.passed = $receipt.diagnostics.Count -eq 0 -and $installAttempted -and $receipt.quiescence.installer_transactions_quiescent -and $receipt.quiescence.owned_processes_quiescent -and @($receipt.observations | Where-Object { $_.check -eq 'installed_native_settings_quit' }).Count -eq 1 -and @($receipt.observations | Where-Object { $_.check -eq 'uninstall' -and $_.passed }).Count -eq 1
     $bytes = [Text.UTF8Encoding]::new($false).GetBytes(($receipt | ConvertTo-Json -Depth 16) + "`n")
     $stream = [IO.File]::Open((Join-Path $Work 'observations.json'), [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
     try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
 }
 if (-not $receipt.passed) { [Console]::Error.WriteLine('Windows core installer smoke failed; see redacted observations'); exit 1 }
-Write-Output 'Windows core installer smoke passed; upgrade/rollback gates remain separately scoped'
+Write-Output 'Windows core installer smoke passed within the explicitly recorded upgrade/rollback scope'

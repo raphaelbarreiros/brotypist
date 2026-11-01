@@ -2,10 +2,10 @@
 
 # BroTypist: feature-preserving Rust conversion
 
-Status: **Rust source merged through PR #1 at `c307260084039e6a0c1d6ae4f96aaeb57bf72eee`; follow-up fixes and 0.5.0 native release verification are in progress.** The user confirmed the signed Mac candidate's WhatsApp predictions work, requested installation on `gamer-pc` followed by release, and subsequently requested completion of the remaining items. PC installation is recorded below; user acceptance of its desktop typing and the complete cross-platform matrix are not established by that request.
+Status: **Rust source merged through PR #1 at `c307260084039e6a0c1d6ae4f96aaeb57bf72eee`; the user approved a macOS-only 0.5.0 prerelease, not yet published. Latest stable remains `v0.4.13`.** The actual `gamer-pc` 0.5.0 deployment is recorded in section 23, with native GTK lifecycle and installed-worker proof but no personal-typing or KWin transport acceptance. macOS model-quality limits and Windows/Linux acceptance gates remain open; this is not full three-platform parity.
 Baseline: `6eaeed5fe56e1ea8dcf878b1b7498f922c26fd59`, version 0.4.13.
 
-Requested outcome: convert the application to Rust for macOS, Windows and Linux while retaining all existing functionality. macOS remains the first parity gate; implemented Windows/Linux paths must also be migrated. The later release request authorizes preparation and publication after the applicable verification gates; it does not establish missing platform evidence or authorize reduced functionality, cloud features, security-policy changes or consent changes. Local Mac and PC replacements preserve rollback copies and external user data.
+Requested outcome: convert the application to Rust for macOS, Windows and Linux while retaining all existing functionality. macOS remains the first parity gate; implemented Windows/Linux paths must also be migrated. The subsequent explicit macOS-only prerelease approval permits that bounded preview after its final source/package gates, without making missing Windows/Linux evidence a pass or including those platforms in publication. It does not authorize reduced functionality, cloud features, security-policy changes or consent changes. Local Mac and PC replacements preserve rollback copies and external user data.
 
 Read only the section/artifact needed:
 
@@ -109,6 +109,8 @@ For each integrated packet, one independent reviewer checks semantic/data/securi
 
 ## 6. Current verification evidence and gates
 
+The table retains source-bound historical observations. Section 23 records the newer 0.5.0 deployment, approved release scope and outstanding verification; earlier passes do not automatically apply to later source revisions.
+
 | Boundary | Observed evidence | Limits / next gate |
 | --- | --- | --- |
 | Integrated Rust workspace | 451 passing invocations, including two child probes; native bins/examples and actual Tiny/Gemma worker/public CLI passed. Portuguese auto continuation, ready/proceed, stale-document refusal, release/reload and clean exit exercised. | Not a coverage comparison with Python. |
@@ -123,7 +125,7 @@ The full 51-case Gemma corpus matched every insertion/decoded-choice value and p
 
 Six selected direct/worker benchmark cases passed mechanical checks. Separate direct EN/PT diagnostics exercised the 256-token cap, sampler/BOS/token budgets and process-lifetime RSS. Direct cancellation passed; one after-result worker cancellation was explicitly inconclusive because the producer had already finished. These are not physical-typing latency or universal stochastic-output claims.
 
-Remaining acceptance boundaries: Windows installed runtime/repair/native Quit and registry-ownership diagnosis; signed external-host editing/readback and live TCC; actual KWin controls/refusal/input forwarding/cleanup; previous-release upgrades/rollback/OTA; unavailable large-model scenarios. No timeout, provider/model, ownership or paint-safety gate is relaxed to obtain a pass. Main and published releases remain unchanged.
+Remaining acceptance boundaries: current Windows MSI installation/repair/installed runtime and prior registry-ownership diagnosis; signed external-host editing/readback and live TCC beyond the bounded observations below; actual KWin controls/refusal/input forwarding/cleanup and personal PC typing; previous-release upgrades/rollback/OTA; unavailable large-model scenarios and semantic model quality. No provider/model, ownership or paint-safety gate is relaxed to obtain a pass. The approved Mac prerelease still needs its final source-bound package verification and publication; Latest stable remains `v0.4.13`.
 
 ## 7. Authorized local macOS installation
 
@@ -283,11 +285,37 @@ The requested PC is CachyOS x86_64 with KDE Wayland, not Windows. [Installation 
 
 The previous app's actual PID-owned tray Quit completed without termination signals. Its newer saved startup/setup preferences and KDE input-method choice differed from the initial snapshot; the guarded installer preserved the latest state rather than restoring the older snapshot. The original payload, opaque profile/launcher snapshots and exact portable remain in a private per-user rollback directory. The installed executable's hash, latest settings, login launcher and cached Gemma bytes were verified after startup. An actual PID-owned, responsive `BroTypist Settings` GTK frame was observed at 960×700 on the desktop; compositor pixels were not captured. The staged production CLI generated `a festa.` from synthetic cake text using the existing Gemma model in an isolated profile. No model, consent or input-method selection was changed by installation.
 
-Settings remains open for the user's test. **Ordinary Wayland inline predictions are unavailable**; model preview and explicitly selected experimental input-method controls are not general inline support. PC acceptance is pending, not inferred from process or inference success.
+This historical 0.4.13 installation is superseded by the actual 0.5.0 deployment in section 23. **Ordinary Wayland inline predictions remain unavailable**; model preview and explicitly selected experimental input-method controls are not general inline support. PC acceptance is pending, not inferred from process or inference success.
 
 ## 22. Branded README and conditional release preparation
 
 The main README now uses the supplied Typing Buddy identity with theme-aware wordmark assets, an actual owned native Settings capture, installation/usage guidance and explicit platform/privacy/model-quality limits. Relative links, self-contained SVGs and GitHub's actual GFM rendering were checked.
 
-Publication remains conditional on the user's PC test. The existing publisher credential's metadata-only Keychain handle is present; no signing secret was requested. Current Rust tooling supports clean native Mac/Linux package sealing and externally signed assembly, but holds Windows and has no per-target preview OTA channel. The conservative release scope is macOS; Linux remains a separately tested preview rather than silently entering Latest OTA. Final versioning, merge-bound provenance, clean packages, publisher signing and publication follow acceptance. Existing stable `v0.4.13` is unchanged.
+The user subsequently explicitly approved a **macOS-only 0.5.0 prerelease**, rather than waiting to publish for PC acceptance. The existing publisher credential's metadata-only Keychain handle is present; no signing secret was requested. Current Rust tooling supports clean native Mac/Linux package sealing and externally signed assembly, but holds Windows and has no per-target preview OTA channel. Linux remains a separately tested private preview, not a published prerelease asset or Latest OTA target. Final source-bound rebuild, clean packages, publisher signing and publication remain pending; the prerelease is not yet published and stable `v0.4.13` is unchanged.
+
+## 23. Actual 0.5.0 deployment and approved Mac-only prerelease boundary
+
+### gamer-pc: canonical Linux package, native lifecycle and real worker
+
+The [sanitized 0.5.0 deployment receipt](../../evidence/rust-migration/gamer-pc-0.5.0-deployment.json) preserves the content-free verified receipt's substantive observations and all canonical source/artifact/package identities. Its original receipt SHA-256 is `6d9943cbd188490b99960746294a428606ba7e9c5f443a4e5da387ca7143c7b8`; absolute user/recovery paths are replaced with `$HOME`-relative paths and private recovery placeholders. That original digest identifies the private input receipt, not the sanitized copy.
+
+CI [run 41288799403](https://github.com/renan-brasilio/brotypist/actions/runs/41288799403), artifact `13077480393`, supplied the installed canonical Linux x86_64 0.5.0 portable. Its source is **PR synthetic merge `a7aec67228d1204ddaf1dce208eac47f837906ee`**, with parents `c307260084039e6a0c1d6ae4f96aaeb57bf72eee` and PR head `2f6e992f3571a9d028753c756dad18a1f2a8712e`; it is **not** the Mac head/build source. Archive SHA-256 is `6b2479fb89d5c341354f049b3131212e2cbee714a33f26e1b4270b58d4c118ac`, portable SHA-256 is `e85bcb144a065d4577b418a1f3af8a638a34fbabfad45a41739ac0e9b9e9ed32`, and all 535 payload files are bound by the retained manifest and binary hashes.
+
+Actual GTK/AT-SPI automation observed the owned Settings frame, clicked its real Close button, verified that the same PID stayed resident with zero visible owned frames, reopened Settings through the tray, and clicked the real Quit BroTypist button with PID exit confirmed. The canonical installed `_worker`, using existing Gemma weights without download and an isolated inference profile, emitted loading/ready/streamed-result/done events, produced 55 result bytes in 3.948 seconds, and stopped with exit 0 and no surviving worker. The separate successful public CLI completion uses the in-process provider; it is not a substitute for that child-worker proof. No personal writing was read or used for these observations.
+
+The final normal service is `brotypist-native-private-050-normal.service`, PID `3107248`, generation `6871792`, with the original `--settings --pane general` arguments restored. A temporary paused smoke process quit cleanly; **no runtime pause override or saved pause change remains**. The final launch was observed through its owned executable, unit MainPID and arguments, not a fresh final-frame/typing smoke. Normal profile bytes, launchers, symlink, model/cache, consent/login settings and `kwinrc` were preserved; rollback and earlier recovery remain private. The receipt's earlier doctor snapshot (`global_enabled=false`) is not the final saved-settings state: the last preservation observation was enabled, not reread or altered during the final launch correction.
+
+KWin reports virtual keyboard **available=true, active=false**. This user-service invocation has no compositor private socket and correctly refuses input-method transport. No socket was forged; input-method selection, compositor/session environment and policy were unchanged, with no reselect or compositor restart and no new autostart enabled. **Ordinary KDE inline/preedit remains disabled under baseline P25.** Manual completion/typing and personal desktop acceptance were not exercised. An unsigned private Linux deployment plus GTK/worker success is neither a full installer/upgrade/rollback matrix nor Linux publication or user-typing acceptance.
+
+### Mac source-bound rendering, context and model-quality limits
+
+An actual owned synthetic-window check on Mac source `2f6e992f3571a9d028753c756dad18a1f2a8712e` observed `Então, qual o próximo` (generic) and `Vou buscar o carregador agora.` with a visible car/charger reference. The second is useful native rendering proof with supplied context, not universal semantic quality, personal-message acceptance or a reconstructed WhatsApp request. The runtime context-prefetch cancellation defect has been fixed; the exact historical WhatsApp request cannot be reconstructed. The earlier user-confirmed visibility success remains source/scenario-bound, not a blanket acceptance of later model output.
+
+Gemma remains selected. Actual quality comparisons rejected the prompt rewrite and larger Qwen replacement rather than silently changing model selection. Generic or unjustified completions remain possible. Mac candidate C0 on `2f6e992` is superseded for release by the subsequent updater deadline fix: final Mac release binaries must be rebuilt and verified against the final source identity. Linux's synthetic-merge identity above must not be reused as that Mac identity.
+
+### Windows and publication remain bounded
+
+Real Windows source build, worker, owned GUI and packaging checks passed, but a hosted restricted-rights MSI attempt returned **1625**. The user approved only a disposable hosted-CI fixture that sets `DisableMSI=0` **when the value is absent**, with transactional restoration; it does not override an existing policy or weaken production settings. Updated native installer verification is pending. Earlier portable passes and the earlier machine-ARP ownership failure remain historical evidence, not proof of current installed-runtime, repair, upgrade or rollback acceptance.
+
+The approved deliverable is **Mac-only prerelease**, not yet published. Stable **`v0.4.13` remains Latest**. Windows/Linux publication and acceptance remain held; Mac model-quality and external personal-message limits stay explicit. Neither this documentation update nor source-only review establishes native runtime success or completion of the full migration matrix.
 

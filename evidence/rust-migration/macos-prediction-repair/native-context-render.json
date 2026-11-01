@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "version": "0.5.0",
+  "source_commit": "2f6e992f3571a9d028753c756dad18a1f2a8712e",
+  "scope": "Actual installed native macOS rendering on an owned synthetic AppKit text field; not personal WhatsApp content or final release-wide acceptance",
+  "native_rendering_observed": true,
+  "normal_profile_unchanged": true,
+  "normal_launch_restored": true,
+  "context_configuration": {
+    "screen_context": true,
+    "clipboard_context": false,
+    "screenshot_context": false,
+    "history": false,
+    "statistics": false,
+    "personalization_strength": 0,
+    "model_id": "gemma4-e2b",
+    "prompt_style": "writing",
+    "only_synthetic_app_enabled": true
+  },
+  "synthetic_visible_reference": "O carro está sem bateria. Precisamos buscar o carregador que está na garagem.",
+  "observations": [
+    {
+      "draft": "Então",
+      "painted_suffix": ", qual o próximo",
+      "assessment": "Generic; does not demonstrate useful reference conditioning"
+    },
+    {
+      "draft": "Vou buscar o",
+      "painted_suffix": " carregador agora.",
+      "assessment": "Useful visible native completion aligned with the reference; one observation does not establish universal context quality or causal attribution"
+    }
+  ],
+  "image": {
+    "path": "native-context-render.png",
+    "sha256": "0b9d0dbd5a1e033484fd547391862cb41646449e21d0c1107a4171e65a92634e",
+    "method": "Exact captured pixels of only the owned field and prediction-service windows composited at observed CGWindow coordinates; not a mockup or a full-desktop capture"
+  },
+  "limitations": [
+    "This source was superseded for release by the subsequently discovered updater ownership-lock deadline fix.",
+    "The original historical WhatsApp generation cannot be reconstructed from fresh diagnostics.",
+    "No personal WhatsApp message was read or sent.",
+    "No new permission, model download, saved-preference change or production policy change was needed.",
+    "Generic/context-irrelevant suggestions remain possible with the selected model."
+  ],
+  "full_cross_platform_matrix_passed": false
+}
