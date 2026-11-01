@@ -1,6 +1,11 @@
 # Owned by xtask smoke-installer. Never invoke against a workstation or normal profile.
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$InputFile, [Parameter(Mandatory)][string]$Work)
+param(
+    [Parameter(Mandatory)][string]$InputFile,
+    [Parameter(Mandatory)][string]$Work,
+    [switch]$RequireRestrictedClient,
+    [string]$ExpectedUserSid
+)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $receipt = [ordered]@{
@@ -209,6 +214,7 @@ function Observe-ClientAndPolicy {
             administrator_role_enabled = ([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
             administrator_group_present = $identity.Groups -contains [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
             is_system = $identity.IsSystem; impersonation_level = $identity.ImpersonationLevel.ToString()
+            same_user_as_launcher = -not [string]::IsNullOrWhiteSpace($ExpectedUserSid) -and $identity.User.Value -ceq $ExpectedUserSid
         }
     } finally { $identity.Dispose() }
     $policies = @(
@@ -226,6 +232,10 @@ function Observe-ClientAndPolicy {
         }
     )
     $receipt.observations.Add(@{ check = 'installer_client_token_and_policies'; status = 'observed'; passed = $null; evidence = @{ client = $client; policies = $policies; policies_modified = $false } })
+    if ($RequireRestrictedClient) {
+        Require ($client.same_user_as_launcher -and -not $client.is_system -and -not $client.elevated -and -not $client.administrator_role_enabled -and $client.integrity_rid -eq 8192 -and $client.impersonation_level -ceq 'None') 'Restricted experiment requires verified same-user non-elevated medium-integrity primary client'
+        Observe 'restricted_client_verified_before_installer' @{ same_user = $true; elevated = $false; administrator_role_enabled = $false; integrity_rid = 8192; primary_process_token = $true }
+    }
 }
 function Observe-ArpScope([string]$Stage, [string]$Product) {
     # Open explicit native views independently of PowerShell provider resolution.

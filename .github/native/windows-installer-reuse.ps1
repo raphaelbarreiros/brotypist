@@ -81,6 +81,92 @@ function Extract-Entry($Entry, [string]$Path, [long]$Limit) {
 function Get-Api([string]$Suffix) {
     return Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/$Suffix" -Headers $script:headers -TimeoutSec 60
 }
+function Invoke-RestrictedCore([string]$Executable, [string]$Core, [string]$InputPath, [string]$CoreWork) {
+    # Disposable experiment only: no linked-token assumption, alternate
+    # credentials, inert SAFER flags, UAC changes, or policy/desktop ACL writes.
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
+using System.Text;
+public static class BroTypistRestrictedInstallerClient {
+    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
+    struct Startup {
+        public int size;
+        public string reserved,desktop,title;
+        public uint x,y,width,height,xChars,yChars,fill,flags;
+        public ushort show,reservedCount;
+        public IntPtr reservedBytes,input,output,error;
+    }
+    [StructLayout(LayoutKind.Sequential)] struct ProcessInfo {
+        public IntPtr process,thread;
+        public uint processId,threadId;
+    }
+    [StructLayout(LayoutKind.Sequential)] struct Label { public IntPtr sid; public uint attributes; }
+    [DllImport("advapi32.dll", SetLastError=true)] static extern bool SaferCreateLevel(uint scope,uint level,uint flags,out IntPtr handle,IntPtr reserved);
+    [DllImport("advapi32.dll", SetLastError=true)] static extern bool SaferComputeTokenFromLevel(IntPtr level,IntPtr source,out IntPtr token,uint flags,IntPtr reserved);
+    [DllImport("advapi32.dll")] static extern bool SaferCloseLevel(IntPtr handle);
+    [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool ConvertStringSidToSidW(string text,out IntPtr sid);
+    [DllImport("advapi32.dll")] static extern uint GetLengthSid(IntPtr sid);
+    [DllImport("advapi32.dll", SetLastError=true)] static extern bool SetTokenInformation(IntPtr token,int kind,IntPtr value,int size);
+    [DllImport("advapi32.dll", SetLastError=true)] static extern bool GetTokenInformation(IntPtr token,int kind,out uint value,int size,out int needed);
+    [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern bool CreateProcessAsUserW(IntPtr token,string application,StringBuilder command,IntPtr processAttributes,IntPtr threadAttributes,bool inherit,uint flags,IntPtr environment,string directory,ref Startup startup,out ProcessInfo process);
+    [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr memory);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern uint WaitForSingleObject(IntPtr handle,uint timeout);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetExitCodeProcess(IntPtr handle,out uint code);
+    static void Check(bool value) { if(!value) throw new Win32Exception(Marshal.GetLastWin32Error()); }
+    public static int Run(string executable,string command,string directory,string expectedSid) {
+        IntPtr level=IntPtr.Zero,token=IntPtr.Zero,sid=IntPtr.Zero,label=IntPtr.Zero;
+        ProcessInfo process=new ProcessInfo();
+        try {
+            Check(SaferCreateLevel(2,0x20000,1,out level,IntPtr.Zero));
+            // NORMALUSER removes Administrator and Power User rights. Flags=0
+            // deliberately keeps AppLocker/software-restriction enforcement.
+            Check(SaferComputeTokenFromLevel(level,IntPtr.Zero,out token,0,IntPtr.Zero));
+            if(token==IntPtr.Zero) throw new InvalidOperationException("SAFER did not return a restricted token");
+            Check(ConvertStringSidToSidW("S-1-16-8192",out sid));
+            int size=checked(Marshal.SizeOf<Label>()+(int)GetLengthSid(sid));
+            label=Marshal.AllocHGlobal(size);
+            Marshal.StructureToPtr(new Label { sid=sid,attributes=0x20 },label,false);
+            Check(SetTokenInformation(token,25,label,size));
+            uint elevated; int needed;
+            Check(GetTokenInformation(token,20,out elevated,4,out needed));
+            using(var identity=new WindowsIdentity(token)) {
+                if(identity.User.Value!=expectedSid || identity.IsSystem || elevated!=0 ||
+                   new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator))
+                    throw new InvalidOperationException("SAFER token is not same-user non-elevated/non-administrator");
+            }
+            var startup=new Startup { size=Marshal.SizeOf<Startup>() };
+            // Same SID, environment, loaded profile and inherited desktop.
+            // No handle inheritance or desktop/window-station ACL modification.
+            Check(CreateProcessAsUserW(token,executable,new StringBuilder(command),IntPtr.Zero,IntPtr.Zero,false,0,IntPtr.Zero,directory,ref startup,out process));
+            uint wait=WaitForSingleObject(process.process,900000);
+            if(wait==258) throw new TimeoutException("Restricted probe timed out; transaction state unknown; no racing retry or uninstall launched");
+            if(wait!=0) throw new Win32Exception(Marshal.GetLastWin32Error());
+            uint code; Check(GetExitCodeProcess(process.process,out code));
+            return unchecked((int)code);
+        } finally {
+            if(process.thread!=IntPtr.Zero) CloseHandle(process.thread);
+            if(process.process!=IntPtr.Zero) CloseHandle(process.process);
+            if(label!=IntPtr.Zero) Marshal.FreeHGlobal(label);
+            if(sid!=IntPtr.Zero) LocalFree(sid);
+            if(token!=IntPtr.Zero) CloseHandle(token);
+            if(level!=IntPtr.Zero) SaferCloseLevel(level);
+        }
+    }
+}
+'@
+    foreach ($path in @($Executable, $Core, $InputPath, $CoreWork)) {
+        Require ([IO.Path]::IsPathFullyQualified($path) -and $path -cnotmatch '["\r\n]') 'Unsafe restricted child path'
+    }
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    try { $expectedSid = $identity.User.Value } finally { $identity.Dispose() }
+    $command = '"{0}" -NoLogo -NoProfile -NonInteractive -File "{1}" -InputFile "{2}" -Work "{3}" -RequireRestrictedClient -ExpectedUserSid "{4}"' -f $Executable, $Core, $InputPath, $CoreWork, $expectedSid
+    return [BroTypistRestrictedInstallerClient]::Run($Executable, $command, $CoreWork, $expectedSid)
+}
 function Read-CheckoutIdentity([string]$Path) {
     # Read only the first checkout action. Later build output cannot manufacture
     # an identity, and no raw Actions log is retained in the public receipt.
@@ -302,17 +388,15 @@ try {
     $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
     $env:BROTYPIST_INSTALLER_SMOKE_DISPOSABLE = '1'
     $env:GH_TOKEN = $null; $script:headers = $null
-    $capture = [Text.StringBuilder]::new()
-    & $pwsh -NoLogo -NoProfile -NonInteractive -File $core -InputFile $inputPath -Work $coreWork 2>&1 | ForEach-Object {
-        if ($capture.Length -lt 32768) { [void]$capture.AppendLine((Redact ([string]$_))) }
-    }
-    $nativeExit = $LASTEXITCODE
+    $metadata.client_experiment = @{ method = 'SAFER NORMALUSER + medium-integrity token + CreateProcessAsUserW'; same_sid_required = $true; child_verification_before_installer_required = $true; policy_changes = $false; global_acl_changes = $false; alternate_credentials = $false; linked_token_assumed = $false }
+    $nativeExit = Invoke-RestrictedCore $pwsh $core $inputPath $coreWork
     $metadata.native_exit_code = $nativeExit
-    $metadata.native_output = $capture.ToString()
+    $metadata.native_output = 'Restricted child writes only its bounded native receipt; raw output is not retained'
     $observationsPath = Join-Path $coreWork 'observations.json'
     Require ((Get-Item -LiteralPath $observationsPath).Length -le 262144) 'Native core receipt missing/oversized'
     Copy-Item -LiteralPath $observationsPath -Destination (Join-Path $Reports 'windows-core-installer-smoke.json')
     $observations = Get-Content -LiteralPath $observationsPath -Raw | ConvertFrom-Json
+    Require (@($observations.observations | Where-Object { $_.check -ceq 'restricted_client_verified_before_installer' -and $_.passed -eq $true }).Count -eq 1) 'Restricted child did not independently verify its actual token before installer access'
     Require ($nativeExit -eq 0 -and $observations.passed -eq $true) 'Native installer core assertions failed; inspect retained native receipt'
     $metadata.passed = $true
     $stage = 'completed_core_scope_only'
