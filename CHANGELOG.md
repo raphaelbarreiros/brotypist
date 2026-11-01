@@ -2,6 +2,50 @@
 
 # Changelog
 
+## Unreleased — native Rust migration
+
+- Introduce a Rust application/worker with OS-native AppKit, Win32 and GTK interfaces, retaining the pinned llama.cpp engine and the complete existing model catalogue rather than substituting inference backends.
+- Preserve configuration and OS identity, independent context/history consent, scalar-indexed authored text, encrypted SQLite formats and credential-store addressing. Keep a separately linked offline updater and Rust-native build/distribution tooling.
+- Correct review findings in authority leases, decoded choices, pending spelling, consumed-key pairing, secure-input refusal and interrupted build promotion instead of preserving unsafe legacy behavior.
+- Preserve transaction-first shortcut authority, non-browser Mac window context, visible completion acceptance during alternatives, and terminal append readback through stable session identity and one-use mutable evidence.
+- Keep streaming inactivity timeouts separate from preparation deadlines, preserve the direct native benchmark's tokenizer/sampler/raw-stream/RSS diagnostics, and keep version changes compatible with locked Cargo builds. Include authentic, source-bound dependency notices without inventing a first-party license.
+- Restore portable Models/Welcome and explicit-background settings navigation, retain diagnostic output when native initialization is unavailable, and preserve offline saved-output review labels in an independently linked Rust executable.
+- Keep Windows model streams within one shared native CRT and bundle authenticated Visual Studio redistributables app-locally; reject undeclared CRT/OpenMP imports. Preserve owned preview writing when its language selector only gains or loses focus.
+- Validate installed Linux diagnostics by structured readiness, paused state and absent doctor-created input hooks rather than obsolete status wording.
+- Preserve the baseline's Unicode 15 full case folding across rules, history, choices, archive collision checks and installer identities, without rewriting authored text. Share one allocation-free iterator across the app, updater and tools.
+- Support native Icon Composer packaging with verified Xcode 27.1 and 27.2, retaining the pinned CI toolchain and recording the actual compiler in bundle provenance.
+- Complete the candidate source cutover: remove obsolete first-party Python runtime/tests, launchers, PyInstaller specification and build/tool dependency paths. Preserve the full immutable baseline externally and useful corpus/assets/evidence; no Python compatibility sidecar is shipped.
+- Add native macOS/Windows/Linux CI, real model-worker probes, owned-window UI checks and guarded installer continuity probes. Published releases remain unchanged; an explicitly authorized signed local Mac candidate preserves the original bundle and profile.
+- Place the Windows owned-preview caret explicitly at the UTF-16 seed end rather than only deselecting the old selection; retain bilingual caret/readback assertions and bounded failure metadata.
+- Preserve canonical Windows build identity while using DOS drive-path spelling at the Cargo/CMake/MSBuild boundary and separate short private compiler scratch space. Retain failed diagnostics, owner-only staging, and real command-directory/permissions regressions without changing OS long-path policy.
+- Resolve first-party notice manifests relative to Cargo's verified workspace spelling, preserving canonical identity and symlink/outside-root refusal across macOS aliases and Windows path namespaces.
+- Separate MSI transaction observations from verified uninstall evidence, and adapt paths at WiX/MSI native boundaries while retaining artifact hashes, per-user ownership and data-preservation checks.
+- Pass an explicit native-null current-user SID to MSI registration queries instead of PowerShell's empty-string coercion, retaining fail-closed status checks and bounded diagnostics.
+- Avoid PowerShell's built-in `cli` alias when invoking actual portable/installed diagnostics and workers; retain the system alias table and bounded child-process checks.
+- Allow the Windows Installer service to read produced MSI artifacts without broadening private profile/build-directory access or changing package bytes.
+- Restore the compact macOS action menu; remove battery cards, percentages, charging decoration and verbose diagnostic/model dashboard rows from menu/status-item presentation while retaining Battery settings and power policy.
+- Restore native grouped Settings rows, titlebar clearance, appearance-aware sidebar selection, bounded status text and viewport-based scrolling/resizing without replacing retained editors or dropping controls.
+- Align Settings headings, rows, notes and editors to one content grid; size switches from AppKit instead of the obsolete 42-point allocation, align native control content edges, and resize compound controls within their actual row bounds. Verify intrinsic-size overflow and retained Unicode drafts through the native layout probe.
+- Give Settings rows a bounded title/description column, a distinct control column centered on the whole text block, comfortable row padding and section spacing, and responsive stacking. Measure wrapped text with its actual AppKit cell so narrower descriptions remain fully readable; verify final content remains reachable.
+- Restyle Settings sidebar navigation with larger icon tiles, padded rounded selection, clearer icon/title separation and one appearance-aware highlight while retaining native full-row actions, destination state and narrow-height scrolling.
+- Replace the application artwork with the supplied Typing Buddy face across adaptive macOS layers, classic ICNS, Windows ICO and Linux runtime/desktop PNGs; preserve separate native template menu marks and application/data identities.
+- Replace macOS menu-bar caret/pill drawings with supplied template face states at native 1x/2x sizes.
+- Replace the separate inline accessory template artwork with the supplied face and anchor it to the actual caret before field bounds, with a tighter two-point above-left gap and unchanged screen-edge refusal.
+- Accept the typed zero-length macOS marked-text sentinel without admitting negative selection/mutation offsets; expose content-free GUI-owned capture-stage diagnostics for prediction failure diagnosis.
+- Render the GUI Setup native-status object's message instead of treating the object as a string; verify the real owned label text and ink at each layout size.
+- Prepare permitted application compatibility accessibility before requiring its focused window, fixing a discovery-order dependency while retaining foreground/security/policy checks and strict window/field ownership validation.
+- Add a nonactivating, service-free native Settings layout capture mode for visual inspection; keep the full macOS desktop smoke CI-only.
+- Add a build-free authenticated Windows installer artifact-reuse diagnostic lane, keeping original package source separate from probe checkout and preserving full canonical gates. Retain compact native-context/registry-presence evidence; do not relax the blocked per-user ARP ownership gate.
+- Exercise real Tiny inference and visible Settings/Quit from the relocated canonical Windows ZIP independently of MSI registration; retain worker proof even when the separate strict MSI ownership gate fails.
+- Retry only revoked in-flight predictions after same-draft native notifications or transient geometry loss, without clearing dismissal/model-error latches; fence macOS captures against caret/selection/frame races.
+- Keep bounded, consented focused-window references for single-word drafts without lexical overlap, while retaining keyword gating for clipboard and topic-bearing drafts. Leave the model and sampling unchanged.
+- Correct native emoji row clicks to zero-based indices, revoke failed/hidden chooser presentations and bind permitted owned-button pointer pairs to their presentation generation. Keep unknown host input fail-closed; verify native chooser pixels and owned edit readback.
+- Extend the explicitly requested WhatsApp diagnostic with content-free runtime scheduling/context-attachment/presentation counters; remove draft-value reads from native shape diagnostics.
+- Correct native ghost-window allocation for AppKit logical-point origin rounding, preserving exact glyph origin/baseline and explicitly clipping all paint to the original verified footprint. Exercise actual GhostSurface pixels across system/named fonts and fractional caret positions.
+- Record fixed native renderer rejection reasons and submission-time context collector/attachment outcomes in explicitly requested, content-free WhatsApp diagnostics; preserve collection budgets, consent and paint-safety refusals.
+- Improve the main README with theme-aware Typing Buddy branding, an actual native Settings capture, practical usage/install guidance and explicit platform, privacy and model-quality boundaries.
+- Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
+
 ## 0.4.13 — macOS Electron safety fixes
 
 - Resolve delegated text geometry only through bounded, cycle-safe Accessibility traversal and an exact field-local UTF-16 mapping. Reject protected, hidden, nested-editable, ambiguous and unrelated descendants rather than guessing an inline anchor.

@@ -1,0 +1,329 @@
+{
+  "schema": 1,
+  "tool": "windows-core-installer-smoke",
+  "passed": false,
+  "signing": "unsigned",
+  "publication": "held; no Windows OTA/publication proof",
+  "full_installer_matrix_passed": false,
+  "physical_typing_verified": false,
+  "observations": [
+    {
+      "evidence": {
+        "install_directory": "%LOCALAPPDATA%\\Programs\\BroTypist",
+        "manually_authored_hklm_changes": false,
+        "disposable_hosted_ci": true,
+        "signing": "unsigned",
+        "installer_family": "{5CE4B9DD-FD8B-5FAA-AFBE-9BD3B68A916A}",
+        "preexisting_install": false
+      },
+      "check": "isolation_and_family_preflight",
+      "passed": true
+    },
+    {
+      "evidence": {
+        "version": "0.4.13",
+        "paused": true,
+        "private_profile": true,
+        "input_hook_running": false,
+        "shell": "Win32"
+      },
+      "check": "relocated_portable_cli_doctor",
+      "passed": true
+    },
+    {
+      "evidence": {
+        "exact_manifest": true,
+        "original_build_dll_path_removed": true,
+        "source_location_absent": true
+      },
+      "check": "portable_zip_exact_relocation",
+      "passed": true
+    },
+    {
+      "reboot_required": false,
+      "exit_code": 0,
+      "authored_downgrade_message_observed": false,
+      "check": "fresh_install",
+      "passed": true
+    },
+    {
+      "evidence": {
+        "msi_query_sid": "native NULL (current user)",
+        "token": {
+          "sid": "<current-user-sid>",
+          "impersonation_level": "None",
+          "authenticated": true,
+          "administrator_role_enabled": true,
+          "is_system": false
+        },
+        "interpretation": "observations only; native exclusive per-user and both machine ARP absence gates remain required",
+        "assignment_type": "0",
+        "product_code": "{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88}",
+        "runtime": {
+          "edition": "Core",
+          "drives": [
+            {
+              "registry_provider": true,
+              "name": "HKLM",
+              "expected_root": true
+            },
+            {
+              "registry_provider": true,
+              "name": "HKCU",
+              "expected_root": true
+            }
+          ],
+          "os_64_bit": true,
+          "process_64_bit": true,
+          "powershell": "7.6.7"
+        },
+        "installed_name_version_location_assertions_passed": true,
+        "provider_guards": [
+          {
+            "literal_path": "HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88}",
+            "status": "read",
+            "exists": true,
+            "registry_key_type": true,
+            "resolved_name_matches_literal": true
+          },
+          {
+            "literal_path": "HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88}",
+            "status": "read",
+            "exists": false
+          }
+        ],
+        "source_commit": "6b0a7111dafc9decd12b37fa3bd4a27a087bc193",
+        "contexts": [
+          {
+            "context": 2,
+            "state": "5"
+          }
+        ],
+        "input_product_code_is_unbraced_guid": true,
+        "explicit_registry_views": [
+          {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "subkey": "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88}",
+            "status": "read",
+            "exists": true,
+            "values": {
+              "DisplayName": {
+                "present": true,
+                "kind": "String",
+                "length": 9,
+                "matches_expected": true
+              },
+              "ProductName": {
+                "present": false
+              },
+              "DisplayVersion": {
+                "present": true,
+                "kind": "String",
+                "length": 6,
+                "matches_expected": true
+              },
+              "InstallLocation": {
+                "present": true,
+                "kind": "String",
+                "length": 54,
+                "matches_expected": true
+              },
+              "UninstallString": {
+                "present": true,
+                "kind": "ExpandString",
+                "length": 52,
+                "references_expected": true
+              },
+              "DisplayIcon": {
+                "present": false
+              },
+              "WindowsInstaller": {
+                "present": true,
+                "kind": "DWord",
+                "value": 1
+              },
+              "SystemComponent": {
+                "present": false
+              },
+              "AssignmentType": {
+                "present": false
+              }
+            }
+          },
+          {
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "subkey": "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88}",
+            "status": "read",
+            "exists": false,
+            "values": {}
+          },
+          {
+            "hive": "Users",
+            "view": "Registry64",
+            "subkey": "<current-user-sid>\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88}",
+            "status": "read",
+            "exists": false,
+            "values": {}
+          },
+          {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "subkey": "Software\\Microsoft\\Windows\\CurrentVersion\\Installer\\UserData\\<current-user-sid>\\Products\\5FF8E0DE90945FB52AD28D9F42BEC788\\InstallProperties",
+            "status": "read",
+            "exists": true,
+            "values": {
+              "DisplayName": {
+                "present": true,
+                "kind": "String",
+                "length": 9,
+                "matches_expected": true
+              },
+              "ProductName": {
+                "present": false
+              },
+              "DisplayVersion": {
+                "present": true,
+                "kind": "String",
+                "length": 6,
+                "matches_expected": true
+              },
+              "InstallLocation": {
+                "present": true,
+                "kind": "String",
+                "length": 54,
+                "matches_expected": true
+              },
+              "UninstallString": {
+                "present": true,
+                "kind": "ExpandString",
+                "length": 52,
+                "references_expected": true
+              },
+              "DisplayIcon": {
+                "present": false
+              },
+              "WindowsInstaller": {
+                "present": true,
+                "kind": "DWord",
+                "value": 1
+              },
+              "SystemComponent": {
+                "present": false
+              },
+              "AssignmentType": {
+                "present": false
+              }
+            }
+          },
+          {
+            "hive": "LocalMachine",
+            "view": "Registry32",
+            "subkey": "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88}",
+            "status": "read",
+            "exists": false,
+            "values": {}
+          },
+          {
+            "hive": "CurrentUser",
+            "view": "Registry32",
+            "subkey": "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88}",
+            "status": "read",
+            "exists": false,
+            "values": {}
+          },
+          {
+            "hive": "Users",
+            "view": "Registry32",
+            "subkey": "<current-user-sid>\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88}",
+            "status": "read",
+            "exists": false,
+            "values": {}
+          },
+          {
+            "hive": "LocalMachine",
+            "view": "Registry32",
+            "subkey": "Software\\Microsoft\\Windows\\CurrentVersion\\Installer\\UserData\\<current-user-sid>\\Products\\5FF8E0DE90945FB52AD28D9F42BEC788\\InstallProperties",
+            "status": "read",
+            "exists": false,
+            "values": {}
+          },
+          {
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "subkey": "Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88}",
+            "status": "read",
+            "exists": false,
+            "values": {}
+          }
+        ]
+      },
+      "check": "installed_registration_scope",
+      "status": "observed",
+      "passed": null
+    },
+    {
+      "reboot_required": false,
+      "exit_code": 0,
+      "authored_downgrade_message_observed": false,
+      "check": "uninstall_transaction",
+      "passed": true
+    },
+    {
+      "evidence": {
+        "all_owned_product_contexts_absent": true,
+        "payload_absent": true,
+        "shortcut_absent": true,
+        "installer_family_absent": true
+      },
+      "check": "uninstall",
+      "passed": true
+    },
+    {
+      "evidence": {
+        "unchanged_at_final_check": true,
+        "uninstall_observed": true,
+        "sha256": [
+          {
+            "file": "settings.json",
+            "sha256": "f12c506dae05b2068a7af9cf03df324bdc432f2c2ce69ecc44049d0bd8c21087"
+          },
+          {
+            "file": "synthetic.gguf",
+            "sha256": "25ebf52a790bbfb2e6711e6bb5675bd655032feb21ca17a2c0d496af8871cd3b"
+          },
+          {
+            "file": "history.enc",
+            "sha256": "40e5df5ffd1254257200baddaa3213dca148c494f24a577d844f0889d961b667"
+          },
+          {
+            "file": "preserve-user-data.txt",
+            "sha256": "9dc5b871ecf554021887238fa772e0ff392ddbcab5dfdf5eba1d5026ebe4a684"
+          }
+        ]
+      },
+      "check": "synthetic_profile_model_history_settings_unchanged",
+      "passed": true
+    }
+  ],
+  "diagnostics": [
+    "Machine ARP registration exists",
+    "BroTypist 0.4.13\n",
+    "",
+    "{\n  \"acceleration\": \"cpu\",\n  \"backend\": \"gguf\",\n  \"global_enabled\": false,\n  \"idle_release_seconds\": 300,\n  \"model_file_exists\": false,\n  \"native\": {\n    \"domain_observable\": false,\n    \"hook_diagnostic\": \"\",\n    \"hook_running\": false,\n    \"message\": \"Windows UI Automation ready. Native Edit and writable UIA TextPattern/TextEdit providers only. Password, read-only, disabled, composing and higher-integrity targets are excluded. Inline requires verified UIA glyph/font and GDI metrics. Browser domains are not observable; domain-denied browsers fail closed. Windows publication and native compatibility verification remain held.\",\n    \"native_edit\": true,\n    \"platform\": \"windows\",\n    \"publication\": \"held\",\n    \"shortcut_claim_timeout_ms\": 500,\n    \"stopped\": false,\n    \"uia_existing_selection_only\": true\n  },\n  \"platform\": \"windows\",\n  \"runtime\": \"Rust\",\n  \"settings\": \"D:\\\\a\\\\_temp\\\\brotypist-installer-a342179e4bd34e05b39fc3e34706cc5e\\\\profile\\\\settings.json\",\n  \"shell\": \"Win32\",\n  \"version\": \"0.4.13\"\n}\n",
+    "",
+    ": 1: 1707 \r\nMSI (s) (04:E0) [22:15:50:613]: Note: 1: 2205 2:  3: Error \r\nMSI (s) (04:E0) [22:15:50:613]: Note: 1: 2228 2:  3: Error 4: SELECT `Message` FROM `Error` WHERE `Error` = 1707 \r\nMSI (s) (04:E0) [22:15:50:613]: Note: 1: 2205 2:  3: Error \r\nMSI (s) (04:E0) [22:15:50:613]: Note: 1: 2228 2:  3: Error 4: SELECT `Message` FROM `Error` WHERE `Error` = 1709 \r\nMSI (s) (04:E0) [22:15:50:613]: Product: BroTypist -- Installation completed successfully.\r\n\r\nMSI (s) (04:E0) [22:15:50:613]: Windows Installer installed the product. Product Name: BroTypist. Product Version: 0.4.13. Product Language: 1033. Manufacturer: BroTypist. Installation success or error status: 0.\r\n\r\nMSI (s) (04:E0) [22:15:50:618]: Deferring clean up of packages/files, if any exist\r\nMSI (s) (04:E0) [22:15:50:618]: MainEngineThread is returning 0\r\nMSI (s) (04:F4) [22:15:50:620]: RESTART MANAGER: Session closed.\r\nMSI (s) (04:F4) [22:15:50:620]: No System Restore sequence number for this installation.\r\n=== Logging stopped: 10/30/2026  22:15:50 ===\r\nMSI (s) (04:F4) [22:15:50:633]: User policy value 'DisableRollback' is 0\r\nMSI (s) (04:F4) [22:15:50:633]: Machine policy value 'DisableRollback' is 0\r\nMSI (s) (04:F4) [22:15:50:633]: Incrementing counter to disable shutdown. Counter after increment: 0\r\nMSI (s) (04:F4) [22:15:50:633]: Note: 1: 1402 2: HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Installer\\Rollback\\Scripts 3: 2 \r\nMSI (s) (04:F4) [22:15:50:644]: Note: 1: 2265 2:  3: -2147287035 \r\nMSI (s) (04:F4) [22:15:50:644]: Note: 1: 1402 2: HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Installer\\Rollback\\Scripts 3: 2 \r\nMSI (s) (04:F4) [22:15:50:645]: Decrementing counter to disable shutdown. If counter >= 0, shutdown will be denied.  Counter after decrement: -1\r\nMSI (c) (D8:28) [22:15:50:646]: Decrementing counter to disable shutdown. If counter >= 0, shutdown will be denied.  Counter after decrement: -1\r\nMSI (c) (D8:28) [22:15:50:646]: MainEngineThread is returning 0\r\n=== Verbose logging stopped: 10/30/2026  22:15:50 ===\r\n\r\n",
+    "anguage: 1033. Manufacturer: BroTypist. Removal success or error status: 0.\r\n\r\nMSI (s) (04:C0) [22:15:55:793]: Deferring clean up of packages/files, if any exist\r\nMSI (s) (04:C0) [22:15:55:795]: MainEngineThread is returning 0\r\nMSI (s) (04:24) [22:15:55:795]: RESTART MANAGER: Session closed.\r\nMSI (s) (04:24) [22:15:55:795]: No System Restore sequence number for this installation.\r\n=== Logging stopped: 10/30/2026  22:15:55 ===\r\nMSI (s) (04:24) [22:15:55:801]: User policy value 'DisableRollback' is 0\r\nMSI (s) (04:24) [22:15:55:801]: Machine policy value 'DisableRollback' is 0\r\nMSI (s) (04:24) [22:15:55:801]: Incrementing counter to disable shutdown. Counter after increment: 0\r\nMSI (s) (04:24) [22:15:55:801]: Note: 1: 1402 2: HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Installer\\Rollback\\Scripts 3: 2 \r\nMSI (s) (04:24) [22:15:55:811]: Note: 1: 2265 2:  3: -2147287035 \r\nMSI (s) (04:24) [22:15:55:811]: Note: 1: 1402 2: HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Installer\\Rollback\\Scripts 3: 2 \r\nMSI (s) (04:24) [22:15:55:811]: Decrementing counter to disable shutdown. If counter >= 0, shutdown will be denied.  Counter after decrement: -1\r\nMSI (s) (04:24) [22:15:55:813]: Post-install cleanup: removing installer file 'C:\\Windows\\Installer\\49b08.msi'\r\nMSI (s) (04:24) [22:15:55:813]: Post-install cleanup: removing installer file '<private-path>\\AppData\\Roaming\\Microsoft\\Installer\\{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88}\\Inklow.exe'\r\nMSI (s) (04:24) [22:15:55:815]: Post-install cleanup: removing installer folder '<private-path>\\AppData\\Roaming\\Microsoft\\Installer\\{ED0E8FF5-4909-5BF5-A22D-D8F924EB7C88}\\' (if empty)\r\nMSI (s) (04:24) [22:15:55:815]: Note: 1: 2318 2:  \r\nMSI (s) (04:24) [22:15:55:817]: Note: 1: 2318 2:  \r\nMSI (c) (90:D4) [22:15:55:819]: Decrementing counter to disable shutdown. If counter >= 0, shutdown will be denied.  Counter after decrement: -1\r\nMSI (c) (90:D4) [22:15:55:819]: MainEngineThread is returning 0\r\n=== Verbose logging stopped: 10/30/2026  22:15:55 ===\r\n\r\n"
+  ],
+  "required_gates": {
+    "upgrade": {
+      "status": "not_exercised",
+      "reason": "no genuine prior canonical package supplied"
+    },
+    "rollback": {
+      "status": "not_exercised",
+      "reason": "no genuine rollback-failure fixture supplied"
+    }
+  }
+}

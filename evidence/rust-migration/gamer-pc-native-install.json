@@ -1,0 +1,65 @@
+{
+  "schema": "brotypist-gamer-pc-native-install/1",
+  "platform": "CachyOS x86_64 / KDE Wayland",
+  "version": "0.4.13",
+  "runtime": "Rust",
+  "source_commit": "3a47450006b9ec09bffab38ca23465441c38e502",
+  "source_parents": [
+    "6eaeed5fe56e1ea8dcf878b1b7498f922c26fd59",
+    "da9b7b7a4bc4d3ee23ace9d3bef759f282636800"
+  ],
+  "workflow_run": 41247499588,
+  "artifact_archives": [
+    {
+      "id": 13060526438,
+      "name": "installer-packages-linux-x86_64-not-published",
+      "archive_sha256": "4cc730d59f597660f8f8f5813c713dce6ac4733484ce670c4e916cc6bc4b477a"
+    },
+    {
+      "id": 13060641258,
+      "name": "native-evidence-linux-x86_64",
+      "archive_sha256": "7f0447f82f4485a6b27ee29c460deb4a7aa4d86974e6192db2fff22ce35117ad"
+    }
+  ],
+  "portable_sha256": "32c53ee063250935c513f42ee9c04fed9eeaa5451dea6b0a6aa29c4a170234f8",
+  "exact_portable_files_verified": 535,
+  "documented_desktop_registration_omissions": [
+    "BroTypist.desktop",
+    "share/applications/com.inklow.Inklow.InputMethod.desktop",
+    "share/applications/com.inklow.Inklow.desktop"
+  ],
+  "native_installer_core_passed": true,
+  "full_installer_matrix_passed": false,
+  "previous_app_real_owned_menu_quit_completed": true,
+  "guarded_promotion_retains_private_payload_and_latest_profile_rollback": true,
+  "concurrent_previous_app_preferences_preserved": true,
+  "initial_profile_snapshot_was_not_restored_over_newer_preferences": true,
+  "running_binary_sha256": "87fca16c4bd0e5e69b6d0dcdaeca7c5429d588e303cf260b6d253992b7656053",
+  "latest_settings_unchanged_after_native_startup": true,
+  "existing_autostart_unchanged": true,
+  "cached_model_bytes_unchanged": true,
+  "selected_model_changed": false,
+  "input_method_selection_changed_by_installer": false,
+  "owned_gtk_surface": {
+    "pid_ownership_checked": true,
+    "title": "BroTypist Settings",
+    "size": [
+      960,
+      700
+    ],
+    "responsive_accessibility_readback": true,
+    "compositor_pixels_captured": false
+  },
+  "real_cached_gemma_cli": {
+    "isolated_profile": true,
+    "acceleration": "cpu",
+    "synthetic_input": "Hoje vou preparar um bolo de chocolate para ",
+    "generated_continuation": "a festa.",
+    "normal_profile_not_used_for_test": true,
+    "semantic_quality_certified": false
+  },
+  "ordinary_wayland_inline_predictions_supported": false,
+  "user_pc_acceptance": "pending",
+  "release_published": false,
+  "checked_at": "2026-10-31T22:58:03Z"
+}

@@ -1,0 +1,4 @@
+# Keep Rust, C/C++ dependencies and bundled inference compatible with the app's
+# supported macOS minimum instead of inheriting the build host's SDK minimum.
+[env]
+MACOSX_DEPLOYMENT_TARGET = { value = "15.0", force = false }

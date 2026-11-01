@@ -1,0 +1,148 @@
+{
+  "schema": 1,
+  "pr_head": "ad8e301d143c83c4e875d5d7f6c4c57495261ba3",
+  "run_url": "https://github.com/renan-brasilio/brotypist/actions/runs/41105229573",
+  "job_id": 124233156284,
+  "scope": "Passed canonical Windows owned UI smoke only; later development bundle CMake/MSBuild failed. No MSI/ZIP, external-host typing or published Windows support claim.",
+  "inspected_owned_printwindow_captures": [
+    "welcome-4-real-inline.png",
+    "welcome-4-portuguese-inline.png"
+  ],
+  "receipt": {
+    "checks": [
+      {
+        "name": "actual-owned-shell-visible-with-no-tray-recovery",
+        "passed": true
+      },
+      {
+        "name": "six-native-settings-panes-navigate-and-render",
+        "passed": true
+      },
+      {
+        "name": "no-tray-close-decline-retains-visible-recovery-window",
+        "passed": true
+      },
+      {
+        "name": "native-dirty-close-cancel-retains-unsaved-instructions",
+        "passed": true
+      },
+      {
+        "name": "draft-edit-pane-preservation-and-revert",
+        "passed": true
+      },
+      {
+        "name": "native-save-persists-private-profile",
+        "passed": true
+      },
+      {
+        "name": "each-context-history-terminal-consent-is-independent-and-draft-only",
+        "passed": true
+      },
+      {
+        "name": "saving-one-context-consent-does-not-enable-another",
+        "passed": true
+      },
+      {
+        "name": "welcome-system-review-and-selected-model-readiness-refuse-unmet-prerequisites",
+        "passed": true
+      },
+      {
+        "name": "real-selected-gguf-inference-native-inline-visible-prefix-and-exact-owned-readback",
+        "passed": true
+      },
+      {
+        "name": "preview-language-focus-notifications-preserve-owned-writing",
+        "passed": true
+      },
+      {
+        "name": "portuguese-owned-preview-renders-and-confirms-visible-full-acceptance",
+        "passed": true
+      },
+      {
+        "name": "six-step-welcome-closes-preview-before-resuming-and-persists-no-preview-text",
+        "passed": true
+      },
+      {
+        "name": "actual-native-quit-stops-controller-preview-update-owners-before-gui-guards",
+        "passed": true
+      }
+    ],
+    "model_download_requested": false,
+    "normal_profile_used": false,
+    "not_exercised": [],
+    "os_permission_changes": false,
+    "outcome": "passed",
+    "pid": 5920,
+    "platform": "windows",
+    "schema": 1,
+    "screenshots": [
+      {
+        "file": "settings-0.png",
+        "method": "PrintWindow-owned-hwnd",
+        "pid": 5920
+      },
+      {
+        "file": "settings-1.png",
+        "method": "PrintWindow-owned-hwnd",
+        "pid": 5920
+      },
+      {
+        "file": "settings-2.png",
+        "method": "PrintWindow-owned-hwnd",
+        "pid": 5920
+      },
+      {
+        "file": "settings-3.png",
+        "method": "PrintWindow-owned-hwnd",
+        "pid": 5920
+      },
+      {
+        "file": "settings-4.png",
+        "method": "PrintWindow-owned-hwnd",
+        "pid": 5920
+      },
+      {
+        "file": "settings-5.png",
+        "method": "PrintWindow-owned-hwnd",
+        "pid": 5920
+      },
+      {
+        "file": "welcome-0.png",
+        "method": "PrintWindow-owned-hwnd",
+        "pid": 5920
+      },
+      {
+        "file": "welcome-1.png",
+        "method": "PrintWindow-owned-hwnd",
+        "pid": 5920
+      },
+      {
+        "file": "welcome-2.png",
+        "method": "PrintWindow-owned-hwnd",
+        "pid": 5920
+      },
+      {
+        "file": "welcome-3.png",
+        "method": "PrintWindow-owned-hwnd",
+        "pid": 5920
+      },
+      {
+        "file": "welcome-4-real-inline.png",
+        "method": "PrintWindow-owned-hwnd",
+        "pid": 5920
+      },
+      {
+        "file": "welcome-4-portuguese-inline.png",
+        "method": "PrintWindow-owned-hwnd",
+        "pid": 5920
+      },
+      {
+        "file": "welcome-5.png",
+        "method": "PrintWindow-owned-hwnd",
+        "pid": 5920
+      }
+    ],
+    "startup_registration_requested": false,
+    "version": "0.4.13"
+  }
+}

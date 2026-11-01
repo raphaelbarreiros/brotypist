@@ -1,0 +1,17 @@
+{
+  "schema": "brotypist-focused-window-order-install/1",
+  "source_commit": "6e44d96710ea653152b11549b16eb942ce01f281",
+  "user_observed_capture_stage": "focused_window_unavailable",
+  "user_observed_native_input": "native_available",
+  "user_observed_keyboard": "Quartz shortcuts enabled",
+  "signature": "identity-signed",
+  "candidate_installed_inventory_matches": true,
+  "original_requirement_preserved": true,
+  "graceful_quit_locked_backup_atomic_swap": true,
+  "settings_history_unchanged": true,
+  "startup_eight_seconds_no_exit": true,
+  "workspace_tests": 399,
+  "nested_child_invocations": 2,
+  "external_whatsapp_predictions_passed": false,
+  "permission_or_privacy_gate_relaxed": false
+}

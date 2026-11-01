@@ -1,0 +1,45 @@
+{
+  "schema": "brotypist-native-emoji-proof/1",
+  "passed": true,
+  "safety": {
+    "controller_started": false,
+    "external_screen_capture": false,
+    "foreground_activation_allowed": false,
+    "input_hooks_started": false,
+    "profile_loaded": false
+  },
+  "observations": [
+    {
+      "case": "alias",
+      "choice_index": 0,
+      "file": "emoji-alias.png",
+      "hidden_choice_inactive": true,
+      "key_window_preserved": true,
+      "passed": true,
+      "readback": "Synthetic 😄",
+      "scope": "real NSButton target/action, native chooser pixels and owned NSTextView readback; not physical global input or external-host replacement"
+    },
+    {
+      "case": "emoticon",
+      "choice_index": 0,
+      "file": "emoji-emoticon.png",
+      "hidden_choice_inactive": true,
+      "key_window_preserved": true,
+      "passed": true,
+      "readback": "Synthetic ❤️",
+      "scope": "real NSButton target/action, native chooser pixels and owned NSTextView readback; not physical global input or external-host replacement"
+    },
+    {
+      "case": "last-row",
+      "choice_index": 4,
+      "file": "emoji-last-row.png",
+      "hidden_choice_inactive": true,
+      "key_window_preserved": true,
+      "passed": true,
+      "readback": "Synthetic 👋",
+      "scope": "real NSButton target/action, native chooser pixels and owned NSTextView readback; not physical global input or external-host replacement"
+    }
+  ],
+  "physical_global_click_verified": false,
+  "external_host_replacement_verified": false
+}

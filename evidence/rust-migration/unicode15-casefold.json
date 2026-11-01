@@ -1,0 +1,13 @@
+{
+  "scope": "Every Unicode scalar, default-full/non-Turkic case folding only; not normalization/category/regex equivalence",
+  "scalar_count": 1112064,
+  "baseline_unicode": "15.0.0",
+  "pinned_dependency_unicode": "9.0.0",
+  "before_mismatches": 129,
+  "after_mismatches": 0,
+  "nonidentity_mappings": 1530,
+  "canonical_mapping_sha256": "5592d0d601c1015890f5115356e27324550e3644a8898a98f19c5982af93bf93",
+  "passed": true,
+  "source_file": "crates/brotypist/src/unicode_compat.rs",
+  "baseline_commit": "6eaeed5fe56e1ea8dcf878b1b7498f922c26fd59"
+}

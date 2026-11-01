@@ -41,7 +41,7 @@
       <RemoveFolder Id="RemoveInklowProgramsFolder" Directory="InklowProgramsFolder" On="uninstall" />
     </Component>
     <!-- Payload components are generated from the validated bundle inventory by
-         tools/package_windows.py; this template owns registration and shortcuts. -->
+         crates/xtask/src/package.rs; this template owns registration and shortcuts. -->
     <Feature Id="Complete" Title="BroTypist" Level="1">
       <ComponentRef Id="InklowRegistration" />
       <ComponentGroupRef Id="InklowPayload" />

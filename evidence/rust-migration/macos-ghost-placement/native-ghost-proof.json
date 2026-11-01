@@ -1,0 +1,2959 @@
+{
+  "schema": "brotypist-native-ghost-placement/1",
+  "workspace_tests": 421,
+  "nested_child_invocations": 2,
+  "owned_cases": [
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 16.0,
+        "width": 174.0,
+        "x": 100.0,
+        "y": 968.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.0,
+        133.0,
+        1.0,
+        15.310546875
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-13-0.png",
+      "font_case": "system-13",
+      "font_name": ".AppleSystemUIFont",
+      "ink_pixels": 2969,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 32,
+      "pixel_width": 348,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          968.0,
+          174.0,
+          16.0
+        ],
+        "advance_present": false,
+        "ascent": 12.568359375,
+        "available_width": 580.0,
+        "ax_caret_row": true,
+        "baseline": 145.568359375,
+        "caret": [
+          100.0,
+          133.0,
+          1.0,
+          15.310546875
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          25.310546875
+        ],
+        "correction": false,
+        "descent": 2.7421875,
+        "drawing_origin": [
+          0.0,
+          0.689453125
+        ],
+        "drawn_width": 173.7861328125,
+        "fixed_advance": 0.0,
+        "font_size": 13.0,
+        "glyph_bounds": [
+          100.0,
+          133.0,
+          173.7861328125,
+          15.310546875
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFont",
+        "requested_frame": [
+          100.0,
+          968.0,
+          174.0,
+          16.0
+        ],
+        "resolved_font": ".AppleSystemUIFont",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "0ce40651523afc82edeaa274fd6f79f97e12a9aa17cbe6a4ac580c50ec3f0aed"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 17.0,
+        "width": 174.0,
+        "x": 100.0,
+        "y": 967.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.125,
+        133.875,
+        1.0,
+        15.310546875
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-13-1.png",
+      "font_case": "system-13",
+      "font_name": ".AppleSystemUIFont",
+      "ink_pixels": 2984,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 34,
+      "pixel_width": 348,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          967.0,
+          174.0,
+          17.0
+        ],
+        "advance_present": false,
+        "ascent": 12.568359375,
+        "available_width": 579.875,
+        "ax_caret_row": true,
+        "baseline": 146.443359375,
+        "caret": [
+          100.125,
+          133.875,
+          1.0,
+          15.310546875
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          25.310546875
+        ],
+        "correction": false,
+        "descent": 2.7421875,
+        "drawing_origin": [
+          0.125,
+          0.814453125
+        ],
+        "drawn_width": 173.7861328125,
+        "fixed_advance": 0.0,
+        "font_size": 13.0,
+        "glyph_bounds": [
+          100.125,
+          133.875,
+          173.7861328125,
+          15.310546875
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFont",
+        "requested_frame": [
+          100.0,
+          967.0,
+          174.0,
+          17.0
+        ],
+        "resolved_font": ".AppleSystemUIFont",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "f34af5b631286fe2542e6ac847d0ba8eb50d20e2d432d9246a2f7433b612766f"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 17.0,
+        "width": 175.0,
+        "x": 100.0,
+        "y": 967.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.25,
+        133.75,
+        1.0,
+        15.310546875
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-13-2.png",
+      "font_case": "system-13",
+      "font_name": ".AppleSystemUIFont",
+      "ink_pixels": 2913,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 34,
+      "pixel_width": 350,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          967.0,
+          175.0,
+          17.0
+        ],
+        "advance_present": false,
+        "ascent": 12.568359375,
+        "available_width": 579.75,
+        "ax_caret_row": true,
+        "baseline": 146.318359375,
+        "caret": [
+          100.25,
+          133.75,
+          1.0,
+          15.310546875
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          25.310546875
+        ],
+        "correction": false,
+        "descent": 2.7421875,
+        "drawing_origin": [
+          0.25,
+          0.939453125
+        ],
+        "drawn_width": 173.7861328125,
+        "fixed_advance": 0.0,
+        "font_size": 13.0,
+        "glyph_bounds": [
+          100.25,
+          133.75,
+          173.7861328125,
+          15.310546875
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFont",
+        "requested_frame": [
+          100.0,
+          967.0,
+          175.0,
+          17.0
+        ],
+        "resolved_font": ".AppleSystemUIFont",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "a4e5cc80b78779c3413e93d85bc73921d81fcd87ef066bb6f94a2d8839d05638"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 16.0,
+        "width": 175.0,
+        "x": 100.0,
+        "y": 968.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.5,
+        133.5,
+        1.0,
+        15.310546875
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-13-3.png",
+      "font_case": "system-13",
+      "font_name": ".AppleSystemUIFont",
+      "ink_pixels": 2969,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 32,
+      "pixel_width": 350,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          968.0,
+          175.0,
+          16.0
+        ],
+        "advance_present": false,
+        "ascent": 12.568359375,
+        "available_width": 579.5,
+        "ax_caret_row": true,
+        "baseline": 146.068359375,
+        "caret": [
+          100.5,
+          133.5,
+          1.0,
+          15.310546875
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          25.310546875
+        ],
+        "correction": false,
+        "descent": 2.7421875,
+        "drawing_origin": [
+          0.5,
+          0.189453125
+        ],
+        "drawn_width": 173.7861328125,
+        "fixed_advance": 0.0,
+        "font_size": 13.0,
+        "glyph_bounds": [
+          100.5,
+          133.5,
+          173.7861328125,
+          15.310546875
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFont",
+        "requested_frame": [
+          100.0,
+          968.0,
+          175.0,
+          16.0
+        ],
+        "resolved_font": ".AppleSystemUIFont",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "4f379d66ef89d439649453cbbfa27d801d72a5a709e9d1f04dd0e6f370a9f4bf"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 16.0,
+        "width": 175.0,
+        "x": 100.0,
+        "y": 968.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.75,
+        133.25,
+        1.0,
+        15.310546875
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-13-4.png",
+      "font_case": "system-13",
+      "font_name": ".AppleSystemUIFont",
+      "ink_pixels": 2913,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 32,
+      "pixel_width": 350,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          968.0,
+          175.0,
+          16.0
+        ],
+        "advance_present": false,
+        "ascent": 12.568359375,
+        "available_width": 579.25,
+        "ax_caret_row": true,
+        "baseline": 145.818359375,
+        "caret": [
+          100.75,
+          133.25,
+          1.0,
+          15.310546875
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          25.310546875
+        ],
+        "correction": false,
+        "descent": 2.7421875,
+        "drawing_origin": [
+          0.75,
+          0.439453125
+        ],
+        "drawn_width": 173.7861328125,
+        "fixed_advance": 0.0,
+        "font_size": 13.0,
+        "glyph_bounds": [
+          100.75,
+          133.25,
+          173.7861328125,
+          15.310546875
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFont",
+        "requested_frame": [
+          100.0,
+          968.0,
+          175.0,
+          16.0
+        ],
+        "resolved_font": ".AppleSystemUIFont",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "3c8f230b93ec5a85ad35d273add24758f19662219b298bac565d622668d1fdf0"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 16.0,
+        "width": 175.0,
+        "x": 100.0,
+        "y": 968.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.875,
+        133.125,
+        1.0,
+        15.310546875
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-13-5.png",
+      "font_case": "system-13",
+      "font_name": ".AppleSystemUIFont",
+      "ink_pixels": 2898,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 32,
+      "pixel_width": 350,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          968.0,
+          175.0,
+          16.0
+        ],
+        "advance_present": false,
+        "ascent": 12.568359375,
+        "available_width": 579.125,
+        "ax_caret_row": true,
+        "baseline": 145.693359375,
+        "caret": [
+          100.875,
+          133.125,
+          1.0,
+          15.310546875
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          25.310546875
+        ],
+        "correction": false,
+        "descent": 2.7421875,
+        "drawing_origin": [
+          0.875,
+          0.564453125
+        ],
+        "drawn_width": 173.7861328125,
+        "fixed_advance": 0.0,
+        "font_size": 13.0,
+        "glyph_bounds": [
+          100.875,
+          133.125,
+          173.7861328125,
+          15.310546875
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFont",
+        "requested_frame": [
+          100.0,
+          968.0,
+          175.0,
+          16.0
+        ],
+        "resolved_font": ".AppleSystemUIFont",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "a4a6bf10721557f0ca6896a94c4e2d5aadd69253ddf59c19ae499c53b86165cd"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 16.0,
+        "width": 174.0,
+        "x": 100.0,
+        "y": 968.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.0,
+        133.5,
+        1.0,
+        15.310546875
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-13-6.png",
+      "font_case": "system-13",
+      "font_name": ".AppleSystemUIFont",
+      "ink_pixels": 2969,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 32,
+      "pixel_width": 348,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          968.0,
+          174.0,
+          16.0
+        ],
+        "advance_present": false,
+        "ascent": 12.568359375,
+        "available_width": 580.0,
+        "ax_caret_row": true,
+        "baseline": 146.068359375,
+        "caret": [
+          100.0,
+          133.5,
+          1.0,
+          15.310546875
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          25.310546875
+        ],
+        "correction": false,
+        "descent": 2.7421875,
+        "drawing_origin": [
+          0.0,
+          0.189453125
+        ],
+        "drawn_width": 173.7861328125,
+        "fixed_advance": 0.0,
+        "font_size": 13.0,
+        "glyph_bounds": [
+          100.0,
+          133.5,
+          173.7861328125,
+          15.310546875
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFont",
+        "requested_frame": [
+          100.0,
+          968.0,
+          174.0,
+          16.0
+        ],
+        "resolved_font": ".AppleSystemUIFont",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "077dfae38de81d50e252a57adea2d39315be7a3da25d344e7e932058ce365d90"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 16.0,
+        "width": 175.0,
+        "x": 100.0,
+        "y": 968.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.5,
+        133.0,
+        1.0,
+        15.310546875
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-13-7.png",
+      "font_case": "system-13",
+      "font_name": ".AppleSystemUIFont",
+      "ink_pixels": 2969,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 32,
+      "pixel_width": 350,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          968.0,
+          175.0,
+          16.0
+        ],
+        "advance_present": false,
+        "ascent": 12.568359375,
+        "available_width": 579.5,
+        "ax_caret_row": true,
+        "baseline": 145.568359375,
+        "caret": [
+          100.5,
+          133.0,
+          1.0,
+          15.310546875
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          25.310546875
+        ],
+        "correction": false,
+        "descent": 2.7421875,
+        "drawing_origin": [
+          0.5,
+          0.689453125
+        ],
+        "drawn_width": 173.7861328125,
+        "fixed_advance": 0.0,
+        "font_size": 13.0,
+        "glyph_bounds": [
+          100.5,
+          133.0,
+          173.7861328125,
+          15.310546875
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFont",
+        "requested_frame": [
+          100.0,
+          968.0,
+          175.0,
+          16.0
+        ],
+        "resolved_font": ".AppleSystemUIFont",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "22cab883a72704bd7871d6885be7bc05bffb466c31357a6e257026678fa5cef8"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 18.0,
+        "width": 197.0,
+        "x": 100.0,
+        "y": 966.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.0,
+        133.0,
+        1.0,
+        17.666015625
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-15-0.png",
+      "font_case": "system-15",
+      "font_name": ".AppleSystemUIFont",
+      "ink_pixels": 3772,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 36,
+      "pixel_width": 394,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          966.0,
+          197.0,
+          18.0
+        ],
+        "advance_present": false,
+        "ascent": 14.501953125,
+        "available_width": 580.0,
+        "ax_caret_row": true,
+        "baseline": 147.501953125,
+        "caret": [
+          100.0,
+          133.0,
+          1.0,
+          17.666015625
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          27.666015625
+        ],
+        "correction": false,
+        "descent": 3.1640625,
+        "drawing_origin": [
+          0.0,
+          0.333984375
+        ],
+        "drawn_width": 196.5673828125,
+        "fixed_advance": 0.0,
+        "font_size": 15.0,
+        "glyph_bounds": [
+          100.0,
+          133.0,
+          196.5673828125,
+          17.666015625
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFont",
+        "requested_frame": [
+          100.0,
+          966.0,
+          197.0,
+          18.0
+        ],
+        "resolved_font": ".AppleSystemUIFont",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "bf507ebb27907ffdc0a4035507acbd8382bc8dc45b0230095922d070b50ab836"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 19.0,
+        "width": 197.0,
+        "x": 100.0,
+        "y": 965.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.125,
+        133.875,
+        1.0,
+        17.666015625
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-15-1.png",
+      "font_case": "system-15",
+      "font_name": ".AppleSystemUIFont",
+      "ink_pixels": 3772,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 38,
+      "pixel_width": 394,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          965.0,
+          197.0,
+          19.0
+        ],
+        "advance_present": false,
+        "ascent": 14.501953125,
+        "available_width": 579.875,
+        "ax_caret_row": true,
+        "baseline": 148.376953125,
+        "caret": [
+          100.125,
+          133.875,
+          1.0,
+          17.666015625
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          27.666015625
+        ],
+        "correction": false,
+        "descent": 3.1640625,
+        "drawing_origin": [
+          0.125,
+          0.458984375
+        ],
+        "drawn_width": 196.5673828125,
+        "fixed_advance": 0.0,
+        "font_size": 15.0,
+        "glyph_bounds": [
+          100.125,
+          133.875,
+          196.5673828125,
+          17.666015625
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFont",
+        "requested_frame": [
+          100.0,
+          965.0,
+          197.0,
+          19.0
+        ],
+        "resolved_font": ".AppleSystemUIFont",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "facd0aa2aa078ecd0869604cb02803e45fbdff6bb9e19a3f921015bbdcebf173"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 19.0,
+        "width": 197.0,
+        "x": 100.0,
+        "y": 965.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.25,
+        133.75,
+        1.0,
+        17.666015625
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-15-2.png",
+      "font_case": "system-15",
+      "font_name": ".AppleSystemUIFont",
+      "ink_pixels": 3793,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 38,
+      "pixel_width": 394,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          965.0,
+          197.0,
+          19.0
+        ],
+        "advance_present": false,
+        "ascent": 14.501953125,
+        "available_width": 579.75,
+        "ax_caret_row": true,
+        "baseline": 148.251953125,
+        "caret": [
+          100.25,
+          133.75,
+          1.0,
+          17.666015625
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          27.666015625
+        ],
+        "correction": false,
+        "descent": 3.1640625,
+        "drawing_origin": [
+          0.25,
+          0.583984375
+        ],
+        "drawn_width": 196.5673828125,
+        "fixed_advance": 0.0,
+        "font_size": 15.0,
+        "glyph_bounds": [
+          100.25,
+          133.75,
+          196.5673828125,
+          17.666015625
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFont",
+        "requested_frame": [
+          100.0,
+          965.0,
+          197.0,
+          19.0
+        ],
+        "resolved_font": ".AppleSystemUIFont",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "4a6ea3aea246b80fb975083c19cd667371430e254ae77656308525e86473fe2d"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 19.0,
+        "width": 198.0,
+        "x": 100.0,
+        "y": 965.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.5,
+        133.5,
+        1.0,
+        17.666015625
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-15-3.png",
+      "font_case": "system-15",
+      "font_name": ".AppleSystemUIFont",
+      "ink_pixels": 3772,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 38,
+      "pixel_width": 396,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          965.0,
+          198.0,
+          19.0
+        ],
+        "advance_present": false,
+        "ascent": 14.501953125,
+        "available_width": 579.5,
+        "ax_caret_row": true,
+        "baseline": 148.001953125,
+        "caret": [
+          100.5,
+          133.5,
+          1.0,
+          17.666015625
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          27.666015625
+        ],
+        "correction": false,
+        "descent": 3.1640625,
+        "drawing_origin": [
+          0.5,
+          0.833984375
+        ],
+        "drawn_width": 196.5673828125,
+        "fixed_advance": 0.0,
+        "font_size": 15.0,
+        "glyph_bounds": [
+          100.5,
+          133.5,
+          196.5673828125,
+          17.666015625
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFont",
+        "requested_frame": [
+          100.0,
+          965.0,
+          198.0,
+          19.0
+        ],
+        "resolved_font": ".AppleSystemUIFont",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "2f6f1882b57fde0e8282910b727dcf1d7603e4860309f85a2ca7775c59c11819"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 18.0,
+        "width": 198.0,
+        "x": 100.0,
+        "y": 966.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.75,
+        133.25,
+        1.0,
+        17.666015625
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-15-4.png",
+      "font_case": "system-15",
+      "font_name": ".AppleSystemUIFont",
+      "ink_pixels": 3793,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 36,
+      "pixel_width": 396,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          966.0,
+          198.0,
+          18.0
+        ],
+        "advance_present": false,
+        "ascent": 14.501953125,
+        "available_width": 579.25,
+        "ax_caret_row": true,
+        "baseline": 147.751953125,
+        "caret": [
+          100.75,
+          133.25,
+          1.0,
+          17.666015625
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          27.666015625
+        ],
+        "correction": false,
+        "descent": 3.1640625,
+        "drawing_origin": [
+          0.75,
+          0.083984375
+        ],
+        "drawn_width": 196.5673828125,
+        "fixed_advance": 0.0,
+        "font_size": 15.0,
+        "glyph_bounds": [
+          100.75,
+          133.25,
+          196.5673828125,
+          17.666015625
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFont",
+        "requested_frame": [
+          100.0,
+          966.0,
+          198.0,
+          18.0
+        ],
+        "resolved_font": ".AppleSystemUIFont",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "0f4a9bfe8d4514deb69f4d32187bede4522ceefda38d3032414fd1bc52b81e86"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 18.0,
+        "width": 198.0,
+        "x": 100.0,
+        "y": 966.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.875,
+        133.125,
+        1.0,
+        17.666015625
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-15-5.png",
+      "font_case": "system-15",
+      "font_name": ".AppleSystemUIFont",
+      "ink_pixels": 3794,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 36,
+      "pixel_width": 396,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          966.0,
+          198.0,
+          18.0
+        ],
+        "advance_present": false,
+        "ascent": 14.501953125,
+        "available_width": 579.125,
+        "ax_caret_row": true,
+        "baseline": 147.626953125,
+        "caret": [
+          100.875,
+          133.125,
+          1.0,
+          17.666015625
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          27.666015625
+        ],
+        "correction": false,
+        "descent": 3.1640625,
+        "drawing_origin": [
+          0.875,
+          0.208984375
+        ],
+        "drawn_width": 196.5673828125,
+        "fixed_advance": 0.0,
+        "font_size": 15.0,
+        "glyph_bounds": [
+          100.875,
+          133.125,
+          196.5673828125,
+          17.666015625
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFont",
+        "requested_frame": [
+          100.0,
+          966.0,
+          198.0,
+          18.0
+        ],
+        "resolved_font": ".AppleSystemUIFont",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "45ee6f115f94a7df6e9a79873abfb64bcbfd8fcba6c2513e65ab54e191670022"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 19.0,
+        "width": 197.0,
+        "x": 100.0,
+        "y": 965.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.0,
+        133.5,
+        1.0,
+        17.666015625
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-15-6.png",
+      "font_case": "system-15",
+      "font_name": ".AppleSystemUIFont",
+      "ink_pixels": 3772,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 38,
+      "pixel_width": 394,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          965.0,
+          197.0,
+          19.0
+        ],
+        "advance_present": false,
+        "ascent": 14.501953125,
+        "available_width": 580.0,
+        "ax_caret_row": true,
+        "baseline": 148.001953125,
+        "caret": [
+          100.0,
+          133.5,
+          1.0,
+          17.666015625
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          27.666015625
+        ],
+        "correction": false,
+        "descent": 3.1640625,
+        "drawing_origin": [
+          0.0,
+          0.833984375
+        ],
+        "drawn_width": 196.5673828125,
+        "fixed_advance": 0.0,
+        "font_size": 15.0,
+        "glyph_bounds": [
+          100.0,
+          133.5,
+          196.5673828125,
+          17.666015625
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFont",
+        "requested_frame": [
+          100.0,
+          965.0,
+          197.0,
+          19.0
+        ],
+        "resolved_font": ".AppleSystemUIFont",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "d025f742ef368811cb59bf55389101698750710dbb71d70ece872e79459a6cd4"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 18.0,
+        "width": 198.0,
+        "x": 100.0,
+        "y": 966.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.5,
+        133.0,
+        1.0,
+        17.666015625
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-15-7.png",
+      "font_case": "system-15",
+      "font_name": ".AppleSystemUIFont",
+      "ink_pixels": 3772,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 36,
+      "pixel_width": 396,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          966.0,
+          198.0,
+          18.0
+        ],
+        "advance_present": false,
+        "ascent": 14.501953125,
+        "available_width": 579.5,
+        "ax_caret_row": true,
+        "baseline": 147.501953125,
+        "caret": [
+          100.5,
+          133.0,
+          1.0,
+          17.666015625
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          27.666015625
+        ],
+        "correction": false,
+        "descent": 3.1640625,
+        "drawing_origin": [
+          0.5,
+          0.333984375
+        ],
+        "drawn_width": 196.5673828125,
+        "fixed_advance": 0.0,
+        "font_size": 15.0,
+        "glyph_bounds": [
+          100.5,
+          133.0,
+          196.5673828125,
+          17.666015625
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFont",
+        "requested_frame": [
+          100.0,
+          966.0,
+          198.0,
+          18.0
+        ],
+        "resolved_font": ".AppleSystemUIFont",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "794bdba7b573ebc7fee741821bbf76a35977d09e07887a1e4e1395da0c75ae0f"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 21.0,
+        "width": 224.0,
+        "x": 100.0,
+        "y": 963.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.0,
+        133.0,
+        1.0,
+        20.021484375
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-medium-0.png",
+      "font_case": "system-medium",
+      "font_name": ".AppleSystemUIFontMedium",
+      "ink_pixels": 5289,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 42,
+      "pixel_width": 448,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          963.0,
+          224.0,
+          21.0
+        ],
+        "advance_present": false,
+        "ascent": 16.435546875,
+        "available_width": 580.0,
+        "ax_caret_row": true,
+        "baseline": 149.435546875,
+        "caret": [
+          100.0,
+          133.0,
+          1.0,
+          20.021484375
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          30.021484375
+        ],
+        "correction": false,
+        "descent": 3.5859375,
+        "drawing_origin": [
+          0.0,
+          0.978515625
+        ],
+        "drawn_width": 223.95710265636444,
+        "fixed_advance": 0.0,
+        "font_size": 17.0,
+        "glyph_bounds": [
+          100.0,
+          133.0,
+          223.95710265636444,
+          20.021484375
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFontMedium",
+        "requested_frame": [
+          100.0,
+          963.0,
+          224.0,
+          21.0
+        ],
+        "resolved_font": ".AppleSystemUIFontMedium",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.23,
+        "text_present": true
+      },
+      "sha256": "e15efd159d44b9750aa7a4fca3d43a49b11420e8c1bccaefa1cb92053cfed8b5"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 21.0,
+        "width": 225.0,
+        "x": 100.0,
+        "y": 963.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.125,
+        133.875,
+        1.0,
+        20.021484375
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-medium-1.png",
+      "font_case": "system-medium",
+      "font_name": ".AppleSystemUIFontMedium",
+      "ink_pixels": 5289,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 42,
+      "pixel_width": 450,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          963.0,
+          225.0,
+          21.0
+        ],
+        "advance_present": false,
+        "ascent": 16.435546875,
+        "available_width": 579.875,
+        "ax_caret_row": true,
+        "baseline": 150.310546875,
+        "caret": [
+          100.125,
+          133.875,
+          1.0,
+          20.021484375
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          30.021484375
+        ],
+        "correction": false,
+        "descent": 3.5859375,
+        "drawing_origin": [
+          0.125,
+          0.103515625
+        ],
+        "drawn_width": 223.95710265636444,
+        "fixed_advance": 0.0,
+        "font_size": 17.0,
+        "glyph_bounds": [
+          100.125,
+          133.875,
+          223.95710265636444,
+          20.021484375
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFontMedium",
+        "requested_frame": [
+          100.0,
+          963.0,
+          225.0,
+          21.0
+        ],
+        "resolved_font": ".AppleSystemUIFontMedium",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.23,
+        "text_present": true
+      },
+      "sha256": "a889e166d2db8de5160fb325527350082fae9648350eaf066e0196bc3d070dec"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 21.0,
+        "width": 225.0,
+        "x": 100.0,
+        "y": 963.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.25,
+        133.75,
+        1.0,
+        20.021484375
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-medium-2.png",
+      "font_case": "system-medium",
+      "font_name": ".AppleSystemUIFontMedium",
+      "ink_pixels": 5289,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 42,
+      "pixel_width": 450,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          963.0,
+          225.0,
+          21.0
+        ],
+        "advance_present": false,
+        "ascent": 16.435546875,
+        "available_width": 579.75,
+        "ax_caret_row": true,
+        "baseline": 150.185546875,
+        "caret": [
+          100.25,
+          133.75,
+          1.0,
+          20.021484375
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          30.021484375
+        ],
+        "correction": false,
+        "descent": 3.5859375,
+        "drawing_origin": [
+          0.25,
+          0.228515625
+        ],
+        "drawn_width": 223.95710265636444,
+        "fixed_advance": 0.0,
+        "font_size": 17.0,
+        "glyph_bounds": [
+          100.25,
+          133.75,
+          223.95710265636444,
+          20.021484375
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFontMedium",
+        "requested_frame": [
+          100.0,
+          963.0,
+          225.0,
+          21.0
+        ],
+        "resolved_font": ".AppleSystemUIFontMedium",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.23,
+        "text_present": true
+      },
+      "sha256": "74cf4987472b81f83d8531455c9b94dc51a3baa43f197164a4c8e39e2afa9abe"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 21.0,
+        "width": 225.0,
+        "x": 100.0,
+        "y": 963.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.5,
+        133.5,
+        1.0,
+        20.021484375
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-medium-3.png",
+      "font_case": "system-medium",
+      "font_name": ".AppleSystemUIFontMedium",
+      "ink_pixels": 5289,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 42,
+      "pixel_width": 450,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          963.0,
+          225.0,
+          21.0
+        ],
+        "advance_present": false,
+        "ascent": 16.435546875,
+        "available_width": 579.5,
+        "ax_caret_row": true,
+        "baseline": 149.935546875,
+        "caret": [
+          100.5,
+          133.5,
+          1.0,
+          20.021484375
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          30.021484375
+        ],
+        "correction": false,
+        "descent": 3.5859375,
+        "drawing_origin": [
+          0.5,
+          0.478515625
+        ],
+        "drawn_width": 223.95710265636444,
+        "fixed_advance": 0.0,
+        "font_size": 17.0,
+        "glyph_bounds": [
+          100.5,
+          133.5,
+          223.95710265636444,
+          20.021484375
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFontMedium",
+        "requested_frame": [
+          100.0,
+          963.0,
+          225.0,
+          21.0
+        ],
+        "resolved_font": ".AppleSystemUIFontMedium",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.23,
+        "text_present": true
+      },
+      "sha256": "a23f2df8f21117678f807ad274bdd6ca3b2dea43001c3b2c468bcdacc96ccdc5"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 21.0,
+        "width": 225.0,
+        "x": 100.0,
+        "y": 963.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.75,
+        133.25,
+        1.0,
+        20.021484375
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-medium-4.png",
+      "font_case": "system-medium",
+      "font_name": ".AppleSystemUIFontMedium",
+      "ink_pixels": 5289,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 42,
+      "pixel_width": 450,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          963.0,
+          225.0,
+          21.0
+        ],
+        "advance_present": false,
+        "ascent": 16.435546875,
+        "available_width": 579.25,
+        "ax_caret_row": true,
+        "baseline": 149.685546875,
+        "caret": [
+          100.75,
+          133.25,
+          1.0,
+          20.021484375
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          30.021484375
+        ],
+        "correction": false,
+        "descent": 3.5859375,
+        "drawing_origin": [
+          0.75,
+          0.728515625
+        ],
+        "drawn_width": 223.95710265636444,
+        "fixed_advance": 0.0,
+        "font_size": 17.0,
+        "glyph_bounds": [
+          100.75,
+          133.25,
+          223.95710265636444,
+          20.021484375
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFontMedium",
+        "requested_frame": [
+          100.0,
+          963.0,
+          225.0,
+          21.0
+        ],
+        "resolved_font": ".AppleSystemUIFontMedium",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.23,
+        "text_present": true
+      },
+      "sha256": "56f80050351c40f43d1694ed5667485021719387e1195a7bf8cbc1fb005fe404"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 21.0,
+        "width": 225.0,
+        "x": 100.0,
+        "y": 963.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.875,
+        133.125,
+        1.0,
+        20.021484375
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-medium-5.png",
+      "font_case": "system-medium",
+      "font_name": ".AppleSystemUIFontMedium",
+      "ink_pixels": 5288,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 42,
+      "pixel_width": 450,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          963.0,
+          225.0,
+          21.0
+        ],
+        "advance_present": false,
+        "ascent": 16.435546875,
+        "available_width": 579.125,
+        "ax_caret_row": true,
+        "baseline": 149.560546875,
+        "caret": [
+          100.875,
+          133.125,
+          1.0,
+          20.021484375
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          30.021484375
+        ],
+        "correction": false,
+        "descent": 3.5859375,
+        "drawing_origin": [
+          0.875,
+          0.853515625
+        ],
+        "drawn_width": 223.95710265636444,
+        "fixed_advance": 0.0,
+        "font_size": 17.0,
+        "glyph_bounds": [
+          100.875,
+          133.125,
+          223.95710265636444,
+          20.021484375
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFontMedium",
+        "requested_frame": [
+          100.0,
+          963.0,
+          225.0,
+          21.0
+        ],
+        "resolved_font": ".AppleSystemUIFontMedium",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.23,
+        "text_present": true
+      },
+      "sha256": "bd55633a7d79d1768bc5bbaad43e1976f683711bb371f1b5bb0a172f5970114f"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 21.0,
+        "width": 224.0,
+        "x": 100.0,
+        "y": 963.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.0,
+        133.5,
+        1.0,
+        20.021484375
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-medium-6.png",
+      "font_case": "system-medium",
+      "font_name": ".AppleSystemUIFontMedium",
+      "ink_pixels": 5289,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 42,
+      "pixel_width": 448,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          963.0,
+          224.0,
+          21.0
+        ],
+        "advance_present": false,
+        "ascent": 16.435546875,
+        "available_width": 580.0,
+        "ax_caret_row": true,
+        "baseline": 149.935546875,
+        "caret": [
+          100.0,
+          133.5,
+          1.0,
+          20.021484375
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          30.021484375
+        ],
+        "correction": false,
+        "descent": 3.5859375,
+        "drawing_origin": [
+          0.0,
+          0.478515625
+        ],
+        "drawn_width": 223.95710265636444,
+        "fixed_advance": 0.0,
+        "font_size": 17.0,
+        "glyph_bounds": [
+          100.0,
+          133.5,
+          223.95710265636444,
+          20.021484375
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFontMedium",
+        "requested_frame": [
+          100.0,
+          963.0,
+          224.0,
+          21.0
+        ],
+        "resolved_font": ".AppleSystemUIFontMedium",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.23,
+        "text_present": true
+      },
+      "sha256": "588da8d0083c331b2572efa101de98052ea18870b0394cd6d143cd4da82eb337"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 21.0,
+        "width": 225.0,
+        "x": 100.0,
+        "y": 963.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.5,
+        133.0,
+        1.0,
+        20.021484375
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-system-medium-7.png",
+      "font_case": "system-medium",
+      "font_name": ".AppleSystemUIFontMedium",
+      "ink_pixels": 5289,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 42,
+      "pixel_width": 450,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          963.0,
+          225.0,
+          21.0
+        ],
+        "advance_present": false,
+        "ascent": 16.435546875,
+        "available_width": 579.5,
+        "ax_caret_row": true,
+        "baseline": 149.435546875,
+        "caret": [
+          100.5,
+          133.0,
+          1.0,
+          20.021484375
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          30.021484375
+        ],
+        "correction": false,
+        "descent": 3.5859375,
+        "drawing_origin": [
+          0.5,
+          0.978515625
+        ],
+        "drawn_width": 223.95710265636444,
+        "fixed_advance": 0.0,
+        "font_size": 17.0,
+        "glyph_bounds": [
+          100.5,
+          133.0,
+          223.95710265636444,
+          20.021484375
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": ".AppleSystemUIFontMedium",
+        "requested_frame": [
+          100.0,
+          963.0,
+          225.0,
+          21.0
+        ],
+        "resolved_font": ".AppleSystemUIFontMedium",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": true,
+        "system_weight": 0.23,
+        "text_present": true
+      },
+      "sha256": "26ec924d99b5fc14e6739464f25a3bd40616cf1a9e71ba3a0f13dd87027f08b4"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 15.0,
+        "width": 189.0,
+        "x": 100.0,
+        "y": 969.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.0,
+        133.0,
+        1.0,
+        15.0
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-named-helvetica-0.png",
+      "font_case": "named-helvetica",
+      "font_name": "Helvetica",
+      "ink_pixels": 3853,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 30,
+      "pixel_width": 378,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          969.0,
+          189.0,
+          15.0
+        ],
+        "advance_present": false,
+        "ascent": 11.55029296875,
+        "available_width": 580.0,
+        "ax_caret_row": false,
+        "baseline": 144.55029296875,
+        "caret": [
+          100.0,
+          133.0,
+          1.0,
+          15.0
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          25.0
+        ],
+        "correction": false,
+        "descent": 3.44970703125,
+        "drawing_origin": [
+          0.0,
+          0.0
+        ],
+        "drawn_width": 188.4375,
+        "fixed_advance": 0.0,
+        "font_size": 15.0,
+        "glyph_bounds": [
+          100.0,
+          133.0,
+          188.4375,
+          15.0
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": "Helvetica",
+        "requested_frame": [
+          100.0,
+          969.0,
+          189.0,
+          15.0
+        ],
+        "resolved_font": "Helvetica",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": false,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "6c9ea14f0fe687ade08a747831ec71a3f0e01c18a0b8174d283181e31eaea367"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 16.0,
+        "width": 189.0,
+        "x": 100.0,
+        "y": 968.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.125,
+        133.875,
+        1.0,
+        15.0
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-named-helvetica-1.png",
+      "font_case": "named-helvetica",
+      "font_name": "Helvetica",
+      "ink_pixels": 3820,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 32,
+      "pixel_width": 378,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          968.0,
+          189.0,
+          16.0
+        ],
+        "advance_present": false,
+        "ascent": 11.55029296875,
+        "available_width": 579.875,
+        "ax_caret_row": false,
+        "baseline": 145.42529296875,
+        "caret": [
+          100.125,
+          133.875,
+          1.0,
+          15.0
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          25.0
+        ],
+        "correction": false,
+        "descent": 3.44970703125,
+        "drawing_origin": [
+          0.125,
+          0.125
+        ],
+        "drawn_width": 188.4375,
+        "fixed_advance": 0.0,
+        "font_size": 15.0,
+        "glyph_bounds": [
+          100.125,
+          133.875,
+          188.4375,
+          15.0
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": "Helvetica",
+        "requested_frame": [
+          100.0,
+          968.0,
+          189.0,
+          16.0
+        ],
+        "resolved_font": "Helvetica",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": false,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "977aecc1b973230e54337e18c311aa17d4fdd5341733af9c87d416faf25fbc45"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 16.0,
+        "width": 189.0,
+        "x": 100.0,
+        "y": 968.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.25,
+        133.75,
+        1.0,
+        15.0
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-named-helvetica-2.png",
+      "font_case": "named-helvetica",
+      "font_name": "Helvetica",
+      "ink_pixels": 3818,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 32,
+      "pixel_width": 378,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          968.0,
+          189.0,
+          16.0
+        ],
+        "advance_present": false,
+        "ascent": 11.55029296875,
+        "available_width": 579.75,
+        "ax_caret_row": false,
+        "baseline": 145.30029296875,
+        "caret": [
+          100.25,
+          133.75,
+          1.0,
+          15.0
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          25.0
+        ],
+        "correction": false,
+        "descent": 3.44970703125,
+        "drawing_origin": [
+          0.25,
+          0.25
+        ],
+        "drawn_width": 188.4375,
+        "fixed_advance": 0.0,
+        "font_size": 15.0,
+        "glyph_bounds": [
+          100.25,
+          133.75,
+          188.4375,
+          15.0
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": "Helvetica",
+        "requested_frame": [
+          100.0,
+          968.0,
+          189.0,
+          16.0
+        ],
+        "resolved_font": "Helvetica",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": false,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "f064f4efb8acc1db78be1222def3fd1fb14f37e59ee5e0d7164f6b6e065cef20"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 16.0,
+        "width": 189.0,
+        "x": 100.0,
+        "y": 968.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.5,
+        133.5,
+        1.0,
+        15.0
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-named-helvetica-3.png",
+      "font_case": "named-helvetica",
+      "font_name": "Helvetica",
+      "ink_pixels": 3853,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 32,
+      "pixel_width": 378,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          968.0,
+          189.0,
+          16.0
+        ],
+        "advance_present": false,
+        "ascent": 11.55029296875,
+        "available_width": 579.5,
+        "ax_caret_row": false,
+        "baseline": 145.05029296875,
+        "caret": [
+          100.5,
+          133.5,
+          1.0,
+          15.0
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          25.0
+        ],
+        "correction": false,
+        "descent": 3.44970703125,
+        "drawing_origin": [
+          0.5,
+          0.5
+        ],
+        "drawn_width": 188.4375,
+        "fixed_advance": 0.0,
+        "font_size": 15.0,
+        "glyph_bounds": [
+          100.5,
+          133.5,
+          188.4375,
+          15.0
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": "Helvetica",
+        "requested_frame": [
+          100.0,
+          968.0,
+          189.0,
+          16.0
+        ],
+        "resolved_font": "Helvetica",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": false,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "ac5767c26ead42da7718a461ab6e29acbfff839042591cae441fb0d086035456"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 16.0,
+        "width": 190.0,
+        "x": 100.0,
+        "y": 968.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.75,
+        133.25,
+        1.0,
+        15.0
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-named-helvetica-4.png",
+      "font_case": "named-helvetica",
+      "font_name": "Helvetica",
+      "ink_pixels": 3818,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 32,
+      "pixel_width": 380,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          968.0,
+          190.0,
+          16.0
+        ],
+        "advance_present": false,
+        "ascent": 11.55029296875,
+        "available_width": 579.25,
+        "ax_caret_row": false,
+        "baseline": 144.80029296875,
+        "caret": [
+          100.75,
+          133.25,
+          1.0,
+          15.0
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          25.0
+        ],
+        "correction": false,
+        "descent": 3.44970703125,
+        "drawing_origin": [
+          0.75,
+          0.75
+        ],
+        "drawn_width": 188.4375,
+        "fixed_advance": 0.0,
+        "font_size": 15.0,
+        "glyph_bounds": [
+          100.75,
+          133.25,
+          188.4375,
+          15.0
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": "Helvetica",
+        "requested_frame": [
+          100.0,
+          968.0,
+          190.0,
+          16.0
+        ],
+        "resolved_font": "Helvetica",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": false,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "1eb30c55c6acb05835642c7f40acb7a763be292f3d31a0df5da008250c7a3c45"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 16.0,
+        "width": 190.0,
+        "x": 100.0,
+        "y": 968.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.875,
+        133.125,
+        1.0,
+        15.0
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-named-helvetica-5.png",
+      "font_case": "named-helvetica",
+      "font_name": "Helvetica",
+      "ink_pixels": 3856,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 32,
+      "pixel_width": 380,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          968.0,
+          190.0,
+          16.0
+        ],
+        "advance_present": false,
+        "ascent": 11.55029296875,
+        "available_width": 579.125,
+        "ax_caret_row": false,
+        "baseline": 144.67529296875,
+        "caret": [
+          100.875,
+          133.125,
+          1.0,
+          15.0
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          25.0
+        ],
+        "correction": false,
+        "descent": 3.44970703125,
+        "drawing_origin": [
+          0.875,
+          0.875
+        ],
+        "drawn_width": 188.4375,
+        "fixed_advance": 0.0,
+        "font_size": 15.0,
+        "glyph_bounds": [
+          100.875,
+          133.125,
+          188.4375,
+          15.0
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": "Helvetica",
+        "requested_frame": [
+          100.0,
+          968.0,
+          190.0,
+          16.0
+        ],
+        "resolved_font": "Helvetica",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": false,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "925d2643b9a157f6651d0236c1e20a242667c1cfcc2f0cba9bf542ae7faefa4a"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 16.0,
+        "width": 189.0,
+        "x": 100.0,
+        "y": 968.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.0,
+        133.5,
+        1.0,
+        15.0
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-named-helvetica-6.png",
+      "font_case": "named-helvetica",
+      "font_name": "Helvetica",
+      "ink_pixels": 3853,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 32,
+      "pixel_width": 378,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          968.0,
+          189.0,
+          16.0
+        ],
+        "advance_present": false,
+        "ascent": 11.55029296875,
+        "available_width": 580.0,
+        "ax_caret_row": false,
+        "baseline": 145.05029296875,
+        "caret": [
+          100.0,
+          133.5,
+          1.0,
+          15.0
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          25.0
+        ],
+        "correction": false,
+        "descent": 3.44970703125,
+        "drawing_origin": [
+          0.0,
+          0.5
+        ],
+        "drawn_width": 188.4375,
+        "fixed_advance": 0.0,
+        "font_size": 15.0,
+        "glyph_bounds": [
+          100.0,
+          133.5,
+          188.4375,
+          15.0
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": "Helvetica",
+        "requested_frame": [
+          100.0,
+          968.0,
+          189.0,
+          16.0
+        ],
+        "resolved_font": "Helvetica",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": false,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "c04d33001a5f245d1d8d3314a084a9c47581e50648b45bd27730ad69fa63ac7e"
+    },
+    {
+      "acknowledged": true,
+      "actual_frame": {
+        "height": 15.0,
+        "width": 189.0,
+        "x": 100.0,
+        "y": 969.0
+      },
+      "capture": "actual OverlayOwner GhostSurface NSView bitmap; no preview renderer, screen capture or host writing",
+      "caret": [
+        100.5,
+        133.0,
+        1.0,
+        15.0
+      ],
+      "exact_glyph_origin_and_baseline_preserved": true,
+      "file": "ghost-named-helvetica-7.png",
+      "font_case": "named-helvetica",
+      "font_name": "Helvetica",
+      "ink_pixels": 3853,
+      "inline_ready": true,
+      "key_window_preserved": true,
+      "pixel_height": 30,
+      "pixel_width": 378,
+      "renderer_geometry": {
+        "actual_frame": [
+          100.0,
+          969.0,
+          189.0,
+          15.0
+        ],
+        "advance_present": false,
+        "ascent": 11.55029296875,
+        "available_width": 579.5,
+        "ax_caret_row": false,
+        "baseline": 144.55029296875,
+        "caret": [
+          100.5,
+          133.0,
+          1.0,
+          15.0
+        ],
+        "clip": [
+          80.0,
+          129.0,
+          600.0,
+          25.0
+        ],
+        "correction": false,
+        "descent": 3.44970703125,
+        "drawing_origin": [
+          0.5,
+          0.0
+        ],
+        "drawn_width": 188.4375,
+        "fixed_advance": 0.0,
+        "font_size": 15.0,
+        "glyph_bounds": [
+          100.5,
+          133.0,
+          188.4375,
+          15.0
+        ],
+        "inline": true,
+        "on_active_space": true,
+        "origin_error": [
+          0.0,
+          0.0
+        ],
+        "requested_font": "Helvetica",
+        "requested_frame": [
+          100.0,
+          969.0,
+          189.0,
+          15.0
+        ],
+        "resolved_font": "Helvetica",
+        "scale": 2.0,
+        "suffix_present": false,
+        "surface_visible": true,
+        "system_font": false,
+        "system_weight": 0.0,
+        "text_present": true
+      },
+      "sha256": "7b85c91a85fca8090c04d59e51a4cb99d6003ebd0c5d698763c42949a9b3e6a1"
+    }
+  ],
+  "extra_padding_alpha_checks": [
+    {
+      "file": "ghost-system-13-0.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-13-1.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-13-2.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-13-3.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-13-4.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-13-5.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-13-6.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-13-7.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-15-0.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-15-1.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-15-2.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-15-3.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-15-4.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-15-5.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-15-6.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-15-7.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-medium-0.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-medium-1.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-medium-2.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-medium-3.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-medium-4.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-medium-5.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-medium-6.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-system-medium-7.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-named-helvetica-0.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-named-helvetica-1.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-named-helvetica-2.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-named-helvetica-3.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-named-helvetica-4.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-named-helvetica-5.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-named-helvetica-6.png",
+      "outside_verified_paint_pixels": 0
+    },
+    {
+      "file": "ghost-named-helvetica-7.png",
+      "outside_verified_paint_pixels": 0
+    }
+  ],
+  "narrow_inline_ready_cases_refused": 32,
+  "failed_before": {
+    "geometry": {
+      "actual_frame": [
+        100.0,
+        967.0,
+        174.0,
+        16.0
+      ],
+      "advance_present": false,
+      "ascent": 12.568359375,
+      "available_width": 579.875,
+      "ax_caret_row": true,
+      "baseline": 146.443359375,
+      "caret": [
+        100.125,
+        133.875,
+        1.0,
+        15.310546875
+      ],
+      "clip": [
+        80.0,
+        129.0,
+        600.0,
+        25.310546875
+      ],
+      "correction": false,
+      "descent": 2.7421875,
+      "drawing_origin": [
+        0.125,
+        0.814453125
+      ],
+      "drawn_width": 173.7861328125,
+      "fixed_advance": 0.0,
+      "font_size": 13.0,
+      "glyph_bounds": [
+        100.125,
+        133.875,
+        173.7861328125,
+        15.310546875
+      ],
+      "inline": true,
+      "on_active_space": false,
+      "origin_error": [
+        0.0,
+        0.5
+      ],
+      "requested_font": ".AppleSystemUIFont",
+      "requested_frame": [
+        100.0,
+        967.5,
+        174.0,
+        16.0
+      ],
+      "resolved_font": ".AppleSystemUIFont",
+      "scale": 2.0,
+      "suffix_present": false,
+      "surface_visible": false,
+      "system_font": true,
+      "system_weight": 0.0,
+      "text_present": true
+    },
+    "rejection": "frame_content_readback"
+  },
+  "exact_global_glyph_origin_and_baseline_preserved": true,
+  "all_extra_window_padding_transparent": true,
+  "fixture_foreground_activation_allowed": false,
+  "personal_host_content_read": false,
+  "physical_compositor_whatsapp_success": false,
+  "limits": "First screen/current backing scale; actual GhostSurface NSView rasterization and window geometry, not external-host or mixed-scale compositor proof."
+}

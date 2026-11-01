@@ -1,0 +1,16 @@
+{
+  "schema": "brotypist-macos-prediction-diagnostic-install/1",
+  "source_commit": "b42bab21695b4e9b7a81235d9330b1b1f1025f43",
+  "signature": "identity-signed",
+  "candidate_installed_inventory_identical": true,
+  "original_requirement_preserved": true,
+  "graceful_quit_locked_backup_atomic_swap": true,
+  "settings_history_unchanged": true,
+  "startup_eight_seconds_no_exit": true,
+  "native_menu_seven_states_two_scales_passed": true,
+  "workspace_tests": 397,
+  "nested_child_invocations": 2,
+  "external_host_prediction_passed": false,
+  "external_host_blocker": "Observer Accessibility unavailable; authorized synthetic TextEdit document creation denied Automation -1743. CLI diagnostic does not establish GUI TCC. Need actual GUI Setup nativeStatus capture stage after synthetic manual typing.",
+  "permission_grants_or_resets_attempted": false
+}

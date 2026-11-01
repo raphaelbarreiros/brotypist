@@ -1,0 +1,16 @@
+{
+  "schema": "brotypist-prediction-repair/1",
+  "workspace_tests": 416,
+  "nested_child_invocations": 2,
+  "short_draft_reference_regression_failed_before": true,
+  "chooser_revoked_presentation_regression_failed_before": true,
+  "integrated_tests_passed": true,
+  "native_emoji_render_action_owned_readback_passed": true,
+  "reported_whatsapp_actual_failure_cause_confirmed": false,
+  "whatsapp_before_repair_capture_stage": "inline_ready",
+  "whatsapp_before_repair_inline_ready_count": 205,
+  "settings_screen_clipboard_screenshot_consents_preserved": true,
+  "model_unchanged": true,
+  "privacy_gates_relaxed": false,
+  "external_whatsapp_after_repair_verified": false
+}

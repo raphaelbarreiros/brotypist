@@ -1,0 +1,51 @@
+{
+  "schema": "brotypist-macos-settings-spacing-install/1",
+  "source_commit": "315d125c2a9bf36143af63208afd6c1ab585f864",
+  "version": "0.4.13",
+  "runtime": "Rust",
+  "shell": "AppKit",
+  "application": "/Applications/BroTypist.app",
+  "signature": {
+    "kind": "identity-signed",
+    "strict_deep_verification_passed": true,
+    "designated_requirement_matches_original": true,
+    "installed_inventory_matches_verified_candidate": true,
+    "verified_file_count": 405
+  },
+  "installation": {
+    "previous_app_graceful_quit_observed": true,
+    "profile_lock_held_during_exchange": true,
+    "atomic_directory_exchange": true,
+    "private_previous_bundle_and_opaque_profile_backup_retained": true,
+    "profile_backup_byte_identical": true,
+    "settings_and_history_database_unchanged_after_launch": true,
+    "selected_model_exists": true,
+    "model_weights_replaced": false,
+    "tcc_reset_or_permission_grant_attempted": false
+  },
+  "launch": {
+    "method": "LaunchServices open -g --args --background",
+    "exact_installed_executable_observed": true,
+    "finished_launching": true,
+    "active": false,
+    "no_exit_during_eight_second_kqueue_observation": true,
+    "foreground_unchanged": true
+  },
+  "layout_evidence": "macos-settings-spacing/receipt.json",
+  "verification": {
+    "workspace_tests_passed": 396,
+    "additional_nested_child_test_invocations": 2,
+    "native_layout_capture_passed": true,
+    "native_images": 41,
+    "native_geometry_observations": 63,
+    "retained_editor_resize_observations": 4,
+    "native_wrapped_cell_height_guard_passed": true,
+    "representative_final_content_and_control_reachability_passed": true
+  },
+  "limits": [
+    "Layout images are in-process native theme-frame/NSView captures, not WindowServer compositing or external-screen captures.",
+    "The full activating macOS desktop smoke was not run on this live user account.",
+    "No signed external-host typing, live GUI TCC, notarization or OTA claim.",
+    "Main branch and published releases remain unchanged."
+  ]
+}

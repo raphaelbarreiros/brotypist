@@ -1,0 +1,5 @@
+# These source-bound inputs are hashed as original bytes, never newline-normalized.
+crates/xtask/legal-material/** -text
+crates/brotypist/examples/benchmark_writing/writing_quality.json -text
+crates/brotypist/assets/models.json -text
+crates/brotypist/assets/emoji.json -text
