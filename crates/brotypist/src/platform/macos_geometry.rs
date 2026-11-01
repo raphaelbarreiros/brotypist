@@ -98,6 +98,8 @@ trait Backend {
     fn boolean(&self, node: &Self::Node, name: &str) -> bool;
     fn element(&self, node: &Self::Node, name: &str) -> Option<Self::Node>;
     fn children(&self, node: &Self::Node) -> Option<Vec<Self::Node>>;
+    fn has_class(&self, node: &Self::Node, name: &str) -> bool;
+    fn same_process(&self, left: &Self::Node, right: &Self::Node) -> bool;
     fn checked_bool(&self, node: &Self::Node, name: &str) -> Result<Option<bool>, ()> {
         Ok(Some(self.boolean(node, name)))
     }
@@ -166,6 +168,92 @@ fn ancestry<B: Backend>(backend: &B, field: &B::Node, secure: &str) -> Option<Ve
     }
     None // Even exactly 32 nodes is a truncated observation, as in the AX oracle.
 }
+fn contains_rect(outer: Rect, inner: Rect) -> bool {
+    inner[0] >= outer[0]
+        && inner[1] >= outer[1]
+        && inner[0] + inner[2] <= outer[0] + outer[2]
+        && inner[1] + inner[3] <= outer[1] + outer[3]
+}
+
+// Monaco's textarea is an input relay, not the painted document viewport.
+// Resolve its related native clipping node instead of widening its tiny frame.
+// This supplies no caret/text geometry: field-local UTF-16 ranges, native glyph
+// bounds and font calibration still have to agree in `inline_checked`.
+fn monaco_relay_viewport<B: Backend>(
+    backend: &B,
+    chain: &[B::Node],
+    secure: &str,
+    rect: Rect,
+) -> Option<Rect> {
+    // Ordinary native text fields need no renderer metadata or sibling scan.
+    if rect[2] > 2.0 {
+        return None;
+    }
+    let field = chain.first()?;
+    let guard = chain.get(1)?;
+    let editor = chain.get(2)?;
+    if backend.string(field, "AXRole").as_deref() != Some("AXTextArea")
+        || !backend.has_class(field, "inputarea")
+        || backend.string(guard, "AXRole").as_deref() != Some("AXGroup")
+        || !backend.has_class(guard, "overflow-guard")
+        || backend.string(editor, "AXRole").as_deref() != Some("AXGroup")
+        || !backend.has_class(editor, "monaco-editor")
+    {
+        return None;
+    }
+    let window = backend.element(field, "AXWindow")?;
+    for node in [guard, editor] {
+        if !backend.same_process(field, node)
+            || !backend
+                .element(node, "AXWindow")
+                .is_some_and(|owner| backend.same(&owner, &window))
+        {
+            return None;
+        }
+    }
+    let guard_rect = valid_rect(backend.frame(guard)?, false)?;
+    let editor_rect = valid_rect(backend.frame(editor)?, false)?;
+    if !contains_rect(editor_rect, guard_rect) || !contains_rect(guard_rect, rect) {
+        return None;
+    }
+    let deadline = backend.now().checked_add(TREE_TIME)?;
+    let children = backend.checked_children(guard).ok()?;
+    if children.len() > MAX_NODES {
+        return None;
+    }
+    let mut viewport = None;
+    for child in children {
+        if backend.now() >= deadline {
+            return None;
+        }
+        if backend.string(&child, "AXRole").as_deref() != Some("AXGroup")
+            || !backend.has_class(&child, "lines-content")
+            || !backend.has_class(&child, "monaco-editor-background")
+        {
+            continue;
+        }
+        if viewport.is_some()
+            || protected(backend, &child, secure) != Some(false)
+            || !backend.same_process(field, &child)
+            || !backend
+                .element(&child, "AXWindow")
+                .is_some_and(|owner| backend.same(&owner, &window))
+            || !backend
+                .parent(&child)
+                .ok()?
+                .is_some_and(|parent| backend.same(&parent, guard))
+        {
+            return None;
+        }
+        let bounds = valid_rect(backend.frame(&child)?, false)?;
+        if !contains_rect(guard_rect, bounds) || !contains_rect(bounds, rect) {
+            return None;
+        }
+        viewport = Some(bounds);
+    }
+    (backend.now() < deadline).then_some(viewport).flatten()
+}
+
 fn visible_clip<B: Backend>(
     backend: &B,
     field: &B::Node,
@@ -181,7 +269,8 @@ fn visible_clip<B: Backend>(
             .cloned()
     });
     let window = window.as_ref();
-    let mut clip = valid_rect(rect, false)?;
+    let raw = valid_rect(rect, false)?;
+    let mut clip = monaco_relay_viewport(backend, &chain, secure, raw).unwrap_or(raw);
     for parent in chain.iter().skip(1) {
         if backend.string(parent, "AXRole").as_deref() == Some("AXApplication") {
             break;
@@ -465,6 +554,14 @@ fn anchor_matches<B: Backend>(
             snapshot.caret,
             selection.location,
         ) != Some(expected)
+    }) {
+        return false;
+    }
+    if snapshot.inline_render.as_ref().is_some_and(|render| {
+        snapshot.field_rect.is_none_or(|raw| {
+            !contains_rect(raw, render.clip_rect)
+                && visible_clip(backend, field, secure, raw) != Some(render.clip_rect)
+        })
     }) {
         return false;
     }
@@ -1073,6 +1170,16 @@ impl Backend for Native {
     fn boolean(&self, node: &AxElement, name: &str) -> bool {
         node.bool(name).unwrap_or(false)
     }
+    fn has_class(&self, node: &AxElement, name: &str) -> bool {
+        node.attribute("AXDOMClassList")
+            .ok()
+            .flatten()
+            .and_then(|value| value.as_strings())
+            .is_some_and(|classes| classes.iter().any(|class| class == name))
+    }
+    fn same_process(&self, left: &AxElement, right: &AxElement) -> bool {
+        left.pid().is_some_and(|pid| right.pid() == Some(pid))
+    }
     fn element(&self, node: &AxElement, name: &str) -> Option<AxElement> {
         node.element(name)
     }
@@ -1338,6 +1445,8 @@ mod tests {
     #[derive(Clone, Default)]
     struct Node {
         strings: HashMap<String, String>,
+        classes: HashSet<String>,
+        pid: i32,
         flags: HashSet<String>,
         unreadable: HashSet<String>,
         elements: HashMap<String, usize>,
@@ -1477,6 +1586,14 @@ mod tests {
         fn boolean(&self, node: &usize, key: &str) -> bool {
             self.read(*node, key);
             self.nodes[*node].flags.contains(key)
+        }
+        fn has_class(&self, node: &usize, name: &str) -> bool {
+            self.read(*node, "AXDOMClassList");
+            !self.nodes[*node].unreadable.contains("AXDOMClassList")
+                && self.nodes[*node].classes.contains(name)
+        }
+        fn same_process(&self, left: &usize, right: &usize) -> bool {
+            self.nodes[*left].pid > 0 && self.nodes[*left].pid == self.nodes[*right].pid
         }
         fn element(&self, node: &usize, key: &str) -> Option<usize> {
             self.read(*node, key);
@@ -1896,6 +2013,182 @@ mod tests {
         host.nodes[30].elements.clear();
         assert_eq!(ancestry(&host, &0, "secure").unwrap().len(), 31);
     }
+    fn monaco_relay_host() -> Host {
+        let mut host = Host::metrics("Hello world");
+        host.nodes.extend((0..5).map(|_| Node::default()));
+        for (node, role) in [
+            (1, "AXGroup"),
+            (2, "AXGroup"),
+            (3, "AXWindow"),
+            (4, "AXApplication"),
+            (5, "AXGroup"),
+        ] {
+            host.nodes[node]
+                .strings
+                .insert("AXRole".into(), role.into());
+        }
+        for (node, parent) in [(0, 1), (1, 2), (2, 3), (3, 4), (5, 1)] {
+            host.nodes[node].elements.insert("AXParent".into(), parent);
+        }
+        for node in [0, 1, 2, 3, 5] {
+            host.nodes[node].elements.insert("AXWindow".into(), 3);
+        }
+        for node in &mut host.nodes {
+            node.pid = 7;
+        }
+        host.nodes[0].classes.insert("inputarea".into());
+        host.nodes[1].classes.insert("overflow-guard".into());
+        host.nodes[2].classes.insert("monaco-editor".into());
+        host.nodes[5]
+            .classes
+            .extend(["lines-content".into(), "monaco-editor-background".into()]);
+        host.nodes[0].frame = Some([99.0, 40.0, 1.0, 20.0]);
+        host.nodes[1].frame = Some([0.0, 0.0, 240.0, 140.0]);
+        host.nodes[2].frame = host.nodes[1].frame;
+        host.nodes[3].frame = Some([-20.0, -20.0, 400.0, 300.0]);
+        // The native text viewport excludes the gutter; never use the window
+        // or the whole overflow-guard as an invented paint rectangle.
+        host.nodes[5].frame = Some([20.0, 20.0, 180.0, 100.0]);
+        host.nodes[1].children = vec![0, 5];
+        host.selection.set(Some(r(11, 0)));
+        host.rows.insert((0, 11, 0), CARET);
+        host.rows.insert((0, 10, 1), [95.0, 40.0, 5.0, 20.0]);
+        host
+    }
+
+    #[test]
+    fn monaco_textarea_relay_uses_proven_native_viewport_not_one_pixel_input_frame() {
+        let host = monaco_relay_host();
+        let raw = host.nodes[0].frame.unwrap();
+        assert_eq!(visible_clip(&host, &0, "secure", raw), host.nodes[5].frame);
+        let (render, _) = inline(
+            &host,
+            &0,
+            "secure",
+            &"Hello world".into(),
+            11,
+            11,
+            Some(CARET),
+            Some(raw),
+            false,
+            &mut "not_observed",
+        );
+        assert_eq!(render.unwrap().clip_rect, host.nodes[5].frame.unwrap());
+        assert_eq!(host.nodes[0].frame, Some(raw));
+    }
+
+    #[test]
+    fn monaco_relay_viewport_requires_exact_topology_owner_and_unique_native_clip() {
+        for case in 0..9 {
+            let mut host = monaco_relay_host();
+            let raw = host.nodes[0].frame.unwrap();
+            match case {
+                0 => host.nodes[0].classes.clear(),
+                1 => host.nodes[1].classes.clear(),
+                2 => host.nodes[2].classes.clear(),
+                3 => host.nodes[5].pid = 8,
+                4 => {
+                    host.nodes[5].elements.insert("AXWindow".into(), 4);
+                }
+                5 => {
+                    let duplicate = host.nodes[5].clone();
+                    host.nodes.push(duplicate);
+                    host.nodes[1].children.push(6);
+                }
+                6 => {
+                    host.nodes[5].elements.insert("AXParent".into(), 2);
+                }
+                7 => {
+                    host.nodes[5].unreadable.insert("AXDOMClassList".into());
+                }
+                8 => host.nodes[5].frame = Some([20.0, 20.0, 400.0, 100.0]),
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                visible_clip(&host, &0, "secure", raw),
+                Some(raw),
+                "case {case}"
+            );
+        }
+        for flag in ["AXHidden", "AXProtectedContent"] {
+            let mut host = monaco_relay_host();
+            host.nodes[5].flags.insert(flag.into());
+            let raw = host.nodes[0].frame.unwrap();
+            assert_eq!(visible_clip(&host, &0, "secure", raw), Some(raw));
+        }
+    }
+
+    #[test]
+    fn monaco_relay_does_not_synthesize_missing_native_edit_context_geometry() {
+        let mut host = monaco_relay_host();
+        host.nodes[0].classes = HashSet::from(["native-edit-context".into()]);
+        host.rows.clear();
+        host.rows.insert((0, 11, 0), [0.0, 1117.0, 0.0, 0.0]);
+        assert_eq!(
+            caret(&host, &0, "secure", &"Hello world".into(), 11, 11),
+            None
+        );
+    }
+
+    #[test]
+    fn monaco_relay_capture_anchor_revalidates_viewport_motion_and_protection() {
+        let mut host = monaco_relay_host();
+        let raw = host.nodes[0].frame.unwrap();
+        let snapshot = Snapshot {
+            text: "Hello world".into(),
+            caret: 11,
+            caret_rect: Some(CARET),
+            field_rect: Some(raw),
+            window_bounds: host.nodes[3].frame,
+            inline_render: Some(InlineRender {
+                clip_rect: host.nodes[5].frame.unwrap(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(anchor_matches(&host, &0, "secure", &snapshot, r(11, 0)));
+        host.nodes[5].frame = Some([21.0, 20.0, 180.0, 100.0]);
+        assert!(!anchor_matches(&host, &0, "secure", &snapshot, r(11, 0)));
+        host.nodes[5].frame = Some(snapshot.inline_render.as_ref().unwrap().clip_rect);
+        host.nodes[5].flags.insert("AXProtectedContent".into());
+        assert!(!anchor_matches(&host, &0, "secure", &snapshot, r(11, 0)));
+    }
+
+    #[test]
+    fn monaco_relay_resolution_skips_full_width_native_fields() {
+        let mut host = monaco_relay_host();
+        let raw = [20.0, 20.0, 180.0, 100.0];
+        host.nodes[0].frame = Some(raw);
+        for node in 0..host.nodes.len() {
+            host.forbidden.insert((node, "AXDOMClassList".into()));
+            host.forbidden.insert((node, "AXChildren".into()));
+        }
+        assert_eq!(visible_clip(&host, &0, "secure", raw), Some(raw));
+    }
+
+    #[test]
+    fn ordinary_inline_anchor_skips_renderer_metadata_and_extra_ancestry_reads() {
+        let mut host = monaco_relay_host();
+        let raw = [0.0, 0.0, 240.0, 140.0];
+        host.nodes[0].frame = Some(raw);
+        host.forbidden.insert((0, "AXParent".into()));
+        host.forbidden.insert((0, "AXDOMClassList".into()));
+        host.forbidden.insert((1, "AXChildren".into()));
+        let snapshot = Snapshot {
+            text: "Hello world".into(),
+            caret: 11,
+            caret_rect: Some(CARET),
+            field_rect: Some(raw),
+            window_bounds: host.nodes[3].frame,
+            inline_render: Some(InlineRender {
+                clip_rect: [20.0, 20.0, 180.0, 100.0],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(anchor_matches(&host, &0, "secure", &snapshot, r(11, 0)));
+    }
+
     #[test]
     fn caret_row_correction_preserves_x_and_document_end_requires_ltr_glyph() {
         let mut host = Host::tree("abc", &[]);

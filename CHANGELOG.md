@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.5.1 — macOS responsiveness and editor compatibility
+
+- Preserve the completed spelling verdict through an unchanged automatic-generation handoff instead of repeating native assessment before the first streamed offer. Real input, focus and policy changes still revoke it.
+- Schedule routine native capture intervals from capture completion rather than an already expired tick-start deadline, avoiding back-to-back AX pressure from a busy host. Preserve immediate input/action capture and existing debounce, context and authority checks.
+- Negotiate supported macOS accessibility preparation by host capabilities rather than an application-name allowlist.
+- Resolve Monaco's thin textarea input relay to its verified native text viewport without inventing caret/glyph geometry or widening unknown fields. Keep ordinary fields on their existing capture path; revalidate expanded viewport identity and geometry.
+- VS Code's native EditContext backend still exposes unusable range geometry. Its supported textarea/accessibility settings are an explicit host prerequisite, not silently changed user preferences. WordCraft's nonfunctional accessibility editing contract remains refused; no third-party application is modified.
+
 ## 0.5.0 — native Rust migration
 
 - Introduce a Rust application/worker with OS-native AppKit, Win32 and GTK interfaces, retaining the pinned llama.cpp engine and the complete existing model catalogue rather than substituting inference backends.

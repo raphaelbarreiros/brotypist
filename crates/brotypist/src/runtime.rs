@@ -2104,6 +2104,9 @@ impl Engine {
     }
     fn clear(&mut self, hide: bool, cancel: bool) {
         self.clear_state(hide, cancel, false);
+        if let Some(s) = &self.spelling {
+            s.invalidate();
+        }
     }
     fn clear_state(&mut self, hide: bool, cancel: bool, preserve_context: bool) {
         let whatsapp = self.whatsapp_relevant();
@@ -2140,9 +2143,6 @@ impl Engine {
         }
         self.advance = None;
         self.redraw_pending = false;
-        if let Some(s) = &self.spelling {
-            s.invalidate();
-        }
         self.disarm();
         self.clear_docs();
         self.context_status = if self.config.screen_context
@@ -2587,6 +2587,9 @@ impl Engine {
         } else {
             // Scheduling this exact unchanged lease is a consumer handoff, not
             // a focus/policy revocation. Do not discard its bounded prefetch.
+            // Spelling is also keyed to this draft and authority. Revoking
+            // clear() invalidates it; this handoff must not make the first
+            // result wait for the same spelling assessment a second time.
             let preserve_context = self.preparing.is_none()
                 && self.request.is_none()
                 && self
@@ -4207,10 +4210,13 @@ impl Engine {
         } else if now >= self.capture_after {
             let snapshot = self.capture();
             self.observe(snapshot);
-            self.capture_after = now
+            // Slow native reads must not leave the next routine deadline
+            // expired; input notifications and explicit actions still recapture.
+            let captured_at = self.now();
+            self.capture_after = captured_at
                 + if self.request.is_some()
                     || self.preparing.is_some()
-                    || now.duration_since(self.candidate_since) < Duration::from_secs(2)
+                    || captured_at.duration_since(self.candidate_since) < Duration::from_secs(2)
                 {
                     Duration::from_millis(50)
                 } else {
@@ -4823,6 +4829,7 @@ mod tests {
     struct NativeState {
         snapshot: Option<Snapshot>,
         revision: u64,
+        input_at: Option<Instant>,
         secure: Option<bool>,
         hook: Option<ShortcutHandler>,
         wake: Option<Arc<dyn Fn() + Send + Sync>>,
@@ -4831,6 +4838,7 @@ mod tests {
         finished: Vec<bool>,
         ui_callback: Option<Arc<dyn Fn(String) + Send + Sync>>,
         capture_count: usize,
+        capture_time: Option<(Rc<RefCell<Instant>>, Duration)>,
         stop_calls: usize,
         stop_failures: usize,
         shortcuts: bool,
@@ -4858,6 +4866,9 @@ mod tests {
         fn capture(&mut self) -> Result<Option<Snapshot>> {
             let mut s = self.0.borrow_mut();
             s.capture_count += 1;
+            if let Some((clock, duration)) = &s.capture_time {
+                *clock.borrow_mut() += *duration;
+            }
             Ok(s.snapshot.clone())
         }
         fn context_ticket(
@@ -4960,7 +4971,7 @@ mod tests {
             self.0.borrow().revision
         }
         fn input_timestamp(&self) -> Option<Instant> {
-            None
+            self.0.borrow().input_at
         }
         fn secure_input_enabled(&self) -> Option<bool> {
             self.0.borrow().secure
@@ -5226,6 +5237,7 @@ mod tests {
         Rc::new(RefCell::new(NativeState {
             snapshot: Some(field("The update")),
             revision: 1,
+            input_at: None,
             secure: Some(false),
             hook: None,
             wake: None,
@@ -5234,6 +5246,7 @@ mod tests {
             edits: Vec::new(),
             finished: Vec::new(),
             capture_count: 0,
+            capture_time: None,
             stop_calls: 0,
             stop_failures: 0,
             shortcuts: false,
@@ -5312,6 +5325,18 @@ mod tests {
     impl Harness {
         fn elapse(&mut self, millis: u64) {
             *self.time.borrow_mut() += Duration::from_millis(millis);
+        }
+        fn type_text(&mut self, text: &str, capture_delay_ms: u64) {
+            let wake = {
+                let mut native = self.native.borrow_mut();
+                native.snapshot = Some(field(text));
+                native.revision += 1;
+                native.input_at = Some(self.engine.now());
+                native.wake.clone().unwrap()
+            };
+            wake();
+            self.elapse(capture_delay_ms);
+            self.engine.tick();
         }
         fn observe(&mut self) {
             self.elapse(101);
@@ -5793,6 +5818,256 @@ mod tests {
         assert!(h.worker.borrow().submitted.is_empty());
         assert_eq!(h.worker.borrow().released, 1);
     }
+    #[test]
+    fn automatic_completion_handoff_retains_current_spelling_verdict() {
+        use crate::spelling::{SpellBackend, SpellWorkScope};
+        use std::sync::atomic::AtomicUsize;
+
+        struct CountingDictionary(Arc<AtomicUsize>);
+        impl SpellBackend for CountingDictionary {
+            fn work_scope(&mut self) -> Result<Box<dyn SpellWorkScope>> {
+                self.0.fetch_add(1, Ordering::AcqRel);
+                Ok(Box::new(()))
+            }
+            fn languages(&mut self) -> Result<(Vec<String>, Vec<String>)> {
+                Ok((vec!["en".into()], vec!["en".into()]))
+            }
+            fn identify(&mut self, _: &str) -> Result<BTreeMap<String, f64>> {
+                Ok(BTreeMap::from([("en".into(), 1.0)]))
+            }
+            fn misspelled(&mut self, _: &str, _: &str) -> Result<Vec<(usize, usize)>> {
+                Ok(Vec::new())
+            }
+            fn has_completions(&mut self, _: &str, _: &str) -> Result<bool> {
+                Ok(true)
+            }
+            fn suggestions(
+                &mut self,
+                _: &str,
+                _: usize,
+                _: usize,
+                _: &str,
+            ) -> Result<(String, Vec<String>)> {
+                Ok((String::new(), Vec::new()))
+            }
+            fn close(&mut self) -> Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut config = Config::default();
+        config.debounce_ms = 200;
+        config.typo_suppression = true;
+        config.typo_fixes = false;
+        let assessments = Arc::new(AtomicUsize::new(0));
+        let (ready, completed) = mpsc::channel();
+        let spelling = Arc::new(SpellingService::new(
+            Some(Box::new(CountingDictionary(assessments.clone()))),
+            Some(Arc::new(move || {
+                let _ = ready.send(());
+            })),
+        ));
+        let mut h = harness(config, Some(spelling.clone()));
+        h.engine.tick();
+        assert!(
+            h.engine.preparing.is_none(),
+            "pending spelling blocks scheduling"
+        );
+        completed.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(assessments.load(Ordering::Acquire), 1);
+        h.elapse(200);
+        h.engine.tick();
+        assert!(h.engine.preparing.is_some());
+        let snapshot = h.native.borrow().snapshot.clone().unwrap();
+        assert!(
+            spelling.assess(&snapshot).is_some(),
+            "unchanged handoff discarded the ready verdict and queued a duplicate assessment"
+        );
+        h.engine.tick();
+        h.prepared();
+        h.response("ready", "", false);
+        h.response("result", " arrives", false);
+        assert_eq!(h.engine.suggestion.text, " arrives");
+        assert_eq!(assessments.load(Ordering::Acquire), 1);
+        assert!(
+            h.engine.claims.is_empty(),
+            "offering is not a paint acknowledgement"
+        );
+        h.drawn(" arrives", "completion");
+        assert_eq!(h.engine.claims.len(), 1);
+
+        // Real input must still revoke the stream and its acceptance authority.
+        h.native.borrow_mut().snapshot = Some(field("A different draft"));
+        h.native.borrow_mut().revision += 1;
+        let wake = h.native.borrow().wake.clone().unwrap();
+        wake();
+        h.engine.tick();
+        assert!(h.engine.request.is_none());
+        assert!(h.engine.suggestion.text.is_empty());
+        assert!(h.engine.claims.is_empty());
+    }
+
+    #[test]
+    fn slow_capture_deadline_starts_after_completion_but_input_and_force_stay_fresh() {
+        let mut config = Config::default();
+        config.debounce_ms = 5000;
+        config.typo_suppression = false;
+        config.typo_fixes = false;
+        let mut h = harness(config, None);
+        h.native.borrow_mut().capture_time = Some((h.time.clone(), Duration::from_millis(80)));
+        h.engine.capture_after = h.engine.now();
+        let initial_captures = h.native.borrow().capture_count;
+        h.engine.tick();
+        let captured = h.native.borrow().capture_count;
+        assert_eq!(captured, initial_captures + 1);
+        assert_eq!(
+            h.engine.capture_after,
+            h.engine.now() + Duration::from_millis(50),
+            "slow native capture left the next routine deadline already expired"
+        );
+        h.engine.tick();
+        assert_eq!(h.native.borrow().capture_count, captured);
+        h.elapse(49);
+        h.engine.tick();
+        assert_eq!(h.native.borrow().capture_count, captured);
+        h.elapse(1);
+        h.engine.tick();
+        assert_eq!(h.native.borrow().capture_count, captured + 1);
+        assert_eq!(
+            h.engine.capture_after,
+            h.engine.now() + Duration::from_millis(50)
+        );
+
+        // A real input callback still bypasses the routine deadline immediately.
+        let epoch = h.engine.current_epoch();
+        assert!(h.engine.now() < h.engine.capture_after);
+        h.type_text("The latest typed draft", 0);
+        assert_eq!(h.native.borrow().capture_count, captured + 2);
+        assert!(h.engine.current_epoch() > epoch);
+        let current = h.native.borrow().snapshot.clone().unwrap();
+        assert!(h.engine.candidate.as_ref().unwrap().same_key(&current));
+        assert_eq!(h.engine.candidate_revision, h.native.borrow().revision);
+        assert!(h.engine.preparing.is_none());
+
+        // Explicit actions must capture new native text even without a wake.
+        let latest = field("A fresh explicit draft");
+        h.native.borrow_mut().snapshot = Some(latest.clone());
+        assert!(h.engine.now() < h.engine.capture_after);
+        h.engine.command(Command::Action(Action::Force));
+        assert!(h.native.borrow().capture_count > captured + 2);
+        let preparation = h.engine.preparing.as_ref().unwrap();
+        assert!(preparation.lease.snapshot.same_key(&latest));
+        assert_eq!(preparation.lease.revision, h.native.borrow().revision);
+        assert!(h.worker.borrow().proceeds.is_empty());
+    }
+
+    #[test]
+    fn typing_cadence_cancels_obsolete_work_and_paints_only_latest_draft() {
+        let mut config = Config::default();
+        config.debounce_ms = 150;
+        config.typo_suppression = false;
+        config.typo_fixes = false;
+        let mut h = harness(config, None);
+        h.engine.tick();
+        for text in ["The update i", "The update is", "The update is "] {
+            h.elapse(80);
+            h.type_text(text, 20);
+            assert!(h.engine.preparing.is_none());
+            assert!(h.worker.borrow().submitted.is_empty());
+        }
+        h.elapse(129);
+        h.engine.tick();
+        assert!(h.engine.preparing.is_none());
+        h.elapse(1);
+        h.engine.tick();
+        assert!(h.engine.preparing.is_some());
+        h.elapse(10);
+        h.engine.tick();
+        h.prepared();
+        h.elapse(10);
+        h.response("ready", "", false);
+        assert_eq!(h.worker.borrow().proceeds, [1]);
+        let cancelled = h.worker.borrow().cancelled;
+
+        // Type again before the first token, then deliver every obsolete event.
+        h.elapse(80);
+        h.type_text("The update is now", 20);
+        let last_key = h.native.borrow().input_at.unwrap();
+        assert_eq!(h.engine.candidate_since, last_key);
+        assert_eq!(h.worker.borrow().cancelled - cancelled, 1);
+        assert!(h.engine.request.is_none());
+        for kind in ["ready", "result", "done"] {
+            h.worker.borrow_mut().events.push(WorkerEvent {
+                id: 1,
+                kind: kind.into(),
+                text: " obsolete draft".into(),
+                final_: true,
+                model_loaded: true,
+                message: String::new(),
+            });
+        }
+        h.engine.tick();
+        assert_eq!(h.worker.borrow().proceeds, [1]);
+        assert!(h.engine.suggestion.text.is_empty());
+        assert!(h.engine.claims.is_empty());
+        assert_eq!(h.engine.candidate_since, last_key);
+
+        h.elapse(129);
+        h.engine.tick();
+        assert!(h.engine.preparing.is_none());
+        h.elapse(1);
+        h.engine.tick();
+        assert!(h.engine.preparing.is_some());
+        let scheduled = h.engine.now();
+        h.elapse(10);
+        h.engine.tick();
+        h.prepared();
+        let submitted = h.engine.now();
+        assert_eq!(h.worker.borrow().submitted.len(), 2);
+        assert_eq!(h.worker.borrow().submitted[1].1, "The update is now");
+        h.elapse(10);
+        h.response("ready", "", false);
+        let proceeded = h.engine.now();
+        assert_eq!(h.worker.borrow().proceeds, [1, 2]);
+        h.elapse(300);
+        h.response("result", " ready for review", false);
+        let offered = h.engine.now();
+        assert_eq!(h.engine.suggestion.text, " ready for review");
+        assert_eq!(
+            h.engine.suggestion.snapshot.as_ref().unwrap().text.as_ref(),
+            "The update is now"
+        );
+        assert!(h.engine.claims.is_empty());
+        h.elapse(16);
+        h.drawn(" ready for review", "completion");
+        let painted = h.engine.now();
+        assert_eq!(h.engine.claims.len(), 1);
+        let elapsed = |at: Instant| at.duration_since(last_key).as_millis() as u64;
+        assert_eq!(
+            [scheduled, submitted, proceeded, offered, painted].map(elapsed),
+            [150, 160, 170, 470, 486]
+        );
+        println!(
+            "{}",
+            json!({
+                "scenario":"typing_cadence_latest_only",
+                "clock":"synthetic",
+                "capture_delay_ms":20,
+                "debounce_ms":150,
+                "injected_generation_ms":300,
+                "last_key_to_schedule_ms":elapsed(scheduled),
+                "last_key_to_submit_ms":elapsed(submitted),
+                "last_key_to_proceed_ms":elapsed(proceeded),
+                "last_key_to_offer_ms":elapsed(offered),
+                "last_key_to_paint_ack_ms":elapsed(painted),
+                "submitted_requests":h.worker.borrow().submitted.len(),
+                "typing_cancel_calls":1,
+                "obsolete_events_discarded":3,
+                "captures":h.native.borrow().capture_count
+            })
+        );
+    }
+
     #[test]
     fn transient_inline_geometry_rejection_does_not_latch_the_unchanged_draft() {
         for stage in 0..3 {
