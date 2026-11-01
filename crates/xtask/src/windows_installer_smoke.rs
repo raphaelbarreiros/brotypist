@@ -316,6 +316,67 @@ mod tests {
     use super::*;
     #[cfg(target_os = "windows")]
     #[test]
+    fn historical_checkout_binding_requires_exact_initial_checkout_sha() {
+        let temp = tempfile::tempdir().unwrap();
+        let script = temp.path().join("checkout-fixture.ps1");
+        fs::write(
+            &script,
+            r#"
+param([string]$Source, [string]$Work)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($Source, [ref]$tokens, [ref]$errors)
+if ($errors.Count -ne 0) { throw 'Adapter syntax errors' }
+foreach ($name in @('Require', 'Read-CheckoutIdentity')) {
+    $definition = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name }, $true)
+    Invoke-Expression $definition.Extent.Text
+}
+$sha = '3a47450006b9ec09bffab38ca23465441c38e502'
+$other = '0000000000000000000000000000000000000000'
+$prefix = '2026-10-31T22:17:42.2047551Z '
+$start = $prefix + '##[group]Run actions/checkout@v6'
+$fetch = $prefix + '[command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --depth=1 origin +' + $sha + ':refs/remotes/pull/1/merge'
+$command = $prefix + '[command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H'
+$finish = $prefix + '##[group]Run build'
+$valid = @($start, $fetch, $command, ($prefix + $sha), $finish)
+$path = Join-Path $Work 'checkout.log'
+function Parse-Fixture([string[]]$Lines) {
+    [IO.File]::WriteAllText($path, ($Lines -join "`n"))
+    Read-CheckoutIdentity $path
+}
+$identity = Parse-Fixture $valid
+if ($identity.commit -cne $sha -or $identity.pull_request -cne '1') { throw 'Historical exact checkout lost' }
+# Later build output cannot replace the original checkout identity.
+$identity = Parse-Fixture ($valid + @($command, ($prefix + $other)))
+if ($identity.commit -cne $sha) { throw 'Later log output replaced checkout identity' }
+$rejected = 0
+foreach ($fixture in @(
+    @{ lines = @($start, $fetch, $command, ($prefix + $other), $finish) },
+    @{ lines = @($start, $fetch, $finish) },
+    @{ lines = @($fetch, $command, ($prefix + $sha), $finish) },
+    @{ lines = @($start, $fetch, $fetch, $command, ($prefix + $sha), $finish) },
+    @{ lines = @($start, $fetch, $finish, $command, ($prefix + $sha)) }
+)) {
+    try { $null = Parse-Fixture $fixture.lines } catch { $rejected++ }
+}
+if ($rejected -ne 5) { throw 'Checkout missing/mismatched/duplicate/out-of-step evidence accepted' }
+"#,
+        )
+        .unwrap();
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.github/native/windows-installer-reuse.ps1");
+        let status = Command::new("pwsh.exe")
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-File"])
+            .arg(script)
+            .arg(source)
+            .arg(temp.path())
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+    #[cfg(target_os = "windows")]
+    #[test]
     fn routing_evidence_retains_owned_hives_without_raw_log_content() {
         let temp = tempfile::tempdir().unwrap();
         let script = temp.path().join("scope-fixture.ps1");

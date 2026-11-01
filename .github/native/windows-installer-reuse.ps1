@@ -81,6 +81,35 @@ function Extract-Entry($Entry, [string]$Path, [long]$Limit) {
 function Get-Api([string]$Suffix) {
     return Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/$Suffix" -Headers $script:headers -TimeoutSec 60
 }
+function Read-CheckoutIdentity([string]$Path) {
+    # Read only the first checkout action. Later build output cannot manufacture
+    # an identity, and no raw Actions log is retained in the public receipt.
+    $reader = [IO.StreamReader]::new($Path, [Text.Encoding]::UTF8, $true)
+    $inside = $false; $expectCommit = $false; $commit = $null; $fetch = $null; $pull = $null
+    [long]$characters = 0
+    try {
+        while ($null -ne ($line = $reader.ReadLine())) {
+            $characters += $line.Length
+            Require ($characters -le 2097152) 'Checkout identity exceeds bounded log prefix'
+            if ($line -notmatch '^\d{4}-\d{2}-\d{2}T[0-9:.]+Z (?<message>.*)$') { continue }
+            $message = $Matches.message
+            if ($message -ceq '##[group]Run actions/checkout@v6') { Require (-not $inside) 'Ambiguous checkout action'; $inside = $true; continue }
+            if (-not $inside) { continue }
+            if ($message.StartsWith('##[group]Run ', [StringComparison]::Ordinal)) { break }
+            if ($expectCommit) {
+                Require ($message -cmatch '^[0-9a-f]{40}$' -and $null -eq $commit) 'Checkout commit output missing/ambiguous'
+                $commit = $message; $expectCommit = $false
+            }
+            if ($message -cmatch '^\[command\].*\\git\.exe" .* fetch .* \+(?<commit>[0-9a-f]{40}):refs/remotes/pull/(?<pull>[1-9][0-9]*)/merge$') {
+                Require ($null -eq $fetch) 'Ambiguous checkout fetch'
+                $fetch = $Matches.commit; $pull = $Matches.pull
+            }
+            if ($message -cmatch '^\[command\].*\\git\.exe" log -1 --format=%H$') { $expectCommit = $true }
+        }
+    } finally { $reader.Dispose() }
+    Require ($inside -and -not $expectCommit -and $null -ne $commit -and $commit -ceq $fetch -and $null -ne $pull) 'Exact historical PR checkout identity missing'
+    return @{ commit = $commit; pull_request = $pull }
+}
 function New-V5Guid([Guid]$Namespace, [string]$Name) {
     $bytes = $Namespace.ToByteArray()
     [Array]::Reverse($bytes, 0, 4); [Array]::Reverse($bytes, 4, 2); [Array]::Reverse($bytes, 6, 2)
@@ -153,16 +182,35 @@ try {
         $source = Get-Api "commits/$($package.source_commit)"
         Require ($source.sha -ceq $package.source_commit) 'Package source commit cannot be authenticated'
         $sourceBound = $package.source_commit -ceq $run.head_sha
-        # The run's head_sha is immutable; its embedded PR head follows later pushes.
+        # A merged PR can disappear from run.pull_requests. Bind the exact
+        # historical checkout, not today's PR metadata or a same-parent merge:
+        # different merge trees can have identical parents.
+        $checkoutBinding = $null
         if (-not $sourceBound -and $run.event -ceq 'pull_request' -and @($source.parents).Count -eq 2 -and $source.parents[1].sha -ceq $run.head_sha) {
-            $bindings = @($run.pull_requests | Where-Object { $_.head.repo.id -eq $run.repository.id -and $_.base.repo.id -eq $run.repository.id -and $_.base.sha -ceq $source.parents[0].sha })
-            $sourceBound = $bindings.Count -eq 1
+            Require ($run.run_attempt -ge 1) 'Historical run attempt missing'
+            $jobs = Get-Api "actions/runs/$ArtifactRun/attempts/$($run.run_attempt)/jobs?per_page=100"
+            Require ($jobs.total_count -le 100 -and @($jobs.jobs).Count -eq $jobs.total_count) 'Historical job listing incomplete'
+            $windowsJobs = @($jobs.jobs | Where-Object { $_.name -ceq 'Native windows-x86_64' })
+            Require ($windowsJobs.Count -eq 1) 'Exact historical Windows job missing/ambiguous'
+            $job = $windowsJobs[0]
+            Require ([string]$job.run_id -ceq $ArtifactRun -and $job.run_attempt -eq $run.run_attempt -and $job.head_sha -ceq $run.head_sha -and $job.status -ceq 'completed') 'Historical job/run identity differs'
+            $checkoutSteps = @($job.steps | Where-Object { $_.name -ceq 'Run actions/checkout@v6' -and $_.status -ceq 'completed' -and $_.conclusion -ceq 'success' })
+            Require ($checkoutSteps.Count -eq 1) 'Successful historical checkout step missing/ambiguous'
+            $logPath = Join-Path $Work 'authenticated-checkout-job.log'
+            try {
+                Invoke-WebRequest -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/jobs/$($job.id)/logs" -Headers $script:headers -OutFile $logPath -TimeoutSec 120 -MaximumRedirection 5
+                Require ((Get-Item -LiteralPath $logPath).Length -le 33554432) 'Historical job log oversized'
+                $checkoutBinding = Read-CheckoutIdentity $logPath
+            } finally { if (Test-Path -LiteralPath $logPath) { Remove-Item -LiteralPath $logPath -Force } }
+            Require ($source.commit.tree.sha -cmatch '^[0-9a-f]{40}$') 'Authenticated source tree missing'
+            $sourceBound = $checkoutBinding.commit -ceq $package.source_commit
+            $metadata.package_checkout = @{ job_id = $job.id; run_attempt = $job.run_attempt; commit = $checkoutBinding.commit; pull_request = $checkoutBinding.pull_request; tree = $source.commit.tree.sha; checkout_step_succeeded = $true }
         }
         Require $sourceBound 'Package source is neither the authenticated run head nor its exact same-repo PR merge'
         $metadata.package_source_commit = $package.source_commit
         $metadata.package_source_digest = $provenance.source.source_digest
         $metadata.package_version = $package.version
-        $metadata.package_source_binding = if ($package.source_commit -ceq $run.head_sha) { 'exact run head' } else { 'authenticated same-repo PR base/head merge parents' }
+        $metadata.package_source_binding = if ($package.source_commit -ceq $run.head_sha) { 'exact run head' } else { 'authenticated historical Windows checkout exact commit and Git tree; second parent equals immutable run head' }
         $metadata.package_source_parents = @($source.parents | ForEach-Object { $_.sha })
         $metadata.package_artifacts = [ordered]@{}
         Require (@($package.artifacts.PSObject.Properties).Count -eq 2) 'Unexpected package artifact kinds'
