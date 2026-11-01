@@ -22,13 +22,13 @@ use. Accept what fits, dismiss what doesn't, and keep writing—without moving
 your draft into a chatbot. It lives in the menu bar or system tray, with
 OS-native Settings and local model inference.
 
-**Current source: Rust/native preview.** The installed signed macOS candidate's
-predictions have been confirmed working by its user, including in WhatsApp.
-This is not a claim of universal app compatibility or a newly published release.
-Downloads on the [Releases page](https://github.com/renan-brasilio/brotypist/releases)
-have their own version-specific notes. See the
-[migration and acceptance record](docs/rust-migration/README.md) for the cutover
-history and remaining platform gates.
+**Native Rust, with macOS first.** The signed Mac candidate's predictions have
+been confirmed working by its user, including in WhatsApp. This does not imply
+universal app compatibility or cross-platform acceptance.
+Use the version-specific notes and actual assets on the
+[Releases page](https://github.com/renan-brasilio/brotypist/releases) for download
+availability. The [migration and acceptance record](docs/rust-migration/README.md)
+tracks the cutover history and remaining platform gates.
 
 ## Writing, with you in control
 

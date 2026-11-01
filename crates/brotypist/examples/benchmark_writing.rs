@@ -343,6 +343,10 @@ fn source_hashes() -> Value {
             "crates/brotypist/examples/benchmark_writing/writing_quality.json",
             corpus::QUALITY_BYTES,
         ),
+        (
+            "crates/brotypist/examples/benchmark_writing/contextual_quality.json",
+            corpus::CONTEXTUAL_BYTES,
+        ),
     ] {
         hashes.insert(name.into(), json!(format!("{:x}", Sha256::digest(bytes))));
     }
@@ -364,6 +368,7 @@ fn report(args: &Arguments, inputs: &Inputs) -> Result<Value> {
         "execution":args.execution, "sessions":[], "worker_sessions":[], "source_sha256":source_hashes(), "cases":inputs.cases,
         "case_coverage":{"selected":inputs.cases.len(), "full_corpus":inputs.full_case_count, "complete_corpus_selected":inputs.cases.len() == inputs.full_case_count},
         "semantic_rubric":inputs.quality["rubric"], "review_policy":inputs.quality["review_policy"], "model_files":model_files,
+        "contextual_comparison_policy":inputs.quality["contextual_comparison_policy"],
         "methodology":{
             "isolation":"Explicit fresh empty INKLOW_HOME, mode-0700 root and exclusive mode-0600 report. Direct diagnostics use a fresh owned self-child and fresh HOME/XDG/INKLOW_HOME per model/round. Worker mode uses a fresh canonical WorkerClient owner and explicit native --app. Only in-memory validated Config; no app settings, Runtime, desktop capture, history, clipboard, screenshots, credentials, downloads or external inference.",
             "profile":inputs.profile,

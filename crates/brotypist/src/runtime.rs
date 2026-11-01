@@ -507,11 +507,41 @@ struct ScreenJob {
     config: Config,
     ticket: Box<dyn platform::DetachedContextRead>,
 }
+struct ScreenOwner {
+    job_token: u64,
+    consumer_token: u64,
+    epoch: u64,
+    key: SnapshotKey,
+    authority: Authority,
+    accessibility: bool,
+    screenshot: bool,
+}
+impl ScreenOwner {
+    fn new(token: u64, epoch: u64, snapshot: &Snapshot, config: &Config) -> Self {
+        Self {
+            job_token: token,
+            consumer_token: token,
+            epoch,
+            key: snapshot.key(),
+            authority: snapshot.authority(),
+            accessibility: config.screen_context,
+            screenshot: config.screenshot_context,
+        }
+    }
+    fn matches(&self, request: &Preparation) -> bool {
+        self.epoch == request.epoch
+            && self.key == request.snapshot.key()
+            && self.authority == request.snapshot.authority()
+            && self.accessibility == request.config.screen_context
+            && self.screenshot == request.config.screenshot_context
+    }
+}
 struct PreparationState {
     pending: Option<Preparation>,
     results: VecDeque<Prepared>,
     stopped: bool,
     screen_pending: Option<ScreenJob>,
+    screen_owner: Option<ScreenOwner>,
     screen_result: Option<(u64, u64, ContextRead, Instant)>,
     context_updates: VecDeque<ContextUpdate>,
 }
@@ -532,6 +562,7 @@ impl AsyncPreparer {
                 results: VecDeque::new(),
                 stopped: false,
                 screen_pending: None,
+                screen_owner: None,
                 screen_result: None,
                 context_updates: VecDeque::new(),
             }),
@@ -577,7 +608,12 @@ impl AsyncPreparer {
                             source: String::new(),
                         });
                     let mut s = locked(&shared.0);
-                    if !s.stopped && guard_epoch(&screen_epoch, job.epoch) {
+                    if !s.stopped
+                        && guard_epoch(&screen_epoch, job.epoch)
+                        && s.screen_owner.as_ref().is_some_and(|owner| {
+                            owner.job_token == job.token && owner.epoch == job.epoch
+                        })
+                    {
                         s.context_updates.clear();
                         s.context_updates.push_back(ContextUpdate {
                             epoch: job.epoch,
@@ -585,7 +621,12 @@ impl AsyncPreparer {
                             authority: job.snapshot.authority(),
                             status: result.status.clone(),
                         });
-                        s.screen_result = Some((job.token, job.epoch, result, Instant::now()));
+                        let token = s
+                            .screen_owner
+                            .as_ref()
+                            .expect("screen owner")
+                            .consumer_token;
+                        s.screen_result = Some((token, job.epoch, result, Instant::now()));
                         shared.1.notify_all();
                     }
                 }
@@ -616,16 +657,30 @@ impl AsyncPreparer {
                 let (mut s, _) = shared.1.wait_timeout_while(s, Duration::from_millis(250), |s| !s.stopped && guard_epoch(&epoch, expected)
                     && s.pending.is_none() && s.screen_result.as_ref().is_none_or(|(token, ep, _, _)| *token != request.token || *ep != expected))
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                if !s.stopped && guard_epoch(&epoch, expected) {
+                let collected = if !s.stopped && guard_epoch(&epoch, expected) {
                     context_diagnostic.screen = if s.screen_result.is_some() { ContextCollectorOutcome::TokenStale } else { ContextCollectorOutcome::TimedOut };
                     status = "unavailable".into();
                     if s.screen_result.as_ref().is_some_and(|(token, ep, _, _)| *token == request.token && *ep == expected) {
-                        let (_, _, read, at) = s.screen_result.take().expect("screen result");
+                        s.screen_owner = None;
+                        s.screen_result.take()
+                    } else { None }
+                } else { None };
+                drop(s);
+                if let Some((_, _, read, at)) = collected {
+                    // A handed-off result keeps its original collection time.
+                    // Revalidate the fresh consumer ticket outside the queue lock.
+                    let ticket_current = request.context_ticket.as_ref().is_none_or(|ticket| {
+                        guard() && ticket.matches_snapshot(snapshot) && ticket.matches().unwrap_or(false) && guard()
+                    });
+                    if ticket_current {
                         status = if context_status(&read.status) { read.status } else { "error".into() };
                         context_diagnostic.screen = ContextCollectorOutcome::from_status(&status);
                         if status == "ready" && ((read.source == "accessibility" && c.screen_context) || (read.source == "screenshot" && c.screenshot_context)) {
                             references.push((read.source, first(&read.text, 2400))); expires = Some(at + Duration::from_secs(2));
                         }
+                    } else {
+                        status = "stale".into();
+                        context_diagnostic.screen = ContextCollectorOutcome::Stale;
                     }
                 }
             }
@@ -693,25 +748,54 @@ impl Preparer for AsyncPreparer {
         if s.stopped {
             return;
         }
-        s.screen_result = None;
-        s.screen_pending = request.context_ticket.take().map(|ticket| ScreenJob {
-            token: request.token,
-            epoch: request.epoch,
-            snapshot: request.snapshot.clone(),
-            config: request.config.clone(),
-            ticket,
-        });
-        if s.screen_pending.is_none() {
-            s.screen_result = Some((
-                request.token,
-                request.epoch,
-                ContextRead {
-                    text: String::new(),
-                    status: "unavailable".into(),
-                    source: String::new(),
-                },
-                Instant::now(),
-            ));
+        let handoff = request.context_ticket.is_some()
+            && s.screen_owner
+                .as_ref()
+                .is_some_and(|owner| owner.matches(&request))
+            && s.screen_result
+                .as_ref()
+                .is_none_or(|(token, epoch, _, at)| {
+                    s.screen_owner.as_ref().is_some_and(|owner| {
+                        *token == owner.consumer_token && *epoch == owner.epoch
+                    }) && Instant::now().saturating_duration_since(*at) < Duration::from_secs(2)
+                });
+        if handoff {
+            s.screen_owner
+                .as_mut()
+                .expect("screen owner")
+                .consumer_token = request.token;
+            if let Some((token, _, _, _)) = s.screen_result.as_mut() {
+                *token = request.token;
+            }
+        } else {
+            s.screen_result = None;
+            s.screen_owner = request.context_ticket.as_ref().map(|_| {
+                ScreenOwner::new(
+                    request.token,
+                    request.epoch,
+                    &request.snapshot,
+                    &request.config,
+                )
+            });
+            s.screen_pending = request.context_ticket.take().map(|ticket| ScreenJob {
+                token: request.token,
+                epoch: request.epoch,
+                snapshot: request.snapshot.clone(),
+                config: request.config.clone(),
+                ticket,
+            });
+            if s.screen_pending.is_none() {
+                s.screen_result = Some((
+                    request.token,
+                    request.epoch,
+                    ContextRead {
+                        text: String::new(),
+                        status: "unavailable".into(),
+                        source: String::new(),
+                    },
+                    Instant::now(),
+                ));
+            }
         }
         s.pending = Some(request);
         s.results.clear();
@@ -723,6 +807,13 @@ impl Preparer for AsyncPreparer {
             return;
         }
         if s.pending.is_none() {
+            s.screen_result = None;
+            s.screen_owner = Some(ScreenOwner::new(
+                request.token,
+                request.epoch,
+                &request.snapshot,
+                &request.config,
+            ));
             s.screen_pending = Some(ScreenJob {
                 token: request.token,
                 epoch: request.epoch,
@@ -740,6 +831,7 @@ impl Preparer for AsyncPreparer {
         let mut s = locked(&self.state.0);
         s.pending = None;
         s.screen_pending = None;
+        s.screen_owner = None;
         s.screen_result = None;
         s.results.clear();
         s.context_updates.clear();
@@ -753,6 +845,7 @@ impl Preparer for AsyncPreparer {
         s.stopped = true;
         s.pending = None;
         s.screen_pending = None;
+        s.screen_owner = None;
         s.screen_result = None;
         s.results.clear();
         s.context_updates.clear();
@@ -2010,6 +2103,9 @@ impl Engine {
         }
     }
     fn clear(&mut self, hide: bool, cancel: bool) {
+        self.clear_state(hide, cancel, false);
+    }
+    fn clear_state(&mut self, hide: bool, cancel: bool, preserve_context: bool) {
         let whatsapp = self.whatsapp_relevant();
         if whatsapp {
             self.whatsapp_stage(DiagnosticStage::Cleared);
@@ -2021,21 +2117,27 @@ impl Engine {
                 counters.inflight_cancellations = counters.inflight_cancellations.saturating_add(1);
             }
         }
-        self.bump_epoch();
+        if !preserve_context {
+            self.bump_epoch();
+        }
         if cancel {
             let _ = self.worker.cancel();
             if whatsapp {
                 self.whatsapp_worker();
             }
         }
-        self.preparer.cancel();
+        if !preserve_context {
+            self.preparer.cancel();
+        }
         self.preparing = None;
         self.request = None;
         self.suggestion.invalidate();
         self.choices = None;
         self.correction = None;
         self.pending_edit = None;
-        self.context_prefetched = None;
+        if !preserve_context {
+            self.context_prefetched = None;
+        }
         self.advance = None;
         self.redraw_pending = false;
         if let Some(s) = &self.spelling {
@@ -2483,7 +2585,20 @@ impl Engine {
             self.choices = None;
             self.publish_completion();
         } else {
-            self.clear(false, true);
+            // Scheduling this exact unchanged lease is a consumer handoff, not
+            // a focus/policy revocation. Do not discard its bounded prefetch.
+            let preserve_context = self.preparing.is_none()
+                && self.request.is_none()
+                && self
+                    .context_prefetched
+                    .as_ref()
+                    .is_some_and(|(key, authority, epoch, at)| {
+                        *key == s.key()
+                            && *authority == s.authority()
+                            && *epoch == self.current_epoch()
+                            && self.now().saturating_duration_since(*at) < Duration::from_secs(2)
+                    });
+            self.clear_state(false, true, preserve_context);
             self.completion_counted = false;
         }
         self.error.clear();
@@ -4693,7 +4808,7 @@ fn primary_claim_index(claims: &[Arc<Claim>], alternatives: bool) -> Option<usiz
 mod tests {
     use super::*;
     use crate::core::InlineRender;
-    use crate::platform::{Foreground, Permission, ShortcutHandler};
+    use crate::platform::{DetachedContextRead, Foreground, Permission, ShortcutHandler};
 
     #[derive(Clone, Copy, Default)]
     enum Outcome {
@@ -4726,6 +4841,7 @@ mod tests {
         docs_reads: usize,
         metadata: Option<Foreground>,
         enables: usize,
+        context: Option<ContextTicket>,
         configured: Config,
     }
     struct Native(Rc<RefCell<NativeState>>);
@@ -4743,6 +4859,19 @@ mod tests {
             let mut s = self.0.borrow_mut();
             s.capture_count += 1;
             Ok(s.snapshot.clone())
+        }
+        fn context_ticket(
+            &mut self,
+            snapshot: &Snapshot,
+        ) -> Result<Option<Box<dyn platform::DetachedContextRead>>> {
+            Ok(self
+                .0
+                .borrow()
+                .context
+                .as_ref()
+                .filter(|ticket| ticket.matches_snapshot(snapshot))
+                .cloned()
+                .map(|ticket| Box::new(ticket) as Box<dyn platform::DetachedContextRead>))
         }
         fn foreground(&mut self) -> Result<Option<Foreground>> {
             let s = self.0.borrow();
@@ -5115,6 +5244,7 @@ mod tests {
             docs_reads: 0,
             metadata: None,
             enables: 0,
+            context: None,
             configured: config.clone(),
         }))
     }
@@ -5400,6 +5530,57 @@ mod tests {
         );
         let serialized = serde_json::to_string(&h.engine.whatsapp_diagnostic).unwrap();
         assert!(!serialized.contains("SYNTHETIC_PRIVATE"));
+    }
+
+    #[test]
+    fn ready_after_cold_load_refuses_expired_context_before_writing_proceeds() {
+        let mut config = Config::default();
+        config.typo_suppression = false;
+        config.typo_fixes = false;
+        config.personalization_strength = 0;
+        let mut h = harness(config, None);
+        h.force();
+        for (context, expires_after) in [
+            ("SYNTHETIC_OLD_CONTEXT", 2000),
+            ("SYNTHETIC_FRESH_CONTEXT", 2000),
+        ] {
+            if context == "SYNTHETIC_FRESH_CONTEXT" {
+                h.engine.tick();
+            }
+            let pending = h.preparation.borrow_mut().pending.take().unwrap();
+            h.preparation.borrow_mut().results.push(Prepared {
+                token: pending.token,
+                epoch: pending.epoch,
+                options: GenerationOptions {
+                    context: context.into(),
+                    ..Default::default()
+                },
+                context_status: "ready".into(),
+                context_diagnostic: ContextPreparationDiagnostic {
+                    screen: ContextCollectorOutcome::Ready,
+                    attachment: ContextAttachmentOutcome::Attached,
+                    ..Default::default()
+                },
+                warning: String::new(),
+                reference_expires: Some(*h.time.borrow() + Duration::from_millis(expires_after)),
+            });
+            h.engine.tick();
+            assert!(h.worker.borrow().proceeds.is_empty());
+            if context == "SYNTHETIC_OLD_CONTEXT" {
+                h.elapse(2001);
+                h.response("ready", "", false);
+                assert!(h.worker.borrow().proceeds.is_empty());
+                assert!(h.engine.preparing.is_some());
+                assert!(h.engine.request.is_none());
+            } else {
+                h.response("ready", "", false);
+                assert_eq!(h.worker.borrow().proceeds, vec![2]);
+            }
+        }
+        let worker = h.worker.borrow();
+        assert_eq!(worker.submitted.len(), 2);
+        assert_eq!(worker.submitted[0].3.context, "SYNTHETIC_OLD_CONTEXT");
+        assert_eq!(worker.submitted[1].3.context, "SYNTHETIC_FRESH_CONTEXT");
     }
 
     #[test]
@@ -6161,6 +6342,7 @@ mod tests {
         assert!(locked(&state).close_calls > 0);
         assert!(h.engine.shutdown_step().unwrap());
     }
+    #[derive(Clone)]
     struct ContextTicket {
         snapshot: Snapshot,
         gate: Option<Arc<(Mutex<bool>, Condvar)>>,
@@ -6243,6 +6425,303 @@ mod tests {
                 Ok(ContextRead::blocked("accessibility"))
             }
         }
+    }
+    #[test]
+    fn focused_context_prefetch_handoff_reaches_the_generation_consumer_once() {
+        for completed_before_submit in [false, true] {
+            let mut config = Config::default();
+            config.screen_context = true;
+            config.personalization_strength = 0;
+            config.typo_suppression = false;
+            config.typo_fixes = false;
+            config.debounce_ms = 1000;
+            let mut h = harness(config, None);
+            let snapshot = field("Thank you for the launch review");
+            let gate = Arc::new((Mutex::new(completed_before_submit), Condvar::new()));
+            let (entered, receive) = mpsc::sync_channel(1);
+            {
+                let mut native = h.native.borrow_mut();
+                native.snapshot = Some(snapshot.clone());
+                native.context = Some(ContextTicket {
+                    snapshot,
+                    gate: Some(gate.clone()),
+                    entered: Some(entered),
+                    text: "The launch review confirmed Friday's release.".into(),
+                });
+            }
+            let storage: SharedStorage = Arc::new(Mutex::new(Box::new(Memory(h.storage.clone()))));
+            let service =
+                AsyncPreparer::new(storage, h.engine.epoch.clone(), Arc::new(SyntheticSources))
+                    .unwrap();
+            let state = service.state.clone();
+            h.engine.preparer = Box::new(service);
+            h.observe();
+            receive.recv_timeout(Duration::from_secs(1)).unwrap();
+            if completed_before_submit {
+                let locked_state = locked(&state.0);
+                let (ready_state, wait) = state
+                    .1
+                    .wait_timeout_while(locked_state, Duration::from_secs(1), |s| {
+                        s.screen_result.is_none()
+                    })
+                    .unwrap();
+                assert!(!wait.timed_out());
+                drop(ready_state);
+                *locked(&gate.0) = false;
+            }
+            let epoch = h.engine.current_epoch();
+            h.force();
+            assert_eq!(h.engine.current_epoch(), epoch);
+            if !completed_before_submit {
+                *locked(&gate.0) = true;
+                gate.1.notify_all();
+            }
+            let locked_state = locked(&state.0);
+            let (locked_state, wait) = state
+                .1
+                .wait_timeout_while(locked_state, Duration::from_secs(1), |s| {
+                    s.results.is_empty()
+                })
+                .unwrap();
+            assert!(!wait.timed_out());
+            drop(locked_state);
+            h.engine.tick();
+            let submitted = h.worker.borrow();
+            assert_eq!(submitted.submitted.len(), 1);
+            assert!(submitted.submitted[0].3.context.contains("Friday"));
+            drop(submitted);
+            h.response("ready", "", false);
+            assert_eq!(h.worker.borrow().proceeds, vec![1]);
+            assert!(
+                receive.try_recv().is_err(),
+                "handoff repeated the native read"
+            );
+            *locked(&gate.0) = true;
+            gate.1.notify_all();
+            h.engine.preparer.request_stop();
+        }
+    }
+    #[test]
+    fn focused_context_prefetch_handoff_refuses_stale_epoch_window_age_and_token() {
+        for stale in ["epoch", "window", "age", "token"] {
+            let stored = Arc::new(Mutex::new(Stored::default()));
+            let storage: SharedStorage = Arc::new(Mutex::new(Box::new(Memory(stored))));
+            let epoch = Arc::new(AtomicU64::new(1));
+            let mut service =
+                AsyncPreparer::new(storage, epoch.clone(), Arc::new(SyntheticSources)).unwrap();
+            let snapshot = field("Thank you for the launch review");
+            service.prefetch(ContextPreparation {
+                token: 1,
+                epoch: 1,
+                snapshot: snapshot.clone(),
+                config: preparation(snapshot.clone(), 1, 1, None).config,
+                ticket: Box::new(ContextTicket {
+                    snapshot: snapshot.clone(),
+                    gate: None,
+                    entered: None,
+                    text: "OLD_PRIVATE_REFERENCE".into(),
+                }),
+            });
+            let state = locked(&service.state.0);
+            let (state, wait) = service
+                .state
+                .1
+                .wait_timeout_while(state, Duration::from_secs(1), |s| s.screen_result.is_none())
+                .unwrap();
+            assert!(!wait.timed_out());
+            drop(state);
+            let mut next = snapshot;
+            match stale {
+                "window" => next.window_id = "another-window".into(),
+                "epoch" => epoch.store(2, Ordering::Release),
+                "age" => {
+                    locked(&service.state.0).screen_result.as_mut().unwrap().3 =
+                        Instant::now() - Duration::from_secs(3);
+                }
+                "token" => {
+                    locked(&service.state.0).screen_result.as_mut().unwrap().0 = 99;
+                }
+                _ => unreachable!(),
+            }
+            let next_epoch = epoch.load(Ordering::Acquire);
+            service.submit(preparation(
+                next.clone(),
+                2,
+                next_epoch,
+                Some(Box::new(ContextTicket {
+                    snapshot: next,
+                    gate: None,
+                    entered: None,
+                    text: "The launch review confirmed Monday's release.".into(),
+                })),
+            ));
+            let state = locked(&service.state.0);
+            let (mut state, wait) = service
+                .state
+                .1
+                .wait_timeout_while(state, Duration::from_secs(1), |s| s.results.is_empty())
+                .unwrap();
+            assert!(!wait.timed_out());
+            let prepared = state.results.pop_front().unwrap();
+            drop(state);
+            assert_eq!(prepared.token, 2);
+            assert!(!prepared.options.context.contains("OLD_PRIVATE_REFERENCE"));
+            assert!(prepared.options.context.contains("Monday"));
+            service.request_stop();
+        }
+    }
+    #[test]
+    fn focused_context_prefetch_handoff_only_delivers_to_latest_consumer() {
+        let stored = Arc::new(Mutex::new(Stored::default()));
+        let storage: SharedStorage = Arc::new(Mutex::new(Box::new(Memory(stored))));
+        let epoch = Arc::new(AtomicU64::new(1));
+        let mut service = AsyncPreparer::new(storage, epoch, Arc::new(SyntheticSources)).unwrap();
+        let snapshot = field("Thank you for the launch review");
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let (entered, receive) = mpsc::sync_channel(1);
+        let ticket = ContextTicket {
+            snapshot: snapshot.clone(),
+            gate: Some(gate.clone()),
+            entered: Some(entered),
+            text: "The launch review confirmed Friday's release.".into(),
+        };
+        service.prefetch(ContextPreparation {
+            token: 1,
+            epoch: 1,
+            snapshot: snapshot.clone(),
+            config: preparation(snapshot.clone(), 1, 1, None).config,
+            ticket: Box::new(ticket.clone()),
+        });
+        receive.recv_timeout(Duration::from_secs(1)).unwrap();
+        service.submit(preparation(
+            snapshot.clone(),
+            2,
+            1,
+            Some(Box::new(ticket.clone())),
+        ));
+        service.submit(preparation(snapshot, 3, 1, Some(Box::new(ticket))));
+        *locked(&gate.0) = true;
+        gate.1.notify_all();
+        let state = locked(&service.state.0);
+        let (state, wait) = service
+            .state
+            .1
+            .wait_timeout_while(state, Duration::from_secs(1), |s| s.results.is_empty())
+            .unwrap();
+        assert!(!wait.timed_out());
+        drop(state);
+        let mut prepared = service.poll();
+        assert_eq!(prepared.len(), 1);
+        let prepared = prepared.pop().unwrap();
+        assert_eq!(prepared.token, 3);
+        assert!(prepared.options.context.contains("Friday"));
+        assert!(service.poll().is_empty());
+        assert!(
+            receive.try_recv().is_err(),
+            "latest consumer repeated collection"
+        );
+        service.request_stop();
+    }
+    #[test]
+    fn focused_context_prefetch_handoff_cancellation_never_releases_old_reference() {
+        let stored = Arc::new(Mutex::new(Stored::default()));
+        let storage: SharedStorage = Arc::new(Mutex::new(Box::new(Memory(stored))));
+        let epoch = Arc::new(AtomicU64::new(1));
+        let mut service =
+            AsyncPreparer::new(storage, epoch.clone(), Arc::new(SyntheticSources)).unwrap();
+        let snapshot = field("Thank you for the launch review");
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let (entered, receive) = mpsc::sync_channel(1);
+        let ticket = ContextTicket {
+            snapshot: snapshot.clone(),
+            gate: Some(gate.clone()),
+            entered: Some(entered),
+            text: "The launch review confirmed Friday's release.".into(),
+        };
+        service.prefetch(ContextPreparation {
+            token: 1,
+            epoch: 1,
+            snapshot: snapshot.clone(),
+            config: preparation(snapshot.clone(), 1, 1, None).config,
+            ticket: Box::new(ticket.clone()),
+        });
+        receive.recv_timeout(Duration::from_secs(1)).unwrap();
+        service.submit(preparation(snapshot.clone(), 2, 1, Some(Box::new(ticket))));
+        epoch.store(2, Ordering::Release);
+        service.cancel();
+        service.submit(preparation(snapshot, 3, 2, None));
+        let state = locked(&service.state.0);
+        let (state, wait) = service
+            .state
+            .1
+            .wait_timeout_while(state, Duration::from_secs(1), |s| s.results.is_empty())
+            .unwrap();
+        assert!(!wait.timed_out());
+        drop(state);
+        let mut results = service.poll();
+        assert_eq!(results.len(), 1);
+        let prepared = results.pop().unwrap();
+        assert_eq!(prepared.token, 3);
+        assert!(prepared.options.context.is_empty());
+        *locked(&gate.0) = true;
+        gate.1.notify_all();
+        service.request_stop();
+    }
+    #[test]
+    fn focused_context_prefetch_handoff_revalidates_consumer_authority() {
+        struct RevokedTicket;
+        impl platform::DetachedContextRead for RevokedTicket {
+            fn matches_snapshot(&self, _: &Snapshot) -> bool {
+                true
+            }
+            fn matches(&self) -> Result<bool> {
+                Ok(false)
+            }
+            fn read(&self, _: &dyn Fn() -> bool, _: usize) -> Result<ContextRead> {
+                panic!("revoked consumer must not collect")
+            }
+        }
+        let stored = Arc::new(Mutex::new(Stored::default()));
+        let storage: SharedStorage = Arc::new(Mutex::new(Box::new(Memory(stored))));
+        let epoch = Arc::new(AtomicU64::new(1));
+        let mut service = AsyncPreparer::new(storage, epoch, Arc::new(SyntheticSources)).unwrap();
+        let snapshot = field("Thank you for the launch review");
+        service.prefetch(ContextPreparation {
+            token: 1,
+            epoch: 1,
+            snapshot: snapshot.clone(),
+            config: preparation(snapshot.clone(), 1, 1, None).config,
+            ticket: Box::new(ContextTicket {
+                snapshot: snapshot.clone(),
+                gate: None,
+                entered: None,
+                text: "The launch review confirmed Friday's release.".into(),
+            }),
+        });
+        let state = locked(&service.state.0);
+        let (state, wait) = service
+            .state
+            .1
+            .wait_timeout_while(state, Duration::from_secs(1), |s| s.screen_result.is_none())
+            .unwrap();
+        assert!(!wait.timed_out());
+        drop(state);
+        service.submit(preparation(snapshot, 2, 1, Some(Box::new(RevokedTicket))));
+        let state = locked(&service.state.0);
+        let (mut state, wait) = service
+            .state
+            .1
+            .wait_timeout_while(state, Duration::from_secs(1), |s| s.results.is_empty())
+            .unwrap();
+        assert!(!wait.timed_out());
+        let prepared = state.results.pop_front().unwrap();
+        drop(state);
+        assert_eq!(
+            prepared.context_diagnostic.screen,
+            ContextCollectorOutcome::Stale
+        );
+        assert!(prepared.options.context.is_empty());
+        service.request_stop();
     }
     #[test]
     fn obsolete_blocked_window_reader_does_not_hold_latest_preparation_or_reuse_reference() {

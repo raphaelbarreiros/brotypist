@@ -2,7 +2,7 @@
 
 # Changelog
 
-## Unreleased — native Rust migration
+## 0.5.0 — native Rust migration
 
 - Introduce a Rust application/worker with OS-native AppKit, Win32 and GTK interfaces, retaining the pinned llama.cpp engine and the complete existing model catalogue rather than substituting inference backends.
 - Preserve configuration and OS identity, independent context/history consent, scalar-indexed authored text, encrypted SQLite formats and credential-store addressing. Keep a separately linked offline updater and Rust-native build/distribution tooling.
@@ -15,7 +15,7 @@
 - Preserve the baseline's Unicode 15 full case folding across rules, history, choices, archive collision checks and installer identities, without rewriting authored text. Share one allocation-free iterator across the app, updater and tools.
 - Support native Icon Composer packaging with verified Xcode 27.1 and 27.2, retaining the pinned CI toolchain and recording the actual compiler in bundle provenance.
 - Complete the candidate source cutover: remove obsolete first-party Python runtime/tests, launchers, PyInstaller specification and build/tool dependency paths. Preserve the full immutable baseline externally and useful corpus/assets/evidence; no Python compatibility sidecar is shipped.
-- Add native macOS/Windows/Linux CI, real model-worker probes, owned-window UI checks and guarded installer continuity probes. Published releases remain unchanged; an explicitly authorized signed local Mac candidate preserves the original bundle and profile.
+- Add native macOS/Windows/Linux CI, real model-worker probes, owned-window UI checks and guarded installer continuity probes. Release availability follows verified platform evidence, not successful compilation; local Mac promotion retains the original bundle and profile.
 - Place the Windows owned-preview caret explicitly at the UTF-16 seed end rather than only deselecting the old selection; retain bilingual caret/readback assertions and bounded failure metadata.
 - Preserve canonical Windows build identity while using DOS drive-path spelling at the Cargo/CMake/MSBuild boundary and separate short private compiler scratch space. Retain failed diagnostics, owner-only staging, and real command-directory/permissions regressions without changing OS long-path policy.
 - Resolve first-party notice manifests relative to Cargo's verified workspace spelling, preserving canonical identity and symlink/outside-root refusal across macOS aliases and Windows path namespaces.
@@ -43,6 +43,9 @@
 - Extend the explicitly requested WhatsApp diagnostic with content-free runtime scheduling/context-attachment/presentation counters; remove draft-value reads from native shape diagnostics.
 - Correct native ghost-window allocation for AppKit logical-point origin rounding, preserving exact glyph origin/baseline and explicitly clipping all paint to the original verified footprint. Exercise actual GhostSurface pixels across system/named fonts and fractional caret positions.
 - Record fixed native renderer rejection reasons and submission-time context collector/attachment outcomes in explicitly requested, content-free WhatsApp diagnostics; preserve collection budgets, consent and paint-safety refusals.
+- Preserve matching, permitted focused-context prefetch through generation handoff instead of cancelling its own read. Retain original collection age, latest-only consumption, focus/policy revocation, fresh consumer authorization and existing time budgets; expired context is refreshed rather than reused after cold model loading.
+- Extend the synthetic Portuguese/English quality corpus with explicit contextual-utility review alongside grounding. Reject an ineffective prompt rewrite and a cached larger-model substitution after controlled native comparisons; retain the selected model, production sampler and existing prompt policy.
+- Authenticate historical Windows installer artifacts against their original checkout identity after PR merge, and retain bounded native client/token, policy, routing and registry evidence without weakening per-user ownership or data-preservation gates.
 - Improve the main README with theme-aware Typing Buddy branding, an actual native Settings capture, practical usage/install guidance and explicit platform, privacy and model-quality boundaries.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
 

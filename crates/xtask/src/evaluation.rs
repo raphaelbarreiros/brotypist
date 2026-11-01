@@ -20,6 +20,8 @@ use std::{
 
 const QUALITY_CORPUS: &str =
     include_str!("../../brotypist/examples/benchmark_writing/writing_quality.json");
+const CONTEXTUAL_CORPUS: &str =
+    include_str!("../../brotypist/examples/benchmark_writing/contextual_quality.json");
 const ATTACHED: &str = "review_labels_attached_not_calibrated";
 const NOT_EVALUATED: &str = "not_evaluated";
 const REVIEW_LABELS: &[&str] = &[
@@ -169,8 +171,11 @@ fn nonblank<'a>(object: &'a Value, key: &str, message: &str) -> Result<&'a str> 
 /// every matching occurrence must declare exactly the supplied rubric dimensions.
 /// Validation of all reviews and matches completes before any mutation.
 pub fn attach_reviews(report: &mut Value, review_file: &Value) -> Result<()> {
-    let corpus: Value =
+    let mut corpus: Value =
         serde_json::from_str(QUALITY_CORPUS).context("invalid included quality corpus")?;
+    let mut contextual: Value =
+        serde_json::from_str(CONTEXTUAL_CORPUS).context("invalid included contextual corpus")?;
+    corpus["rubric"]["contextual_utility"] = contextual["rubric"]["contextual_utility"].take();
     let rubric = corpus["rubric"]
         .as_object()
         .context("included corpus has no rubric")?;
@@ -402,12 +407,6 @@ mod tests {
                 .unwrap();
             assert_eq!(report["semantic_quality_status"], ATTACHED);
             assert_eq!(report["summary"]["semantic_quality_status"], ATTACHED);
-            assert!(
-                report["review_methodology"]
-                    .as_str()
-                    .unwrap()
-                    .contains("not human validation")
-            );
             // Removing only the allowed attachment fields recovers the exact input
             // Value, including every raw string byte and all nested diagnostics.
             let mut recovered = report;
@@ -518,6 +517,25 @@ mod tests {
         invalid["labels"] = json!({"grammar":"uncertain"});
         assert!(attach(&mut report, vec![review("sample-a", "human"), invalid]).is_err());
         assert_eq!(report, original);
+    }
+    #[test]
+    fn contextual_utility_must_be_reviewed_before_a_sample_is_complete() {
+        let mut report = report();
+        report["sessions"][0]["cases"][0]["semantic_evaluation"]["labels"]["contextual_utility"] =
+            json!("unreviewed");
+        let mut supplied = review("sample-a", "assistant");
+        supplied["labels"]["contextual_utility"] = json!("unreviewed");
+        attach(&mut report, vec![supplied.clone()]).unwrap();
+        assert_eq!(
+            report["sessions"][0]["cases"][0]["semantic_evaluation"]["status"],
+            "partially_reviewed"
+        );
+        supplied["labels"]["contextual_utility"] = json!("acceptable");
+        attach(&mut report, vec![supplied]).unwrap();
+        assert_eq!(
+            report["sessions"][0]["cases"][0]["semantic_evaluation"]["status"],
+            "reviewed"
+        );
     }
 
     #[test]

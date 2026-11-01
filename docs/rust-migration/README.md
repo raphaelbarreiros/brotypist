@@ -2,10 +2,10 @@
 
 # BroTypist: feature-preserving Rust conversion
 
-Status: **implementation and native integration in progress; native Rust UI, Rust 1.99.1/Cargo, a dedicated `migration/rust-native` branch, draft PR and native CI artifacts approved on 2026-10-30**. The user subsequently authorized local macOS installation; its backed-up signed candidate is recorded below. No main merge or release publication is authorized.
+Status: **Rust source merged through PR #1 at `c307260084039e6a0c1d6ae4f96aaeb57bf72eee`; follow-up fixes and 0.5.0 native release verification are in progress.** The user confirmed the signed Mac candidate's WhatsApp predictions work, requested installation on `gamer-pc` followed by release, and subsequently requested completion of the remaining items. PC installation is recorded below; user acceptance of its desktop typing and the complete cross-platform matrix are not established by that request.
 Baseline: `6eaeed5fe56e1ea8dcf878b1b7498f922c26fd59`, version 0.4.13.
 
-Requested outcome: convert the application to Rust for macOS, Windows and Linux while retaining all existing functionality. macOS remains the first parity gate; implemented Windows/Linux paths must also be migrated. This is not authorization to ship reduced-functionality builds, add cloud features or publish releases. Local macOS replacement was separately requested and completed with a rollback copy.
+Requested outcome: convert the application to Rust for macOS, Windows and Linux while retaining all existing functionality. macOS remains the first parity gate; implemented Windows/Linux paths must also be migrated. The later release request authorizes preparation and publication after the applicable verification gates; it does not establish missing platform evidence or authorize reduced functionality, cloud features, security-policy changes or consent changes. Local Mac and PC replacements preserve rollback copies and external user data.
 
 Read only the section/artifact needed:
 
