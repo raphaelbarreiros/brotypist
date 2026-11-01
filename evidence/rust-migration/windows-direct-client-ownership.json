@@ -1,0 +1,255 @@
+{
+  "schema": 1,
+  "passed": false,
+  "scope": "Hosted Windows canonical installer ownership gate; not physical typing or publication acceptance",
+  "run_id": 41301762511,
+  "run_url": "https://github.com/renan-brasilio/brotypist/actions/runs/41301762511",
+  "probe_checkout_commit": "2f189c3eb535d486f6b41f5443d320590c614098",
+  "evidence_artifact": {
+    "id": 13082115739,
+    "sha256": "99787a8a07e073574d930ac100a30eaac1126346f0c068a67cb7f0817bad6157"
+  },
+  "package": {
+    "version": "0.5.0",
+    "source_commit": "db3c5df3bf10d50a03b0e1df57365abc6c2f2605",
+    "source_digest": "cc1ae6df2285fad0a18875929bc8b7131c10ba9e19d1dc72050373c65f7b6f92",
+    "artifact_run": "41297308730",
+    "raw_package_receipt_sha256": "5873fc6c956ef6a75798e4b9fd936c699c69aa91414ceb22aeba8a17415c2072",
+    "immutable_scope": {
+      "allusers_absent": true,
+      "limited_privileges": true,
+      "summary_word_count": 10,
+      "msiinstallperuser_absent": true,
+      "product_code": "{955C5AEA-910F-5530-B17F-217B1C276525}",
+      "sha256": "9136c2b50d42bddd8156fd82eb1b0352c5088557fc4792fc757333aa43121125"
+    }
+  },
+  "actual_direct_client_observations": [
+    {
+      "evidence": {
+        "stage": "fresh_install",
+        "genuine_uac_filtered_logon": false,
+        "token_query_succeeded": true,
+        "elevation_metadata_is_not_a_rights_assertion": true,
+        "shell_execute": false,
+        "actual_child_token": {
+          "same_user_as_launcher": true,
+          "is_system": false,
+          "administrator_role_enabled": false,
+          "administrator_group_present": false,
+          "token_elevation": 1,
+          "elevation_type": 1,
+          "integrity_rid": 8192,
+          "token_has_restrictions": 1,
+          "token_type": 1,
+          "impersonation_level": "None"
+        },
+        "launch": "direct ProcessStartInfo, inherited primary token/environment, no alternate credentials"
+      },
+      "check": "msi_client_primary_token",
+      "passed": true
+    },
+    {
+      "evidence": {
+        "stage": "uninstall_transaction",
+        "genuine_uac_filtered_logon": false,
+        "token_query_succeeded": true,
+        "elevation_metadata_is_not_a_rights_assertion": true,
+        "shell_execute": false,
+        "actual_child_token": {
+          "same_user_as_launcher": true,
+          "is_system": false,
+          "administrator_role_enabled": false,
+          "administrator_group_present": false,
+          "token_elevation": 1,
+          "elevation_type": 1,
+          "integrity_rid": 8192,
+          "token_has_restrictions": 1,
+          "token_type": 1,
+          "impersonation_level": "None"
+        },
+        "launch": "direct ProcessStartInfo, inherited primary token/environment, no alternate credentials"
+      },
+      "check": "msi_client_primary_token",
+      "passed": true
+    }
+  ],
+  "native_per_user_context": {
+    "evidence": {
+      "assignment_type": "0",
+      "contexts": [
+        {
+          "context": 2,
+          "state": "5"
+        }
+      ],
+      "machine_arp_present": true,
+      "machine_arp_32_present": false
+    },
+    "check": "native_per_user_context",
+    "passed": true
+  },
+  "arp_scope_observations": [
+    {
+      "status": "observed",
+      "evidence": {
+        "entries": [
+          {
+            "product_name_matches": false,
+            "uninstall_references_product": false,
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "exists": false
+          },
+          {
+            "product_name_matches": false,
+            "uninstall_references_product": false,
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "exists": false
+          },
+          {
+            "product_name_matches": false,
+            "uninstall_references_product": false,
+            "hive": "LocalMachine",
+            "view": "Registry32",
+            "exists": false
+          },
+          {
+            "product_name_matches": false,
+            "uninstall_references_product": false,
+            "hive": "CurrentUser",
+            "view": "Registry32",
+            "exists": false
+          }
+        ],
+        "stage": "preflight",
+        "product_code": "{955C5AEA-910F-5530-B17F-217B1C276525}"
+      },
+      "check": "explicit_arp_scope",
+      "passed": null
+    },
+    {
+      "status": "observed",
+      "evidence": {
+        "entries": [
+          {
+            "product_name_matches": true,
+            "uninstall_references_product": true,
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "exists": true
+          },
+          {
+            "product_name_matches": false,
+            "uninstall_references_product": false,
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "exists": false
+          },
+          {
+            "product_name_matches": false,
+            "uninstall_references_product": false,
+            "hive": "LocalMachine",
+            "view": "Registry32",
+            "exists": false
+          },
+          {
+            "product_name_matches": false,
+            "uninstall_references_product": false,
+            "hive": "CurrentUser",
+            "view": "Registry32",
+            "exists": false
+          }
+        ],
+        "stage": "installed_before_scope_assertions",
+        "product_code": "{955C5AEA-910F-5530-B17F-217B1C276525}"
+      },
+      "check": "explicit_arp_scope",
+      "passed": null
+    },
+    {
+      "status": "observed",
+      "evidence": {
+        "entries": [
+          {
+            "product_name_matches": false,
+            "uninstall_references_product": false,
+            "hive": "LocalMachine",
+            "view": "Registry64",
+            "exists": false
+          },
+          {
+            "product_name_matches": false,
+            "uninstall_references_product": false,
+            "hive": "CurrentUser",
+            "view": "Registry64",
+            "exists": false
+          },
+          {
+            "product_name_matches": false,
+            "uninstall_references_product": false,
+            "hive": "LocalMachine",
+            "view": "Registry32",
+            "exists": false
+          },
+          {
+            "product_name_matches": false,
+            "uninstall_references_product": false,
+            "hive": "CurrentUser",
+            "view": "Registry32",
+            "exists": false
+          }
+        ],
+        "stage": "after_uninstall",
+        "product_code": "{955C5AEA-910F-5530-B17F-217B1C276525}"
+      },
+      "check": "explicit_arp_scope",
+      "passed": null
+    }
+  ],
+  "synthetic_data_preservation": {
+    "evidence": {
+      "uninstall_observed": true,
+      "sha256": [
+        {
+          "sha256": "ee54f4571af6f971c1dab5af75a65649d31779527d354309d2310417d1fab043",
+          "file": "settings.json"
+        },
+        {
+          "sha256": "25ebf52a790bbfb2e6711e6bb5675bd655032feb21ca17a2c0d496af8871cd3b",
+          "file": "synthetic.gguf"
+        },
+        {
+          "sha256": "40e5df5ffd1254257200baddaa3213dca148c494f24a577d844f0889d961b667",
+          "file": "history.enc"
+        },
+        {
+          "sha256": "9dc5b871ecf554021887238fa772e0ff392ddbcab5dfdf5eba1d5026ebe4a684",
+          "file": "preserve-user-data.txt"
+        }
+      ],
+      "unchanged_at_final_check": true
+    },
+    "check": "synthetic_profile_model_history_settings_unchanged",
+    "passed": true
+  },
+  "quiescence": {
+    "unknown_transaction_is_not_exit_evidence": true,
+    "owned_processes_quiescent": true,
+    "installer_transactions_quiescent": true
+  },
+  "approved_policy_restoration": {
+    "policy_modified": true,
+    "restoration_verified": true,
+    "quiescence_verified": true,
+    "child_exit_confirmed": true,
+    "global_acl_changes": false,
+    "alternate_credentials": false
+  },
+  "failure": "Machine ARP registration exists",
+  "interpretation": "Direct no-shell launch and verified medium/admin-disabled restricted child did not remove the real HKLM64 ARP registration. Retained elevation metadata is not genuine UAC filtering; a genuine standard-user or UAC-filtered logon is needed to distinguish hosted-token behavior from package behavior. No definitive root-cause attribution or per-user pass is claimed.",
+  "required_authority": "Existing approval covers only the absent-only disposable DisableMSI fixture. A new standard test account, alternate credentials or another genuine standard-user runner requires explicit approval.",
+  "windows_publication": "held",
+  "full_installer_matrix_passed": false
+}
