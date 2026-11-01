@@ -340,3 +340,47 @@ The subsequent [direct-client probe `41301762511`](https://github.com/renan-bras
 
 The approved **[Mac-only prerelease is published](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.0)** as release `430525839`, with `draft=false`, `prerelease=true` and the immutable `v0.5.0` tag resolving to Mac source `52604fc`. After CLI creation was denied with 403, the existing authenticated browser workflow uploaded exactly six authorized Mac assets without changing credentials or permissions. The integration owner independently downloaded all six server responses both before and after publication, verified every size/SHA-256 and the exact SHA256SUMS membership, and verified the downloaded update manifest/signature against the existing publisher pin. Post-publication API inspection confirmed the same uploaded asset identities and stable **`v0.4.13` still Latest** (`427862094`). Windows/Linux publication and acceptance remain held; Mac model-quality, notarization and external personal-message limits stay explicit. These bounded passes do not complete the full migration matrix.
 
+## 24. macOS 0.5.1 responsiveness, Monaco support and clean Setup
+
+Signed **0.5.1**, payload source **`751ee74e2275d81827412d8508cdb09d5f039f1f`**, is installed locally with the existing designated requirement. The [sanitized correction receipt](../../evidence/rust-migration/macos-0.5.1-responsiveness.json) binds the regression run, actual editor observations, measured desktop response and preservation checks. This is a local correction, **not a new published release**; existing `v0.5.0` assets and tag were not changed.
+
+### Runtime and native corrections
+
+- Preserve the exact unchanged-draft spelling verdict across automatic submission instead of discarding it and scheduling another assessment.
+- Start the next routine capture interval after the previous native capture completes. Slow AX reads no longer make that deadline immediately overdue; genuine input and forced captures remain fresh.
+- Drop the encrypted learning-store lock before native post-authorization. A blocked native check must not retain the mutex needed by history/statistics work. The regression uses a real temporary encrypted store and preserves revoked/latest-only learning refusal.
+- A benign native notification can disarm a completed visible ghost. Reauthorize an unchanged draft only after fresh capture and a new version-bound presentation acknowledgment, without another model submission. Presentation versions remain distinct from actual user-input revisions; an old queued acknowledgment cannot authorize a newer same-text offer.
+- Negotiate settable false editor accessibility capabilities once per PID. For the classic Monaco textarea relay, verify its native paint viewport, ancestry, owner/window, glyphs and containment; do not invent geometry or relax protected-field/draft/authority checks.
+- Remove the raw native-input/Quartz/capture sentence from normal Setup. Structured permission rows, actions and explicit diagnostics remain. The obsolete wording/raster test was removed rather than repinned. The [native Setup render](../../evidence/rust-migration/macos-0.5.1-setup.png) covers the former row area; baseline, compact and resized AppKit renders passed without starting the controller, profile or hooks.
+
+`cargo +1.99.1 test --locked --workspace` passed **441 workspace tests plus two additional child-process invocations**, with no failures. Formatting passed. These checks precede the source freeze; later repository additions are documentation and sanitized evidence, not a different installed payload.
+
+### Actual VS Code prediction, Tab and Save
+
+Installed VS Code **1.144.0 / Electron 43.8.3** exposes unusable zero caret geometry through its default EditContext backend. `editor.accessibilitySupport: "on"` alone does not repair that geometry. Together with `editor.editContext: false`, the classic textarea exposes verifiable native caret/glyph bounds.
+
+Two consecutive fresh disposable-profile runs observed the exact BroTypist-owned [prediction pixels](../../evidence/rust-migration/macos-0.5.1-code-prediction.png), posted session-tap Tab, read back insertion of `the `, and invoked the real File → Save action. The saved synthetic file matched the native readback. The [owned editor after Tab](../../evidence/rust-migration/macos-0.5.1-code-after-tab.png) was captured before Save. The final probe observed both original events at session head and the service's tagged Unicode emission; this is not physical-keyboard proof.
+
+An initial final-source attempt produced no edit and remains unattributed. Its tail-only missing-down observation did not identify a consuming process; no speculative event-routing workaround, native-guard relaxation or new permission grant was added.
+
+The isolated profiles disabled AI/inline suggestions and extensions, so the visible text was not Copilot. Normal user-level Copilot automatic completion was already disabled; workspace overrides and live Copilot/Cursor-Tab coexistence were not exercised. After end-to-end success, the user's conditional approval was applied: only the two Code compatibility preferences and BroTypist's Code-specific enabled/code-editor rule changed. All other Code preferences, including Copilot choices, were semantically unchanged. Code projects and normal extension state were not opened or modified.
+
+### Final desktop timing
+
+Owned AppKit text edits exercised real native capture, the existing cached Gemma 4 E2B model and the service's visible prediction panel on an M1 Pro / 16 GiB machine. Screen and screenshot context were enabled, clipboard/history/personalization disabled only in the private fixture, with 150 ms debounce. Normal model, context and learning preferences were not reduced.
+
+| Phase | Last local edit → prediction panel |
+| --- | ---: |
+| Cold idle | 783 ms |
+| Warm typing cadence 1 | 556 ms |
+| Warm idle | 524 ms |
+| Warm typing cadence 2 | 505 ms |
+
+The observer sampled WindowServer at 16 ms; actual [warm prediction glyphs](../../evidence/rust-migration/macos-0.5.1-warm-prediction.png) and the separate owned host window were inspected. These are four controlled local-edit observations, **not physical typing, a general latency SLA or a statistically established speedup ratio**. Earlier cold measurements varied materially.
+
+### Installation and remaining application boundaries
+
+The signed app was atomically replaced, its real GUI loop and eight-second startup liveness observed, and the exact previous signed 0.5.0 app plus opaque profile retained privately. The original Code settings also have a verified private rollback copy. History database bytes remained unchanged; normal BroTypist settings differ only by the approved Code rule. This is preservation/retained rollback evidence, not a new updater downgrade matrix. The app remains Apple Development-signed, **not notarized**.
+
+No usable Cursor bundle was present; the user chose installed Code instead of a Cursor download. The shared Monaco path is exercised, **direct Cursor support is unverified**. WordCraft 0.13.2's owned document reported writable AXValue but its setter returned success without changing text; the user chose BroTypist-only changes, so no upstream WordCraft edit or unsafe document-role fallback was made. **Windows remains held** under the existing explicit decision.
+
