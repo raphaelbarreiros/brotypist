@@ -7,9 +7,12 @@
 - Preserve the completed spelling verdict through an unchanged automatic-generation handoff instead of repeating native assessment before the first streamed offer. Real input, focus and policy changes still revoke it.
 - Schedule routine native capture intervals from capture completion rather than an already expired tick-start deadline, avoiding back-to-back AX pressure from a busy host. Preserve immediate input/action capture and existing debounce, context and authority checks.
 - Release the shared history/statistics store before native post-authorization checks for personalization. Enabled learning no longer holds that store across an AX wait; encrypted history, cached feature limits and revoked-result checks remain unchanged.
+- Recover a completed visible prediction after harmless native value/selection notifications without rerunning the model. Old input claims are revoked immediately; only a fresh permitted capture and a new, version-bound presentation acknowledgement can restore acceptance.
+- Bind completion and anchored-alternative acknowledgements to private presentation versions while retaining actual user revisions for insertion. Reject delayed acknowledgements from earlier same-text views and consume pending native notifications without an extra disarming tick.
 - Negotiate supported macOS accessibility preparation by host capabilities rather than an application-name allowlist.
 - Resolve Monaco's thin textarea input relay to its verified native text viewport without inventing caret/glyph geometry or widening unknown fields. Keep ordinary fields on their existing capture path; revalidate expanded viewport identity and geometry.
 - VS Code's native EditContext backend still exposes unusable range geometry. Its supported textarea/accessibility settings are an explicit host prerequisite, not silently changed user preferences. WordCraft's nonfunctional accessibility editing contract remains refused; no third-party application is modified.
+- Remove raw native-input, Quartz and last-capture diagnostic text from normal macOS Setup. Keep actionable permission controls and explicit diagnostic exports; remove the obsolete status-wording/raster assertion instead of preserving the debug row for its test.
 
 ## 0.5.0 — native Rust migration
 

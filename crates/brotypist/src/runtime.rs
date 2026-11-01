@@ -38,6 +38,7 @@ pub enum Command {
     PresentationResult {
         key: SnapshotKey,
         authority: Authority,
+        /// Echo the presentation's version unchanged, not the current native revision.
         revision: u64,
         visible_text: String,
         mode: String,
@@ -891,6 +892,12 @@ struct Claim {
     mode: String,
     count: usize,
 }
+#[derive(Clone, Copy)]
+struct CompletionOffer {
+    epoch: u64,
+    revision: u64,
+    serial: u64,
+}
 #[derive(Default)]
 struct Armed {
     claims: Vec<Arc<Claim>>,
@@ -1340,6 +1347,8 @@ pub struct Engine {
     capture_after: Instant,
     input_revision: u64,
     suggestion: SuggestionState,
+    completion_offer: Option<CompletionOffer>,
+    completion_serial: u64,
     request: Option<Request>,
     preparing: Option<PendingPreparation>,
     serial: u64,
@@ -1574,6 +1583,8 @@ impl Engine {
             capture_after: now,
             input_revision: 0,
             suggestion: SuggestionState::new(),
+            completion_offer: None,
+            completion_serial: 0,
             request: None,
             preparing: None,
             serial: 0,
@@ -2141,6 +2152,7 @@ impl Engine {
         self.preparing = None;
         self.request = None;
         self.suggestion.invalidate();
+        self.completion_offer = None;
         self.choices = None;
         self.correction = None;
         self.pending_edit = None;
@@ -2322,6 +2334,7 @@ impl Engine {
     }
     fn publish_completion(&mut self) {
         self.claims.retain(|c| c.mode != "completion");
+        self.completion_offer = None;
         self.refresh_arming();
         let Some(s) = self.suggestion.snapshot.clone() else {
             return;
@@ -2361,6 +2374,18 @@ impl Engine {
         if !choices.is_empty() {
             event["choices_mode"] = json!("alternatives");
         }
+        self.completion_serial = self
+            .completion_serial
+            .checked_add(1)
+            .expect("completion presentation sequence exhausted");
+        // Overlays echo this existing field. Bind their acknowledgement to
+        // this emitted view, independently of the native user-input revision.
+        event["revision"] = json!(self.completion_serial);
+        self.completion_offer = Some(CompletionOffer {
+            epoch: self.current_epoch(),
+            revision: self.candidate_revision,
+            serial: self.completion_serial,
+        });
         self.emit(event);
         self.whatsapp_stage(DiagnosticStage::Offered);
     }
@@ -3184,10 +3209,21 @@ impl Engine {
         visible: String,
         mode: String,
     ) {
+        let completion_view = mode == "completion"
+            || (mode == "alternatives" && self.choices.as_ref().is_some_and(|c| c.anchored));
         let candidate = self.candidate.as_ref();
         let current = candidate.is_some_and(|s| s.key() == key && s.authority() == authority)
-            && revision == self.candidate_revision
-            && Some(revision) == self.user_revision();
+            && Some(self.candidate_revision) == self.user_revision()
+            && if completion_view {
+                self.completion_offer.is_some_and(|offer| {
+                    offer.serial == revision
+                        && offer.epoch == self.current_epoch()
+                        && offer.revision == self.candidate_revision
+                }) && !self.input_pending.load(Ordering::Acquire)
+                    && self.native_input_revision() == Some(self.input_revision)
+            } else {
+                revision == self.candidate_revision
+            };
         let mut count = 0;
         let valid = current
             && !visible.is_empty()
@@ -3245,7 +3281,7 @@ impl Engine {
             self.claims.push(Arc::new(Claim {
                 key,
                 authority,
-                revision,
+                revision: self.candidate_revision,
                 epoch: self.current_epoch(),
                 visible,
                 mode,
@@ -4203,7 +4239,18 @@ impl Engine {
             self.configure_native();
         }
         if let Some(revision) = self.native_input_revision() {
-            if revision != self.input_revision || self.input_pending.swap(false, Ordering::AcqRel) {
+            let input_pending = self.input_pending.swap(false, Ordering::AcqRel);
+            if revision != self.input_revision || input_pending {
+                // A non-user native notification revokes the old claim, but
+                // an unchanged permitted recapture may request a fresh paint
+                // acknowledgement for a completed offer. Never carry it across
+                // an intervening user-input revision.
+                self.redraw_pending |= self.request.is_none()
+                    && self.preparing.is_none()
+                    && !self.suggestion.text.is_empty()
+                    && self
+                        .completion_offer
+                        .is_some_and(|offer| Some(offer.revision) == self.user_revision());
                 self.input_revision = revision;
                 self.capture_after = now;
                 self.disarm();
@@ -4835,6 +4882,7 @@ mod tests {
     struct NativeState {
         snapshot: Option<Snapshot>,
         revision: u64,
+        notification_revision: u64,
         input_at: Option<Instant>,
         secure: Option<bool>,
         hook: Option<ShortcutHandler>,
@@ -4971,7 +5019,8 @@ mod tests {
             Ok(())
         }
         fn input_revision(&self) -> u64 {
-            self.0.borrow().revision
+            let native = self.0.borrow();
+            native.revision.wrapping_add(native.notification_revision)
         }
         fn user_input_revision(&self) -> u64 {
             self.0.borrow().revision
@@ -5243,6 +5292,7 @@ mod tests {
         Rc::new(RefCell::new(NativeState {
             snapshot: Some(field("The update")),
             revision: 1,
+            notification_revision: 0,
             input_at: None,
             secure: Some(false),
             hook: None,
@@ -5390,13 +5440,32 @@ mod tests {
         }
         fn drawn(&mut self, visible: &str, mode: &str) {
             let s = self.native.borrow().snapshot.clone().unwrap();
-            let revision = self.native.borrow().revision;
+            let native_revision = self.native.borrow().revision;
+            let completion_view = mode == "completion"
+                || (mode == "alternatives"
+                    && self.engine.choices.as_ref().is_some_and(|c| c.anchored));
+            let revision = if completion_view {
+                self.engine
+                    .completion_offer
+                    .map_or(native_revision, |offer| offer.serial)
+            } else {
+                native_revision
+            };
             self.engine.command(Command::PresentationResult {
                 key: s.key(),
                 authority: s.authority(),
                 revision,
                 visible_text: visible.into(),
                 mode: mode.into(),
+            });
+        }
+        fn acknowledge_offer(&mut self, event: &Value) {
+            self.engine.command(Command::PresentationResult {
+                key: serde_json::from_value(event["key"].clone()).unwrap(),
+                authority: serde_json::from_value(event["authority"].clone()).unwrap(),
+                revision: event["revision"].as_u64().unwrap(),
+                visible_text: event["text"].as_str().unwrap().into(),
+                mode: event["mode"].as_str().unwrap().into(),
             });
         }
         fn invoke_hook(&self, action: Action) -> bool {
@@ -6218,6 +6287,172 @@ mod tests {
     }
 
     #[test]
+    fn completed_completion_repaints_after_native_notification_and_accepts_fresh_ack() {
+        let mut config = Config::default();
+        config.debounce_ms = 5000;
+        config.typo_suppression = false;
+        config.typo_fixes = false;
+        let mut h = harness(config, None);
+        h.offer(" ready for review");
+        let original = h
+            .engine
+            .drain_events()
+            .into_iter()
+            .rev()
+            .find(|event| event["type"] == "suggestion" && event["mode"] == "completion")
+            .unwrap();
+        h.acknowledge_offer(&original);
+        assert_eq!(h.engine.claims.len(), 1);
+        assert!(h.engine.request.is_none());
+        h.elapse(1000);
+        h.engine.tick();
+        assert_eq!(
+            h.engine.claims.len(),
+            1,
+            "idle time alone must not expire a claim"
+        );
+        h.engine.drain_events();
+        let user_revision = h.native.borrow().revision;
+        h.native.borrow_mut().notification_revision += 1;
+        let wake = h.native.borrow().wake.clone().unwrap();
+        wake();
+        assert!(
+            !h.invoke_hook(Action::All),
+            "notification immediately revokes old authority"
+        );
+        h.engine.tick();
+        assert_eq!(h.native.borrow().revision, user_revision);
+        assert!(h.engine.claims.is_empty());
+        let refreshed = h
+            .engine
+            .drain_events()
+            .into_iter()
+            .find(|event| event["type"] == "suggestion" && event["mode"] == "completion")
+            .expect("fresh unchanged capture must request another presentation acknowledgement");
+        assert_eq!(refreshed["text"], original["text"]);
+        assert!(
+            !h.invoke_hook(Action::All),
+            "capture alone is not a paint acknowledgement"
+        );
+        h.acknowledge_offer(&original);
+        assert!(
+            h.engine.claims.is_empty(),
+            "old queued acknowledgement must not authorize a newer same-text presentation"
+        );
+        assert!(!h.invoke_hook(Action::All));
+        h.acknowledge_offer(&refreshed);
+        assert_eq!(h.engine.claims.len(), 1);
+        h.engine.tick();
+        assert_eq!(
+            h.engine.claims.len(),
+            1,
+            "leftover pending notification must not disarm the fresh paint acknowledgement"
+        );
+        assert_eq!(h.worker.borrow().submitted.len(), 1);
+        assert!(h.invoke_hook(Action::All));
+        h.engine.tick();
+        assert_eq!(h.native.borrow().edits, [" ready for review"]);
+        assert_eq!(
+            h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+            "The update ready for review"
+        );
+        assert!(h.engine.pending_edit.is_none());
+    }
+
+    #[test]
+    fn completed_completion_stale_ack_cannot_restore_revoked_input_focus_policy_or_epoch() {
+        for change in [
+            "typing",
+            "same_text_input",
+            "focus",
+            "policy",
+            "epoch",
+            "pending",
+        ] {
+            let mut config = Config::default();
+            config.debounce_ms = 5000;
+            config.typo_suppression = false;
+            config.typo_fixes = false;
+            let mut h = harness(config, None);
+            h.offer(" ready for review");
+            let original = h
+                .engine
+                .drain_events()
+                .into_iter()
+                .rev()
+                .find(|event| event["type"] == "suggestion" && event["mode"] == "completion")
+                .unwrap();
+            h.acknowledge_offer(&original);
+            assert_eq!(h.engine.claims.len(), 1);
+            match change {
+                "typing" | "same_text_input" | "focus" => {
+                    {
+                        let mut native = h.native.borrow_mut();
+                        native.revision += 1;
+                        if change == "typing" {
+                            native.snapshot = Some(field("The update changed"));
+                        } else if change == "focus" {
+                            native.snapshot.as_mut().unwrap().window_id = "other-window".into();
+                        }
+                    }
+                    let wake = h.native.borrow().wake.clone().unwrap();
+                    wake();
+                    h.engine.tick();
+                    if change == "same_text_input" {
+                        // A later harmless notification cannot rehabilitate an
+                        // offer that was already revoked by real user input.
+                        h.native.borrow_mut().notification_revision += 1;
+                        wake();
+                        h.engine.tick();
+                    }
+                }
+                "policy" => {
+                    h.engine.command(Command::Pause { minutes: 1 });
+                    h.engine.tick();
+                }
+                "epoch" => {
+                    h.engine.bump_epoch();
+                    h.engine.tick();
+                }
+                "pending" => {
+                    h.native.borrow_mut().notification_revision += 1;
+                    let wake = h.native.borrow().wake.clone().unwrap();
+                    wake();
+                    // The old queued paint acknowledgement arrives before a
+                    // native capture has observed this notification.
+                }
+                _ => unreachable!(),
+            }
+            let before = h.native.borrow().snapshot.clone().unwrap();
+            h.acknowledge_offer(&original);
+            assert!(
+                h.engine.claims.is_empty(),
+                "old paint acknowledgement restored authority after {change}"
+            );
+            assert!(!h.invoke_hook(Action::All));
+            assert!(h.native.borrow().edits.is_empty());
+            assert!(
+                h.native
+                    .borrow()
+                    .snapshot
+                    .as_ref()
+                    .unwrap()
+                    .same_key(&before)
+            );
+            assert_eq!(h.worker.borrow().submitted.len(), 1);
+            if change != "pending" {
+                assert!(
+                    h.engine
+                        .drain_events()
+                        .iter()
+                        .all(|event| event["type"] != "suggestion" || event["mode"] != "completion"),
+                    "genuine revocation must not republish the stale completion after {change}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn same_text_after_real_input_revokes_acceptance_but_passthrough_dismissal_keeps_actual_emoji_mode()
      {
         let mut c = Config::default();
@@ -6327,6 +6562,55 @@ mod tests {
             assert_eq!(h.engine.suggestion.text, "tomorrow");
         }
     }
+    #[test]
+    fn anchored_alternatives_echo_completion_view_version_but_accept_native_user_revision() {
+        let mut config = Config::default();
+        config.alternatives_enabled = true;
+        config.typo_suppression = false;
+        config.typo_fixes = false;
+        let mut h = harness(config, None);
+        h.native.borrow_mut().revision = 41;
+        h.offer(" arrives tomorrow");
+        h.engine.drain_events();
+        h.engine.command(Command::Action(Action::Alternatives));
+        h.engine.tick();
+        h.prepared();
+        h.response("ready", "", false);
+        h.response("result", "[\" is ready\", \" arrives tonight\"]", true);
+        let event = h
+            .engine
+            .drain_events()
+            .into_iter()
+            .rev()
+            .find(|event| {
+                event["type"] == "suggestion"
+                    && event["mode"] == "completion"
+                    && event["choices_mode"] == "alternatives"
+            })
+            .unwrap();
+        assert_ne!(event["revision"].as_u64().unwrap(), 41);
+        h.acknowledge_offer(&event);
+        let mut alternatives_ack = event.clone();
+        alternatives_ack["mode"] = json!("alternatives");
+        alternatives_ack["text"] = json!(" is ready\n arrives tonight");
+        h.acknowledge_offer(&alternatives_ack);
+        let claim = h
+            .engine
+            .claims
+            .iter()
+            .find(|claim| claim.mode == "alternatives")
+            .unwrap();
+        assert_eq!(claim.revision, 41);
+        assert!(h.invoke_hook(Action::Choice(1)));
+        h.engine.tick();
+        assert_eq!(h.native.borrow().edits, [" arrives tonight"]);
+        assert_eq!(
+            h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+            "The update arrives tonight"
+        );
+        assert!(h.engine.pending_edit.is_none());
+    }
+
     #[test]
     fn on_demand_append_only_fields_allow_force_but_no_automatic_tools() {
         let mut c = Config::default();

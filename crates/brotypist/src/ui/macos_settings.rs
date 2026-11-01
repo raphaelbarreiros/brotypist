@@ -974,7 +974,6 @@ impl Settings {
         }
         self.note("Automation permission does not prove terminal input is supported. Suggestions require a safe AI-prompt field and verified same-line caret. Google Docs accessibility is enabled separately from its document accessory menu.");
         self.note("Permission changes may require restarting BroTypist.");
-        self.live_label("nativeStatus", "inklow.setup.nativeStatus", "", 60.);
         self.action_row(
             "Welcome & tour",
             "Review setup and try a real local suggestion.",
@@ -2071,12 +2070,6 @@ impl Settings {
             }
         }
         self.refresh_setup(c, status, inventory);
-        self.set_live(
-            "nativeStatus",
-            status["native_status"]["message"]
-                .as_str()
-                .unwrap_or_else(|| text(status, "native_status")),
-        );
         self.set_live(
             "contextStatus",
             &format!(
