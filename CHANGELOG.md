@@ -48,6 +48,7 @@
 - Extend the synthetic Portuguese/English quality corpus with explicit contextual-utility review alongside grounding. Reject an ineffective prompt rewrite and a cached larger-model substitution after controlled native comparisons; retain the selected model, production sampler and existing prompt policy.
 - Authenticate historical Windows installer artifacts against their original checkout identity after PR merge, and retain bounded native client/token, policy, routing and registry evidence without weakening per-user ownership or data-preservation gates.
 - Add a disposable hosted-Windows installer fixture that transactionally supplies `DisableMSI=0` only when the policy is absent, verifies restoration, retains synchronous MSI/process ownership, and audits a private, nondistributable rollback-fault MSI against its authenticated canonical input. Explicit restrictive policies and real user machines remain unchanged.
+- Launch hosted MSI clients with unquoted raw arguments and explicit no-shell process creation, and independently verify the actual child token instead of treating a restricted parent as proof of restricted installer rights.
 - Improve the main README with theme-aware Typing Buddy branding, an actual native Settings capture, practical usage/install guidance and explicit platform, privacy and model-quality boundaries.
 - Verification is tracked in `docs/rust-migration/`; historical Python receipts are not evidence of completed Rust/native parity.
 

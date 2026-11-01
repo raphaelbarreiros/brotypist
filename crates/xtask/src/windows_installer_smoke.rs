@@ -390,7 +390,17 @@ foreach ($outcome in @(
     try { Assert-NativeQuiescence $outcome } catch { $rejected++ }
 }
 if ($rejected -ne 6) { throw 'Unknown/untyped quiescence accepted as permission to restore host policy' }
-foreach ($definition in @(Load-Guards 'windows-installer-smoke.ps1' @('Observe', 'Assert-RollbackLog'))) { . ([scriptblock]::Create($definition)) }
+foreach ($definition in @(Load-Guards 'windows-installer-smoke.ps1' @('Observe', 'Assert-RollbackLog', 'New-MsiStartInfo'))) { . ([scriptblock]::Create($definition)) }
+foreach ($operation in @('/i', '/fa', '/x')) {
+    $msi = Join-Path $Work 'canonical package Unicode é.msi'
+    $log = Join-Path $Work 'native MSI Unicode é.log'
+    $start = New-MsiStartInfo @($operation, $msi) $log
+    $expected = @($operation, $msi, '/qn', '/norestart', '/L*v', $log)
+    if ($start.UseShellExecute -or -not [string]::IsNullOrEmpty($start.Arguments) -or $start.ArgumentList.Count -ne $expected.Count) { throw 'MSI direct raw-argv launch contract lost' }
+    for ($i = 0; $i -lt $expected.Count; $i++) {
+        if ($start.ArgumentList[$i] -cne $expected[$i]) { throw 'MSI argv element was pre-quoted, split, or rewritten' }
+    }
+}
 $receipt = @{ observations = [Collections.Generic.List[object]]::new() }
 $path = Join-Path $Work 'rollback.log'
 $copy = 'MSI (s): Executing op: FileCopy(SourceName=synthetic,DestName=synthetic)'
@@ -516,14 +526,20 @@ MSI (s) (04:E0): Executing op: RegOpenKey(Root=-2147483647,Key=Software\Microsof
 MSI (s) (04:E0): Executing op: RegOpenKey(Root=-2147483646,Key=Software\Microsoft\Windows\CurrentVersion\Uninstall\{00000000-0000-0000-0000-000000000000},BinaryType=1,)
 Property(S): ALLUSERS = 1
 Property(S): MSIINSTALLPERUSER = 1
+Property(S): Privileged = 1
+Property(S): AdminUser = 1
+Property(S): MsiRunningElevated = 1
+MSI (s) (04:E0): Machine policy value 'AlwaysInstallElevated' is 0
 Property(S): PRIVATE = never-retain-this-value
 MSI (s): C:\Users\never-retain-this-path\payload
 '@
 [IO.File]::WriteAllText($path, $fixture, [Text.Encoding]::Unicode)
 Observe-MsiRouting 'fixture' $path
 $facts = @($receipt.observations[0].evidence.facts)
-if ($facts.Count -ne 5) { throw 'Owned routing facts missing or unrelated content retained' }
+if ($facts.Count -ne 9) { throw 'Owned routing or allowlisted engine facts missing or unrelated content retained' }
 if (@($facts | Where-Object { $_.event -eq 'owned_arp_reg_open' }).Count -ne 2) { throw 'Native hive distinction lost' }
+if (@($facts | Where-Object { $_.event -eq 'engine_privilege_property' }).Count -ne 3) { throw 'Actual engine privilege diagnostics lost' }
+if (@($facts | Where-Object { $_.event -eq 'engine_installer_policy' -and $_.scope -ceq 'Machine' -and $_.policy -ceq 'AlwaysInstallElevated' -and $_.value -ceq '0' }).Count -ne 1) { throw 'Actual engine policy diagnostic lost' }
 $json = $receipt | ConvertTo-Json -Depth 16
 if ($json.Contains('never-retain') -or $json.Contains('00000000-0000')) { throw 'Private or unrelated log content retained' }
 [IO.File]::WriteAllText($path, ('Property(S): ALLUSERS = 1' + "`n") * 300)

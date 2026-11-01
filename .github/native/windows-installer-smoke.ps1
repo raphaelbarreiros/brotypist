@@ -431,6 +431,12 @@ function Observe-MsiRouting([string]$Stage, [string]$Path) {
             if ($line -match 'Property\([CS]\): (ALLUSERS|MSIINSTALLPERUSER) = ([012]?)\s*$') {
                 $facts.Add(@{ event = 'final_scope_property'; property = $Matches[1]; value = $Matches[2] })
             }
+            if ($line -match 'Property\([CS]\): (Privileged|AdminUser|MsiRunningElevated) = ([01])\s*$') {
+                $facts.Add(@{ event = 'engine_privilege_property'; property = $Matches[1]; value = $Matches[2] })
+            }
+            if ($line -match "(Machine|User) policy value '(DisableMSI|DisableUserInstalls|AlwaysInstallElevated|DisableRollback)' is ([012])\s*$") {
+                $facts.Add(@{ event = 'engine_installer_policy'; scope = $Matches[1]; policy = $Matches[2]; value = $Matches[3] })
+            }
             if ($line -match 'Executing op: RegOpenKey\(Root=(-?\d+),Key=([^,]+)') {
                 $root = $Matches[1]; $key = $Matches[2]
                 foreach ($product in $products) {
@@ -510,6 +516,17 @@ function Assert-RollbackLog([string]$Path) {
     Require ($executed -and $fault -and $message -and $rollback -and $writes -gt 0) 'Native log did not establish deferred writes, authored fault and rollback'
     Observe 'rollback_native_transaction_log' @{ install_execute_completed_before_fault = $executed; file_copy_operations_before_fault = $writes; exact_type19_error_observed = $message; native_rollback_observed = $rollback }
 }
+function New-MsiStartInfo([string[]]$Arguments, [string]$Log) {
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = Join-Path $env:SystemRoot 'System32\msiexec.exe'
+    $start.UseShellExecute = $false
+    $start.WorkingDirectory = $Work
+    # Raw argv only: no shell fragments or literal wrapper quotes.
+    foreach ($argument in $Arguments + @('/qn', '/norestart', '/L*v', $Log)) {
+        $start.ArgumentList.Add($argument)
+    }
+    return $start
+}
 function Msi-Transaction([string]$Stage, [string[]]$Arguments, [switch]$ExpectedFailure, [switch]$RollbackFailure) {
     Require (-not ($ExpectedFailure -and $RollbackFailure)) 'Ambiguous expected MSI failure refused'
     $log = Join-Path $Work ($Stage + '.msi.log')
@@ -517,9 +534,24 @@ function Msi-Transaction([string]$Stage, [string[]]$Arguments, [switch]$Expected
     # Set before launch and clear only after a synchronous client exit. Any
     # intervening exception leaves service transaction quiescence unprovable.
     $script:installerTransactionActive = $true
-    $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\msiexec.exe') -ArgumentList ($Arguments + @('/qn', '/norestart', '/L*v', ('"' + $log + '"'))) -PassThru
+    # Start-Process defaults to ShellExecute on desktop Windows. That brokered
+    # path cannot establish inheritance of this verified restricted primary
+    # token. Use direct process creation, with the identical MSI arguments.
+    $start = New-MsiStartInfo $Arguments $log
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $start
+    Require ($process.Start()) 'Direct msiexec client creation failed'
     $owned.Add($process)
     [void]$process.Handle
+    $actualClientToken = $null; $actualClientVerified = $false
+    try {
+        # Query the launched msiexec, never substitute the parent token. A failed
+        # query is retained as failure, but still wait for synchronous MSI exit
+        # before throwing so cleanup and the policy lease cannot race it.
+        $actualClientToken = [BroTypistInstallerNative]::ProcessTokenFacts($process.Handle, $ExpectedUserSid)
+        $actualClientVerified = $actualClientToken.same_user_as_launcher -and -not $actualClientToken.is_system -and -not $actualClientToken.administrator_role_enabled -and $actualClientToken.integrity_rid -eq 8192 -and $actualClientToken.token_has_restrictions -eq 1 -and $actualClientToken.token_type -eq 1 -and $actualClientToken.impersonation_level -ceq 'None'
+    } catch { $actualClientVerified = $false }
+    $receipt.observations.Add(@{ check = 'msi_client_primary_token'; passed = $actualClientVerified; evidence = @{ stage = $Stage; shell_execute = $false; launch = 'direct ProcessStartInfo, inherited primary token/environment, no alternate credentials'; actual_child_token = $actualClientToken; token_query_succeeded = $null -ne $actualClientToken; genuine_uac_filtered_logon = $false; elevation_metadata_is_not_a_rights_assertion = $true } })
     if (-not $process.WaitForExit(180000)) {
         $script:transactionUnknown = $true
         try {
@@ -531,6 +563,12 @@ function Msi-Transaction([string]$Stage, [string[]]$Arguments, [switch]$Expected
     $code = $process.ExitCode
     $script:installerTransactionActive = $false
     Observe-MsiRouting $Stage $log
+    if ($RequireRestrictedClient) {
+        if (-not $actualClientVerified) {
+            foreach ($product in $products) { Observe-ArpScope ($Stage + '_after_unverified_child_exit') $product }
+        }
+        Require $actualClientVerified 'Actual msiexec child primary token was not independently verified as same-user non-System Administrator-disabled medium restricted rights'
+    }
     $rejected = $false
     if ($ExpectedFailure -and $code -eq 1603) {
         $text = Bounded-Text $log 65536
@@ -692,6 +730,29 @@ public static class BroTypistInstallerNative {
     [DllImport("advapi32.dll", SetLastError=true, EntryPoint="GetTokenInformation")] static extern bool TokenBuffer(IntPtr token,int kind,IntPtr value,int length,out int needed);
     [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthorityCount(IntPtr sid);
     [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthority(IntPtr sid,uint index);
+    [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr process,uint access,out IntPtr token);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+    public static System.Collections.Generic.Dictionary<string,object> ProcessTokenFacts(IntPtr process,string expectedSid) {
+        IntPtr token;
+        // TOKEN_QUERY | TOKEN_DUPLICATE: WindowsPrincipal.IsInRole duplicates a
+        // primary token for CheckTokenMembership. Observation only; the actual
+        // child token, its rights, and the role assertion remain unchanged.
+        if(!OpenProcessToken(process,0xA,out token)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        try {
+            uint[] facts=TokenFacts(token);
+            using(var identity=new System.Security.Principal.WindowsIdentity(token)) {
+                return new System.Collections.Generic.Dictionary<string,object> {
+                    {"same_user_as_launcher",identity.User.Value==expectedSid},
+                    {"is_system",identity.IsSystem},
+                    {"administrator_role_enabled",new System.Security.Principal.WindowsPrincipal(identity).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator)},
+                    {"administrator_group_present",identity.Groups.Contains(new System.Security.Principal.SecurityIdentifier("S-1-5-32-544"))},
+                    {"token_elevation",facts[0]}, {"elevation_type",facts[1]}, {"integrity_rid",facts[2]},
+                    {"token_has_restrictions",facts[3]}, {"token_type",facts[4]},
+                    {"impersonation_level",identity.ImpersonationLevel.ToString()}
+                };
+            }
+        } finally { CloseHandle(token); }
+    }
     public static uint[] TokenFacts(IntPtr token) {
         uint elevated,type,restricted,tokenType; int needed;
         if(!TokenUInt(token,20,out elevated,4,out needed) || !TokenUInt(token,18,out type,4,out needed) || !TokenUInt(token,21,out restricted,4,out needed) || !TokenUInt(token,8,out tokenType,4,out needed))
@@ -816,18 +877,18 @@ public static class BroTypistInstallerNative {
     Assert-Payload $relocated $package
     $receipt.portable_runtime_passed = @($receipt.observations | Where-Object { $_.check -eq 'portable_tiny_worker' -and $_.passed -eq $true }).Count -eq 1
     $installAttempted = $true
-    [void](Msi-Transaction 'fresh_install' @('/i', ('"' + $package.artifacts.msi.path + '"')))
+    [void](Msi-Transaction 'fresh_install' @('/i', $package.artifacts.msi.path))
     Assert-Installed $package
     if ($null -ne $input.previous) {
         [void](Msi-Transaction 'uninstall_before_prior_fixture' @('/x', (Guid-Code $package)))
         Require (@(Contexts (Guid-Code $package)).Count -eq 0 -and -not (Test-Path -LiteralPath $installDirectory) -and -not (Test-Path -LiteralPath $shortcut)) 'Fresh install cleanup before upgrade fixture failed'
-        [void](Msi-Transaction 'prior_install' @('/i', ('"' + $input.previous.artifacts.msi.path + '"')))
+        [void](Msi-Transaction 'prior_install' @('/i', $input.previous.artifacts.msi.path))
         Assert-Installed $input.previous
         Probe-Cli $installDirectory $input.previous 'prior_installed_cli_doctor'
         if ($exerciseRollback) {
             $rollbackFixture = New-RollbackFixture $package
             Hash-Equal $rollbackFixture.path $rollbackFixture.sha256
-            [void](Msi-Transaction 'real_upgrade_rollback' @('/i', ('"' + $rollbackFixture.path + '"')) -RollbackFailure)
+            [void](Msi-Transaction 'real_upgrade_rollback' @('/i', $rollbackFixture.path) -RollbackFailure)
             Assert-Installed $input.previous
             Probe-Cli $installDirectory $input.previous 'rollback_restored_prior_cli_doctor'
             Require (@(Contexts (Guid-Code $package)).Count -eq 0) 'Failed upgrade left new product registered'
@@ -837,13 +898,13 @@ public static class BroTypistInstallerNative {
             Hash-Equal $package.artifacts.msi.path $package.artifacts.msi.sha256
             $receipt.required_gates.rollback = @{ status = 'passed'; from_version = $input.previous.version; attempted_version = $package.version; prior_product_files_data_restored = $true; new_product_absent = $true; real_deferred_writes_before_type19_fault = $true; nondistributable_fixture = $true; fixture_sha256 = $rollbackFixture.sha256 }
         }
-        [void](Msi-Transaction 'major_upgrade' @('/i', ('"' + $package.artifacts.msi.path + '"')))
+        [void](Msi-Transaction 'major_upgrade' @('/i', $package.artifacts.msi.path))
         Assert-Installed $package
         Require (@(Contexts (Guid-Code $input.previous)).Count -eq 0) 'Prior product remained registered after major upgrade'
         $receipt.required_gates.upgrade = @{ status = 'passed'; from_version = $input.previous.version; to_version = $package.version; prior_product_absent = $true }
         # A genuine old package exercises authored downgrade rejection, not an
         # invented test-only failure flag. This is not an in-transaction rollback.
-        [void](Msi-Transaction 'real_downgrade_rejected' @('/i', ('"' + $input.previous.artifacts.msi.path + '"')) -ExpectedFailure)
+        [void](Msi-Transaction 'real_downgrade_rejected' @('/i', $input.previous.artifacts.msi.path) -ExpectedFailure)
         Assert-Installed $package
         Require (@(Contexts (Guid-Code $input.previous)).Count -eq 0) 'Rejected downgrade registered prior product'
     }
@@ -851,7 +912,7 @@ public static class BroTypistInstallerNative {
     # files so HKCU component keypaths cannot mask a missing native executable.
     Remove-Item -LiteralPath (Join-Path $installDirectory 'BroTypist-cli.exe') -Force
     Require (-not (Test-Path -LiteralPath (Join-Path $installDirectory 'BroTypist-cli.exe'))) 'Repair damage was not applied'
-    [void](Msi-Transaction 'repair' @('/fa', ('"' + $package.artifacts.msi.path + '"')))
+    [void](Msi-Transaction 'repair' @('/fa', $package.artifacts.msi.path))
     Assert-Installed $package
     Observe 'repair_restored_deleted_cli' @{ exact_payload_restored = $true; sentinels_unchanged = $true }
     Probe-Cli $installDirectory $package 'installed_cli_doctor'
