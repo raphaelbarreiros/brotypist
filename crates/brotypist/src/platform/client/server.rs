@@ -57,6 +57,7 @@ pub(super) struct Client {
     pub metadata: Dict,
     pub policy_epoch: u64,
     pub policy_expires: u64,
+    pub sent_policy: Option<Dict>,
 }
 pub(super) enum Message {
     Registered(u64),
@@ -228,6 +229,7 @@ impl Server {
                 metadata,
                 policy_epoch,
                 policy_expires,
+                sent_policy: None,
             },
         );
         s.queue.push_back(Message::Registered(id));

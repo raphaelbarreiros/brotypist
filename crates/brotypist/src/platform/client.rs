@@ -94,6 +94,27 @@ fn permitted(config: &Config, peer: &Peer, meta: &Dict) -> bool {
         && string(meta, "purpose").is_ok_and(safe_purpose)
         && consented(config, peer, &domain)
 }
+fn capture_permitted(config: &Config, peer: &Peer, meta: &Dict) -> bool {
+    permitted(config, peer, meta) && matches!(string(meta, "composing"), Ok("idle"))
+}
+fn metadata_security(meta: &Dict) -> Option<bool> {
+    if !matches!(flag(meta, "focus"), Ok(true))
+        || number(meta, "focus_generation").is_err()
+        || ["field_token", "window_token", "document_token"]
+            .iter()
+            .any(|key| !string(meta, key).is_ok_and(valid_token))
+    {
+        return None;
+    }
+    let protected = flag(meta, "protected").ok()?;
+    if protected {
+        return Some(true);
+    }
+    string(meta, "purpose")
+        .ok()
+        .filter(|purpose| safe_purpose(purpose))?;
+    Some(false)
+}
 fn confirmation_consent(
     config: &Config,
     current_epoch: u64,
@@ -287,6 +308,25 @@ fn bind_focus_policy(
             scope.write(policy)
         }
         _ => inert_policy(policy),
+    }
+}
+fn policy_update_required(previous: Option<&Dict>, next: &Dict, at: u64) -> bool {
+    let Some(previous) = previous else {
+        return true;
+    };
+    if previous.len() != next.len()
+        || previous
+            .iter()
+            .any(|(key, value)| key != "expires_ns" && next.get(key) != Some(value))
+    {
+        return true;
+    }
+    match (number(previous, "expires_ns"), number(next, "expires_ns")) {
+        (Ok(0), Ok(0)) => false,
+        (Ok(old), Ok(new)) if old != 0 && new != 0 && at != 0 => {
+            old.saturating_sub(at) <= POLICY_LEASE / 2
+        }
+        _ => true,
     }
 }
 struct Broker {
@@ -510,7 +550,8 @@ impl Broker {
         }
     }
     fn send_policy(&self, t: &Target, meta: &Dict) -> Result<()> {
-        let mut p = policy(&self.config, self.epoch, &t.peer, meta, now())?;
+        let at = now();
+        let mut p = policy(&self.config, self.epoch, &t.peer, meta, at)?;
         let scope = FocusScope::parse(meta).ok();
         bind_focus_policy(&mut p, t.id, scope.as_ref(), self.keys_ready.as_ref());
         if self.active.as_ref().is_none_or(|a| a.id != t.id)
@@ -522,13 +563,27 @@ impl Broker {
         gate_shortcut_policy(&mut p, self.shortcuts_enabled);
         let expires = number(&p, "expires_ns")?;
         let metadata = clone_dict(meta)?;
-        self.proxy(t)?.call::<_, _, ()>("Configure", &(p,))?;
+        if let Ok(mut state) = self.state.lock() {
+            if let Some(client) = state.clients.get_mut(&t.id) {
+                if client.peer == t.peer {
+                    client.metadata = metadata;
+                    if !policy_update_required(client.sent_policy.as_ref(), &p, at) {
+                        return Ok(());
+                    }
+                    // A failed/timed-out Configure cannot keep an old key lease
+                    // locally authoritative, even if it reached the target.
+                    client.sent_policy = None;
+                    client.policy_expires = 0;
+                }
+            }
+        }
+        self.proxy(t)?.call::<_, _, ()>("Configure", &(&p,))?;
         if let Ok(mut s) = self.state.lock() {
             if let Some(c) = s.clients.get_mut(&t.id) {
                 if c.peer == t.peer {
                     c.policy_epoch = self.epoch;
                     c.policy_expires = expires;
-                    c.metadata = metadata;
+                    c.sent_policy = Some(p);
                 }
             }
         }
@@ -558,23 +613,15 @@ impl Broker {
             }
             match self.metadata(&t) {
                 Ok(meta) => {
+                    let focus = matches!(flag(&meta, "focus"), Ok(true));
+                    let secure = metadata_security(&meta);
                     if let Ok(mut s) = self.state.lock() {
                         if let Some(c) = s.clients.get_mut(&t.id) {
                             c.metadata = meta;
                         }
                     }
-                    let focus = self
-                        .state
-                        .lock()
-                        .ok()
-                        .and_then(|s| {
-                            s.clients
-                                .get(&t.id)
-                                .and_then(|c| flag(&c.metadata, "focus").ok())
-                        })
-                        .unwrap_or(false);
                     if focus {
-                        focused.push(t);
+                        focused.push((t, secure));
                     }
                 }
                 // A live client's failed/unknown metadata remains a refusal, not
@@ -591,7 +638,7 @@ impl Broker {
                         })
                         .unwrap_or(true)
                     {
-                        focused.push(t);
+                        focused.push((t, None));
                     }
                 }
             }
@@ -599,12 +646,17 @@ impl Broker {
         let previous = self.active.as_ref().map(|t| t.id);
         self.ambiguous = focused.len() > 1;
         if focused.len() == 1 {
-            self.active = focused.pop();
+            let (target, secure) = focused.pop().expect("one focused native client");
+            self.active = Some(target);
+            // Privacy is metadata, not a successful content read or a synthetic
+            // changed notification. Unknown metadata still fails closed.
+            self.secure = secure;
         } else if focused.is_empty() {
             self.active = None;
+            self.secure = None;
         } else {
             // Ambiguous cooperating focus blocks transport until resolved.
-            self.active = focused.pop();
+            self.active = focused.pop().map(|(target, _)| target);
             self.secure = Some(true);
         }
         if previous != self.active.as_ref().map(|t| t.id)
@@ -659,8 +711,8 @@ impl Broker {
         let result = (|| -> Result<(Witness, Snapshot)> {
             let meta = metadata?;
             ensure!(
-                permitted(&self.config, &t.peer, &meta),
-                "Native policy refused"
+                capture_permitted(&self.config, &t.peer, &meta),
+                "Native policy or composition refused"
             );
             self.send_policy(&t, &meta)?;
             let capture: Dict = self.proxy(&t)?.call("Capture", &(self.epoch,))?;
@@ -1229,8 +1281,6 @@ impl Broker {
                             }
                             let user = number(&e, "user_revision").unwrap_or(u64::MAX);
                             let changed = self.reconcile_user(id, user);
-                            let semantic =
-                                self.witness.as_ref().is_none_or(|w| changed_revokes(w, &e));
                             let at = now();
                             for o in &mut self.offers {
                                 if o.target.id == id && changed_revokes(&o.before, &e) {
@@ -1239,8 +1289,12 @@ impl Broker {
                                 }
                             }
                             if self.active.as_ref().is_some_and(|a| a.id == id) {
-                                self.revision = self.revision.saturating_add(1);
-                                if changed || semantic {
+                                if reconcile_notification(
+                                    &mut self.revision,
+                                    self.witness.as_ref(),
+                                    &e,
+                                    changed,
+                                ) {
                                     self.timestamp = Some(Instant::now());
                                     ordinary = true;
                                     self.snapshot = None;
@@ -1340,6 +1394,18 @@ fn changed_revokes(witness: &Witness, event: &Dict) -> bool {
         && string(event, "document_token").is_ok_and(|s| s == witness.document)
         && number(event, "revision").is_ok_and(|n| n == witness.revision)
         && number(event, "user_revision").is_ok_and(|n| n == witness.user))
+}
+fn reconcile_notification(
+    revision: &mut u64,
+    witness: Option<&Witness>,
+    event: &Dict,
+    user_changed: bool,
+) -> bool {
+    let invalidated = user_changed || witness.is_none_or(|w| changed_revokes(w, event));
+    if invalidated {
+        *revision = revision.saturating_add(1);
+    }
+    invalidated
 }
 fn event_client(snapshot: &Snapshot) -> Option<u64> {
     snapshot

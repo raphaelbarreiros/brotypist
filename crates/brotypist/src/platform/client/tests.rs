@@ -248,6 +248,146 @@ fn same_epoch_policy_renewal_changes_only_expiry_not_features_or_bindings() {
     assert!(!flag(&policy(&disabled, 5, &p, &m, 600).unwrap(), "enabled").unwrap());
 }
 #[test]
+fn capture_reuses_live_policy_but_renews_before_expiry_or_changed_authority() {
+    let config = Config::default();
+    let meta = metadata();
+    let owner = FocusOwner {
+        client: 1,
+        scope: FocusScope::parse(&meta).unwrap(),
+    };
+    let issued = 100;
+    let mut first = policy(&config, 4, &peer(), &meta, issued).unwrap();
+    bind_focus_policy(&mut first, 1, Some(&owner.scope), Some(&owner));
+    let mut next = policy(&config, 4, &peer(), &meta, issued + 1).unwrap();
+    bind_focus_policy(&mut next, 1, Some(&owner.scope), Some(&owner));
+    assert!(policy_update_required(None, &next, issued + 1));
+    assert!(!policy_update_required(Some(&first), &next, issued + 1));
+    assert!(!policy_update_required(
+        Some(&first),
+        &next,
+        issued + POLICY_LEASE / 2 - 1
+    ));
+    assert!(policy_update_required(
+        Some(&first),
+        &next,
+        issued + POLICY_LEASE / 2
+    ));
+    assert!(policy_update_required(
+        Some(&first),
+        &next,
+        issued + POLICY_LEASE
+    ));
+    assert!(policy_update_required(Some(&first), &next, 0));
+    for (key, value) in [
+        ("field_token", "other-field"),
+        ("window_token", "other-window"),
+        ("document_token", "other-document"),
+    ] {
+        let mut changed = clone_dict(&next).unwrap();
+        text(&mut changed, key, value);
+        assert!(policy_update_required(Some(&first), &changed, issued + 1));
+    }
+    for key in ["focus_generation", "policy_epoch"] {
+        let mut changed = clone_dict(&next).unwrap();
+        put(&mut changed, key, number(&next, key).unwrap() + 1);
+        assert!(policy_update_required(Some(&first), &changed, issued + 1));
+    }
+    let mut disabled = clone_dict(&next).unwrap();
+    put(&mut disabled, "enabled", false);
+    assert!(policy_update_required(Some(&first), &disabled, issued + 1));
+    for feature in [
+        "predictions",
+        "emoji",
+        "synonyms",
+        "alternatives",
+        "correction",
+    ] {
+        let mut changed = clone_dict(&next).unwrap();
+        put(&mut changed, feature, !flag(&next, feature).unwrap());
+        assert!(policy_update_required(Some(&first), &changed, issued + 1));
+    }
+    let mut changed = clone_dict(&next).unwrap();
+    put(&mut changed, "shortcuts", HashMap::<String, String>::new());
+    assert!(policy_update_required(Some(&first), &changed, issued + 1));
+    let mut withdrawn = clone_dict(&first).unwrap();
+    inert_policy(&mut withdrawn);
+    assert!(policy_update_required(Some(&first), &withdrawn, issued + 1));
+    assert!(!policy_update_required(
+        Some(&withdrawn),
+        &withdrawn,
+        issued + 1
+    ));
+    assert!(policy_update_required(Some(&withdrawn), &first, issued + 1));
+}
+#[test]
+fn metadata_only_privacy_readiness_does_not_require_a_capture_notification() {
+    let mut meta = metadata();
+    text(&mut meta, "composing", "idle");
+    assert_eq!(metadata_security(&meta), Some(false));
+    assert!(capture_permitted(&Config::default(), &peer(), &meta));
+    let mut disabled = Config::default();
+    disabled.global_enabled = false;
+    assert!(!capture_permitted(&disabled, &peer(), &meta));
+    assert!(action_allowed(&disabled, &peer(), &meta, &Action::Toggle));
+    assert!(action_allowed(
+        &disabled,
+        &peer(),
+        &meta,
+        &Action::AppToggle
+    ));
+    for composition in ["active", "unknown", ""] {
+        text(&mut meta, "composing", composition);
+        assert_eq!(metadata_security(&meta), Some(false));
+        assert!(!capture_permitted(&Config::default(), &peer(), &meta));
+    }
+    meta.remove("composing");
+    assert!(!capture_permitted(&Config::default(), &peer(), &meta));
+    put(&mut meta, "protected", true);
+    assert_eq!(metadata_security(&meta), Some(true));
+    put(&mut meta, "protected", false);
+    put(&mut meta, "focus", false);
+    assert_eq!(metadata_security(&meta), None);
+    put(&mut meta, "focus", true);
+    meta.remove("protected");
+    assert_eq!(metadata_security(&meta), None);
+}
+#[test]
+fn startup_privacy_readiness_requires_known_purpose_and_exact_focus_scope_metadata() {
+    let meta = metadata();
+    for key in [
+        "focus",
+        "protected",
+        "purpose",
+        "field_token",
+        "window_token",
+        "document_token",
+        "focus_generation",
+    ] {
+        let mut missing = clone_dict(&meta).unwrap();
+        missing.remove(key);
+        assert_eq!(metadata_security(&missing), None, "{key}");
+    }
+    for purpose in ["password", "pin", "sensitive", "hidden", "unknown", ""] {
+        let mut unknown = clone_dict(&meta).unwrap();
+        text(&mut unknown, "purpose", purpose);
+        assert_eq!(metadata_security(&unknown), None, "{purpose}");
+    }
+    for key in ["field_token", "window_token", "document_token"] {
+        for value in ["", "not a native token"] {
+            let mut invalid = clone_dict(&meta).unwrap();
+            text(&mut invalid, key, value);
+            assert_eq!(metadata_security(&invalid), None, "{key}");
+        }
+    }
+    let mut invalid = clone_dict(&meta).unwrap();
+    text(&mut invalid, "focus_generation", "unknown");
+    assert_eq!(metadata_security(&invalid), None);
+    let mut protected = clone_dict(&meta).unwrap();
+    put(&mut protected, "protected", true);
+    assert_eq!(metadata_security(&protected), Some(true));
+    assert!(!capture_permitted(&Config::default(), &peer(), &protected));
+}
+#[test]
 fn leases_reject_preissue_expiry_future_and_delayed_events() {
     assert!(lease_valid(150, 100, 200, 250));
     assert!(!lease_valid(99, 100, 200, 250));
@@ -391,6 +531,7 @@ fn authenticated_event_peer_cannot_substitute_sender_uid_pid_or_executable() {
             metadata: metadata(),
             policy_epoch: 3,
             policy_expires: 1000,
+            sent_policy: None,
         },
     )]
     .into();
@@ -472,6 +613,85 @@ fn harmless_native_notifications_preserve_receipts_but_real_input_and_focus_revo
     put(&mut event, "focus", true);
     text(&mut event, "document_token", "another-block");
     assert!(changed_revokes(&w, &event));
+}
+#[test]
+fn same_live_policy_notifications_do_not_change_controller_visible_input_revision() {
+    let w = witness();
+    let mut event = snapshot_wire(&w);
+    let mut input = UserInputFence::default();
+    let at = Instant::now();
+    input.seed(1, w.user);
+    let mut revision = 17;
+    for notification in w.notification + 1..w.notification + 6_051 {
+        put(&mut event, "notification_revision", notification);
+        let user_changed = input.observe(1, number(&event, "user_revision").unwrap(), at);
+        assert!(!reconcile_notification(
+            &mut revision,
+            Some(&w),
+            &event,
+            user_changed,
+        ));
+    }
+    assert_eq!(revision, 17);
+    assert_eq!(input.revision, 0);
+    assert_eq!(input.timestamp, None);
+    // Even unchanged content cannot hide an observed real user input.
+    assert!(reconcile_notification(
+        &mut revision,
+        Some(&w),
+        &event,
+        true
+    ));
+    assert_eq!(revision, 18);
+    assert!(reconcile_notification(&mut revision, None, &event, false));
+    assert_eq!(revision, 19);
+}
+#[test]
+fn semantic_native_notifications_still_invalidate_controller_visible_revision() {
+    let w = witness();
+    for key in ["revision", "user_revision"] {
+        let mut event = snapshot_wire(&w);
+        let value = number(&event, key).unwrap() + 1;
+        put(&mut event, key, value);
+        let mut revision = 17;
+        assert!(reconcile_notification(
+            &mut revision,
+            Some(&w),
+            &event,
+            false
+        ));
+        assert_eq!(revision, 18, "{key}");
+    }
+    for (key, value) in [
+        ("field_token", "another-field"),
+        ("window_token", "another-window"),
+        ("document_token", "another-block"),
+        ("composing", "active"),
+        ("composing", "unknown"),
+    ] {
+        let mut event = snapshot_wire(&w);
+        text(&mut event, key, value);
+        let mut revision = 17;
+        assert!(reconcile_notification(
+            &mut revision,
+            Some(&w),
+            &event,
+            false
+        ));
+        assert_eq!(revision, 18, "{key}");
+    }
+    for (key, value) in [("focus", false), ("protected", true)] {
+        let mut event = snapshot_wire(&w);
+        put(&mut event, key, value);
+        let mut revision = 17;
+        assert!(reconcile_notification(
+            &mut revision,
+            Some(&w),
+            &event,
+            false
+        ));
+        assert_eq!(revision, 18, "{key}");
+    }
 }
 #[test]
 fn registration_policy_cannot_consume_keys_before_owner_disarms_fallback() {

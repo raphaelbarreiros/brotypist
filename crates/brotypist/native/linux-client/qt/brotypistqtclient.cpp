@@ -736,7 +736,10 @@ void QtClient::adoptPolicy(const QVariantMap &policy) {
     policyExpiry_->stop(); policy_ = next;
     if (!now || !policy_.value("policy_epoch").toULongLong() || expiry <= now) policy_.clear();
     else policyExpiry_->start(int(std::min<qulonglong>((expiry - now) / 1000000 + 1, std::numeric_limits<int>::max())));
-    scheduleChanged();
+    // Extending the same live policy changes no native witness. Echoing a
+    // Changed event here feeds the broker's next Capture/Configure back into
+    // another notification and can continuously invalidate pending inference.
+    if (!renewal) scheduleChanged();
 }
 void QtClient::transportLost() {
     if (pending_.active) finishPending(QStringLiteral("indeterminate"), {});

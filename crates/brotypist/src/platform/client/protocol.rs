@@ -111,15 +111,15 @@ pub(super) fn list(d: &mut Dict, key: &str, values: &[String]) -> Result<()> {
 pub(super) fn hash(text: &str) -> String {
     format!("{:x}", Sha256::digest(text.as_bytes()))
 }
+pub(super) fn valid_token(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 256
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_:./".contains(&b))
+}
 pub(super) fn token(d: &Dict, key: &str) -> Result<String> {
     let s = string(d, key)?;
-    ensure!(
-        !s.is_empty()
-            && s.len() <= 256
-            && s.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"-_:./".contains(&b)),
-        "Invalid native identity"
-    );
+    ensure!(valid_token(s), "Invalid native identity");
     Ok(s.into())
 }
 pub(super) fn window_identity(client: u64, window: &str) -> String {
