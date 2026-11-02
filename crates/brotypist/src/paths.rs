@@ -334,26 +334,6 @@ mod tests {
         let profile = PathBuf::from(std::env::var_os("INKLOW_HOME").unwrap());
         assert_eq!(model_dir().unwrap(), profile.join("models"));
         assert!(legacy_model_dir().unwrap().is_none());
-        let mut config = crate::config::Config {
-            model_path: platform_cache_dir()
-                .unwrap()
-                .join("models")
-                .join(&crate::models::get_preset("tiny").unwrap().filename)
-                .to_str()
-                .unwrap()
-                .into(),
-            ..crate::config::Config::default()
-        };
-        let before = config.clone();
-        assert!(!crate::config::model_storage_migration_needed(&config).unwrap());
-        assert!(
-            !crate::config::migrate_model_storage(
-                &mut config,
-                &crate::models::DownloadCancellation::new(),
-            )
-            .unwrap()
-        );
-        assert_eq!(config, before);
         private_directory(&model_dir().unwrap()).unwrap();
         std::fs::write(
             model_dir().unwrap().join("owned.gguf"),

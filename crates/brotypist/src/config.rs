@@ -819,6 +819,58 @@ mod tests {
     }
 
     #[test]
+    fn isolated_model_migration_child() {
+        if std::env::var_os("BROTYPIST_CONFIG_MODEL_ISOLATION_CHILD").is_none() {
+            return;
+        }
+        let preset = crate::models::get_preset("tiny").unwrap();
+        let mut config = Config {
+            backend: "gguf".into(),
+            model_id: preset.id.clone(),
+            model_path: crate::paths::cache_dir()
+                .unwrap()
+                .join("models")
+                .join(&preset.filename)
+                .to_str()
+                .unwrap()
+                .into(),
+            ..Config::default()
+        };
+        let original = config.clone();
+        assert!(!model_storage_migration_needed(&config).unwrap());
+        assert!(
+            !migrate_model_storage(&mut config, &crate::models::DownloadCancellation::new())
+                .unwrap()
+        );
+        assert_eq!(config, original);
+    }
+
+    #[test]
+    fn isolated_profile_never_migrates_the_selected_normal_cached_model() {
+        let root = tempfile::tempdir().unwrap();
+        let profile = root.path().join("private-profile");
+        let forbidden = root.path().join("normal-storage-must-not-be-created");
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "config::tests::isolated_model_migration_child",
+                "--nocapture",
+            ])
+            .env("BROTYPIST_CONFIG_MODEL_ISOLATION_CHILD", "1")
+            .env("INKLOW_HOME", &profile)
+            .env("HOME", &forbidden)
+            .env("USERPROFILE", &forbidden)
+            .env("LOCALAPPDATA", &forbidden)
+            .env("XDG_DATA_HOME", &forbidden)
+            .env("XDG_CACHE_HOME", &forbidden)
+            .status()
+            .unwrap();
+        assert!(result.success());
+        assert!(!profile.exists());
+        assert!(!forbidden.exists());
+    }
+
+    #[test]
     fn model_retention_changes_only_selected_default_path_and_keeps_saved_rollback() {
         use sha2::{Digest, Sha256};
         let root = tempfile::tempdir().unwrap();
