@@ -113,6 +113,9 @@ pub(super) fn button(label: &str, sender: &Sender, action: UiAction) -> gtk::But
     let button = gtk::Button::with_label(label);
     if matches!(&action, UiAction::Quit) {
         button.set_widget_name("action_quit");
+        if let Some(accessible) = button.accessible() {
+            atk::prelude::AtkObjectExt::set_accessible_id(&accessible, "action_quit");
+        }
     }
     let sender = sender.clone();
     button.connect_clicked(move |_| {

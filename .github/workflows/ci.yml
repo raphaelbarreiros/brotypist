@@ -139,6 +139,20 @@ jobs:
       - name: Assemble and inspect development portable binaries (not installers or OTA)
         timeout-minutes: 30
         run: ./.github/native/checks.ps1 -Phase portable
+      - name: Retain development portable binaries and provenance
+        if: ${{ always() && env.NATIVE_PORTABLE != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: development-portable-${{ matrix.platform }}-not-for-ota
+          # Explicit payload paths exclude retained failed Cargo staging trees.
+          # Hidden development markers are mandatory non-release provenance.
+          path: |
+            ${{ env.NATIVE_PORTABLE }}/BroTypist.app/
+            ${{ env.NATIVE_PORTABLE }}/BroTypist/
+            ${{ env.NATIVE_PORTABLE }}/*.tar.gz
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
       - name: Install pinned build-only WiX tooling (no signing secrets)
         if: runner.os == 'Windows'
         timeout-minutes: 5
@@ -160,20 +174,6 @@ jobs:
           name: native-evidence-${{ matrix.platform }}
           path: ${{ env.NATIVE_REPORTS }}/
           if-no-files-found: error
-          retention-days: 14
-      - name: Retain development portable binaries and provenance
-        if: ${{ always() && env.NATIVE_PORTABLE != '' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: development-portable-${{ matrix.platform }}-not-for-ota
-          # Explicit payload paths exclude retained failed Cargo staging trees.
-          # Hidden development markers are mandatory non-release provenance.
-          path: |
-            ${{ env.NATIVE_PORTABLE }}/BroTypist.app/
-            ${{ env.NATIVE_PORTABLE }}/BroTypist/
-            ${{ env.NATIVE_PORTABLE }}/*.tar.gz
-          include-hidden-files: true
-          if-no-files-found: warn
           retention-days: 14
       - name: Retain canonical Linux and unsigned held Windows packages and receipts
         if: ${{ always() && runner.os != 'macOS' && env.NATIVE_PACKAGES != '' }}

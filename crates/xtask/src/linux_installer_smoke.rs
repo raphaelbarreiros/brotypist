@@ -1121,8 +1121,8 @@ mod native {
                     object.1.as_str(),
                     "org.a11y.atspi.Accessible",
                 )?;
-                let name: String = proxy.get_property("Name")?;
-                if name == "Quit BroTypist" {
+                let id: String = proxy.get_property("AccessibleId")?;
+                if id == "action_quit" {
                     let role: u32 = proxy.call("GetRole", &())?;
                     let states: Vec<u32> = proxy.call("GetState", &())?;
                     let has = |bit: usize| {

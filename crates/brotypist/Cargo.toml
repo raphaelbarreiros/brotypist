@@ -93,6 +93,7 @@ pango = "0.18.3"
 pangocairo = "0.18"
 cairo-rs = { version = "0.18.5", features = ["png"] }
 gtk = { version = "0.18.2", features = ["v3_24"] }
+atk = { version = "0.18.2", features = ["v2_34"] }
 gdk = "0.18.2"
 glib = "0.18.5"
 gio = "0.18.4"
