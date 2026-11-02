@@ -1867,9 +1867,15 @@ impl NativeBridge for ClientBridge {
     }
     fn status(&self) -> serde_json::Value {
         let mut status = self.base.as_ref().map_or_else(
-            || serde_json::json!({"platform":"linux","global_capture":false}),
+            || serde_json::json!({"platform":"linux","available":false,"global_capture":false,"message":"Waiting for a supported app"}),
             |base| base.status(),
         );
+        if self.broker.active.is_some() {
+            status["available"] = serde_json::json!(true);
+            if self.base.is_none() {
+                status["message"] = serde_json::json!("Native app integration ready");
+            }
+        }
         if let Some(object) = status.as_object_mut() {
             object.insert("native_client".into(),serde_json::json!({
                 "bus":self.broker.bus,"connected":self.broker.connected,
