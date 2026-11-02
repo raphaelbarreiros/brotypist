@@ -187,7 +187,9 @@ Build on the target OS and architecture. macOS packaging requires full Xcode 27.
 
 Windows compiler scratch uses a separate private temporary directory, not the requested bundle destination. Keep `TMP`/`TEMP` short for legacy MSBuild FileTracker limits. Failed builds report and retain both staging paths; successful builds remove compiler scratch without changing OS long-path policy.
 
-Use an absolute, disposable `INKLOW_HOME` for experiments. It isolates settings/history, not the shared model cache. Existing profile paths, the internal `inklow` identity and OS credential-store names are retained.
+Use an absolute, disposable `INKLOW_HOME` for experiments. It isolates settings, history, updates and models (`INKLOW_HOME/models`); it never migrates the normal profile's weights. Existing profile and credential-store identities are retained.
+
+Downloaded models are retained app data, not disposable cache: `~/Library/Application Support/inklow/models` on macOS, `$XDG_DATA_HOME/inklow/models` (normally `~/.local/share/inklow/models`) on Linux, and `%LOCALAPPDATA%/inklow/models` on Windows. App startup verifies and retains the selected catalog model from the old default cache without deleting it. Custom model paths are unchanged.
 
 ```sh
 cargo run --locked -p xtask -- version

@@ -1,8 +1,9 @@
-//! Manual controls only. No suggestion text or preedit is rendered on this surface.
+//! Compositor-owned accessory, manual menus and fully-painted native choice rows.
 use crate::core::Snapshot;
 use anyhow::Result;
 use cairo::{Context, Format, ImageSurface};
 use pango::prelude::*;
+use zeroize::Zeroize;
 #[derive(Clone, Debug)]
 pub(super) struct Region {
     pub rect: [i32; 4],
@@ -19,6 +20,14 @@ pub(super) struct Frame {
     pub image: ImageSurface,
     pub regions: Vec<Region>,
     pub scale: i32,
+    pub choice_count: usize,
+}
+impl Drop for Frame {
+    fn drop(&mut self) {
+        if let Ok(mut pixels) = self.image.data() {
+            pixels.zeroize();
+        }
+    }
 }
 pub(super) struct Panel {
     pub snapshot: Option<Snapshot>,
@@ -33,6 +42,9 @@ pub(super) struct Panel {
     pub bounds: [i32; 2],
     pub scale: i32,
     pub dark: bool,
+    pub choice_mode: bool,
+    pub visible_choices: usize,
+    pub bounds_known: bool,
 }
 impl Default for Panel {
     fn default() -> Self {
@@ -49,12 +61,22 @@ impl Default for Panel {
             bounds: [1024, 768],
             scale: 1,
             dark: false,
+            choice_mode: false,
+            visible_choices: 0,
+            bounds_known: false,
         }
     }
 }
 impl Panel {
     pub fn clear(&mut self) -> bool {
         let menu = self.menu.is_some();
+        if self.choice_mode {
+            if let Some(rows) = &mut self.menu {
+                for row in rows {
+                    row.label.zeroize();
+                }
+            }
+        }
         self.snapshot = None;
         self.menu = None;
         self.page = 0;
@@ -62,6 +84,8 @@ impl Panel {
         self.pending = false;
         self.regions.clear();
         self.pressed = None;
+        self.choice_mode = false;
+        self.visible_choices = 0;
         menu
     }
     pub fn hit(&self, x: i32, y: i32) -> Option<&str> {
@@ -88,6 +112,11 @@ impl Panel {
     }
     pub fn navigate(&mut self, key: &str) -> bool {
         let Some(menu) = &self.menu else { return false };
+        let menu = if self.choice_mode {
+            &menu[..self.visible_choices.min(menu.len())]
+        } else {
+            menu
+        };
         let mut enabled = menu
             .iter()
             .enumerate()
@@ -121,6 +150,9 @@ impl Panel {
         true
     }
     pub fn frame(&mut self) -> Result<Frame> {
+        if self.choice_mode {
+            return self.choices_frame();
+        }
         let scale = self.scale.clamp(1, 4);
         let font = pango::FontDescription::from_string("Sans 13");
         let pango_context = pangocairo::FontMap::default().create_context();
@@ -255,6 +287,87 @@ impl Panel {
             image,
             regions,
             scale,
+            choice_count: 0,
+        })
+    }
+    fn choices_frame(&self) -> Result<Frame> {
+        let scale = self.scale.clamp(1, 4);
+        let width = self.bounds[0].saturating_sub(24).clamp(44, 720);
+        let max_height = self.bounds[1].saturating_sub(24).max(0);
+        let font = pango::FontDescription::from_string("Sans 13");
+        let layout = pango::Layout::new(&pangocairo::FontMap::default().create_context());
+        layout.set_font_description(Some(&font));
+        layout.set_width((width - 48).max(0) * pango::SCALE);
+        layout.set_wrap(pango::WrapMode::WordChar);
+        layout.set_ellipsize(pango::EllipsizeMode::None);
+        layout.set_single_paragraph_mode(false);
+        let metrics = layout.context().metrics(Some(&font), None);
+        let header = 36.max((metrics.ascent() + metrics.descent()) / pango::SCALE + 14);
+        let mut heights = [0; 32];
+        let mut count = 0;
+        let mut height = header + 8;
+        if self.bounds_known && width >= 96 && max_height >= height {
+            for item in self.menu.as_deref().unwrap_or_default().iter().take(32) {
+                layout.set_text(&item.label);
+                let (text_width, text_height) = layout.pixel_size();
+                let row = text_height.max(header - 14) + 14;
+                if text_width > width - 48 || height + row > max_height {
+                    break;
+                }
+                heights[count] = row;
+                count += 1;
+                height += row;
+            }
+        }
+        let image = ImageSurface::create(Format::ARgb32, width * scale, height.max(1) * scale)?;
+        let c = Context::new(&image)?;
+        c.scale(scale as f64, scale as f64);
+        let (fg, bg) = if self.dark {
+            ([0.95, 0.95, 0.96], [0.13, 0.13, 0.14])
+        } else {
+            ([0.12, 0.12, 0.13], [0.98, 0.98, 0.99])
+        };
+        c.set_source_rgb(bg[0], bg[1], bg[2]);
+        c.paint()?;
+        layout.set_text("BroTypist");
+        c.set_source_rgb(fg[0], fg[1], fg[2]);
+        c.move_to(14.0, 11.0);
+        pangocairo::functions::show_layout(&c, &layout);
+        let mut regions = Vec::with_capacity(count);
+        let mut y = header + 4;
+        for (index, (item, row)) in self
+            .menu
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .zip(&heights[..count])
+            .enumerate()
+        {
+            let selected = self.selected == Some(index);
+            if selected {
+                c.set_source_rgb(0.20, 0.40, 0.74);
+                c.rectangle(4.0, y as f64, (width - 8) as f64, *row as f64);
+                c.fill()?;
+            }
+            let color = if selected { [1.0; 3] } else { fg };
+            c.set_source_rgb(color[0], color[1], color[2]);
+            layout.set_text(&item.label);
+            c.move_to(14.0, (y + 7) as f64);
+            pangocairo::functions::show_layout(&c, &layout);
+            regions.push(Region {
+                rect: [4, y, width - 8, *row],
+                action: item.action.clone(),
+                enabled: item.enabled,
+            });
+            y += row;
+        }
+        drop(c);
+        image.flush();
+        Ok(Frame {
+            image,
+            regions,
+            scale,
+            choice_count: count,
         })
     }
 }
@@ -270,6 +383,63 @@ fn rounded(c: &Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_choice_navigation_never_selects_hidden_rows() {
+        let mut panel = Panel::default();
+        panel.choice_mode = true;
+        panel.visible_choices = 2;
+        panel.menu = Some(
+            (0..5)
+                .map(|index| MenuItem {
+                    action: format!("native-choice:7:{index}"),
+                    label: format!("candidate {index}"),
+                    enabled: true,
+                })
+                .collect(),
+        );
+        panel.selected = Some(0);
+        assert!(panel.navigate("End"));
+        assert_eq!(panel.selected, Some(1));
+        assert!(panel.navigate("Down"));
+        assert_eq!(panel.selected, Some(0));
+        panel.clear();
+        assert!(!panel.choice_mode);
+        assert_eq!(panel.visible_choices, 0);
+        assert!(panel.menu.is_none());
+    }
+    #[test]
+    fn native_choice_frames_require_known_bounds_and_paint_only_complete_prefix_rows() {
+        let mut panel = Panel::default();
+        panel.choice_mode = true;
+        panel.menu = Some(
+            (0..4)
+                .map(|index| MenuItem {
+                    action: format!("native-choice:7:{index}"),
+                    label:
+                        "A wrapped candidate é😀 with a second line\nand an explicit third line."
+                            .into(),
+                    enabled: true,
+                })
+                .collect(),
+        );
+        assert_eq!(panel.frame().unwrap().choice_count, 0);
+        panel.bounds_known = true;
+        panel.bounds = [400, 4096];
+        let full = panel.frame().unwrap();
+        assert_eq!(full.choice_count, 4);
+        let first = full.regions[0].rect;
+        panel.bounds[1] = first[1] + first[3] + 28;
+        let frame = panel.frame().unwrap();
+        assert_eq!(frame.choice_count, 1);
+        assert_eq!(frame.regions.len(), frame.choice_count);
+        assert!(frame.image.height() <= panel.bounds[1] - 24);
+        for (index, region) in frame.regions.iter().enumerate() {
+            assert_eq!(region.action, format!("native-choice:7:{index}"));
+            assert!(region.rect[1] + region.rect[3] <= frame.image.height());
+        }
+        panel.bounds = [80, 60];
+        assert_eq!(panel.frame().unwrap().choice_count, 0);
+    }
     #[test]
     fn menu_navigation_skips_disabled_and_changes_pages() {
         let mut p = Panel::default();

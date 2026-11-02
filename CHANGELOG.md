@@ -2,6 +2,11 @@
 
 # Changelog
 
+## Unreleased — retained models
+
+- Store downloaded weights in durable app data instead of purgeable OS caches. Isolate model downloads under `INKLOW_HOME/models` for disposable profiles rather than sharing the normal model directory.
+- Verify the selected old-default catalog model against its pinned size and SHA-256 before retaining it. Preserve original weights, custom paths and unrelated settings; perform verification off the GUI thread, cancel on shutdown and reject stale model selections or failed settings saves.
+
 ## 0.5.1 — macOS responsiveness and editor compatibility
 
 - Preserve the completed spelling verdict through an unchanged automatic-generation handoff instead of repeating native assessment before the first streamed offer. Real input, focus and policy changes still revoke it.

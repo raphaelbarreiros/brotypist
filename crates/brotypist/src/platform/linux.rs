@@ -546,6 +546,17 @@ impl LinuxBridge {
         Ok(focused(&self.api, &self.policy, false)?
             .is_some_and(|focus| identity_matches(&focus, snapshot)))
     }
+    /// Positive composition evidence, separate from geometry and never inferred from its absence.
+    pub fn accessibility_composition_inactive(&mut self, snapshot: &Snapshot) -> Result<bool> {
+        if self.stopped {
+            return Ok(false);
+        }
+        Ok(
+            focused(&self.api, &self.policy, false)?.is_some_and(|focus| {
+                identity_matches(&focus, snapshot) && focus.metadata.inactive_composition()
+            }),
+        )
+    }
     pub fn accessibility_focused_context(
         &mut self,
         snapshot: &Snapshot,

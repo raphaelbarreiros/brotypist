@@ -2,6 +2,7 @@
 use super::{LaunchOptions, settings::SettingsDraft};
 use crate::{
     config::Config,
+    core::{Authority, SnapshotKey},
     runtime::{Command, Controller},
     system,
     updates::UpdateService,
@@ -679,12 +680,64 @@ impl Shell {
                         continue;
                     }
                     if self.controller.native_event_source().is_some() {
-                        // The private Wayland path owns manual controls. Nonempty ordinary inline is never sent.
-                        let _ = self.controller.present_native(
-                            &text(&event, "native_anchor"),
-                            "",
-                            self.controller.status()["state"] == "paused",
-                        );
+                        // Native preedit authority is deliberately distinct from the
+                        // overlay's rendered-pixel acknowledgment.
+                        let offered = (|| -> Option<bool> {
+                            let key: SnapshotKey =
+                                serde_json::from_value(event["key"].clone()).ok()?;
+                            let authority: Authority =
+                                serde_json::from_value(event["authority"].clone()).ok()?;
+                            let revision = event["revision"].as_u64()?;
+                            let anchor = event["native_anchor"].as_str()?;
+                            let mode = event["mode"].as_str()?;
+                            let preedit = mode == "completion"
+                                && self
+                                    .controller
+                                    .present_preedit(
+                                        &key,
+                                        &authority,
+                                        revision,
+                                        anchor,
+                                        event["text"].as_str()?,
+                                    )
+                                    .ok()?;
+                            let values: Vec<String> =
+                                serde_json::from_value(event["choices"].clone()).ok()?;
+                            if values.is_empty() {
+                                return Some(preedit);
+                            }
+                            // A native panel has no global caret geometry. Use the
+                            // smallest actual work-area so it fits whichever output
+                            // KWin places it on; absent monitor data grants no capability.
+                            let display = gtk::gdk::Display::default()?;
+                            let bounds = (0..display.n_monitors())
+                                .filter_map(|index| {
+                                    let area = display.monitor(index)?.workarea();
+                                    (area.width() > 0 && area.height() > 0)
+                                        .then_some((area.width(), area.height()))
+                                })
+                                .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1)))?;
+                            self.controller
+                                .set_native_panel_environment(bounds.0, bounds.1, 1, false)
+                                .ok()?;
+                            let choices_mode = event["choices_mode"].as_str().unwrap_or(mode);
+                            let choices = self
+                                .controller
+                                .present_choices(
+                                    &key,
+                                    &authority,
+                                    revision,
+                                    anchor,
+                                    choices_mode,
+                                    &values,
+                                )
+                                .ok()?;
+                            Some(preedit || choices)
+                        })()
+                        .unwrap_or(false);
+                        if !offered {
+                            let _ = self.controller.hide_native();
+                        }
                     } else {
                         self.overlay.present(event, &self.controller);
                     }
@@ -706,9 +759,9 @@ impl Shell {
                                 "",
                                 self.controller.status()["state"] == "paused",
                             );
-                        } else {
-                            let _ = self.controller.hide_native();
                         }
+                        // Disabling the accessory is handled by configure/clear. A
+                        // later caret event must not erase the owned preedit/choices.
                     } else {
                         self.overlay
                             .caret(&event, self.controller.config().show_accessory);

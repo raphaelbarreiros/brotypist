@@ -1,6 +1,8 @@
 //! Single-thread private KWin connection, XKB grab, and compositor-owned SHM buffers.
 #![allow(unsafe_op_in_unsafe_fn)]
-use super::super::{ShortcutHandler, policy::ObservationPolicy};
+use super::super::{
+    Action, NativeChoices, NativePreedit, ShortcutHandler, policy::ObservationPolicy,
+};
 use super::{
     panel::{MenuItem, Panel},
     protocol::*,
@@ -15,7 +17,7 @@ use std::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 use zeroize::Zeroize;
 const MAX_TEXT: usize = 1024 * 1024;
@@ -181,6 +183,115 @@ impl KeyPairs {
         self.consumed.fill(false);
     }
 }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct KeyEdge {
+    serial: u32,
+    time: u32,
+    key: u32,
+    state: u32,
+}
+struct PendingInput {
+    context: u64,
+    authority: (u32, u32),
+    key: u32,
+    edges: [KeyEdge; 32],
+    edge_count: usize,
+    released: bool,
+    expires_at: Instant,
+    valid: bool,
+    dispatched: bool,
+    requires_edit: bool,
+}
+impl PendingInput {
+    fn new(
+        context: u64,
+        authority: (u32, u32),
+        edge: KeyEdge,
+        requires_edit: bool,
+        now: Instant,
+    ) -> Self {
+        let mut pending = Self {
+            context,
+            authority,
+            key: edge.key,
+            edges: [KeyEdge::default(); 32],
+            edge_count: 0,
+            released: false,
+            expires_at: now + Duration::from_millis(500),
+            valid: true,
+            dispatched: false,
+            requires_edit,
+        };
+        pending.hold(edge);
+        pending
+    }
+    fn hold(&mut self, edge: KeyEdge) -> bool {
+        // The lease owns ONE physical press/release pair. A later press of the
+        // same key is new user input, not part of this pending acceptance.
+        if self.released {
+            return false;
+        }
+        if edge.key == self.key && edge.state == 0 {
+            self.released = true;
+        }
+        if !self.valid || edge.key != self.key || self.edge_count == self.edges.len() {
+            return false;
+        }
+        self.edges[self.edge_count] = edge;
+        self.edge_count += 1;
+        true
+    }
+    fn drain(&mut self, mut forward: impl FnMut(KeyEdge)) {
+        for edge in &self.edges[..self.edge_count] {
+            forward(*edge);
+        }
+        self.edge_count = 0;
+    }
+    fn valid(&self, context: u64, authority: Option<(u32, u32)>, now: Instant) -> bool {
+        self.valid
+            && self.context == context
+            && Some(self.authority) == authority
+            && now < self.expires_at
+    }
+    fn consumes(&self, accepted: bool, now: Instant) -> bool {
+        self.dispatched || (accepted && self.valid && now < self.expires_at && !self.requires_edit)
+    }
+}
+struct PreeditLayout {
+    length: u32,
+    cursor: i32,
+    style: u32,
+    reset_commit: &'static CStr,
+}
+fn preedit_layout(text: &str) -> Option<PreeditLayout> {
+    // Protocol offsets are UTF-8 bytes, not Unicode scalar or grapheme indices.
+    (!text.is_empty() && text.len() <= 4079 && !text.contains('\0')).then_some(PreeditLayout {
+        length: text.len() as u32,
+        cursor: 0,
+        style: 3,
+        reset_commit: c"",
+    })
+}
+fn preedit_scope_valid(
+    receipt: &NativePreedit,
+    owned: Option<&NativePreedit>,
+    state: Option<(u32, u32)>,
+    user_revision: u64,
+    now: Instant,
+) -> bool {
+    now < receipt.expires_at
+        && receipt.revision == user_revision
+        && owned == Some(receipt)
+        && state.is_some_and(|state| anchor(state) == receipt.anchor)
+}
+fn native_choice_index(id: &str, generation: u64, visible: usize) -> Option<usize> {
+    let mut fields = id.strip_prefix("native-choice:")?.split(':');
+    let offered_generation = fields.next()?.parse::<u64>().ok()?;
+    let index = fields.next()?.parse::<usize>().ok()?;
+    (fields.next().is_none() && offered_generation == generation && index < visible)
+        .then_some(index)
+}
 struct Mapping {
     pointer: *mut u8,
     size: usize,
@@ -301,16 +412,25 @@ pub(super) struct Wire {
     pub timestamp: Option<Instant>,
     pub app: String,
     pub domain: String,
+    choices: Option<NativeChoices>,
+    menu_generation: u64,
+    render_generation: u64,
+    choices_generation: (u64, u64),
     pub bootstrap_token: Arc<AtomicU64>,
     pub last_bootstrap: (u64, u32),
     bootstrap_identity: (u64, u32),
     pub diagnostic: &'static str,
+    preedit: Option<NativePreedit>,
+    pending_input: Option<PendingInput>,
+    finished_claim_valid: bool,
+    #[cfg(test)]
+    forwarded: Option<Vec<KeyEdge>>,
 }
 impl Wire {
-    pub fn connect(fd: OwnedFd, policy: ObservationPolicy) -> Result<Box<Self>> {
+    fn allocate_state(policy: ObservationPolicy) -> Box<Self> {
         let mut state = ContextState::default();
         state.generation = 1;
-        let mut w = Box::new(Self {
+        Box::new(Self {
             display: ptr::null_mut(),
             registry: ptr::null_mut(),
             compositor: ptr::null_mut(),
@@ -348,11 +468,23 @@ impl Wire {
             timestamp: None,
             app: String::new(),
             domain: String::new(),
+            choices: None,
+            menu_generation: 0,
+            render_generation: 0,
+            choices_generation: (0, 0),
             bootstrap_token: Arc::new(AtomicU64::new(1)),
             last_bootstrap: (0, 0),
             bootstrap_identity: (0, 0),
-            diagnostic: "KWin private input method ready for guarded manual controls; ordinary inline/preedit is unavailable",
-        });
+            diagnostic: "KWin private input method; guarded native preedit is a protocol capability, not a pixel acknowledgment",
+            preedit: None,
+            pending_input: None,
+            finished_claim_valid: true,
+            #[cfg(test)]
+            forwarded: None,
+        })
+    }
+    pub fn connect(fd: OwnedFd, policy: ObservationPolicy) -> Result<Box<Self>> {
+        let mut w = Self::allocate_state(policy);
         unsafe {
             // Ownership is transferred even if libwayland allocation/connection fails. Never consult WAYLAND_DISPLAY.
             w.display = wl_display_connect_to_fd(fd.into_raw_fd());
@@ -451,6 +583,20 @@ impl Wire {
             self.bootstrap_identity = identity;
             self.bootstrap_token.fetch_add(1, Ordering::AcqRel);
         }
+        if self
+            .preedit
+            .as_ref()
+            .is_some_and(|p| !self.preedit_valid(p))
+        {
+            self.clear_preedit();
+        }
+        if self.pending_input.as_ref().is_some_and(|p| {
+            p.valid
+                && !p.dispatched
+                && !p.valid(self.state.context_id, self.state.state(), Instant::now())
+        }) {
+            self.reject_pending();
+        }
         self.note(true);
         if self.panel.snapshot.as_ref().is_some_and(|s| {
             self.state
@@ -463,7 +609,301 @@ impl Wire {
             self.ui("context_changed");
         }
     }
+    pub fn preedit_valid(&self, receipt: &NativePreedit) -> bool {
+        !self.failed
+            && !self.stopped
+            && preedit_scope_valid(
+                receipt,
+                self.preedit.as_ref(),
+                self.state.state(),
+                self.user_revision,
+                Instant::now(),
+            )
+    }
+    pub fn owns_preedit(&self) -> bool {
+        self.preedit.as_ref().is_some_and(|p| self.preedit_valid(p))
+    }
+    pub fn choices_valid(&self, receipt: &NativeChoices) -> bool {
+        !self.failed
+            && !self.stopped
+            && self.visible
+            && !self.panel.pending
+            && self.panel.choice_mode
+            && self.choices.as_ref() == Some(receipt)
+            && self.choices_generation == (self.menu_generation, self.render_generation)
+            && receipt.revision == self.user_revision
+            && Instant::now() < receipt.expires_at
+            && self
+                .state
+                .state()
+                .is_some_and(|state| anchor(state) == receipt.anchor)
+            && receipt.values.len() == self.panel.visible_choices
+            && self.panel.menu.as_ref().is_some_and(|rows| {
+                rows.iter()
+                    .take(receipt.values.len())
+                    .map(|row| &row.label)
+                    .eq(receipt.values.iter())
+            })
+    }
+    fn clear_choices(&mut self) {
+        if let Some(mut receipt) = self.choices.take() {
+            for text in &mut receipt.values {
+                text.zeroize();
+            }
+        }
+        self.menu_generation = self.menu_generation.wrapping_add(1).max(1);
+    }
+    pub fn hide_choices(&mut self) {
+        self.clear_choices();
+        self.panel.clear();
+        self.hide_surface();
+    }
+    pub fn present_choices(
+        &mut self,
+        snapshot: crate::core::Snapshot,
+        values: &[String],
+    ) -> Result<Option<NativeChoices>> {
+        if self.failed
+            || self.stopped
+            || values.is_empty()
+            || values.len() > 32
+            || values.iter().any(|v| v.is_empty() || v.contains('\0'))
+            || values.iter().map(String::len).sum::<usize>() > 65536
+            || self
+                .state
+                .state()
+                .is_none_or(|state| anchor(state) != snapshot.native_anchor)
+        {
+            self.hide();
+            return Ok(None);
+        }
+        if let Some(receipt) = &self.choices {
+            if receipt.anchor == snapshot.native_anchor
+                && self
+                    .panel
+                    .menu
+                    .as_ref()
+                    .is_some_and(|rows| rows.iter().map(|row| &row.label).eq(values.iter()))
+                && self.choices_valid(receipt)
+            {
+                return Ok(Some(receipt.clone()));
+            }
+        }
+        self.hide_choices();
+        self.panel.snapshot = Some(snapshot);
+        self.panel.choice_mode = true;
+        self.panel.menu = Some(
+            values
+                .iter()
+                .enumerate()
+                .map(|(index, value)| MenuItem {
+                    action: format!("native-choice:{}:{index}", self.menu_generation),
+                    label: value.clone(),
+                    enabled: true,
+                })
+                .collect(),
+        );
+        self.panel.selected = Some(0);
+        if !self.render()? || self.panel.pending || self.panel.visible_choices == 0 {
+            self.hide_choices();
+            return Ok(None);
+        }
+        let receipt = NativeChoices {
+            anchor: self
+                .panel
+                .snapshot
+                .as_ref()
+                .expect("owned choice snapshot")
+                .native_anchor
+                .clone(),
+            values: values[..self.panel.visible_choices].to_vec(),
+            revision: self.user_revision,
+            expires_at: Instant::now() + Duration::from_secs(2),
+        };
+        self.choices_generation = (self.menu_generation, self.render_generation);
+        self.choices = Some(receipt.clone());
+        Ok(Some(receipt))
+    }
+    fn choice_action(&self, id: &str) -> Option<Action> {
+        let receipt = self
+            .choices
+            .as_ref()
+            .filter(|receipt| self.choices_valid(receipt))?;
+        native_choice_index(id, self.menu_generation, receipt.values.len()).map(Action::Choice)
+    }
+    fn activate_choice(&mut self, id: &str) {
+        let accepted = self.choice_action(id).is_some_and(|action| {
+            self.callback.as_ref().is_some_and(|callback| {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| callback(action)))
+                    .unwrap_or(false)
+            })
+        });
+        if !accepted {
+            self.hide();
+        }
+    }
+    pub fn present_preedit(
+        &mut self,
+        state: (u32, u32),
+        text: &str,
+    ) -> Result<Option<NativePreedit>> {
+        let Some(layout) = preedit_layout(text) else {
+            self.clear_preedit();
+            return Ok(None);
+        };
+        if self.failed
+            || self.stopped
+            || self.context.is_null()
+            || !self.state.can_commit(state, text)
+        {
+            self.clear_preedit();
+            return Ok(None);
+        }
+        if let Some(receipt) = &self.preedit {
+            if receipt.anchor == anchor(state)
+                && receipt.text == text
+                && self.preedit_valid(receipt)
+            {
+                return Ok(Some(receipt.clone()));
+            }
+        }
+        let text_c = CString::new(text)?;
+        self.clear_preedit();
+        unsafe {
+            // INACTIVE styling distinguishes prediction from committed input. Cursor stays
+            // at the insertion point; the reset-commit string MUST remain empty.
+            wl_proxy_marshal_flags(
+                self.context,
+                3,
+                ptr::null(),
+                1,
+                0,
+                0u32,
+                layout.length,
+                layout.style,
+            );
+            wl_proxy_marshal_flags(self.context, 4, ptr::null(), 1, 0, layout.cursor);
+            wl_proxy_marshal_flags(
+                self.context,
+                2,
+                ptr::null(),
+                1,
+                0,
+                state.1,
+                text_c.as_ptr(),
+                layout.reset_commit.as_ptr(),
+            );
+        }
+        self.flush()?;
+        let receipt = NativePreedit {
+            anchor: anchor(state),
+            text: text.into(),
+            revision: self.user_revision,
+            expires_at: Instant::now() + Duration::from_secs(2),
+        };
+        self.preedit = Some(receipt.clone());
+        Ok(Some(receipt))
+    }
+    fn clear_preedit(&mut self) {
+        let Some(mut owned) = self.preedit.take() else {
+            return;
+        };
+        owned.text.zeroize();
+        if !self.context.is_null() {
+            unsafe {
+                wl_proxy_marshal_flags(self.context, 4, ptr::null(), 1, 0, 0i32);
+                wl_proxy_marshal_flags(
+                    self.context,
+                    2,
+                    ptr::null(),
+                    1,
+                    0,
+                    self.state.serial,
+                    c"".as_ptr(),
+                    c"".as_ptr(),
+                );
+            }
+        }
+    }
+    pub fn set_shortcuts_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled && !self.stopped && !self.failed;
+        self.panel.pressed = None;
+        if !self.enabled {
+            self.clear_preedit();
+            self.clear_choices();
+            if self.panel.choice_mode {
+                // A manual accessory click suspends shortcuts before requesting its
+                // menu. Revoke predictions, but retain the origin for fresh recapture.
+                let origin = self.panel.snapshot.take();
+                self.panel.clear();
+                self.panel.snapshot = origin;
+                self.hide_surface();
+            }
+        }
+    }
+    pub fn input_claim_valid(&self) -> bool {
+        self.finished_claim_valid
+            && self
+                .pending_input
+                .as_ref()
+                .is_none_or(|p| p.valid(self.state.context_id, self.state.state(), Instant::now()))
+    }
+    unsafe fn forward_edge(&mut self, edge: KeyEdge) {
+        #[cfg(test)]
+        if let Some(forwarded) = &mut self.forwarded {
+            forwarded.push(edge);
+            return;
+        }
+        if !self.context.is_null() && !self.failed {
+            wl_proxy_marshal_flags(
+                self.context,
+                10,
+                ptr::null(),
+                1,
+                0,
+                edge.serial,
+                edge.time,
+                edge.key,
+                edge.state,
+            );
+        }
+    }
+    fn reject_pending(&mut self) {
+        let Some(mut pending) = self.pending_input.take() else {
+            return;
+        };
+        pending.valid = false;
+        self.finished_claim_valid = false;
+        if pending.dispatched {
+            if !pending.released {
+                self.pairs.consume(pending.key as usize);
+            }
+        } else if pending.context == self.state.context_id {
+            pending.drain(|edge| unsafe {
+                self.forward_edge(edge);
+            });
+        }
+        pending.edge_count = 0;
+        self.pending_input = Some(pending);
+    }
+    pub fn finish_input(&mut self, accepted: bool) -> Result<()> {
+        if let Some(mut pending) = self.pending_input.take() {
+            if pending.consumes(accepted, Instant::now()) {
+                if !pending.released {
+                    self.pairs.consume(pending.key as usize);
+                }
+            } else if pending.context == self.state.context_id {
+                pending.drain(|edge| unsafe {
+                    self.forward_edge(edge);
+                });
+            }
+        }
+        self.finished_claim_valid = true;
+        self.flush()
+    }
     pub fn hide(&mut self) {
+        self.clear_choices();
+        self.clear_preedit();
         let had_menu = self.panel.clear();
         self.hide_surface();
         if had_menu {
@@ -493,6 +933,7 @@ impl Wire {
         }
     }
     fn invalidate(&mut self, erase: bool) {
+        self.clear_preedit();
         self.state.invalidate(erase);
         self.hide_surface();
     }
@@ -512,8 +953,9 @@ impl Wire {
         self.pairs.clear();
     }
     unsafe fn release_context(&mut self) {
-        self.state.release();
+        self.reject_pending();
         self.hide();
+        self.state.release();
         self.drop_keyboard();
         destroy(&mut self.context, Some(0));
     }
@@ -540,6 +982,10 @@ impl Wire {
         if self.failed || self.stopped {
             bail!("Private KWin connection is unavailable");
         }
+        #[cfg(test)]
+        if self.forwarded.is_some() {
+            return Ok(());
+        }
         unsafe {
             if wl_display_flush(self.display) >= 0 {
                 self.wants_write = false;
@@ -557,6 +1003,31 @@ impl Wire {
     pub fn pump(&mut self) -> Result<()> {
         if self.failed || self.stopped {
             bail!("Private KWin connection is unavailable");
+        }
+        if self
+            .preedit
+            .as_ref()
+            .is_some_and(|p| !self.preedit_valid(p))
+        {
+            self.clear_preedit();
+            self.note(false);
+        }
+        if self
+            .choices
+            .as_ref()
+            .is_some_and(|receipt| !self.choices_valid(receipt))
+        {
+            self.hide();
+            self.note(false);
+        }
+        if self.pending_input.as_ref().is_some_and(|p| {
+            p.valid
+                && !p.dispatched
+                && !p.valid(self.state.context_id, self.state.state(), Instant::now())
+        }) {
+            self.reject_pending();
+            self.hide();
+            self.note(true);
         }
         unsafe {
             while wl_display_prepare_read(self.display) != 0 {
@@ -597,12 +1068,19 @@ impl Wire {
         self.flush()
     }
     pub fn commit(&mut self, state: (u32, u32), text: &str) -> Result<bool> {
-        if self.failed || self.stopped || !self.state.can_commit(state, text) {
+        if self.failed
+            || self.stopped
+            || !self.state.can_commit(state, text)
+            || !self.input_claim_valid()
+        {
             return Ok(false);
         }
         let text = CString::new(text)?;
         self.hide();
         unsafe {
+            if let Some(pending) = &mut self.pending_input {
+                pending.dispatched = true;
+            }
             wl_proxy_marshal_flags(self.context, 1, ptr::null(), 1, 0, state.1, text.as_ptr());
         }
         self.invalidate(true);
@@ -623,6 +1101,9 @@ impl Wire {
             return Ok(false);
         }
         let mut frame = self.panel.frame()?;
+        if self.panel.choice_mode && frame.choice_count == 0 {
+            return Ok(false);
+        }
         let width = frame.image.width();
         let height = frame.image.height();
         let stride = frame.image.stride();
@@ -684,7 +1165,20 @@ impl Wire {
             request0(self.surface, 6);
         }
         self.panel.pending = false;
-        self.panel.regions = frame.regions;
+        self.render_generation = self.render_generation.wrapping_add(1).max(1);
+        self.panel.visible_choices = frame.choice_count;
+        if self.choices.as_ref().is_some_and(|receipt| {
+            receipt.values.len() == frame.choice_count
+                && self.panel.menu.as_ref().is_some_and(|rows| {
+                    rows.iter()
+                        .take(frame.choice_count)
+                        .map(|row| &row.label)
+                        .eq(receipt.values.iter())
+                })
+        }) {
+            self.choices_generation = (self.menu_generation, self.render_generation);
+        }
+        self.panel.regions = std::mem::take(&mut frame.regions);
         self.flush()?;
         Ok(true)
     }
@@ -767,7 +1261,15 @@ impl Wire {
             Ok(())
         }
     }
-    pub fn show_menu(&mut self, actions: Vec<(String, String, bool)>) -> Result<bool> {
+    fn prepare_menu(&mut self, actions: Vec<(String, String, bool)>) {
+        self.clear_preedit();
+        self.clear_choices();
+        if self.panel.choice_mode {
+            let snapshot = self.panel.snapshot.take();
+            self.panel.clear();
+            self.panel.snapshot = snapshot;
+        }
+        self.panel.choice_mode = false;
         self.panel.menu = Some(
             actions
                 .into_iter()
@@ -785,6 +1287,9 @@ impl Wire {
             .as_ref()
             .and_then(|m| m.iter().position(|i| i.enabled));
         self.panel.pressed = None;
+    }
+    pub fn show_menu(&mut self, actions: Vec<(String, String, bool)>) -> Result<bool> {
+        self.prepare_menu(actions);
         self.render()
     }
     fn render_or_hide(&mut self) {
@@ -797,6 +1302,9 @@ impl Wire {
             return false;
         }
         if key == "Escape" {
+            if self.panel.choice_mode {
+                return false;
+            }
             self.panel.menu = None;
             self.panel.pressed = None;
             self.render_or_hide();
@@ -846,6 +1354,10 @@ impl Wire {
         else {
             return;
         };
+        if self.panel.choice_mode {
+            self.activate_choice(&action);
+            return;
+        }
         if self.panel.menu.is_some() {
             match action.as_str() {
                 "page:previous" => {
@@ -912,6 +1424,9 @@ impl Wire {
         self.keys = state;
         self.keymap = map;
         self.modifiers = self.canonical_modifiers();
+        self.reject_pending();
+        self.hide();
+        self.note(true);
     }
     unsafe fn canonical_modifiers(&self) -> u32 {
         if self.keys.is_null() || self.keymap.is_null() {
@@ -959,13 +1474,93 @@ impl Wire {
         }
         result
     }
+    fn recognize_key(&mut self, key_name: &str, edge: KeyEdge) -> bool {
+        if !self.state.ready {
+            return false;
+        }
+        let handled = if self.panel.menu.is_some()
+            && (!self.panel.choice_mode || matches!(key_name, "Up" | "Down" | "Home" | "End"))
+        {
+            self.menu_key(key_name, self.modifiers)
+        } else if self.enabled
+            && self.finished_claim_valid
+            && self.pending_input.is_none()
+            && self.modifiers & !77 == 0
+        {
+            let mut mods = [""; 4];
+            let mut count = 0;
+            for (bit, name) in [(4, "Ctrl"), (8, "Alt"), (1, "Shift"), (64, "Super")] {
+                if self.modifiers & bit != 0 {
+                    mods[count] = name;
+                    count += 1;
+                }
+            }
+            let action = if self.panel.choice_mode && key_name == "Return" && self.modifiers == 0 {
+                self.panel
+                    .selected
+                    .and_then(|index| self.panel.menu.as_ref()?.get(index))
+                    .and_then(|row| self.choice_action(&row.action))
+            } else {
+                self.policy
+                    .key_action(key_name, &mods[..count], "linux", &self.app, &self.domain)
+            };
+            if let Some(action) = action {
+                let requires_edit =
+                    matches!(action, Action::Word | Action::All | Action::Choice(_));
+                let handled = self.callback.as_ref().is_some_and(|callback| {
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| callback(action)))
+                        .unwrap_or(false)
+                });
+                if handled {
+                    self.pending_input = Some(PendingInput::new(
+                        self.state.context_id,
+                        self.state.state().expect("ready keyboard context"),
+                        edge,
+                        requires_edit,
+                        Instant::now(),
+                    ));
+                }
+                handled
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if handled && self.pending_input.is_none() {
+            self.pairs.consume(edge.key as usize);
+        }
+        handled
+    }
     unsafe fn keyboard_key(&mut self, serial: u32, time: u32, key: u32, state: u32) {
         let context = self.context;
-        if context.is_null() || self.failed {
+        if self.failed {
             return;
         }
+        if context.is_null() {
+            #[cfg(test)]
+            if self.forwarded.is_none() {
+                return;
+            }
+            #[cfg(not(test))]
+            return;
+        }
+        let edge = KeyEdge {
+            serial,
+            time,
+            key,
+            state,
+        };
+        if let Some(pending) = &mut self.pending_input {
+            if pending.hold(edge) {
+                return;
+            }
+            self.reject_pending();
+        }
         let pressed = state == 1;
-        let mut consumed = self.pairs.prior(key as usize, pressed);
+        // KWin can expose compositor-repeat (state 2) even on the v1-created
+        // grab. Only state 0 releases a consumed hardware pair.
+        let mut consumed = self.pairs.prior(key as usize, state != 0);
         let mut sym = if !self.keys.is_null() && (key as usize) < MAX_KEY {
             xkb_state_key_get_one_sym(self.keys, key + 8)
         } else {
@@ -977,7 +1572,6 @@ impl Wire {
             && !consumed
             && pressed
         {
-            self.note(true);
             let layout = xkb_state_key_get_layout(self.keys, key + 8);
             let mut base: *const u32 = ptr::null();
             if layout != u32::MAX
@@ -992,42 +1586,26 @@ impl Wire {
                 let raw = CStr::from_ptr(name.as_ptr()).to_str().unwrap_or("");
                 let mut one = [0u8; 1];
                 let key_name = normalize_key(raw, key + 8, &mut one);
-                let handled = if self.panel.menu.is_some() {
-                    self.menu_key(key_name, self.modifiers)
-                } else if self.enabled && self.modifiers & !77 == 0 {
-                    let mut mods = [""; 4];
-                    let mut count = 0;
-                    for (bit, name) in [(4, "Ctrl"), (8, "Alt"), (1, "Shift"), (64, "Super")] {
-                        if self.modifiers & bit != 0 {
-                            mods[count] = name;
-                            count += 1;
-                        }
-                    }
-                    self.policy
-                        .key_action(key_name, &mods[..count], "linux", &self.app, &self.domain)
-                        .is_some_and(|action| {
-                            self.callback.as_ref().is_some_and(|callback| {
-                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    callback(action)
-                                }))
-                                .unwrap_or(false)
-                            })
-                        })
-                } else {
-                    false
-                };
-                if handled {
+                if self.recognize_key(key_name, edge) {
                     consumed = true;
-                    self.pairs.consume(key as usize);
                 }
             }
         }
         if !consumed && self.context == context && !self.failed {
-            wl_proxy_marshal_flags(context, 10, ptr::null(), 1, 0, serial, time, key, state);
-            if pressed && !modifier_keysym(sym) {
+            // Recognition must precede revocation: a held acceptance key preserves its
+            // armed claim, every ordinary edge revokes before reaching the application.
+            if state != 0 && !modifier_keysym(sym) {
                 self.invalidate(true);
                 self.changed();
+            } else {
+                if self.panel.choice_mode {
+                    self.hide();
+                } else {
+                    self.clear_preedit();
+                }
+                self.note(true);
             }
+            self.forward_edge(edge);
         }
     }
     unsafe fn event(
@@ -1092,10 +1670,10 @@ impl Wire {
             },
             METHOD_TAG => match opcode {
                 0 => {
+                    // Retire the OLD owned preedit/held key against its own context
+                    // before changing the generation or installing the new object.
+                    self.release_context();
                     self.state.activate();
-                    self.hide();
-                    self.drop_keyboard();
-                    destroy(&mut self.context, Some(0));
                     self.context = o(0);
                     self.listen(self.context, CONTEXT_TAG)?;
                     self.changed();
@@ -1144,6 +1722,7 @@ impl Wire {
                             self.listen(self.keyboard, KEYBOARD)?;
                         }
                     }
+                    3 => self.invalidate(true),
                     4 => {
                         self.state.commit_state(u(0));
                         if !self.state.ready {
@@ -1183,7 +1762,12 @@ impl Wire {
             },
             KEYBOARD => match opcode {
                 0 => self.keymap(u(0), (*args.add(1)).h, u(2)),
-                1 => self.pairs.clear(),
+                1 => {
+                    self.reject_pending();
+                    self.hide();
+                    self.pairs.clear();
+                    self.note(true);
+                }
                 2 => {
                     self.invalidate(true);
                     self.pairs.clear();
@@ -1191,6 +1775,14 @@ impl Wire {
                 }
                 3 => self.keyboard_key(u(0), u(1), u(2), u(3)),
                 4 => {
+                    // Modifier changes must follow any rejected held key, never overtake it.
+                    self.reject_pending();
+                    if self.panel.choice_mode {
+                        self.hide();
+                    } else {
+                        self.clear_preedit();
+                    }
+                    self.note(true);
                     if !self.keys.is_null() {
                         xkb_state_update_mask(self.keys, u(1), u(2), u(3), 0, 0, u(4));
                     }
@@ -1318,6 +1910,292 @@ fn modifier_keysym(sym: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Exercise the real consumers with a test-only protocol edge sink. No display,
+    // toolkit, presentation acknowledgment or native edit is fabricated by this fixture.
+    fn consumer_wire() -> Box<Wire> {
+        let policy = ObservationPolicy::new(&crate::config::Config::default()).unwrap();
+        let mut wire = Wire::allocate_state(policy);
+        wire.forwarded = Some(Vec::new());
+        wire.modifiers = 0;
+        wire.state = ready("owned", 5);
+        wire
+    }
+    #[test]
+    fn accessory_click_suspend_then_manual_menu_retains_revalidated_origin() {
+        let mut wire = consumer_wire();
+        let origin = crate::core::Snapshot {
+            text: "owned".into(),
+            caret: 5,
+            native_anchor: anchor(wire.state.state().unwrap()),
+            ..Default::default()
+        };
+        wire.panel.snapshot = Some(origin.clone());
+        wire.panel.regions.push(super::super::panel::Region {
+            rect: [0, 0, 20, 20],
+            action: "menu".into(),
+            enabled: true,
+        });
+        wire.preedit = Some(NativePreedit {
+            anchor: origin.native_anchor.clone(),
+            text: " prediction".into(),
+            revision: wire.user_revision,
+            expires_at: Instant::now() + Duration::from_secs(2),
+        });
+        let actions = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let received = actions.clone();
+        wire.ui_callback = Some(Arc::new(move |action| {
+            received.lock().unwrap().push(action)
+        }));
+        wire.visible = true;
+        wire.pointer_inside = true;
+        wire.pointer_xy = [1, 1];
+        wire.pointer_button(272, 1);
+        wire.pointer_button(272, 0);
+        assert_eq!(*actions.lock().unwrap(), ["menu"]);
+        wire.set_shortcuts_enabled(false);
+        assert!(!wire.enabled);
+        assert!(wire.preedit.is_none() && wire.choices.is_none());
+        assert!(wire.panel.snapshot.as_ref().unwrap().same_key(&origin));
+        // show_native_menu performs its unchanged fresh native recapture before
+        // calling this same menu-construction consumer.
+        wire.prepare_menu(vec![("settings".into(), "Settings".into(), true)]);
+        assert!(
+            wire.panel
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .same_authority(&origin)
+        );
+        assert_eq!(wire.panel.menu.as_ref().unwrap()[0].action, "settings");
+        assert!(!wire.panel.choice_mode);
+    }
+    #[test]
+    fn choices_escape_uses_held_runtime_dismiss_for_every_mode_and_escape_behavior() {
+        for mode in ["emoji", "synonyms", "alternatives"] {
+            for behavior in ["pause", "app", "passthrough"] {
+                let mut wire = consumer_wire();
+                wire.panel.choice_mode = true;
+                wire.panel.menu = Some(vec![MenuItem {
+                    action: "native-choice:1:0".into(),
+                    label: mode.into(),
+                    enabled: true,
+                }]);
+                let actions = Arc::new(std::sync::Mutex::new(Vec::new()));
+                let received = actions.clone();
+                let consume = behavior != "passthrough";
+                wire.callback = Some(Arc::new(move |action| {
+                    received.lock().unwrap().push(action);
+                    consume
+                }));
+                let press = KeyEdge {
+                    key: 1,
+                    ..edge(21, 1)
+                };
+                let release = KeyEdge {
+                    key: 1,
+                    ..edge(22, 0)
+                };
+                let revision = wire.revision;
+                assert_eq!(wire.recognize_key("Escape", press), consume);
+                assert_eq!(*actions.lock().unwrap(), [Action::Dismiss]);
+                assert!(wire.panel.menu.is_some()); // No local hide/repaint/reoffer.
+                assert_eq!(wire.revision, revision);
+                if !consume {
+                    unsafe {
+                        wire.keyboard_key(press.serial, press.time, press.key, press.state);
+                    }
+                }
+                unsafe {
+                    wire.keyboard_key(release.serial, release.time, release.key, release.state);
+                }
+                wire.finish_input(consume).unwrap();
+                let expected = if consume {
+                    vec![]
+                } else {
+                    vec![press, release]
+                };
+                assert_eq!(wire.forwarded.as_ref().unwrap(), &expected);
+                assert_eq!(*actions.lock().unwrap(), [Action::Dismiss]);
+            }
+        }
+    }
+    #[test]
+    fn double_tab_pairs_before_first_finish_forward_second_pair_without_replaying_native_edit() {
+        for (dispatched, accepted) in [(false, false), (true, true), (true, false)] {
+            let mut wire = consumer_wire();
+            wire.callback = Some(Arc::new(|_| true));
+            assert!(wire.recognize_key("Tab", edge(21, 1)));
+            assert!(wire.pending_input.as_ref().unwrap().requires_edit);
+            wire.pending_input.as_mut().unwrap().dispatched = dispatched;
+            for edge in [edge(22, 0), edge(23, 1), edge(24, 0)] {
+                unsafe {
+                    wire.keyboard_key(edge.serial, edge.time, edge.key, edge.state);
+                }
+            }
+            assert!(!wire.input_claim_valid());
+            wire.finish_input(accepted).unwrap();
+            let expected = if dispatched {
+                vec![edge(23, 1), edge(24, 0)]
+            } else {
+                vec![edge(21, 1), edge(22, 0), edge(23, 1), edge(24, 0)]
+            };
+            assert_eq!(wire.forwarded.as_ref().unwrap(), &expected);
+            assert!(!wire.pairs.prior(15, false));
+            wire.finish_input(false).unwrap();
+            assert_eq!(wire.forwarded.as_ref().unwrap(), &expected);
+        }
+    }
+    #[test]
+    fn native_choice_actions_bind_original_indices_to_current_menu_and_visible_prefix() {
+        assert_eq!(native_choice_index("native-choice:7:0", 7, 3), Some(0));
+        assert_eq!(native_choice_index("native-choice:7:2", 7, 3), Some(2));
+        for id in [
+            "native-choice:6:0",
+            "native-choice:7:3",
+            "native-choice:7:0:extra",
+            "native-choice:7:-1",
+            "native-choice:7:",
+            "menu",
+        ] {
+            assert_eq!(native_choice_index(id, 7, 3), None);
+        }
+        assert_eq!(native_choice_index("native-choice:7:0", 7, 0), None);
+    }
+    #[test]
+    fn prediction_plan_styles_utf8_bytes_and_never_commits_on_focus_reset() {
+        let text = "é😀e\u{301}";
+        let layout = preedit_layout(text).unwrap();
+        assert_eq!(layout.length, 9);
+        assert_eq!(layout.cursor, 0);
+        assert_eq!(layout.style, 3);
+        assert!(layout.reset_commit.to_bytes().is_empty());
+        assert!(preedit_layout("").is_none());
+        assert!(preedit_layout("a\0b").is_none());
+        assert!(preedit_layout(&"é".repeat(2040)).is_none());
+        assert_eq!(
+            preedit_layout(&format!("{}x", "é".repeat(2039)))
+                .unwrap()
+                .length,
+            4079
+        );
+    }
+    #[test]
+    fn preedit_capability_is_exact_revocable_and_bounded_not_a_pixel_receipt() {
+        let now = Instant::now();
+        let receipt = NativePreedit {
+            anchor: anchor((4, 7)),
+            text: " model text".into(),
+            revision: 19,
+            expires_at: now + Duration::from_secs(2),
+        };
+        assert!(preedit_scope_valid(
+            &receipt,
+            Some(&receipt),
+            Some((4, 7)),
+            19,
+            now
+        ));
+        assert!(!preedit_scope_valid(
+            &receipt,
+            Some(&receipt),
+            Some((4, 8)),
+            19,
+            now
+        ));
+        assert!(!preedit_scope_valid(
+            &receipt,
+            Some(&receipt),
+            Some((5, 7)),
+            19,
+            now
+        ));
+        assert!(!preedit_scope_valid(
+            &receipt,
+            Some(&receipt),
+            Some((4, 7)),
+            20,
+            now
+        ));
+        assert!(!preedit_scope_valid(&receipt, None, Some((4, 7)), 19, now));
+        assert!(!preedit_scope_valid(
+            &receipt,
+            Some(&receipt),
+            None,
+            19,
+            now
+        ));
+        assert!(!preedit_scope_valid(
+            &receipt,
+            Some(&receipt),
+            Some((4, 7)),
+            19,
+            receipt.expires_at
+        ));
+        let mut changed = receipt.clone();
+        changed.text.push('!');
+        assert!(!preedit_scope_valid(
+            &changed,
+            Some(&receipt),
+            Some((4, 7)),
+            19,
+            now
+        ));
+    }
+    fn edge(serial: u32, state: u32) -> KeyEdge {
+        KeyEdge {
+            serial,
+            time: serial * 10,
+            key: 15,
+            state,
+        }
+    }
+    #[test]
+    fn held_acceptance_preserves_claim_and_rejection_forwards_original_edges_once_in_order() {
+        let now = Instant::now();
+        let mut pending = PendingInput::new(3, (4, 7), edge(21, 1), true, now);
+        assert!(pending.valid(3, Some((4, 7)), now));
+        assert!(pending.hold(edge(22, 0)));
+        assert!(!pending.consumes(false, now));
+        assert!(!pending.consumes(true, now)); // Runtime success without native dispatch is insufficient.
+        pending.valid = false;
+        let mut forwarded = Vec::new();
+        pending.drain(|edge| forwarded.push(edge));
+        pending.drain(|edge| forwarded.push(edge));
+        assert_eq!(forwarded, [edge(21, 1), edge(22, 0)]);
+        assert!(pending.released);
+        assert!(!pending.valid(3, Some((4, 7)), now));
+    }
+    #[test]
+    fn dispatched_uncertain_edit_consumes_acceptance_without_replay_even_after_revocation() {
+        let now = Instant::now();
+        let mut pending = PendingInput::new(3, (4, 7), edge(21, 1), true, now);
+        pending.dispatched = true;
+        pending.valid = false;
+        assert!(pending.consumes(false, now + Duration::from_secs(1)));
+        assert!(!pending.hold(edge(22, 0)));
+        assert!(pending.released);
+    }
+    #[test]
+    fn held_shortcut_expires_and_never_absorbs_unrelated_or_unbounded_edges() {
+        let now = Instant::now();
+        let mut pending = PendingInput::new(3, (4, 7), edge(21, 1), false, now);
+        assert!(pending.consumes(true, now));
+        assert!(!pending.consumes(true, pending.expires_at));
+        assert!(!pending.valid(4, Some((4, 7)), now));
+        assert!(!pending.valid(3, Some((4, 8)), now));
+        assert!(!pending.valid(3, Some((4, 7)), pending.expires_at));
+        assert!(!pending.hold(KeyEdge {
+            key: 16,
+            ..edge(22, 1)
+        }));
+        for serial in 22..53 {
+            assert!(pending.hold(edge(serial, 1)));
+        }
+        assert!(!pending.hold(edge(53, 1)));
+        let mut forwarded = Vec::new();
+        pending.drain(|edge| forwarded.push(edge.serial));
+        assert_eq!(forwarded, (21..53).collect::<Vec<_>>());
+    }
     #[test]
     fn commit_authority_rejects_stale_serials_sensitive_state_and_oversized_utf8() {
         let mut s = ready("hello", 5);

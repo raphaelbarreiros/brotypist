@@ -124,6 +124,200 @@ pub fn is_installed(preset: &ModelPreset) -> bool {
         .is_some_and(|m| m.is_file() && m.len() == preset.size_bytes)
 }
 
+/// Retain only a pinned legacy default, without replacing or deleting either copy.
+/// Returns false when neither location has the model. Call on a background owner:
+/// the one-time migration verifies all weight bytes before publishing the copy.
+pub(crate) fn retain_legacy_model(
+    preset: &ModelPreset,
+    legacy_directory: &Path,
+    model_directory: &Path,
+    cancel: &DownloadCancellation,
+) -> Result<bool> {
+    retain_legacy_model_with_link(
+        preset,
+        legacy_directory,
+        model_directory,
+        cancel,
+        |source, target| std::fs::hard_link(source, target),
+    )
+}
+
+fn retain_legacy_model_with_link(
+    preset: &ModelPreset,
+    legacy_directory: &Path,
+    model_directory: &Path,
+    cancel: &DownloadCancellation,
+    link: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
+) -> Result<bool> {
+    cancel.check()?;
+    ensure!(
+        Path::new(&preset.filename).file_name() == Some(std::ffi::OsStr::new(&preset.filename)),
+        "Model retention requires a plain catalogue filename"
+    );
+    let source = legacy_directory.join(&preset.filename);
+    let target = model_directory.join(&preset.filename);
+    check_retention_directory(model_directory)?;
+    if let Some(mut existing) = retained_file(&target)? {
+        verify_retained_file(preset, &mut existing, cancel)?;
+        return Ok(true);
+    }
+    let Some(mut input) = retained_file(&source)? else {
+        return Ok(false);
+    };
+    cancel.check()?;
+    crate::paths::private_directory(model_directory)?;
+    check_retention_directory(model_directory)?;
+    check_retention_directory(legacy_directory)?;
+    let staging_directory = tempfile::Builder::new()
+        .prefix(".retain-")
+        .tempdir_in(model_directory)?;
+    let staging_path = staging_directory.path().join(&preset.filename);
+    match link(&source, &staging_path) {
+        Ok(()) => {
+            let mut staged = retained_file(&staging_path)?.context("Missing retained model")?;
+            verify_retained_file(preset, &mut staged, cancel)?;
+            // Linking does not write weight bytes. A read-only verification
+            // handle cannot be flushed with Windows FlushFileBuffers.
+        }
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::CrossesDevices
+                    | std::io::ErrorKind::Unsupported
+                    | std::io::ErrorKind::PermissionDenied
+            ) =>
+        {
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let mut staged = options.open(&staging_path)?;
+            let (size, hash) = copy_retained_file(preset, &mut input, &mut staged, cancel)?;
+            verify_download(preset, size, &hash)?;
+            staged.flush()?;
+            staged.sync_all()?;
+        }
+        Err(error) => return Err(error).context("Cannot stage retained model"),
+    }
+    let staging = tempfile::TempPath::try_from_path(staging_path)?;
+    #[cfg(unix)]
+    File::open(model_directory)?.sync_all()?;
+    // Publication is the commit point: cancellation observed before it leaves
+    // both model paths unchanged; cancellation after it cannot undo the commit.
+    cancel.check()?;
+    match staging.persist_noclobber(&target) {
+        Ok(_) => (),
+        Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+            // A concurrent migration may have won. It must contain the same pinned bytes.
+            let mut existing = retained_file(&target)?.context("Retained model disappeared")?;
+            verify_retained_file(preset, &mut existing, cancel)?;
+        }
+        Err(error) => return Err(error.error).context("Cannot retain verified model"),
+    }
+    Ok(true)
+}
+
+fn check_retention_directory(path: &Path) -> Result<()> {
+    let directory = match std::fs::symlink_metadata(path) {
+        Ok(directory) => directory,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    ensure!(
+        directory.is_dir() && !directory.file_type().is_symlink(),
+        "Model storage must be a real directory"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        ensure!(
+            directory.uid() == unsafe { libc::geteuid() } && directory.mode() & 0o022 == 0,
+            "Model storage must be owned by the current user and not writable by others"
+        );
+    }
+    Ok(())
+}
+
+fn retained_file(path: &Path) -> Result<Option<File>> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => ensure!(
+            metadata.is_file() && !metadata.file_type().is_symlink(),
+            "Model retention refuses non-regular files: {}",
+            path.display()
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    ensure!(
+        metadata.is_file(),
+        "Model retention requires a regular file"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        ensure!(
+            metadata.uid() == unsafe { libc::geteuid() } && metadata.mode() & 0o022 == 0,
+            "Model retention requires a user-owned file not writable by others"
+        );
+    }
+    Ok(Some(file))
+}
+
+fn copy_retained_file(
+    preset: &ModelPreset,
+    input: &mut File,
+    output: &mut dyn Write,
+    cancel: &DownloadCancellation,
+) -> Result<(u64, String)> {
+    cancel.check()?;
+    ensure!(
+        input.metadata()?.len() == preset.size_bytes,
+        "Legacy model size differs from the pinned catalogue"
+    );
+    let mut digest = Sha256::new();
+    let mut buffer = vec![0_u8; 1024 * 1024];
+    let mut size = 0_u64;
+    loop {
+        cancel.check()?;
+        let count = input.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        size = size
+            .checked_add(count as u64)
+            .context("Model size overflow")?;
+        ensure!(
+            size <= preset.size_bytes,
+            "Legacy model grew during retention"
+        );
+        digest.update(&buffer[..count]);
+        output.write_all(&buffer[..count])?;
+    }
+    cancel.check()?;
+    Ok((size, format!("{:x}", digest.finalize())))
+}
+
+fn verify_retained_file(
+    preset: &ModelPreset,
+    file: &mut File,
+    cancel: &DownloadCancellation,
+) -> Result<()> {
+    let (size, hash) = copy_retained_file(preset, file, &mut std::io::sink(), cancel)?;
+    verify_download(preset, size, &hash)
+}
+
 /// Cancellation drops an owned asynchronous body read immediately, including stalled transfers.
 #[derive(Clone, Debug, Default)]
 pub struct DownloadCancellation(CancellationToken);
@@ -181,7 +375,7 @@ pub fn download_model(
     );
     let target = model_path(preset)?;
     cancel.check()?;
-    std::fs::create_dir_all(target.parent().context("Model has no cache directory")?)?;
+    crate::paths::private_directory(target.parent().context("Model has no storage directory")?)?;
     progress(0, preset.size_bytes);
     if is_installed(preset) && digest_file(&target, cancel)? == preset.sha256 {
         cancel.check()?;
@@ -282,6 +476,284 @@ fn verify_download(preset: &ModelPreset, size: u64, hash: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn retention_fixture() -> (tempfile::TempDir, ModelPreset, PathBuf, PathBuf) {
+        let root = tempfile::tempdir().unwrap();
+        let mut preset = get_preset("tiny").unwrap().clone();
+        let bytes = b"synthetic pinned model; no user text";
+        preset.filename = "fixture.gguf".into();
+        preset.size_bytes = bytes.len() as u64;
+        preset.sha256 = format!("{:x}", Sha256::digest(bytes));
+        let legacy = root.path().join("cache/models");
+        let durable = root.path().join("data/models");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join(&preset.filename), bytes).unwrap();
+        (root, preset, legacy, durable)
+    }
+
+    #[test]
+    fn verified_retention_preserves_rollback_bytes_and_survives_cache_purge() {
+        let (_root, preset, legacy, durable) = retention_fixture();
+        let source = legacy.join(&preset.filename);
+        let target = durable.join(&preset.filename);
+        let bytes = std::fs::read(&source).unwrap();
+        assert!(
+            retain_legacy_model(&preset, &legacy, &durable, &DownloadCancellation::new()).unwrap()
+        );
+        assert_eq!(std::fs::read(&source).unwrap(), bytes);
+        assert_eq!(std::fs::read(&target).unwrap(), bytes);
+        std::fs::remove_dir_all(&legacy).unwrap();
+        assert!(
+            retain_legacy_model(&preset, &legacy, &durable, &DownloadCancellation::new()).unwrap()
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), bytes);
+        assert_eq!(std::fs::read_dir(&durable).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn read_only_weights_are_retained_without_requiring_write_access() {
+        let (_root, preset, legacy, durable) = retention_fixture();
+        let source = legacy.join(&preset.filename);
+        let target = durable.join(&preset.filename);
+        let original = std::fs::metadata(&source).unwrap().permissions();
+        let mut read_only = original.clone();
+        read_only.set_readonly(true);
+        std::fs::set_permissions(&source, read_only).unwrap();
+        let retained =
+            retain_legacy_model(&preset, &legacy, &durable, &DownloadCancellation::new());
+        std::fs::set_permissions(&source, original).unwrap();
+        assert!(retained.unwrap());
+        assert_eq!(
+            std::fs::read(&source).unwrap(),
+            std::fs::read(&target).unwrap()
+        );
+        assert_eq!(std::fs::metadata(&target).unwrap().len(), preset.size_bytes);
+    }
+
+    #[test]
+    fn cancellation_before_publication_preserves_source_and_destination() {
+        for copying in [true, false] {
+            let (_root, preset, legacy, durable) = retention_fixture();
+            let source = legacy.join(&preset.filename);
+            let bytes = std::fs::read(&source).unwrap();
+            let cancel = DownloadCancellation::new();
+            let result = retain_legacy_model_with_link(
+                &preset,
+                &legacy,
+                &durable,
+                &cancel,
+                |source, staging| {
+                    if !copying {
+                        std::fs::hard_link(source, staging)?;
+                    }
+                    cancel.set();
+                    if copying {
+                        Err(std::io::Error::from(std::io::ErrorKind::CrossesDevices))
+                    } else {
+                        Ok(())
+                    }
+                },
+            );
+            assert!(result.is_err());
+            assert_eq!(std::fs::read(&source).unwrap(), bytes);
+            assert!(!durable.join(&preset.filename).exists());
+            assert_eq!(std::fs::read_dir(&durable).unwrap().count(), 0);
+        }
+    }
+
+    #[test]
+    fn copy_cancellation_is_observed_between_chunks() {
+        struct CancelAfterWrite {
+            cancel: DownloadCancellation,
+            written: usize,
+        }
+        impl Write for CancelAfterWrite {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.written += bytes.len();
+                self.cancel.set();
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let (_root, mut preset, legacy, _durable) = retention_fixture();
+        let source = legacy.join(&preset.filename);
+        let bytes = vec![42_u8; 2 * 1024 * 1024];
+        std::fs::write(&source, &bytes).unwrap();
+        preset.size_bytes = bytes.len() as u64;
+        preset.sha256 = format!("{:x}", Sha256::digest(&bytes));
+        let mut input = File::open(&source).unwrap();
+        let cancel = DownloadCancellation::new();
+        let mut writer = CancelAfterWrite {
+            cancel: cancel.clone(),
+            written: 0,
+        };
+        assert!(copy_retained_file(&preset, &mut input, &mut writer, &cancel).is_err());
+        assert_eq!(writer.written, 1024 * 1024);
+        assert_eq!(std::fs::read(&source).unwrap(), bytes);
+    }
+
+    #[test]
+    fn unsupported_links_copy_verified_bytes_without_deleting_source() {
+        let (_root, preset, legacy, durable) = retention_fixture();
+        assert!(
+            retain_legacy_model_with_link(
+                &preset,
+                &legacy,
+                &durable,
+                &DownloadCancellation::new(),
+                |_, _| { Err(std::io::Error::from(std::io::ErrorKind::CrossesDevices)) }
+            )
+            .unwrap()
+        );
+        let source = legacy.join(&preset.filename);
+        let target = durable.join(&preset.filename);
+        assert_eq!(
+            std::fs::read(&source).unwrap(),
+            std::fs::read(&target).unwrap()
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            assert_ne!(
+                source.metadata().unwrap().ino(),
+                target.metadata().unwrap().ino()
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn same_filesystem_retention_links_without_duplicating_weights() {
+        use std::os::unix::fs::MetadataExt;
+        let (_root, preset, legacy, durable) = retention_fixture();
+        assert!(
+            retain_legacy_model(&preset, &legacy, &durable, &DownloadCancellation::new()).unwrap()
+        );
+        let source = legacy.join(&preset.filename).metadata().unwrap();
+        let target = durable.join(&preset.filename).metadata().unwrap();
+        assert_eq!((source.dev(), source.ino()), (target.dev(), target.ino()));
+    }
+
+    #[test]
+    fn concurrent_publication_is_verified_and_never_clobbered() {
+        for valid in [true, false] {
+            let (_root, preset, legacy, durable) = retention_fixture();
+            let target = durable.join(&preset.filename);
+            let original = std::fs::read(legacy.join(&preset.filename)).unwrap();
+            let competing = if valid {
+                original.clone()
+            } else {
+                vec![b'X'; original.len()]
+            };
+            let result = retain_legacy_model_with_link(
+                &preset,
+                &legacy,
+                &durable,
+                &DownloadCancellation::new(),
+                |source, staging| {
+                    std::fs::hard_link(source, staging)?;
+                    std::fs::write(&target, &competing)
+                },
+            );
+            assert_eq!(result.is_ok(), valid);
+            assert_eq!(std::fs::read(&target).unwrap(), competing);
+            assert_eq!(
+                std::fs::read(legacy.join(&preset.filename)).unwrap(),
+                original
+            );
+            assert_eq!(std::fs::read_dir(&durable).unwrap().count(), 1);
+        }
+    }
+
+    #[test]
+    fn retention_never_replaces_conflicting_destination_or_copies_invalid_source() {
+        let (_root, preset, legacy, durable) = retention_fixture();
+        std::fs::create_dir_all(&durable).unwrap();
+        let target = durable.join(&preset.filename);
+        let source = legacy.join(&preset.filename);
+        let original = std::fs::read(&source).unwrap();
+        let conflict = vec![b'X'; original.len()];
+        std::fs::write(&target, &conflict).unwrap();
+        assert!(
+            retain_legacy_model(&preset, &legacy, &durable, &DownloadCancellation::new()).is_err()
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), conflict);
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        std::fs::remove_file(&target).unwrap();
+        std::fs::write(&source, &conflict).unwrap();
+        assert!(
+            retain_legacy_model(&preset, &legacy, &durable, &DownloadCancellation::new()).is_err()
+        );
+        assert!(!target.exists());
+        assert_eq!(std::fs::read(&source).unwrap(), conflict);
+        assert_eq!(std::fs::read_dir(&durable).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn missing_models_are_not_downloaded_and_failed_retention_keeps_source() {
+        let (root, preset, legacy, durable) = retention_fixture();
+        let absent = root.path().join("absent");
+        assert!(
+            !retain_legacy_model(&preset, &absent, &durable, &DownloadCancellation::new()).unwrap()
+        );
+        assert!(!durable.exists());
+        let blocked = root.path().join("blocked");
+        std::fs::write(&blocked, b"not a directory").unwrap();
+        let source = legacy.join(&preset.filename);
+        let bytes = std::fs::read(&source).unwrap();
+        assert!(
+            retain_legacy_model(
+                &preset,
+                &legacy,
+                &blocked.join("models"),
+                &DownloadCancellation::new()
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read(&source).unwrap(), bytes);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn retention_refuses_sources_writable_by_other_users() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_root, preset, legacy, durable) = retention_fixture();
+        let source = legacy.join(&preset.filename);
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o666)).unwrap();
+        assert!(
+            retain_legacy_model(&preset, &legacy, &durable, &DownloadCancellation::new()).is_err()
+        );
+        assert!(source.exists());
+        assert!(!durable.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn retention_refuses_symlink_files_and_directories() {
+        use std::os::unix::fs::symlink;
+        let (root, preset, legacy, durable) = retention_fixture();
+        let source = legacy.join(&preset.filename);
+        let other = root.path().join("other.gguf");
+        std::fs::rename(&source, &other).unwrap();
+        symlink(&other, &source).unwrap();
+        assert!(
+            retain_legacy_model(&preset, &legacy, &durable, &DownloadCancellation::new()).is_err()
+        );
+        assert!(!durable.exists());
+        std::fs::remove_file(&source).unwrap();
+        std::fs::rename(&other, &source).unwrap();
+        let redirected = root.path().join("redirected");
+        std::fs::create_dir(&redirected).unwrap();
+        std::fs::create_dir_all(durable.parent().unwrap()).unwrap();
+        symlink(&redirected, &durable).unwrap();
+        assert!(
+            retain_legacy_model(&preset, &legacy, &durable, &DownloadCancellation::new()).is_err()
+        );
+        assert_eq!(std::fs::read_dir(&redirected).unwrap().count(), 0);
+        assert!(source.is_file());
+    }
+
     #[test]
     fn capacity_policy_distinguishes_unknown_and_low_memory() {
         assert_eq!(recommended_preset(None).id, "gemma4-e2b");

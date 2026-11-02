@@ -24,6 +24,11 @@ on:
         required: false
         type: boolean
         default: false
+      linux_only:
+        description: 'Run only Linux native checks'
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -37,19 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: xcode-27
-            platform: macos-arm64
-            target: aarch64-apple-darwin
-            rustflags: ''
-          - os: ubuntu-24.04
-            platform: linux-x86_64
-            target: x86_64-unknown-linux-gnu
-            rustflags: ''
-          - os: windows-2025
-            platform: windows-x86_64
-            target: x86_64-pc-windows-msvc
-            rustflags: '-C target-feature=+crt-static'
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.linux_only && '[{"os":"ubuntu-24.04","platform":"linux-x86_64","target":"x86_64-unknown-linux-gnu","rustflags":""}]' || '[{"os":"xcode-27","platform":"macos-arm64","target":"aarch64-apple-darwin","rustflags":""},{"os":"ubuntu-24.04","platform":"linux-x86_64","target":"x86_64-unknown-linux-gnu","rustflags":""},{"os":"windows-2025","platform":"windows-x86_64","target":"x86_64-pc-windows-msvc","rustflags":"-C target-feature=+crt-static"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     defaults:
@@ -81,7 +74,7 @@ jobs:
           $env:NATIVE_PACKAGES = Join-Path $env:RUNNER_TEMP 'brotypist-native-packages'
           $env:NATIVE_PORTABLE = Join-Path $env:RUNNER_TEMP 'brotypist-native-portable'
           if ($IsLinux) {
-            # INKLOW_HOME redirects settings, not the independent model cache.
+            # Keep incidental tool caches isolated as well as app/model data.
             "XDG_CACHE_HOME=$(Join-Path $env:RUNNER_TEMP 'brotypist-native-cache')" >> $env:GITHUB_ENV
           }
           foreach ($name in @('CARGO_TARGET_DIR', 'INKLOW_HOME', 'NATIVE_REPORTS', 'NATIVE_PORTABLE', 'NATIVE_PACKAGE_BUNDLE', 'NATIVE_PACKAGES')) {

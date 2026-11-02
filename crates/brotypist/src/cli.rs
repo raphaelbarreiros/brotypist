@@ -400,7 +400,10 @@ fn prepare_wayland(enabled: bool) -> Result<bool> {
     #[cfg(target_os = "linux")]
     {
         let descriptor = std::env::var("WAYLAND_SOCKET").context("Select BroTypist in KDE Virtual Keyboard settings; KWin must supply its private input-method socket.")?.parse::<i32>()?;
-        crate::platform::wayland::prepare_input_method(descriptor)?;
+        // This launch owner runs before toolkit initialization or worker threads.
+        unsafe {
+            crate::platform::wayland::prepare_input_method(descriptor)?;
+        }
         Ok(true)
     }
     #[cfg(not(target_os = "linux"))]

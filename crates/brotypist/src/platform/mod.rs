@@ -7,6 +7,26 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Instant};
 
+/// A bounded, revocable native preedit capability, NOT evidence of rendered pixels.
+/// Only the originating bridge can validate this exact receipt before acceptance.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativePreedit {
+    pub anchor: String,
+    pub text: String,
+    pub revision: u64,
+    pub expires_at: Instant,
+}
+
+/// Exact fully-painted prefix on an owned native panel. Protocol capability only;
+/// not a compositor pixel acknowledgment and never authority for hidden candidates.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeChoices {
+    pub anchor: String,
+    pub values: Vec<String>,
+    pub revision: u64,
+    pub expires_at: Instant,
+}
+
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "macos")]
@@ -166,6 +186,31 @@ pub trait NativeBridge {
     /// Only compositor-owned input methods implement this; normal OS overlays are separate UI owners.
     fn present_native(&mut self, _anchor: &str, _text: &str, _paused: bool) -> Result<bool> {
         Ok(false)
+    }
+    fn present_preedit(&mut self, _anchor: &str, _text: &str) -> Result<Option<NativePreedit>> {
+        Ok(None)
+    }
+    fn native_preedit_valid(&self, _receipt: &NativePreedit) -> bool {
+        false
+    }
+    fn present_choices(
+        &mut self,
+        _anchor: &str,
+        _values: &[String],
+    ) -> Result<Option<NativeChoices>> {
+        Ok(None)
+    }
+    fn native_choices_valid(&self, _receipt: &NativeChoices) -> bool {
+        false
+    }
+    fn set_native_panel_environment(
+        &mut self,
+        _width: i32,
+        _height: i32,
+        _scale: i32,
+        _dark: bool,
+    ) -> Result<()> {
+        Ok(())
     }
     fn hide_native(&mut self) -> Result<()> {
         Ok(())
