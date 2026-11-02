@@ -1,0 +1,580 @@
+--- a/gtk3/fcitximcontext.cpp
++++ b/gtk3/fcitximcontext.cpp
+@@ -35,6 +35,7 @@
+ #include "fcitximcontext.h"
+ #include "fcitxtheme.h"
+ #include "gtk3inputwindow.h"
++#include "brotypist-gtk-client.h"
+ 
+ using namespace fcitx::gtk;
+ 
+@@ -71,7 +72,30 @@
+     GQueue gdk_events;
+ 
+     Gtk3InputWindow *candidate_window;
++    BtGtkClient *brotypist;
++    gboolean brotypist_remote_preedit;
++    gboolean brotypist_remote_ui;
+ };
++
++// Opted-in synchronous/native dispatch may reenter application callbacks.
++// Keep the original IM context alive until the entire originating frame ends.
++struct BrotypistContextHold {
++    FcitxIMContext *context;
++    explicit BrotypistContextHold(FcitxIMContext *c)
++        : context(c && c->brotypist ? static_cast<FcitxIMContext *>(g_object_ref(c)) : nullptr) {}
++    ~BrotypistContextHold() { if (context) g_object_unref(context); }
++};
++
++// Metadata-only activity extraction from the actual Fcitx signal payload.
++// Do not copy, retain or transmit user preedit/auxiliary text.
++static bool brotypist_formatted_active(GPtrArray *items) {
++    if (!items) return false;
++    for (guint i = 0; i < items->len; ++i) {
++        auto *item = static_cast<FcitxGPreeditItem *>(g_ptr_array_index(items, i));
++        if (item && item->string && item->string[0]) return true;
++    }
++    return false;
++}
+ 
+ struct _FcitxIMContextClass {
+     GtkIMContextClass parent;
+@@ -325,6 +349,8 @@
+ 
+ static void fcitx_im_context_init(FcitxIMContext *context, gpointer) {
+     context->client = NULL;
++    context->brotypist_remote_preedit = FALSE;
++    context->brotypist_remote_ui = FALSE;
+     context->has_rect = FALSE;
+     context->area.x = -1;
+     context->area.y = -1;
+@@ -346,6 +372,7 @@
+     }
+ #endif
+     context->slave = gtk_im_context_simple_new();
++    context->brotypist = bt_gtk_new(GTK_IM_CONTEXT(context), context->slave);
+ 
+     g_signal_connect(context->slave, "commit", G_CALLBACK(_slave_commit_cb),
+                      context);
+@@ -403,7 +430,7 @@
+ 
+     context->client = fcitx_g_client_new_with_watcher(_watcher);
+     fcitx_g_client_set_program(context->client, g_get_prgname());
+-    fcitx_g_client_set_use_batch_process_key_event(context->client, FALSE);
++    fcitx_g_client_set_use_batch_process_key_event(context->client, context->brotypist != nullptr);
+     if (context->is_wayland) {
+         fcitx_g_client_set_display(context->client, "wayland:");
+     } else {
+@@ -435,10 +462,69 @@
+             : NULL;
+ 
+     g_queue_init(&context->gdk_events);
++    bt_gtk_state(context->brotypist, context->xkbComposeState, false,
++                 fcitx_g_client_is_valid(context->client), context->use_preedit,
++        fcitx_g_client_has_ordered_batch(context->client),
++        context->preedit_string != nullptr || context->commit_preedit_string != nullptr);
++    if (context->brotypist) {
++    g_signal_connect(_watcher, "availability-changed",
++        G_CALLBACK(+[](FcitxGWatcher *, gboolean available, gpointer data) {
++            auto *c = static_cast<FcitxIMContext *>(data);
++            BrotypistContextHold native_frame(c);
++            if (!available) {
++                c->brotypist_remote_preedit = FALSE;
++                c->brotypist_remote_ui = FALSE;
++            }
++            bt_gtk_revoke(c->brotypist);
++            bt_gtk_state(c->brotypist, c->xkbComposeState,
++                c->brotypist_remote_preedit || c->brotypist_remote_ui,
++                available && fcitx_g_client_is_valid(c->client), c->use_preedit,
++        fcitx_g_client_has_ordered_batch(c->client),
++        c->preedit_string != nullptr || c->commit_preedit_string != nullptr);
++        }), context);
++    g_signal_connect(context->client, "disconnected",
++        G_CALLBACK(+[](FcitxGClient *, gpointer data) {
++            auto *c = static_cast<FcitxIMContext *>(data);
++            BrotypistContextHold native_frame(c);
++            c->brotypist_remote_preedit = FALSE;
++            c->brotypist_remote_ui = FALSE;
++            bt_gtk_revoke(c->brotypist);
++            bt_gtk_state(c->brotypist, c->xkbComposeState, false, false,
++                c->use_preedit, false,
++                c->preedit_string != nullptr || c->commit_preedit_string != nullptr);
++        }), context);
++    g_signal_connect(context->client, "update-client-side-ui",
++        G_CALLBACK(+[](FcitxGClient *, GPtrArray *preedit, int,
++                       GPtrArray *aux_up, GPtrArray *aux_down,
++                       GPtrArray *candidates, int, int, gboolean, gboolean,
++                       gpointer data) {
++            auto *c = static_cast<FcitxIMContext *>(data);
++            BrotypistContextHold native_frame(c);
++            c->brotypist_remote_ui = brotypist_formatted_active(preedit) ||
++                brotypist_formatted_active(aux_up) || brotypist_formatted_active(aux_down) ||
++                (candidates && candidates->len);
++            bt_gtk_revoke(c->brotypist);
++            bt_gtk_state(c->brotypist, c->xkbComposeState,
++                c->brotypist_remote_preedit || c->brotypist_remote_ui,
++                fcitx_g_client_is_valid(c->client), c->use_preedit,
++        fcitx_g_client_has_ordered_batch(c->client),
++        c->preedit_string != nullptr || c->commit_preedit_string != nullptr);
++        }), context);
++    g_signal_connect(context->client, "current-im",
++        G_CALLBACK(+[](FcitxGClient *, const char *, const char *, const char *, gpointer data) {
++            auto *c = static_cast<FcitxIMContext *>(data);
++            BrotypistContextHold native_frame(c);
++            bt_gtk_revoke(c->brotypist);
++        }), context);
++    }
+ }
+ 
+ static void fcitx_im_context_finalize(GObject *obj) {
+     FcitxIMContext *context = FCITX_IM_CONTEXT(obj);
++    g_signal_handlers_disconnect_by_data(_watcher, context);
++    auto *brotypist = context->brotypist;
++    context->brotypist = nullptr; // never reenter an owned adapter during finalization
++    bt_gtk_free(brotypist);
+     delete context->candidate_window;
+     context->candidate_window = nullptr;
+ 
+@@ -489,9 +575,11 @@
+ static void fcitx_im_context_set_client_window(GtkIMContext *context,
+                                                GdkWindow *client_window) {
+     FcitxIMContext *fcitxcontext = FCITX_IM_CONTEXT(context);
++    BrotypistContextHold native_frame(fcitxcontext);
+     if (client_window == fcitxcontext->client_window) {
+         return;
+     }
++    bt_gtk_window(fcitxcontext->brotypist, client_window);
+     delete fcitxcontext->candidate_window;
+     fcitxcontext->candidate_window = nullptr;
+ 
+@@ -526,11 +614,18 @@
+     fcitxcontext->candidate_window->setCursorRect(fcitxcontext->area);
+ }
+ 
++static gboolean brotypist_simple_filter(FcitxIMContext *context, GdkEventKey *event) {
++    bt_gtk_simple_begin(context->brotypist, event);
++    gboolean result = gtk_im_context_filter_keypress(context->slave, event);
++    bt_gtk_simple_end(context->brotypist, result);
++    return result;
++}
++
+ static gboolean
+-fcitx_im_context_filter_keypress_fallback(FcitxIMContext *context,
++brotypist_fallback_body(FcitxIMContext *context,
+                                           GdkEventKey *event) {
+     if (!context->xkbComposeState || event->type == GDK_KEY_RELEASE) {
+-        return gtk_im_context_filter_keypress(context->slave, event);
++        return brotypist_simple_filter(context, event);
+     }
+ 
+     struct xkb_compose_state *xkbComposeState = context->xkbComposeState;
+@@ -538,13 +633,13 @@
+     enum xkb_compose_feed_result result =
+         xkb_compose_state_feed(xkbComposeState, event->keyval);
+     if (result == XKB_COMPOSE_FEED_IGNORED) {
+-        return gtk_im_context_filter_keypress(context->slave, event);
++        return brotypist_simple_filter(context, event);
+     }
+ 
+     enum xkb_compose_status status =
+         xkb_compose_state_get_status(xkbComposeState);
+     if (status == XKB_COMPOSE_NOTHING) {
+-        return gtk_im_context_filter_keypress(context->slave, event);
++        return brotypist_simple_filter(context, event);
+     } else if (status == XKB_COMPOSE_COMPOSED) {
+         char buffer[] = {'\0', '\0', '\0', '\0', '\0', '\0', '\0'};
+         int length =
+@@ -561,11 +656,26 @@
+     return TRUE;
+ }
+ 
++static gboolean
++fcitx_im_context_filter_keypress_fallback(FcitxIMContext *context,
++                                         GdkEventKey *event) {
++    bt_gtk_pending(context->brotypist, 1);
++    gboolean result = brotypist_fallback_body(context, event);
++    bt_gtk_pending(context->brotypist, -1);
++    return result;
++}
++
+ ///
+ static gboolean fcitx_im_context_filter_keypress(GtkIMContext *context,
+                                                  GdkEventKey *event) {
+     FcitxIMContext *fcitxcontext = FCITX_IM_CONTEXT(context);
+-
++    BrotypistContextHold native_frame(fcitxcontext);
++
++    if (!(event->state & ((guint32)HandledMask | (guint32)IgnoredMask)) &&
++        bt_gtk_key(fcitxcontext->brotypist, event)) {
++        event->state |= (guint32)HandledMask;
++        return TRUE;
++    }
+     /* check this first, since we use key snooper, most key will be handled. */
+     if (fcitx_g_client_is_valid(fcitxcontext->client)) {
+         /* XXX it is a workaround for some applications do not set client
+@@ -600,10 +710,11 @@
+         auto state = _update_auto_repeat_state(fcitxcontext, event);
+ 
+         _fcitx_im_context_push_event(fcitxcontext, event);
+-        if (_use_sync_mode) {
++        if (_use_sync_mode || fcitxcontext->brotypist) {
+             gboolean ret = fcitx_g_client_process_key_sync(
+                 fcitxcontext->client, event->keyval, event->hardware_keycode,
+                 state, (event->type != GDK_KEY_PRESS), event->time);
++            bt_gtk_pending(fcitxcontext->brotypist, -1);
+             if (ret) {
+                 event->state |= (guint32)HandledMask;
+                 return TRUE;
+@@ -770,7 +881,10 @@
+                                                           int cursor_pos,
+                                                           void *user_data) {
+     FcitxIMContext *context = FCITX_IM_CONTEXT(user_data);
+-
++    BrotypistContextHold native_frame(context);
++
++    bt_gtk_revoke(context->brotypist);
++    context->brotypist_remote_preedit = context->brotypist && brotypist_formatted_active(array);
+     gboolean visible = false;
+ 
+     if (cursor_pos < 0) {
+@@ -792,6 +906,11 @@
+     }
+ 
+     gboolean new_visible = context->preedit_string != NULL;
++    bt_gtk_state(context->brotypist, context->xkbComposeState,
++                 context->brotypist_remote_preedit || context->brotypist_remote_ui,
++                 fcitx_g_client_is_valid(context->client), context->use_preedit,
++        fcitx_g_client_has_ordered_batch(context->client),
++        context->preedit_string != nullptr || context->commit_preedit_string != nullptr);
+ 
+     gboolean flag = new_visible != visible;
+ 
+@@ -816,6 +935,7 @@
+ static void _fcitx_im_context_notify_focus_out_cb(FcitxGClient *,
+                                                   void *user_data) {
+     FcitxIMContext *context = FCITX_IM_CONTEXT(user_data);
++    BrotypistContextHold native_frame(context);
+     if (!context->has_focus) {
+         return;
+     }
+@@ -826,6 +946,7 @@
+ ///
+ static void fcitx_im_context_focus_in(GtkIMContext *context) {
+     FcitxIMContext *fcitxcontext = FCITX_IM_CONTEXT(context);
++    BrotypistContextHold native_frame(fcitxcontext);
+ 
+     if (fcitxcontext->has_focus) {
+         return;
+@@ -838,6 +959,7 @@
+     }
+ 
+     fcitxcontext->has_focus = true;
++    bt_gtk_focus(fcitxcontext->brotypist, true);
+ 
+ /*
+  * Do not call gtk_im_context_focus_out() here.
+@@ -902,11 +1024,13 @@
+ 
+ static void fcitx_im_context_focus_out(GtkIMContext *context) {
+     FcitxIMContext *fcitxcontext = FCITX_IM_CONTEXT(context);
++    BrotypistContextHold native_frame(fcitxcontext);
+ 
+     if (!fcitxcontext->has_focus) {
+         return;
+     }
+ 
++    bt_gtk_focus(fcitxcontext->brotypist, false);
+     g_object_remove_weak_pointer((GObject *)context,
+                                  (gpointer *)&_focus_im_context);
+     _focus_im_context = NULL;
+@@ -930,6 +1054,7 @@
+ static void fcitx_im_context_set_cursor_location(GtkIMContext *context,
+                                                  GdkRectangle *area) {
+     FcitxIMContext *fcitxcontext = FCITX_IM_CONTEXT(context);
++    BrotypistContextHold native_frame(fcitxcontext);
+ 
+     if (fcitxcontext->has_rect &&
+         (fcitxcontext->area.x == area->x && fcitxcontext->area.y == area->y &&
+@@ -1014,8 +1139,15 @@
+ static void fcitx_im_context_set_use_preedit(GtkIMContext *context,
+                                              gboolean use_preedit) {
+     FcitxIMContext *fcitxcontext = FCITX_IM_CONTEXT(context);
+-
++    BrotypistContextHold native_frame(fcitxcontext);
++
++    bt_gtk_revoke(fcitxcontext->brotypist);
+     fcitxcontext->use_preedit = _use_preedit && use_preedit;
++    bt_gtk_state(fcitxcontext->brotypist, fcitxcontext->xkbComposeState,
++        fcitxcontext->brotypist_remote_preedit || fcitxcontext->brotypist_remote_ui,
++        fcitx_g_client_is_valid(fcitxcontext->client), fcitxcontext->use_preedit,
++        fcitx_g_client_has_ordered_batch(fcitxcontext->client),
++        fcitxcontext->preedit_string != nullptr || fcitxcontext->commit_preedit_string != nullptr);
+     _fcitx_im_context_set_capability(fcitxcontext, FALSE);
+ 
+     gtk_im_context_set_use_preedit(fcitxcontext->slave, use_preedit);
+@@ -1093,6 +1225,7 @@
+     g_return_if_fail(0 <= cursor_index && cursor_index <= len);
+ 
+     FcitxIMContext *fcitxcontext = FCITX_IM_CONTEXT(context);
++    BrotypistContextHold native_frame(fcitxcontext);
+ 
+     if (fcitx_g_client_is_valid(fcitxcontext->client) &&
+         !(fcitxcontext->last_updated_capability &
+@@ -1174,6 +1307,7 @@
+ 
+ static void _fcitx_im_context_push_event(FcitxIMContext *fcitxcontext,
+                                          GdkEventKey *event) {
++    bt_gtk_pending(fcitxcontext->brotypist, 1);
+     // Keep a copy of latest event.
+     g_queue_push_tail(&fcitxcontext->gdk_events,
+                       gdk_event_copy((GdkEvent *)event));
+@@ -1186,6 +1320,8 @@
+ ///
+ static void fcitx_im_context_reset(GtkIMContext *context) {
+     FcitxIMContext *fcitxcontext = FCITX_IM_CONTEXT(context);
++    BrotypistContextHold native_frame(fcitxcontext);
++    bt_gtk_revoke(fcitxcontext->brotypist);
+ 
+     fcitx_im_context_commit_preedit(fcitxcontext);
+ 
+@@ -1198,6 +1334,7 @@
+     }
+ 
+     gtk_im_context_reset(fcitxcontext->slave);
++    bt_gtk_reset_complete(fcitxcontext->brotypist);
+ }
+ 
+ static void fcitx_im_context_get_preedit_string(GtkIMContext *context,
+@@ -1205,7 +1342,9 @@
+                                                 PangoAttrList **attrs,
+                                                 gint *cursor_pos) {
+     FcitxIMContext *fcitxcontext = FCITX_IM_CONTEXT(context);
+-
++    BrotypistContextHold native_frame(fcitxcontext);
++
++    if (bt_gtk_preedit(fcitxcontext->brotypist, str, attrs, cursor_pos)) return;
+     if (fcitx_g_client_is_valid(fcitxcontext->client)) {
+         if (str) {
+             *str = g_strdup(fcitxcontext->preedit_string
+@@ -1241,9 +1380,13 @@
+ /* Callback functions for slave context */
+ static void _slave_commit_cb(GtkIMContext *, gchar *string,
+                              FcitxIMContext *context) {
++    // A partial Simple commit can continue: record only a boolean for the
++    // complete filter frame, never infer idle or inspect user text here.
++    bt_gtk_simple_commit(context->brotypist);
+     g_signal_emit(context, _signal_commit_id, 0, string);
+ }
+ static void _slave_preedit_changed_cb(GtkIMContext *, FcitxIMContext *context) {
++    bt_gtk_revoke(context->brotypist);
+     if (context->client) {
+         return;
+     }
+@@ -1251,6 +1394,7 @@
+     g_signal_emit(context, _signal_preedit_changed_id, 0);
+ }
+ static void _slave_preedit_start_cb(GtkIMContext *, FcitxIMContext *context) {
++    bt_gtk_simple_active(context->brotypist);
+     if (context->client) {
+         return;
+     }
+@@ -1259,6 +1403,8 @@
+ }
+ 
+ static void _slave_preedit_end_cb(GtkIMContext *, FcitxIMContext *context) {
++    // GtkIMContextSimple emits this after terminating its visible hex sequence.
++    bt_gtk_simple_idle(context->brotypist);
+     if (context->client) {
+         return;
+     }
+@@ -1293,22 +1439,39 @@
+ void _fcitx_im_context_commit_string_cb(FcitxGClient *, char *str,
+                                         void *user_data) {
+     FcitxIMContext *context = FCITX_IM_CONTEXT(user_data);
++    BrotypistContextHold native_frame(context);
++    bt_gtk_revoke(context->brotypist);
+     fcitx_im_context_commit_string(context, str);
+ }
+ 
+ void _fcitx_im_context_forward_key_cb(FcitxGClient *, guint keyval, guint state,
+                                       gboolean isRelease, void *user_data) {
+     FcitxIMContext *context = FCITX_IM_CONTEXT(user_data);
++    BrotypistContextHold native_frame(context);
+     GdkEventKey *event = _create_gdk_event(context, keyval, state, isRelease);
+     event->state |= (guint32)IgnoredMask;
+-    gdk_event_put((GdkEvent *)event);
++    if (context->brotypist) {
++        // Positive completion is return from GTK's real accelerator/widget
++        // dispatch. Do not replace the global GDK event handler or infer an
++        // event's completion from an idle callback. IgnoredMask preserves the
++        // original IM bypass for this server-forwarded event.
++        g_object_ref(context);
++        bt_gtk_pending(context->brotypist, 1);
++        gtk_main_do_event((GdkEvent *)event);
++        bt_gtk_pending(context->brotypist, -1);
++        g_object_unref(context);
++    } else {
++        gdk_event_put((GdkEvent *)event);
++    }
+     gdk_event_free((GdkEvent *)event);
+ }
+ 
+ static void _fcitx_im_context_delete_surrounding_text_cb(
+     FcitxGClient *, gint offset_from_cursor, guint nchars, void *user_data) {
+     FcitxIMContext *context = FCITX_IM_CONTEXT(user_data);
++    BrotypistContextHold native_frame(context);
+     gboolean return_value;
++    bt_gtk_revoke(context->brotypist);
+     g_signal_emit(context, _signal_delete_surrounding_id, 0, offset_from_cursor,
+                   nchars, &return_value);
+ }
+@@ -1547,6 +1710,7 @@
+ 
+ void _fcitx_im_context_connect_cb(FcitxGClient *im, void *user_data) {
+     FcitxIMContext *context = FCITX_IM_CONTEXT(user_data);
++    BrotypistContextHold native_frame(context);
+ #ifdef GDK_WINDOWING_X11
+     Display *display = NULL;
+     if (context->client_window) {
+@@ -1566,6 +1730,12 @@
+     }
+ #endif
+ 
++    bt_gtk_revoke(context->brotypist);
++    bt_gtk_state(context->brotypist, context->xkbComposeState,
++        context->brotypist_remote_preedit || context->brotypist_remote_ui,
++        fcitx_g_client_is_valid(context->client), context->use_preedit,
++        fcitx_g_client_has_ordered_batch(context->client),
++        context->preedit_string != nullptr || context->commit_preedit_string != nullptr);
+     _fcitx_im_context_set_capability(context, TRUE);
+     if (context->has_focus && _focus_im_context == (GtkIMContext *)context &&
+         fcitx_g_client_is_valid(context->client))
+@@ -1613,12 +1783,18 @@
+     if (fcitxcontext == NULL || !fcitxcontext->has_focus)
+         return FALSE;
+ 
++    BrotypistContextHold native_frame(fcitxcontext);
++
+     if (G_UNLIKELY(event->state & (guint32)HandledMask))
+         return TRUE;
+ 
+     if (G_UNLIKELY(event->state & (guint32)IgnoredMask))
+         return FALSE;
+ 
++    if (bt_gtk_key(fcitxcontext->brotypist, event)) {
++        event->state |= (guint32)HandledMask;
++        return TRUE;
++    }
+     do {
+         if (!fcitx_g_client_is_valid(fcitxcontext->client)) {
+             break;
+@@ -1637,10 +1813,11 @@
+         auto state = _update_auto_repeat_state(fcitxcontext, event);
+ 
+         _fcitx_im_context_push_event(fcitxcontext, event);
+-        if (_use_sync_mode) {
++        if (_use_sync_mode || fcitxcontext->brotypist) {
+             retval = fcitx_g_client_process_key_sync(
+                 fcitxcontext->client, event->keyval, event->hardware_keycode,
+                 state, (event->type == GDK_KEY_RELEASE), event->time);
++            bt_gtk_pending(fcitxcontext->brotypist, -1);
+         } else {
+             fcitx_g_client_process_key(
+                 fcitxcontext->client, event->keyval, event->hardware_keycode,
+@@ -1701,8 +1878,10 @@
+ void _fcitx_im_context_input_purpose_changed_cb(GObject *gobject, GParamSpec *,
+                                                 gpointer) {
+     FcitxIMContext *fcitxcontext = FCITX_IM_CONTEXT(gobject);
++    BrotypistContextHold native_frame(fcitxcontext);
+ 
+     GtkInputPurpose purpose;
++    bt_gtk_revoke(fcitxcontext->brotypist);
+     g_object_get(gobject, "input-purpose", &purpose, NULL);
+ 
+     fcitxcontext->capability_from_toolkit &= ~purpose_related_capability;
+@@ -1739,8 +1918,10 @@
+ void _fcitx_im_context_input_hints_changed_cb(GObject *gobject, GParamSpec *,
+                                               gpointer) {
+     FcitxIMContext *fcitxcontext = FCITX_IM_CONTEXT(gobject);
++    BrotypistContextHold native_frame(fcitxcontext);
+ 
+     GtkInputHints hints;
++    bt_gtk_revoke(fcitxcontext->brotypist);
+     g_object_get(gobject, "input-hints", &hints, NULL);
+ 
+     fcitxcontext->capability_from_toolkit &= ~hints_related_capability;
+
+--- a/gtk3/CMakeLists.txt
++++ b/gtk3/CMakeLists.txt
+@@ -28,3 +28,9 @@
+     target_link_libraries(fcitx5-gtk3-immodule-probing PkgConfig::Gtk3)
+     install(TARGETS fcitx5-gtk3-immodule-probing DESTINATION "${CMAKE_INSTALL_BINDIR}")
+ endif()
++
++# Private reviewed BroTypist trial: source integration, never an installed ABI.
++if (NOT BROTYPIST_GTK_CLIENT_DIR)
++    message(FATAL_ERROR "Set BROTYPIST_GTK_CLIENT_DIR to the reviewed first-party GTK client sources")
++endif()
++include("${BROTYPIST_GTK_CLIENT_DIR}/brotypist-source.cmake")
+
+--- a/fcitx-gclient/fcitxgclient.c
++++ b/fcitx-gclient/fcitxgclient.c
+@@ -171,6 +171,7 @@
+ 
+ enum {
+     CONNECTED_SIGNAL,
++    DISCONNECTED_SIGNAL,
+     FORWARD_KEY_SIGNAL,
+     COMMIT_STRING_SIGNAL,
+     DELETE_SURROUNDING_TEXT_SIGNAL,
+@@ -274,6 +275,9 @@
+      */
+     signals[CONNECTED_SIGNAL] =
+         g_signal_new("connected", FCITX_G_TYPE_CLIENT, G_SIGNAL_RUN_LAST, 0,
++                     NULL, NULL, g_cclosure_marshal_VOID__VOID, G_TYPE_NONE, 0);
++    signals[DISCONNECTED_SIGNAL] =
++        g_signal_new("disconnected", FCITX_G_TYPE_CLIENT, G_SIGNAL_RUN_LAST, 0,
+                      NULL, NULL, g_cclosure_marshal_VOID__VOID, G_TYPE_NONE, 0);
+ 
+     /**
+@@ -1152,6 +1156,13 @@
+     self->priv->batch = batch;
+ }
+ 
++/* Source-level ordered-delivery capability; no private ABI access by callers. */
++gboolean fcitx_g_client_has_ordered_batch(FcitxGClient *self) {
++    g_return_val_if_fail(FCITX_G_IS_CLIENT(self), FALSE);
++    return fcitx_g_client_is_valid(self) && self->priv->version > 0 &&
++           self->priv->batch;
++}
++
+ /**
+  * fcitx_g_client_is_valid:
+  * @self: A #FcitxGClient
+@@ -1184,6 +1195,7 @@
+ }
+ 
+ static void _fcitx_g_client_clean_up(FcitxGClient *self) {
++    gboolean had_context = self->priv->icproxy != NULL;
+     if (self->priv->cancellable) {
+         g_cancellable_cancel(self->priv->cancellable);
+     }
+@@ -1202,6 +1214,7 @@
+         self->priv->watch_id = 0;
+     }
+     self->priv->version = 0;
++    if (had_context) g_signal_emit(self, signals[DISCONNECTED_SIGNAL], 0);
+ }
+ 
+ // kate: indent-mode cstyle; replace-tabs on;
+
+--- a/fcitx-gclient/fcitxgclient.h
++++ b/fcitx-gclient/fcitxgclient.h
+@@ -56,6 +56,7 @@
+ void fcitx_g_client_set_program(FcitxGClient *self, const gchar *program);
+ void fcitx_g_client_set_use_batch_process_key_event(FcitxGClient *self,
+                                                     gboolean batch);
++gboolean fcitx_g_client_has_ordered_batch(FcitxGClient *self);
+ void fcitx_g_client_set_cursor_rect(FcitxGClient *self, gint x, gint y, gint w,
+                                     gint h);
+ void fcitx_g_client_set_cursor_rect_with_scale_factor(FcitxGClient *self,

@@ -27,6 +27,72 @@ pub struct NativeChoices {
     pub expires_at: Instant,
 }
 
+/// A target-owned native client receives the exact already-authorized offer.
+/// Offsets are scalar indices in the committed snapshot; transports convert once.
+pub struct NativeClientOffer<'a> {
+    pub snapshot: &'a Snapshot,
+    pub user_input_revision: u64,
+    pub mode: &'a str,
+    pub text: &'a str,
+    pub values: &'a [String],
+    pub start: usize,
+    pub length: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NativeHostPresentation {
+    Preedit(NativePreedit),
+    Choices(NativeChoices),
+}
+
+/// Activate only the insertions computed from the actual native-visible prefix.
+/// Presentation alone must never consume an acceptance key.
+pub struct NativeClientAcceptance<'a> {
+    pub presentation: &'a NativeHostPresentation,
+    pub word_text: &'a str,
+    pub all_text: &'a str,
+}
+
+/// A real target-owned edit already happened. The runtime must validate and
+/// account for it, never invoke a second insertion.
+pub struct NativeHostEdit {
+    pub presentation: NativeHostPresentation,
+    pub before: Snapshot,
+    pub after: Snapshot,
+    pub start: usize,
+    pub length: usize,
+    pub text: String,
+    pub action: Action,
+    pub mode: String,
+    pub accepted_at: Instant,
+}
+
+pub struct NativeHostDismiss {
+    pub presentation: NativeHostPresentation,
+    pub before: Snapshot,
+    pub mode: String,
+    pub bypass: bool,
+    pub accepted_at: Instant,
+}
+
+/// A native edit may have been dispatched, but no exact applied readback exists.
+/// Preserve provenance without counting acceptance or attempting another edit.
+pub struct NativeHostUncertain {
+    pub presentation: NativeHostPresentation,
+    pub before: Snapshot,
+    pub mode: String,
+    pub accepted_at: Instant,
+}
+
+pub enum NativeHostEvent {
+    Applied(NativeHostEdit),
+    Indeterminate(NativeHostUncertain),
+    Dismissed(NativeHostDismiss),
+    Action { action: Action, origin: Foreground },
+}
+
+#[cfg(target_os = "linux")]
+pub mod client;
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "macos")]
@@ -171,6 +237,30 @@ pub trait NativeBridge {
         None
     }
     fn bind_native_ui(&mut self, _callback: Option<Arc<dyn Fn(String) + Send + Sync>>) {}
+    /// Rendering ownership is distinct from a wake/event FD supplied by a wrapper.
+    fn uses_native_presentation(&self) -> bool {
+        self.native_event_source().is_some()
+    }
+    /// Target-owned clients handle their own visible-offer keys atomically.
+    /// Their receipts must never arm a second, global input consumer.
+    fn client_owns_actions(&self) -> bool {
+        false
+    }
+    fn native_edit_pending(&self) -> bool {
+        false
+    }
+    fn present_client_offer(
+        &mut self,
+        _offer: &NativeClientOffer<'_>,
+    ) -> Result<Option<NativeHostPresentation>> {
+        Ok(None)
+    }
+    fn arm_client_offer(&mut self, _acceptance: &NativeClientAcceptance<'_>) -> Result<bool> {
+        Ok(false)
+    }
+    fn drain_host_events(&mut self) -> Vec<NativeHostEvent> {
+        Vec::new()
+    }
     fn show_native_menu(&mut self, _rows: Vec<(String, String, bool)>) -> Result<bool> {
         Ok(false)
     }
@@ -219,19 +309,22 @@ pub trait NativeBridge {
 
 pub fn create_bridge(config: &Config) -> Result<Box<dyn NativeBridge>> {
     #[cfg(target_os = "macos")]
-    let mut bridge: Box<dyn NativeBridge> = {
+    let bridge: Box<dyn NativeBridge> = {
         let mut native = macos::MacBridge::new()?;
         macos::special::attach(&mut native)?;
         Box::new(native)
     };
     #[cfg(target_os = "windows")]
-    let mut bridge: Box<dyn NativeBridge> = Box::new(windows::WindowsBridge::new()?);
+    let bridge: Box<dyn NativeBridge> = Box::new(windows::WindowsBridge::new()?);
     #[cfg(target_os = "linux")]
-    let mut bridge: Box<dyn NativeBridge> = if wayland::is_prepared() {
-        Box::new(wayland::WaylandBridge::new()?)
+    let base: Result<Box<dyn NativeBridge>> = if wayland::is_prepared() {
+        wayland::WaylandBridge::new().map(|bridge| Box::new(bridge) as Box<dyn NativeBridge>)
     } else {
-        Box::new(linux::LinuxBridge::new()?)
+        linux::LinuxBridge::new().map(|bridge| Box::new(bridge) as Box<dyn NativeBridge>)
     };
+    #[cfg(target_os = "linux")]
+    let bridge = client::wrap(config, base)?;
+    let mut bridge = bridge;
     bridge.configure(config)?;
     Ok(bridge)
 }

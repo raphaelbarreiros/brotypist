@@ -28,6 +28,8 @@ use std::{
 };
 use unicode_normalization::UnicodeNormalization;
 
+mod native_client;
+
 #[derive(Clone, Debug)]
 pub enum Command {
     Action(Action),
@@ -1288,6 +1290,7 @@ impl Controller {
     }
     pub fn poll(&self) -> Vec<Value> {
         let mut engine = self.engine.borrow_mut();
+        engine.pump_client_confirmations();
         while let Ok(command) = self.receiver.try_recv() {
             engine.command(command);
         }
@@ -1440,6 +1443,7 @@ pub struct Engine {
     choices: Option<Choices>,
     correction: Option<(Snapshot, SpellingResult)>,
     claims: Vec<Arc<Claim>>,
+    native_client: native_client::State,
     attempted: Option<(SnapshotKey, Authority, String)>,
     failed_correction: Option<(SnapshotKey, Authority)>,
     pending_edit: Option<PendingEdit>,
@@ -1677,6 +1681,7 @@ impl Engine {
             choices: None,
             correction: None,
             claims: Vec::new(),
+            native_client: native_client::State::default(),
             advance: None,
             redraw_pending: false,
             attempted: None,
@@ -2149,6 +2154,7 @@ impl Engine {
         allowed.then_some(info)
     }
     fn capture(&mut self) -> Option<Snapshot> {
+        self.pump_client_confirmations();
         if !self.native_ready || !self.active() || self.secure_input() != Some(false) {
             return None;
         }
@@ -2157,7 +2163,16 @@ impl Engine {
             return None;
         }
         let revision = self.user_revision()?;
-        let mut snapshot = self.bridge.as_mut()?.capture().ok().flatten()?;
+        let confirmed_before = self.native_client.confirmed;
+        let mut captured = self.bridge.as_mut()?.capture();
+        self.pump_client_confirmations();
+        if matches!(&captured, Ok(None)) && self.native_client.confirmed != confirmed_before {
+            // A real edit completed while a pending client capture was refused.
+            // Re-read once; never replay the edit or synthesize a snapshot.
+            captured = self.bridge.as_mut()?.capture();
+            self.pump_client_confirmations();
+        }
+        let mut snapshot = captured.ok().flatten()?;
         let after = self.foreground()?;
         if snapshot.protected
             || !snapshot.valid_range()
@@ -3485,31 +3500,43 @@ impl Engine {
             let renewed = if claim.epoch == self.current_epoch()
                 && Some(claim.revision) == self.user_revision()
             {
-                match (&claim.evidence, view_revision) {
-                    (PresentationEvidence::NativePreedit(receipt), Some(revision)) => self
-                        .present_preedit(
-                            &claim.key,
-                            &claim.authority,
-                            revision,
-                            &receipt.anchor,
-                            &receipt.text,
-                        ),
-                    (PresentationEvidence::NativeChoices(receipt), Some(revision)) => {
-                        let values = self
-                            .choices
-                            .as_ref()
-                            .map(|choices| choices.values.clone())
-                            .unwrap_or_default();
-                        self.present_choices(
-                            &claim.key,
-                            &claim.authority,
-                            revision,
-                            &receipt.anchor,
-                            &claim.mode,
-                            &values,
-                        )
+                if self
+                    .bridge
+                    .as_ref()
+                    .is_some_and(|bridge| bridge.client_owns_actions())
+                {
+                    Ok(view_revision
+                        .and_then(|revision| {
+                            self.present_client(&claim.key, &claim.authority, revision, &claim.mode)
+                        })
+                        .unwrap_or(false))
+                } else {
+                    match (&claim.evidence, view_revision) {
+                        (PresentationEvidence::NativePreedit(receipt), Some(revision)) => self
+                            .present_preedit(
+                                &claim.key,
+                                &claim.authority,
+                                revision,
+                                &receipt.anchor,
+                                &receipt.text,
+                            ),
+                        (PresentationEvidence::NativeChoices(receipt), Some(revision)) => {
+                            let values = self
+                                .choices
+                                .as_ref()
+                                .map(|choices| choices.values.clone())
+                                .unwrap_or_default();
+                            self.present_choices(
+                                &claim.key,
+                                &claim.authority,
+                                revision,
+                                &receipt.anchor,
+                                &claim.mode,
+                                &values,
+                            )
+                        }
+                        _ => Ok(false),
                     }
-                    _ => Ok(false),
                 }
             } else {
                 Ok(false)
@@ -3528,10 +3555,14 @@ impl Engine {
     }
 
     fn refresh_arming(&self) {
+        let client_owned = self
+            .bridge
+            .as_ref()
+            .is_some_and(|bridge| bridge.client_owns_actions());
         let Ok(mut a) = self.armed.try_lock() else {
             return;
         };
-        if self.shortcuts_suspended || self.stopping {
+        if self.shortcuts_suspended || self.stopping || client_owned {
             a.claims.clear();
         } else {
             a.claims.clear();
@@ -3558,7 +3589,7 @@ impl Engine {
         } else {
             a.origin = None;
         }
-        a.active = self.active() && self.native_ready && !self.shortcuts_suspended;
+        a.active = self.active() && self.native_ready && !self.shortcuts_suspended && !client_owned;
         a.alternatives = self.config.alternatives_enabled;
         a.synonyms = self.config.synonyms_enabled
             && self.candidate.as_ref().is_some_and(|s| self.can_replace(s));
@@ -3766,14 +3797,26 @@ impl Engine {
         // Any different observation expires the uncertain dispatch. Never retry it.
     }
     fn commit_edit(&mut self, edit: PendingEdit, readback: Snapshot) {
+        let count_completion = !self.completion_counted;
+        self.commit_confirmed_edit(edit, readback, true, count_completion);
+    }
+    fn commit_confirmed_edit(
+        &mut self,
+        edit: PendingEdit,
+        readback: Snapshot,
+        restore_view: bool,
+        count_completion: bool,
+    ) {
         if self.config.statistics_enabled {
             self.push_record(Record::Stats {
                 app: edit.before.app_id.clone(),
                 text: edit.text.clone(),
-                completion: !self.completion_counted,
+                completion: count_completion,
             });
         }
-        self.completion_counted = true;
+        if restore_view {
+            self.completion_counted = true;
+        }
         if self
             .uncertain_provenance
             .as_ref()
@@ -3781,7 +3824,13 @@ impl Engine {
         {
             self.uncertain_provenance = None;
         }
-        if self.record_allowed(&edit.before.app_id, &edit.before.domain) {
+        if self.record_allowed(&edit.before.app_id, &edit.before.domain)
+            && (restore_view
+                || self.session.as_ref().is_some_and(|session| {
+                    session.key == edit.before.authority()
+                        && session.text.as_str() == edit.before.text.as_ref()
+                }))
+        {
             self.history_suppressed = None;
             self.observe_session(&edit.before);
             if let Some(session) = &mut self.session {
@@ -3797,6 +3846,9 @@ impl Engine {
                     self.finish_session();
                 }
             }
+        }
+        if !restore_view {
+            return;
         }
         self.clear(false, true);
         self.candidate = Some(readback.clone());
@@ -3844,25 +3896,7 @@ impl Engine {
                 self.clear(true, true);
                 return false;
             }
-            self.clear(false, true);
-            self.mark_attempt(&current, &claim.mode); // R6: actual tool and authority.
-            if !bypass {
-                match self.config.escape_behavior.as_str() {
-                    "pause" => {
-                        self.field_pause = Some((
-                            current.authority(),
-                            self.now()
-                                + Duration::from_secs(self.config.escape_pause_seconds.into()),
-                        ))
-                    }
-                    "app" => {
-                        self.escape_app = current.app_id.clone();
-                        self.configure_native();
-                    }
-                    _ => {}
-                }
-            }
-            return bypass || self.config.escape_behavior != "passthrough";
+            return self.finish_dismissal(&current, &claim.mode, bypass, self.now(), true);
         }
         if !bypass && (self.request.is_some() || self.preparing.is_some()) {
             let mode = self
@@ -4588,6 +4622,7 @@ impl Engine {
         {
             self.fail("Native event transport");
         }
+        self.consume_host_events();
         self.consume_download();
         self.consume_model_migration();
         self.reap_spelling();
@@ -4595,6 +4630,7 @@ impl Engine {
             let _ = self.shutdown_step();
             return;
         }
+        self.run_host_actions();
         self.run_inputs();
         let now = self.now();
         if self.timed_pause && now >= self.paused_until {
@@ -4634,12 +4670,28 @@ impl Engine {
             }
         }
         let foreground = self.foreground();
+        if self.active()
+            && self
+                .bridge
+                .as_ref()
+                .is_some_and(|bridge| bridge.native_edit_pending())
+        {
+            let _ = self.flush_records();
+            self.refresh_arming();
+            return;
+        }
         if !self.active() || foreground.is_none() || self.secure_input() != Some(false) {
             self.observe(None);
             self.clear_docs();
         } else if now >= self.capture_after {
             let snapshot = self.capture();
-            self.observe(snapshot);
+            if !self
+                .bridge
+                .as_ref()
+                .is_some_and(|bridge| bridge.native_edit_pending())
+            {
+                self.observe(snapshot);
+            }
             // Slow native reads must not leave the next routine deadline
             // expired; input notifications and explicit actions still recapture.
             let captured_at = self.now();
@@ -4652,6 +4704,15 @@ impl Engine {
                 } else {
                     Duration::from_millis(100)
                 };
+        }
+        if self
+            .bridge
+            .as_ref()
+            .is_some_and(|bridge| bridge.native_edit_pending())
+        {
+            let _ = self.flush_records();
+            self.refresh_arming();
+            return;
         }
         self.refresh_docs(foreground);
         self.prepare_models();
@@ -5302,6 +5363,10 @@ mod tests {
         native_preedit: Option<platform::NativePreedit>,
         native_choices: Option<platform::NativeChoices>,
         native_choice_limit: usize,
+        client_owned: bool,
+        client_pending: bool,
+        client_arm: bool,
+        host_events: Vec<platform::NativeHostEvent>,
     }
     struct Native(Rc<RefCell<NativeState>>);
     impl NativeBridge for Native {
@@ -5320,7 +5385,11 @@ mod tests {
             if let Some((clock, duration)) = &s.capture_time {
                 *clock.borrow_mut() += *duration;
             }
-            Ok(s.snapshot.clone())
+            Ok(if s.client_pending {
+                None
+            } else {
+                s.snapshot.clone()
+            })
         }
         fn context_ticket(
             &mut self,
@@ -5410,6 +5479,46 @@ mod tests {
         }
         fn bind_native_ui(&mut self, callback: Option<Arc<dyn Fn(String) + Send + Sync>>) {
             self.0.borrow_mut().ui_callback = callback;
+        }
+        fn client_owns_actions(&self) -> bool {
+            self.0.borrow().client_owned
+        }
+        fn native_edit_pending(&self) -> bool {
+            self.0.borrow().client_owned && self.0.borrow().client_pending
+        }
+        fn present_client_offer(
+            &mut self,
+            offer: &platform::NativeClientOffer<'_>,
+        ) -> Result<Option<platform::NativeHostPresentation>> {
+            if !self.0.borrow().client_owned {
+                return Ok(None);
+            }
+            if matches!(offer.mode, "completion" | "correction") {
+                Ok(self
+                    .present_preedit(&offer.snapshot.native_anchor, offer.text)?
+                    .map(platform::NativeHostPresentation::Preedit))
+            } else {
+                Ok(self
+                    .present_choices(&offer.snapshot.native_anchor, offer.values)?
+                    .map(platform::NativeHostPresentation::Choices))
+            }
+        }
+        fn arm_client_offer(
+            &mut self,
+            acceptance: &platform::NativeClientAcceptance<'_>,
+        ) -> Result<bool> {
+            Ok(self.0.borrow().client_arm
+                && match acceptance.presentation {
+                    platform::NativeHostPresentation::Preedit(receipt) => {
+                        self.native_preedit_valid(receipt)
+                    }
+                    platform::NativeHostPresentation::Choices(receipt) => {
+                        self.native_choices_valid(receipt)
+                    }
+                })
+        }
+        fn drain_host_events(&mut self) -> Vec<platform::NativeHostEvent> {
+            std::mem::take(&mut self.0.borrow_mut().host_events)
         }
         fn present_preedit(
             &mut self,
@@ -5822,6 +5931,10 @@ mod tests {
             native_preedit: None,
             native_choices: None,
             native_choice_limit: 0,
+            client_owned: false,
+            client_pending: false,
+            client_arm: true,
+            host_events: Vec::new(),
         }))
     }
     fn harness_start(
@@ -6128,6 +6241,204 @@ mod tests {
                     text
                 )
                 .unwrap()
+        );
+    }
+
+    fn client_offer(h: &mut Harness) -> (Snapshot, platform::NativeHostPresentation) {
+        {
+            let mut native = h.native.borrow_mut();
+            native.client_owned = true;
+            native.native_available = true;
+            native.native_clock = Some(h.time.clone());
+        }
+        h.offer(" is ready");
+        let before = h.native.borrow().snapshot.clone().unwrap();
+        let serial = h.engine.completion_offer.unwrap().serial;
+        assert_eq!(
+            h.engine
+                .present_client(&before.key(), &before.authority(), serial, "completion"),
+            Some(true)
+        );
+        let receipt = h.native.borrow().native_preedit.clone().unwrap();
+        (before, platform::NativeHostPresentation::Preedit(receipt))
+    }
+    fn client_applied(
+        before: &Snapshot,
+        after: &Snapshot,
+        receipt: &platform::NativeHostPresentation,
+        at: Instant,
+    ) -> platform::NativeHostEvent {
+        platform::NativeHostEvent::Applied(platform::NativeHostEdit {
+            presentation: receipt.clone(),
+            before: before.clone(),
+            after: after.clone(),
+            start: before.caret,
+            length: 0,
+            text: " is ready".into(),
+            action: Action::All,
+            mode: "completion".into(),
+            accepted_at: at,
+        })
+    }
+    #[test]
+    fn client_confirmation_counts_once_without_reinsertion_or_global_tab() {
+        let mut config = Config::default();
+        config.statistics_enabled = true;
+        config.trailing_space = false;
+        let mut h = harness(config, None);
+        let (before, receipt) = client_offer(&mut h);
+        assert!(!h.invoke_hook(Action::All));
+        let after = field("The update is ready");
+        {
+            let mut native = h.native.borrow_mut();
+            native.snapshot = Some(after.clone());
+            native.native_preedit = None;
+            native
+                .host_events
+                .push(client_applied(&before, &after, &receipt, *h.time.borrow()));
+            native
+                .host_events
+                .push(client_applied(&before, &after, &receipt, *h.time.borrow()));
+        }
+        h.engine.tick();
+        assert_eq!(
+            h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+            "The update is ready"
+        );
+        assert_eq!(locked(&h.storage).stats, [(" is ready".into(), true)]);
+        assert!(h.native.borrow().edits.is_empty());
+    }
+    #[test]
+    fn client_confirmation_survives_later_input_without_repainting_old_text() {
+        let mut config = Config::default();
+        config.statistics_enabled = true;
+        config.trailing_space = false;
+        let mut h = harness(config, None);
+        let (before, receipt) = client_offer(&mut h);
+        let accepted_at = *h.time.borrow();
+        let after = field("The update is ready");
+        h.elapse(5);
+        {
+            let mut native = h.native.borrow_mut();
+            native.snapshot = Some(field("The update is ready!"));
+            native.native_preedit = None;
+            native.revision += 1;
+            native.input_at = Some(*h.time.borrow());
+            native
+                .host_events
+                .push(client_applied(&before, &after, &receipt, accepted_at));
+        }
+        h.engine.tick();
+        assert_eq!(
+            h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+            "The update is ready!"
+        );
+        assert_eq!(
+            h.engine.candidate.as_ref().unwrap().text.as_ref(),
+            "The update is ready!"
+        );
+        assert!(h.engine.suggestion.text.is_empty());
+        assert_eq!(locked(&h.storage).stats, [(" is ready".into(), true)]);
+        assert!(h.native.borrow().edits.is_empty());
+    }
+    #[test]
+    fn pending_client_edit_preserves_its_witness_until_real_confirmation() {
+        let mut config = Config::default();
+        config.statistics_enabled = true;
+        config.trailing_space = false;
+        let mut h = harness(config, None);
+        let (before, receipt) = client_offer(&mut h);
+        let accepted_at = *h.time.borrow();
+        {
+            let mut native = h.native.borrow_mut();
+            native.client_pending = true;
+            native.native_preedit = None;
+        }
+        h.elapse(1000);
+        h.engine.tick();
+        assert!(h.engine.candidate.as_ref().unwrap().same_key(&before));
+        assert_eq!(h.engine.suggestion.text, " is ready");
+        assert!(locked(&h.storage).stats.is_empty());
+        let after = field("The update is ready");
+        {
+            let mut native = h.native.borrow_mut();
+            native.client_pending = false;
+            native.snapshot = Some(after.clone());
+            native
+                .host_events
+                .push(client_applied(&before, &after, &receipt, accepted_at));
+        }
+        h.engine.tick();
+        assert_eq!(
+            h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+            "The update is ready"
+        );
+        assert_eq!(locked(&h.storage).stats, [(" is ready".into(), true)]);
+    }
+    #[test]
+    fn revoked_client_confirmation_protects_provenance_without_recording() {
+        let mut config = Config::default();
+        config.statistics_enabled = true;
+        let mut h = harness(config, None);
+        let (before, receipt) = client_offer(&mut h);
+        let mut disabled = h.engine.config.clone();
+        disabled.global_enabled = false;
+        h.engine.command(Command::ApplyConfig {
+            config: disabled,
+            persist: false,
+        });
+        h.native
+            .borrow_mut()
+            .host_events
+            .push(platform::NativeHostEvent::Indeterminate(
+                platform::NativeHostUncertain {
+                    presentation: receipt,
+                    before: before.clone(),
+                    mode: "completion".into(),
+                    accepted_at: *h.time.borrow(),
+                },
+            ));
+        h.engine.tick();
+        assert!(
+            h.engine
+                .uncertain_provenance
+                .as_ref()
+                .is_some_and(|(authority, _)| *authority == before.authority())
+        );
+        assert!(locked(&h.storage).stats.is_empty());
+        assert!(locked(&h.storage).records.is_empty());
+        assert!(h.native.borrow().edits.is_empty());
+    }
+    #[test]
+    fn client_app_toggle_reenables_a_disabled_app_without_text_capture_permission() {
+        let mut h = harness(Config::default(), None);
+        let snapshot = h.native.borrow().snapshot.clone().unwrap();
+        h.engine
+            .config
+            .app_rules
+            .entry(format!("app:{}", snapshot.app_id))
+            .or_default()
+            .insert("enabled".into(), json!(false));
+        assert!(!h.engine.allowed(&snapshot.app_id, &snapshot.domain, ""));
+        h.native.borrow_mut().client_owned = true;
+        h.native
+            .borrow_mut()
+            .host_events
+            .push(platform::NativeHostEvent::Action {
+                action: Action::AppToggle,
+                origin: Foreground {
+                    app_id: snapshot.app_id.clone(),
+                    domain: snapshot.domain.clone(),
+                    window_id: snapshot.window_id.clone(),
+                    window_pid: snapshot.window_pid,
+                    ..Default::default()
+                },
+            });
+        h.engine.tick();
+        assert!(h.engine.allowed(&snapshot.app_id, &snapshot.domain, ""));
+        assert_eq!(
+            h.native.borrow().snapshot.as_ref().unwrap().text,
+            snapshot.text
         );
     }
 

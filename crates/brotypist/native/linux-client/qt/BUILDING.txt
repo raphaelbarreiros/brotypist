@@ -1,0 +1,185 @@
+BroTypist cooperating Qt6 client — source-only integration handoff
+
+Reviewed upstream:
+  fcitx/fcitx5-qt 5.1.16
+  commit 115750044f3d0db16ca5859808c7da830fd1ff52
+  https://github.com/fcitx/fcitx5-qt/tree/115750044f3d0db16ca5859808c7da830fd1ff52
+
+Owned files:
+  brotypistqtclient.h / brotypistqtclient.cpp — first-party QObject/D-Bus adapter
+  BroTypistQtClient.cmake — explicit, non-default attachment to existing Qt6 plugin
+  fcitx5-qt-5.1.16-brotypist.patch — small upstream hooks, no vendored framework
+
+Build inputs for the integration owner (not executed here):
+  Exact private CachyOS Qt 6.12.0 headers, including GuiPrivate, and libraries.
+  Reviewed upstream checkout above, retaining upstream symlinks/license notices.
+  Existing Fcitx5 Qt6 DBusAddons, xkbcommon and normal upstream build inputs.
+  Existing upstream Core/Gui/GuiPrivate/DBus/Widgets linkage; no QtQuick linkage,
+  new package, Rust dependency, JSON library, helper service or application code.
+  CMake 3.17+ (CMAKE_CURRENT_FUNCTION_LIST_DIR); staged CMake 4.4.5 suffices.
+  Apply the supplied patch only in an owned disposable upstream source checkout.
+  Set BROTYPIST_QT_CLIENT_DIR to this directory when configuring the Qt6 build.
+  Keep ENABLE_QT4=OFF, ENABLE_QT5=OFF and ENABLE_QT6=ON upstream.
+  Retain upstream's private-ABI Qt6 version checks and original target identity.
+  BROTYPIST_NATIVE_QT6 is defined on the Qt6 plugin target only. Qt6's upstream
+  source/header symlinks point into qt5/platforminputcontext, hence guarded hunks
+  in those shared files. This is not a Qt5 implementation/support claim.
+  Parent owns source staging, exact configure flags, signed-SDK metadata
+  relocation, compilation, packaging and review-gated execution. Do not alter
+  the verified original package payload or install/activate a normal IM module.
+
+Activation boundary:
+  Unset or empty BROTYPIST_NATIVE_BUS creates no BroTypist client. A nonempty
+  value is a bus NAME on the existing session bus, never a bus address. The
+  unique registered service owner alone can invoke the exported client methods.
+  Registration/Event are asynchronous with bounded outstanding events, generation
+  checks, owner-change/disconnect revocation, and owner-thread native access.
+  No inference/model preparation or persistent user data lives in this adapter.
+
+  A current authenticated, unexpired policy permits metadata-only toggle and
+  app_toggle even when enabled=false. Disabled policy is retained for those
+  bindings only: Capture, presentation, edits and force/alternatives/synonyms
+  remain enabled/privacy/composition-gated. Expired/disconnected policy permits
+  no owned action. The broker independently authorizes every action.
+  Metadata/registration publish field_token, window_token, document_token and
+  focus_generation. Actual focus/window/field/exported-block transitions
+  withdraw policy immediately without unregistering the client. Live Configure
+  must echo the exact fresh scope/generation; stale replies are refused. Inert
+  expires_ns=0 always withdraws regardless of old scope. Ordinary input does not
+  advance focus_generation. Action events freeze this scope plus policy_epoch
+  before asynchronous broker authentication; no later-target substitution.
+Target capabilities:
+  QLineEdit, unmasked Normal echo: complete native text/cursor/selection witness.
+  QTextEdit and QPlainTextEdit: complete public document/plain-text/cursor
+  witness, matching the actual native current-block IM query. Native rich text
+  remains owned by the host; commit/undo use its original IM-event semantics.
+  Qt Quick TextInput, unmasked Normal echo: complete text/property witness
+  cross-checked against native IM surrounding/cursor/anchor queries.
+  Qt Quick TextEdit and ordinary QObject IM consumers: actual bounded native
+  ImSurroundingText scope. ImAbsolutePosition - ImCursorPosition identifies a
+  nonnegative native block origin; an opaque field+origin token identifies the
+  exact exported scope. Selection must be wholly in that scope and exactly
+  equal ImCurrentSelection. Unknown/truncated/cross-block selections refuse.
+  No whole-document promise is made for a block-scoped document_token.
+  Missing/unsafe native query contracts refuse; opaque custom undo internals
+  alone do not exclude a conforming native IM consumer. Existing host undo is
+  preserved, not emulated or strengthened if the host provides none.
+
+Composition/presentation/edit authority:
+  Hooks read the real in-process xkb_compose_state, actual user preedit list,
+  per-focused-context client-side IM UI state, and outstanding native key RPC
+  count. UI state updates occur only after original sender/window validation and
+  are cleared with that context's candidate-window reset. Missing compose
+  state or pending delivery is unknown. The original Fcitx key/Compose/dead-key/
+  AltGr/Unicode path is unchanged for every non-owned key. AboveTab matches the
+  original toolkit XKB native scan 49 for xcb/Wayland, never blindly adds eight.
+  AltGr/GroupSwitch is not reinterpreted as Ctrl+Alt. Shortcut names and modifier
+  spelling follow the shared Rust contract (word/all/force/app_toggle/toggle/
+  alternatives/synonyms). Backtab normalizes to Tab while retaining Shift;
+  keypad Enter normalizes to canonical Return.
+  Ghosts are separately owned formatted QInputMethodEvents with empty commit
+  strings; they never enter upstream preedit_/commitPreedit_ or its auto-commit
+  buffer. Clear/reset/focus-out therefore cannot commit speculative text.
+  User/foreign IM preedit is independently tracked from actual native events.
+  Inline ghosts require the actual native text viewport, shaped glyph/underline
+  ink and advance/whitespace bounds, LTR layout and one fully fitting line.
+  QLineEdit uses its Qt6.12 style contents rectangle minus actual text margins;
+  uninspectable side-widget/action margins, non-left/non-center alignment and
+  visible child overlays refuse inline presentation. QTextEdit/PlainTextEdit use
+  their real viewport and delivered block QTextLayout preedit/glyph runs.
+  Quick TextInput requires native padding/baseline/font/clip, unwrapped left
+  layout and a proven axis-aligned unit transform. Generic QObject/Quick
+  TextEdit still support safe native chooser/edits but refuse inline ghosts
+  without equivalent text-layout authority. Tabs/line separators/multiline,
+  clipped ink and unknown geometry never authorize hidden text.
+  Choosers use an actual transient, non-focus-taking QWindow/QBackingStore,
+  including with QGuiApplication-only Quick apps. The same retained native
+  QTextLayouts supply chooser painting and ink/advance measurements. Only a
+  fully fitting prefix (at most nine entries, original indices 0..n-1) is
+  returned/authorized.
+  Receipts mean native delivery/layout capability, NOT rendered pixels.
+  Presentation is NOT acceptance authorization. Present always leaves the
+  capability unarmed. Arm(a{sv})->b requires the same authenticated owner,
+  offer/capability/policy epoch, exact original lease, exact shown_text and
+  shown_values, and a fresh unchanged target witness plus native visibility.
+  Only then may word/all/choice keys or clicks edit. Unarmed acceptance keys
+  remain original events and unarmed popup rows cannot edit.
+  Arm stores the core's exact word_text/all_text computed by the existing
+  Suggestion::accept logic, including configured trailing space/punctuation.
+  word_text/all_text exist only in Arm, never in the Present offer. The adapter
+  does not reconstruct model acceptance from display text. Expiry-only policy
+  renewal never arms a capability, and Arm never extends its original lease.
+  Ghost and chooser have independent receipts, arming and expiry leases.
+  Completion plus anchored alternatives can remain concurrently presented.
+  Presenting/clearing/expiring a chooser does not clear a completion ghost;
+  Clear(capability_id) removes only that receipt, while Clear(0) removes both.
+  Qt has one native in-field preedit slot. Correction replaces completion, and
+  a completion requested while a live correction occupies that slot refuses
+  with higher-priority-native-preedit rather than acknowledging hidden output.
+  Word/all uses the live higher-priority ghost first. Only with no ghost may
+  emoji/synonyms word/all choose original index 0. Alternatives never steal
+  word/all; arrows select a visible original index and Enter/click accepts it.
+  Chooser insertion is EXACT shown_values[index], without trailing-space
+  addition, and emits action=choice with the original choice_index.
+  A live lease and fresh full witness are checked again for every owned key or
+  choice click. Escape sends the frozen dismissed receipt; pause/app consume,
+  passthrough leaves the original key. Expiry-only policy extensions do not
+  clear a still-live ghost and never extend an existing offer's own deadline.
+  One QInputMethodEvent::setCommitString performs an acceptance. A selected
+  exact range uses (text,0,0), since Qt removes the existing selection itself;
+  collapsed replacement uses (text,start-caret,length). No SetText, destructive
+  delete/insert, retries or compensating edits. Before the sole dispatch, install
+  one frozen pending receipt with the original acceptance timestamp, Arm text,
+  range/action/index, policy, scope and lease. Unchanged immediate readback is
+  NOT rejection: actual native notifications/queries resolve exact expected
+  text/caret/selection, with a maximum 750ms native observation window and no
+  redispatch. Lost/expired/divergent/unknown outcomes finalize indeterminate.
+  Metadata.pending_edit stays true and public Capture stays empty until the
+  final accepted Event RPC ACK succeeds; an async send is not acknowledgment.
+  Proof is sent once to the original authenticated owner/client id. A successful
+  ACK is conclusive even if the callback runs late. Timeout/error retains the
+  single unconfirmed receipt/quarantine rather than exposing generated text as
+  authored. Failure recovery is deliberately not an implicit retry/reset.
+  Final proof precedes own changed notification. Nested real user input changes
+  user_revision and is never silently classified as generated output.
+
+Short fixed refusal reasons include:
+  unauthorized; stale-or-unsupported-target; disabled-feature; invalid-range;
+  selection-range-mismatch; unavailable-native-geometry;
+  preedit-not-fully-visible; native-preedit-refused; invalid-choices;
+  choices-not-fully-visible; target-changed-during-presentation; expired;
+  higher-priority-native-preedit.
+  Capture returns an empty dictionary for disabled/stale/protected/composing,
+  oversize, malformed-UTF16, unsupported-query or ambiguous-scope targets.
+
+Source-only limits:
+  No build, patch-application check, tests, lint, formatter, process launch,
+  installation, modified third-party execution or normal-app changes were run.
+  Qt6.12 compilation, private SDK linkage, actual native preedit/chooser geometry,
+  Wayland transient placement, custom QObject query compliance, composed-key
+  regressions, single-undo behavior and real D-Bus/core integration remain the
+  parent's integrated verification. No Qt5 or pixel/rendered/runtime claim.
+  A conforming host can defer, reject or normalize a dispatched IM edit; real
+  readback reports applied or indeterminate, never retries. Host-specific missing
+  undo remains a host baseline. No claim is made that arbitrary custom painting
+  exposes a provable inline viewport, or that transport failure can safely
+  release an unacknowledged native edit.
+
+Integration checks for the owner after source review:
+  Apply patch against the exact commit; configure/build only the private Qt6
+  target and confirm moc/QtDBus signatures. Exercise a disposable Qt Widgets,
+  Quick and custom-query field under the explicit private bus: all ordinary IME,
+  dead-key/Compose/AltGr/Unicode paths, active/unknown compose rejection, protected
+  fields (before text access), UTF16 surrogate selections/ranges, bounded block
+  identity, full-visible prefix receipts, Present-without-Arm passthrough,
+  receipt-loss/late-Arm refusal, exact Arm binding, configured trailing space,
+  completion/alternatives coexistence and independent Clear/expiry/Arm,
+  correction priority, emoji/synonyms index-0 versus ghost precedence,
+  alternatives arrow/Enter/click original indices, word/all/choice, exact selected and
+  collapsed replacement, accepted-before-changed, host undo, nested input, stale
+  focus/document/policy/selection, reset/commit/focus-out without ghost commit,
+  lease expiry, same-epoch expiry renewal, focused-proxy stale UI signals,
+  query-triggered target destruction, Backtab/keypad Enter bindings, actual text
+  margins/glyph overhang, delayed native commit and final ACK/quarantine,
+  stale Configure focus-generation refusal, action origin races, disconnect and
+  honest unsupported geometry/query refusals. Actual activation is review-gated.

@@ -679,7 +679,39 @@ impl Shell {
                         let _ = self.controller.hide_native();
                         continue;
                     }
-                    if self.controller.native_event_source().is_some() {
+                    if self.controller.client_owns_actions() {
+                        self.overlay.clear();
+                        let offered = (|| -> Option<bool> {
+                            let key: SnapshotKey =
+                                serde_json::from_value(event["key"].clone()).ok()?;
+                            let authority: Authority =
+                                serde_json::from_value(event["authority"].clone()).ok()?;
+                            let revision = event["revision"].as_u64()?;
+                            let mode = event["mode"].as_str()?;
+                            let mut shown = self
+                                .controller
+                                .present_client(&key, &authority, revision, mode)?;
+                            if event["choices"]
+                                .as_array()
+                                .is_some_and(|values| !values.is_empty())
+                            {
+                                let choices_mode = event["choices_mode"].as_str().unwrap_or(mode);
+                                if choices_mode != mode {
+                                    shown |= self
+                                        .controller
+                                        .present_client(&key, &authority, revision, choices_mode)
+                                        .unwrap_or(false);
+                                }
+                            }
+                            Some(shown)
+                        })()
+                        .unwrap_or(false);
+                        if !offered {
+                            let _ = self.controller.hide_native();
+                        }
+                        continue;
+                    }
+                    if self.controller.uses_native_presentation() {
                         // Native preedit authority is deliberately distinct from the
                         // overlay's rendered-pixel acknowledgment.
                         let offered = (|| -> Option<bool> {
@@ -752,7 +784,7 @@ impl Shell {
                         let _ = self.controller.hide_native();
                         continue;
                     }
-                    if self.controller.native_event_source().is_some() {
+                    if self.controller.uses_native_presentation() {
                         if self.controller.config().show_accessory {
                             let _ = self.controller.present_native(
                                 &text(&event, "native_anchor"),
