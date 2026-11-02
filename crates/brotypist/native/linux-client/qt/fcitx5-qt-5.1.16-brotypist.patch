@@ -151,9 +151,7 @@
      QObject *input = qGuiApp->focusObject();
      if (!input) {
          return;
-@@ -784,6 +824,11 @@
-         static_cast<FcitxQtICData *>(proxy->property("icData").value<void *>());
-     auto *w = data->window();
+@@ -786,4 +826,9 @@
      auto *window = focusWindowWrapper();
      if (window && w == window) {
 +#ifdef BROTYPIST_NATIVE_QT6

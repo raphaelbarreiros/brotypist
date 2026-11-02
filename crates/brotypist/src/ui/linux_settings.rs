@@ -173,23 +173,25 @@ impl SettingsWindow {
         footer.set_margin_start(12);
         footer.set_margin_end(12);
         footer.set_margin_bottom(12);
-        let dirty = label("Save to apply changes.");
+        let dirty = label("");
         footer.pack_start(&dirty, true, true, 0);
         let save = button("Save", sender, UiAction::Save);
         let revert = button("Revert", sender, UiAction::Revert);
         for b in [
-            button("Quit BroTypist", sender, UiAction::Quit),
+            button("Quit", sender, UiAction::Quit),
             revert.clone(),
             save.clone(),
-            button("Close window", sender, UiAction::CloseSettings),
+            button("Close", sender, UiAction::CloseSettings),
         ] {
             footer.pack_start(&b, false, false, 0);
         }
         root.pack_end(&footer, false, false, 0);
-        let login = gtk::CheckButton::with_label("Launch BroTypist at login (applied immediately)");
-        let history = gtk::CheckButton::with_label(
-            "Learn locally from recorded writing by default (applied immediately)",
-        );
+        let login = gtk::CheckButton::with_label("Launch at login");
+        login.set_tooltip_text(Some("Changes apply immediately."));
+        let history = gtk::CheckButton::with_label("Learn from my writing");
+        history.set_tooltip_text(Some(
+            "Changes apply immediately. Recorded writing stays on this device.",
+        ));
         let login_status = label("");
         let status_label = label("");
         let model = label("");
@@ -243,32 +245,26 @@ impl SettingsWindow {
         let p = &pages["General"];
         let app = section(p, "Application");
         app.pack_start(&s.login, false, false, 0);
-        app.pack_start(
-            &label("Closing keeps BroTypist in the tray; Quit stops assistance."),
-            false,
-            false,
-            0,
-        );
         app.pack_start(&s.login_status, false, false, 0);
         s.check(&app, "global_enabled", "Enable predictions", "");
         s.check(
             &app,
             "enabled",
-            "Enable in eligible apps by default",
+            "Enable by default",
             "Application rules may override this default.",
         );
         s.check(
             &app,
             "show_accessory",
-            "Show accessory beside the text field",
-            "",
+            "Show accessory button",
+            "Beside the active text field.",
         );
         let stats_section = section(p, "Statistics");
         s.check(
             &stats_section,
             "statistics_enabled",
-            "Count successfully accepted completions",
-            "Aggregate counts only, never draft text.",
+            "Count accepted predictions",
+            "Aggregate counts only; never draft text.",
         );
         let period = gtk::ComboBoxText::new();
         for (id, title) in [
@@ -1109,23 +1105,32 @@ impl SettingsWindow {
         self.login.set_active(c.launch_at_login);
         self.history.set_active(c.record_history);
         self.loading.set(false);
-        let status = if std::env::var_os("INKLOW_HOME").is_some() {
-            "Login registration is disabled for isolated profiles.".into()
+        let (status, detail) = if std::env::var_os("INKLOW_HOME").is_some() {
+            (
+                "Isolated profile",
+                "Login registration is disabled for isolated profiles.".into(),
+            )
         } else {
             match system::launch_at_login_state() {
-                Ok(true) => "Launch at login is on.".into(),
-                Ok(false) => "Launch at login is off.".into(),
-                Err(e) => format!("Login registration unavailable: {e}"),
+                Ok(enabled) => (
+                    if enabled { "Login: on" } else { "Login: off" },
+                    "Operating-system login-item state. Changes apply immediately.".into(),
+                ),
+                Err(error) => (
+                    "Login unavailable",
+                    format!("Login registration unavailable: {error}"),
+                ),
             }
         };
-        self.login_status.set_text(&status);
+        self.login_status.set_text(status);
+        self.login_status.set_tooltip_text(Some(&detail));
     }
     pub fn set_recovery(&self, recovery: bool) {
-        self.recovery.set_text(if recovery {
-            "No system tray. Keep Settings open, or Quit BroTypist."
-        } else {
-            ""
-        });
+        self.recovery
+            .set_text(if recovery { "No system tray" } else { "" });
+        self.recovery.set_tooltip_text(Some(
+            "Keep Settings open for access, or choose Quit to stop BroTypist.",
+        ));
     }
     pub fn status(&self, status: &Value, c: &Config, update: &Value) {
         let dirty = self.draft.borrow().is_dirty();
@@ -1154,9 +1159,9 @@ impl SettingsWindow {
         } else if status["state"] == "paused" {
             "Paused"
         } else if status["inline_available"] == true {
-            "Eligible field"
+            "Ready"
         } else {
-            "Unsupported / inactive field"
+            "No supported field"
         };
         let model = if c.backend == "gguf" {
             std::path::Path::new(&c.model_path)
@@ -1173,8 +1178,19 @@ impl SettingsWindow {
         } else {
             text(status, "message")
         };
-        self.notice
-            .set_text(&format!("{field_state} · {model}\n{message}"));
+        let summary = format!("{field_state} · {model}");
+        if c.global_enabled
+            && !matches!(
+                status["state"].as_str(),
+                Some("idle" | "ready" | "paused" | "disabled")
+            )
+            && !message.is_empty()
+        {
+            self.notice.set_text(&format!("{summary}\n{message}"));
+        } else {
+            self.notice.set_text(&summary);
+        }
+        self.notice.set_tooltip_text(Some(&message));
         self.model.set_text(&format!(
             "Selected: {}\n{}",
             if c.backend == "gguf" {
@@ -1237,7 +1253,18 @@ impl SettingsWindow {
                 let totals = &result["totals"];
                 let today = &result["today"];
                 let average = &result["daily_average"];
-                self.stats.set_text(&format!("{} completions · {} words · {} characters\nEstimated time saved: {} seconds · {} active days\nToday: {} completions · {} words · {} characters\nDaily average: {} completions · {} words · {} characters",totals["completions"],totals["words"],totals["characters"],result["estimated_seconds"],result["active_days"],today["completions"],today["words"],today["characters"],average["completions"],average["words"],average["characters"]));
+                self.stats.set_text(&format!(
+                    "{} predictions · {} words · {} characters\nEstimated time saved: {} seconds",
+                    totals["completions"],
+                    totals["words"],
+                    totals["characters"],
+                    result["estimated_seconds"]
+                ));
+                self.stats.set_tooltip_text(Some(&format!(
+                    "{} active days\nToday: {} predictions · {} words · {} characters\nDaily average: {} predictions · {} words · {} characters",
+                    result["active_days"], today["completions"], today["words"], today["characters"],
+                    average["completions"], average["words"], average["characters"]
+                )));
                 for child in self.stats_rows.children() {
                     self.stats_rows.remove(&child);
                 }
@@ -1255,8 +1282,9 @@ impl SettingsWindow {
                 self.stats_rows.show_all();
             }
             "statistics_cleared" => {
+                self.stats.set_text("Statistics cleared");
                 self.stats
-                    .set_text("Statistics cleared. Encrypted history was kept.");
+                    .set_tooltip_text(Some("Encrypted history was kept."));
                 for child in self.stats_rows.children() {
                     self.stats_rows.remove(&child);
                 }

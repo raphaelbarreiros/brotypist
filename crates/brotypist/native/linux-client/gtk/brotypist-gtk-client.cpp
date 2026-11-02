@@ -178,7 +178,8 @@ struct Bridge {
                 while (g_variant_iter_next(&it,"{&sv}",&key,&value)) {
                     GVariant *other = g_variant_lookup_value(dict == policy ? p : policy,key,nullptr);
                     if (std::strcmp(key,"expires_ns") && (!other || !g_variant_equal(value,other))) same = false;
-                    if (other) g_variant_unref(other); g_variant_unref(value);
+                    if (other) g_variant_unref(other);
+                    g_variant_unref(value);
                 }
             }
         }
@@ -407,10 +408,23 @@ Snapshot BtGtkClient::metadata() {
     s.field = token(G_OBJECT(widget));
     s.window = native_window ? token(G_OBJECT(gdk_window_get_toplevel(native_window))) : std::string();
     s.document = token(GTK_IS_ENTRY(widget) ? G_OBJECT(gtk_entry_get_buffer(GTK_ENTRY(widget))) : G_OBJECT(gtk_text_view_get_buffer(GTK_TEXT_VIEW(widget))));
-    GtkInputPurpose purpose; GtkInputHints hints;
-    if (GTK_IS_ENTRY(widget)) { auto *e = GTK_ENTRY(widget); purpose = gtk_entry_get_input_purpose(e); hints = gtk_entry_get_input_hints(e); s.protected_ = !gtk_entry_get_visibility(e); s.editable = gtk_editable_get_editable(GTK_EDITABLE(e)); }
-    else { auto *v = GTK_TEXT_VIEW(widget); purpose = gtk_text_view_get_input_purpose(v); hints = gtk_text_view_get_input_hints(v); s.protected_ = false; s.editable = gtk_text_view_get_editable(v); if (buffer != gtk_text_view_get_buffer(v)) { s.protected_ = true; s.editable = false; } }
-    s.protected_ = s.protected_ || purpose == GTK_INPUT_PURPOSE_PASSWORD || purpose == GTK_INPUT_PURPOSE_PIN || (hints & GTK_INPUT_HINT_PRIVATE);
+    GtkInputPurpose purpose;
+    if (GTK_IS_ENTRY(widget)) {
+        auto *entry = GTK_ENTRY(widget);
+        purpose = gtk_entry_get_input_purpose(entry);
+        s.protected_ = !gtk_entry_get_visibility(entry);
+        s.editable = gtk_editable_get_editable(GTK_EDITABLE(entry));
+    } else {
+        auto *view = GTK_TEXT_VIEW(widget);
+        purpose = gtk_text_view_get_input_purpose(view);
+        s.protected_ = false;
+        s.editable = gtk_text_view_get_editable(view);
+        if (buffer != gtk_text_view_get_buffer(view)) {
+            s.protected_ = true;
+            s.editable = false;
+        }
+    }
+    s.protected_ = s.protected_ || purpose == GTK_INPUT_PURPOSE_PASSWORD || purpose == GTK_INPUT_PURPOSE_PIN;
     s.purpose = s.protected_ ? "password" : purpose == GTK_INPUT_PURPOSE_FREE_FORM ? "free-form" : purpose == GTK_INPUT_PURPOSE_EMAIL ? "email" : purpose == GTK_INPUT_PURPOSE_URL ? "url" : "other";
     s.focus = focused && gtk_widget_has_focus(widget) && gtk_widget_is_sensitive(widget) && gtk_widget_get_mapped(widget) && bridge().active == this;
     if (pending || simple_depth || simple_state == Unknown || !compose || (remote && !remote_ordered)) s.composing = "unknown";
