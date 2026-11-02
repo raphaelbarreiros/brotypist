@@ -4,7 +4,7 @@
 
 ## 0.5.2 — macOS stable channel
 
-- Scope: macOS-only stable release preparation. Final package verification and publication are separate release gates; Windows and Linux remain **ALPHA**, with Windows MSI distribution held and ordinary Wayland inline completion unavailable. No full app-compatibility or three-platform parity claim.
+- Scope: [published macOS-only stable release](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.2), source `730cb78cec9b9bb7032bf6634a3b215342c4aafa`. Windows and Linux remain **ALPHA**, with Windows MSI/OTA distribution held and ordinary Wayland inline completion unavailable. No full app-compatibility or three-platform parity claim.
 - Improve macOS responsiveness by avoiding repeated spelling assessment and overdue capture loops, releasing the learning-store lock before native waits, and safely restoring unchanged visible predictions.
 - Keep code-editor completions an explicit per-app opt-in. VS Code's verified geometry path requires `editor.accessibilitySupport: "on"` and `editor.editContext: false`; BroTypist does not silently change these settings or disable Copilot/Cursor Tab. Direct Cursor support remains unverified.
 - Keep reliable focus, text, caret/glyph geometry and insertion authority mandatory. Refuse protected fields, active composition and unsafe targets; WordCraft's nonfunctional editing contract remains excluded. Packages remain Apple Development-signed, **not notarized**.

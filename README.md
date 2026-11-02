@@ -22,10 +22,10 @@ use. Accept what fits, dismiss what doesn't, and keep writing—without moving
 your draft into a chatbot. It lives in the menu bar or system tray, with
 OS-native Settings and local model inference.
 
-**Native Rust, with macOS first.** **0.5.2 is the macOS-only stable release
-channel; Windows and Linux remain ALPHA.** Publication follows final signed
-package verification; use assets actually listed in
-[Releases](https://github.com/renan-brasilio/brotypist/releases).
+**Native Rust, with macOS first.** **[0.5.2 is the Latest macOS-only stable
+release](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.2);
+Windows and Linux remain ALPHA.** It contains Apple Silicon DMG/ZIP assets only,
+bound to source `730cb78`.
 The Mac update improves responsiveness and editor compatibility, removes raw
 debug text from Setup, and retains downloaded models in durable app data.
 Model relevance and text-field compatibility still vary: stable does not mean
