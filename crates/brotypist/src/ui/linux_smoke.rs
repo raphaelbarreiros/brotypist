@@ -426,7 +426,7 @@ impl Scenario {
                     "Save before quitting?",
                     gtk::ResponseType::Cancel,
                 );
-                click_button(&s.settings.window, "Quit BroTypist")?;
+                click_button(&s.settings.window, "action_quit")?;
                 self.next();
             }
             16 => {
@@ -658,7 +658,7 @@ impl Scenario {
                     "all seven consent, dirty-draft and no-tray prompts were answered through their actual native buttons",
                 )?;
                 self.completed = true;
-                click_button(&s.settings.window, "Quit BroTypist")?;
+                click_button(&s.settings.window, "action_quit")?;
                 self.cleanup_at.set(Some(Instant::now()));
                 self.next();
             }
@@ -675,22 +675,19 @@ fn field_text(field: &gtk::TextView) -> Result<String> {
         .unwrap_or_default()
         .into())
 }
-fn click_button(root: &impl IsA<gtk::Widget>, title: &str) -> Result<()> {
-    fn find(widget: &gtk::Widget, title: &str) -> Option<gtk::Button> {
+fn click_button(root: &impl IsA<gtk::Widget>, id: &str) -> Result<()> {
+    fn find(widget: &gtk::Widget, id: &str) -> Option<gtk::Button> {
         if let Some(button) = widget.downcast_ref::<gtk::Button>() {
-            if button.label().as_deref() == Some(title)
-                && button.is_visible()
-                && button.is_sensitive()
-            {
+            if button.widget_name() == id && button.is_visible() && button.is_sensitive() {
                 return Some(button.clone());
             }
         }
         widget
             .downcast_ref::<gtk::Container>()
-            .and_then(|c| c.children().iter().find_map(|child| find(child, title)))
+            .and_then(|c| c.children().iter().find_map(|child| find(child, id)))
     }
-    find(root.as_ref(), title)
-        .with_context(|| format!("Missing actual native button: {title}"))?
+    find(root.as_ref(), id)
+        .with_context(|| format!("Missing actual native action button: {id}"))?
         .clicked();
     Ok(())
 }
