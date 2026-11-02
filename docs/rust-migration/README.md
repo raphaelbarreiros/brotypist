@@ -2,10 +2,10 @@
 
 # BroTypist: feature-preserving Rust conversion
 
-Status: **Final macOS 0.5.0 source `52604fc3ff1a82cf36a04223cb80ee1f12997893` is built, Apple Development-signed, tested, locally installed and [published as a Mac-only prerelease](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.0). Latest stable remains `v0.4.13`.** Source was merged through PR #1 at `c307260084039e6a0c1d6ae4f96aaeb57bf72eee`; subsequent final Mac proof and the separately sourced `gamer-pc` 0.5.0 deployment are recorded in section 23. macOS model-quality limits and Windows/Linux acceptance gates remain open; this is not full three-platform parity.
+Status: **0.5.2 is the macOS-only stable release channel; Windows and Linux remain ALPHA.** Final candidate signing, package/runtime proof and publication must be recorded before claiming delivery. Section 24 retains the earlier locally installed 0.5.1 observations; those receipts do not authenticate the later candidate with retained-model migration. Section 23 preserves the published 0.5.0 Mac prerelease history and separately sourced Linux deployment. macOS packages remain Apple Development-signed, **not notarized**; model-quality, application-geometry/security and Windows/Linux acceptance limits remain open. This is not full three-platform parity.
 Baseline: `6eaeed5fe56e1ea8dcf878b1b7498f922c26fd59`, version 0.4.13.
 
-Requested outcome: convert the application to Rust for macOS, Windows and Linux while retaining all existing functionality. macOS remains the first parity gate; implemented Windows/Linux paths must also be migrated. The subsequent explicit macOS-only prerelease approval permits that bounded preview after its final source/package gates, without making missing Windows/Linux evidence a pass or including those platforms in publication. It does not authorize reduced functionality, cloud features, security-policy changes or consent changes. Local Mac and PC replacements preserve rollback copies and external user data.
+Requested outcome: convert the application to Rust for macOS, Windows and Linux while retaining all existing functionality. The current explicit release priority is **macOS-only 0.5.2 stable**, then continued Windows/Linux **ALPHA** work. Missing Windows/Linux evidence is not a pass and those platforms are not included in the Mac stable publication. This does not authorize reduced functionality, cloud features, security-policy changes or consent changes. Local replacements require explicit host authorization and preserve rollback copies and external user data.
 
 Read only the section/artifact needed:
 
@@ -109,7 +109,7 @@ For each integrated packet, one independent reviewer checks semantic/data/securi
 
 ## 6. Current verification evidence and gates
 
-The table retains source-bound historical observations. Section 23 records the newer 0.5.0 deployment, approved release scope and outstanding verification; earlier passes do not automatically apply to later source revisions.
+The table retains source-bound historical observations. Sections 23–24 record the 0.5.0 deployment and earlier local 0.5.1 correction; earlier passes do not automatically apply to the final 0.5.2 stable candidate. The current channel boundary is macOS stable, Windows/Linux ALPHA.
 
 | Boundary | Observed evidence | Limits / next gate |
 | --- | --- | --- |
@@ -125,7 +125,7 @@ The full 51-case Gemma corpus matched every insertion/decoded-choice value and p
 
 Six selected direct/worker benchmark cases passed mechanical checks. Separate direct EN/PT diagnostics exercised the 256-token cap, sampler/BOS/token budgets and process-lifetime RSS. Direct cancellation passed; one after-result worker cancellation was explicitly inconclusive because the producer had already finished. These are not physical-typing latency or universal stochastic-output claims.
 
-Remaining acceptance boundaries: current Windows MSI ownership/installation/repair/installed runtime; signed external-host editing/readback and live TCC beyond the bounded observations below; actual KWin controls/refusal/input forwarding/cleanup and personal PC typing; the full cross-platform previous-release upgrade/rollback/OTA matrix; unavailable large-model scenarios and semantic model quality. No provider/model, ownership or paint-safety gate is relaxed to obtain a pass. Section 23 records final Mac source-bound package verification, genuine healthy updater transactions and bounded negative component fixtures. Approved Mac prerelease publication remains pending; Latest stable remains `v0.4.13`.
+Remaining acceptance boundaries: current Windows MSI ownership/installation/repair/installed runtime; signed external-host editing/readback and live TCC beyond the bounded observations below; actual KWin controls/refusal/input forwarding/cleanup and personal PC typing; the full cross-platform previous-release upgrade/rollback/OTA matrix; unavailable large-model scenarios and semantic model quality. No provider/model, ownership or paint-safety gate is relaxed to obtain a pass. Section 23 records historical Mac source-bound package verification, genuine healthy updater transactions and bounded negative component fixtures. Final 0.5.2 Mac stable candidate proof and publication remain separate gates; Windows/Linux remain ALPHA, Windows MSI distribution is held, and ordinary Wayland inline completion is unavailable.
 
 ## 7. Authorized local macOS installation
 
@@ -342,7 +342,7 @@ The approved **[Mac-only prerelease is published](https://github.com/renan-brasi
 
 ## 24. macOS 0.5.1 responsiveness, Monaco support and clean Setup
 
-Signed **0.5.1**, payload source **`751ee74e2275d81827412d8508cdb09d5f039f1f`**, is installed locally with the existing designated requirement. The [sanitized correction receipt](../../evidence/rust-migration/macos-0.5.1-responsiveness.json) binds the regression run, actual editor observations, measured desktop response and preservation checks. This is a local correction, **not a new published release**; existing `v0.5.0` assets and tag were not changed.
+Signed **0.5.1**, payload source **`751ee74e2275d81827412d8508cdb09d5f039f1f`**, was installed locally with the existing designated requirement. The [sanitized correction receipt](../../evidence/rust-migration/macos-0.5.1-responsiveness.json) binds that regression run, actual editor observations, measured desktop response and preservation checks. These are **earlier local correction observations, not final stable-release proof**; existing `v0.5.0` assets and tag were not changed. The intended 0.5.2 stable release additionally retains selected primary and battery catalog models in durable app data, verifies missing old-default weights before retention and preserves originals/custom paths. Its final source, package identities and publication evidence must be supplied by the release owner.
 
 ### Runtime and native corrections
 
@@ -382,5 +382,5 @@ The observer sampled WindowServer at 16 ms; actual [warm prediction glyphs](../.
 
 The signed app was atomically replaced, its real GUI loop and eight-second startup liveness observed, and the exact previous signed 0.5.0 app plus opaque profile retained privately. The original Code settings also have a verified private rollback copy. History database bytes remained unchanged; normal BroTypist settings differ only by the approved Code rule. This is preservation/retained rollback evidence, not a new updater downgrade matrix. The app remains Apple Development-signed, **not notarized**.
 
-No usable Cursor bundle was present; the user chose installed Code instead of a Cursor download. The shared Monaco path is exercised, **direct Cursor support is unverified**. WordCraft 0.13.2's owned document reported writable AXValue but its setter returned success without changing text; the user chose BroTypist-only changes, so no upstream WordCraft edit or unsafe document-role fallback was made. **Windows remains held** under the existing explicit decision.
+No usable Cursor bundle was present; the user chose installed Code instead of a Cursor download. The shared Monaco path is exercised, **direct Cursor support is unverified**. Code-editor completions remain a per-app opt-in; the VS Code settings above are explicit prerequisites, not silent preference changes. BroTypist does not disable Copilot or Cursor Tab; use one automatic inline provider per editor. WordCraft 0.13.2's owned document reported writable AXValue but its setter returned success without changing text; the user chose BroTypist-only changes, so no upstream WordCraft edit or unsafe document-role fallback was made. Reliable field identity, caret/glyph geometry and insertion authority remain mandatory; protected fields, active composition and unsafe/unobservable targets stay excluded. **Windows and Linux remain ALPHA; Windows MSI distribution remains held and ordinary Wayland inline completion remains unavailable.**
 

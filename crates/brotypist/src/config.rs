@@ -411,31 +411,29 @@ pub fn save_config(config: &Config) -> Result<()> {
 
 /// Cheap path-only eligibility: no file reads, hashing, copies, or directory creation.
 pub fn model_storage_migration_needed(config: &Config) -> Result<bool> {
-    if config.backend != "gguf" || config.model_path.is_empty() {
+    if config.backend != "gguf" {
         return Ok(false);
     }
     let Some(legacy) = crate::paths::legacy_model_dir()? else {
         return Ok(false);
     };
-    Ok(legacy_model_selection(
-        config,
-        &legacy,
-        &crate::paths::model_dir()?,
-        crate::models::presets(),
-    )?
-    .is_some())
+    let presets = crate::models::presets();
+    Ok(
+        legacy_model_selection(config, &legacy, &crate::paths::model_dir()?, presets)?.is_some()
+            || configured_battery_model(config, presets).is_some(),
+    )
 }
 
-/// One-time retention of the selected legacy default model, on a background owner.
-/// This changes only the worker-owned model path after verified no-clobber retention.
-/// The caller must revalidate the live selection and save the latest configuration;
-/// ordinary loads remain read-only, and failures leave the old selection usable.
+/// Retain selected primary and battery weights on a background owner.
+/// Returns whether the worker-owned primary path changed; a battery-only copy
+/// needs no settings write because its catalog identity already names the model.
+/// Callers revalidate the live primary selection before adopting a changed path.
 pub fn migrate_model_storage(
     config: &mut Config,
     cancel: &crate::models::DownloadCancellation,
 ) -> Result<bool> {
     cancel.check()?;
-    if config.backend != "gguf" || config.model_path.is_empty() {
+    if config.backend != "gguf" {
         return Ok(false);
     }
     let Some(legacy) = crate::paths::legacy_model_dir()? else {
@@ -458,7 +456,25 @@ fn migrate_model_storage_in(
     cancel: &crate::models::DownloadCancellation,
 ) -> Result<bool> {
     cancel.check()?;
-    let Some(preset) = legacy_model_selection(config, legacy, durable, presets)? else {
+    if config.backend != "gguf" || legacy == durable {
+        return Ok(false);
+    }
+    let primary = legacy_model_selection(config, legacy, durable, presets)?;
+    if let Some(battery) = configured_battery_model(config, presets)
+        .filter(|battery| primary.is_none_or(|primary| primary.id != battery.id))
+    {
+        cancel.check()?;
+        match std::fs::symlink_metadata(durable.join(&battery.filename)) {
+            // An existing durable selection is already authoritative. Only
+            // missing weights need retention; do not rehash it at every launch.
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                crate::models::retain_legacy_model(battery, legacy, durable, cancel)?;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    let Some(preset) = primary else {
         return Ok(false);
     };
     let retained = durable.join(&preset.filename);
@@ -486,6 +502,19 @@ fn legacy_model_selection<'a>(
     Ok(presets
         .iter()
         .find(|preset| selected == legacy.join(&preset.filename)))
+}
+
+fn configured_battery_model<'a>(
+    config: &Config,
+    presets: &'a [crate::models::ModelPreset],
+) -> Option<&'a crate::models::ModelPreset> {
+    (config.backend == "gguf")
+        .then(|| {
+            presets
+                .iter()
+                .find(|preset| preset.id == config.battery_model)
+        })
+        .flatten()
 }
 
 /// Explicit paths permit disposable profiles without changing process environment.
@@ -834,6 +863,7 @@ mod tests {
                 .to_str()
                 .unwrap()
                 .into(),
+            battery_model: "balanced".into(),
             ..Config::default()
         };
         let original = config.clone();
@@ -868,6 +898,73 @@ mod tests {
         assert!(result.success());
         assert!(!profile.exists());
         assert!(!forbidden.exists());
+    }
+
+    #[test]
+    fn retention_preserves_the_selected_battery_model_with_legacy_or_custom_primary() {
+        use sha2::{Digest, Sha256};
+        for legacy_primary in [true, false] {
+            let root = tempfile::tempdir().unwrap();
+            let legacy = root.path().join("cache/models");
+            let durable = root.path().join("data/models");
+            std::fs::create_dir_all(&legacy).unwrap();
+            let primary_bytes = b"owned primary model";
+            let battery_bytes = b"owned distinct battery model";
+            let mut primary = crate::models::get_preset("tiny").unwrap().clone();
+            primary.size_bytes = primary_bytes.len() as u64;
+            primary.sha256 = format!("{:x}", Sha256::digest(primary_bytes));
+            let mut battery = crate::models::get_preset("balanced").unwrap().clone();
+            battery.size_bytes = battery_bytes.len() as u64;
+            battery.sha256 = format!("{:x}", Sha256::digest(battery_bytes));
+            let old_primary = legacy.join(&primary.filename);
+            let old_battery = legacy.join(&battery.filename);
+            std::fs::write(&old_primary, primary_bytes).unwrap();
+            std::fs::write(&old_battery, battery_bytes).unwrap();
+            let selected = if legacy_primary {
+                old_primary.clone()
+            } else {
+                let custom = root.path().join("custom-primary.gguf");
+                std::fs::write(&custom, primary_bytes).unwrap();
+                custom
+            };
+            let mut config = Config {
+                model_path: selected.to_str().unwrap().into(),
+                model_id: primary.id.clone(),
+                battery_model: battery.id.clone(),
+                global_enabled: false,
+                record_history: false,
+                ..Config::default()
+            };
+            let previous = config.clone();
+            assert_eq!(
+                migrate_model_storage_in(
+                    &mut config,
+                    &legacy,
+                    &durable,
+                    &[primary.clone(), battery.clone()],
+                    &crate::models::DownloadCancellation::new(),
+                )
+                .unwrap(),
+                legacy_primary,
+            );
+            let mut expected = previous;
+            if legacy_primary {
+                expected.model_path = durable.join(&primary.filename).to_str().unwrap().into();
+            }
+            assert_eq!(config, expected);
+            assert_eq!(
+                std::fs::read(durable.join(&battery.filename)).unwrap(),
+                battery_bytes
+            );
+            assert_eq!(std::fs::read(&old_battery).unwrap(), battery_bytes);
+            assert_eq!(std::fs::read(&selected).unwrap(), primary_bytes);
+            std::fs::remove_dir_all(&legacy).unwrap();
+            assert_eq!(
+                std::fs::read(durable.join(&battery.filename)).unwrap(),
+                battery_bytes
+            );
+            assert_eq!(std::fs::read(&config.model_path).unwrap(), primary_bytes);
+        }
     }
 
     #[test]
