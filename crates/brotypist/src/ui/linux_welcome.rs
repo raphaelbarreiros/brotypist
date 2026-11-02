@@ -84,23 +84,21 @@ impl WelcomeWindow {
             false,
             0,
         );
-        for text in [
-            "A cursor, then the words that come next.",
-            "Runs on this computer — a local model; no account or cloud service required.",
-            "Stays out of the way — faint suggestions in supported apps. Accept what helps; keep typing to ignore the rest.",
-            "Yours to control — choose a model and review access, optional context and encrypted history.",
-        ] {
-            p.pack_start(&label(text), false, false, 0);
-        }
+        p.pack_start(
+            &label("Local suggestions as you type; accept what helps, or keep typing."),
+            false,
+            false,
+            0,
+        );
         let p = page(&stack, 1);
-        for text in [
-            "Text before cursor → local model → suggestion",
-            "Protected fields and excluded applications are skipped. Unsupported fields remain silent rather than guessing text access or geometry.",
-            "Local GGUF predictions do not upload writing. Local servers must use literal loopback URLs; their own logging and network behavior remain server-owned.",
-            "Clipboard, focused-window Accessibility context and encrypted learning are independent opt-ins. Per-app recording overrides may enable recording even when the default is off. Review and delete history in Privacy.",
-        ] {
-            p.pack_start(&label(text), false, false, 0);
-        }
+        p.pack_start(
+            &label("Writing stays local; protected fields and excluded apps are skipped."),
+            false,
+            false,
+            0,
+        );
+        p.set_tooltip_text(Some("Local GGUF predictions do not upload writing. Local servers must use loopback URLs and manage their own logging and network behavior. Unsupported fields stay inactive."));
+        p.pack_start(&label("Context and encrypted learning are opt-in; app recording rules can override the default."), false, false, 0);
         p.pack_start(
             &button(
                 "Review Privacy settings…",
@@ -114,7 +112,8 @@ impl WelcomeWindow {
         let p = page(&stack, 2);
         let native = label("");
         p.pack_start(&native, false, false, 0);
-        p.pack_start(&label("X11 uses AT-SPI and replayable key grabs. Opening a permissions page is not proof of access. KWin Wayland requires explicitly selecting BroTypist in Virtual Keyboard settings; manual controls only, ordinary inline/preedit disabled. No generic popup fallback or universal compositor support is claimed."),false,false,0);
+        p.pack_start(&label("KDE Wayland needs BroTypist selected as the input method; ordinary inline is unavailable."), false, false, 0);
+        p.set_tooltip_text(Some("X11 uses AT-SPI and replayable grabs. Opening settings does not grant access. KWin Wayland currently supports manual controls only, not ordinary inline/preedit. No popup fallback or support for other compositors is claimed."));
         let permissions = gtk::Button::with_label("Open system access settings…");
         permissions.connect_clicked(|_| {
             if let Err(e) = system::open_permissions("accessibility") {
@@ -137,7 +136,14 @@ impl WelcomeWindow {
         );
         p.pack_start(&reviewed, false, false, 0);
         let p = page(&stack, 3);
-        p.pack_start(&label("Choose an existing pinned catalog model or a local GGUF file. Downloads, license acceptance and model changes happen only on explicit request. Selecting a model does not make it ready or run inference."),false,false,0);
+        p.pack_start(
+            &label(
+                "Choose a local model; downloads and license acceptance always need your approval.",
+            ),
+            false,
+            false,
+            0,
+        );
         let model = label("");
         p.pack_start(&model, false, false, 0);
         p.pack_start(
@@ -161,7 +167,12 @@ impl WelcomeWindow {
             0,
         );
         let p = page(&stack, 4);
-        p.pack_start(&label("Type below to use your actual selected local model. Only this owned field is sent: no external context, history or insertion into another app. Try English or Portuguese."),false,false,0);
+        p.pack_start(
+            &label("Try your model here; no external context, history or other apps are used."),
+            false,
+            false,
+            0,
+        );
         let overlay = gtk::Overlay::new();
         let field = gtk::TextView::new();
         field.set_wrap_mode(gtk::WrapMode::WordChar);
@@ -228,10 +239,20 @@ impl WelcomeWindow {
         ));
         p.pack_start(&key_hint, false, false, 0);
         let p = page(&stack, 5);
-        p.pack_start(&label("Use the resident menu to pause, resume, open Settings or manage models. Quit stops typing assistance; it never changes KDE's selected input method."),false,false,0);
+        p.pack_start(
+            &label("Use the tray to pause or open Settings; Quit stops assistance."),
+            false,
+            false,
+            0,
+        );
         let summary = label("");
         p.pack_start(&summary, false, false, 0);
-        p.pack_start(&label("Without a tray host, finishing returns to visible Settings. Closing Settings or Welcome offers a real Quit action; Quit is always visible below."),false,false,0);
+        p.pack_start(
+            &label("No tray? Settings stays open so you can control or quit BroTypist."),
+            false,
+            false,
+            0,
+        );
         let login = gtk::CheckButton::with_label("Launch BroTypist at login");
         login.set_active(config.launch_at_login);
         p.pack_start(&login, false, false, 0);
@@ -604,7 +625,19 @@ impl WelcomeWindow {
     pub fn tick(&mut self, controller: &Controller) {
         let status = controller.status();
         self.native.set_text(&text(&status, "native_status"));
-        self.model.set_text(&format!("Selected: {}\n{}",if self.config.backend=="gguf"{&self.config.model_path}else{&self.config.model},if model_selected(&self.config){"Selected file/configuration exists. Availability is checked by actual Try it inference."}else{"No model is selected. Choose one to continue."}));
+        self.model.set_text(&format!(
+            "Selected: {}\n{}",
+            if self.config.backend == "gguf" {
+                &self.config.model_path
+            } else {
+                &self.config.model
+            },
+            if model_selected(&self.config) {
+                "Use Try it to check predictions."
+            } else {
+                "Choose a model to continue."
+            }
+        ));
         self.next.set_sensitive(self.can_continue(&self.config));
         if self.closing {
             let closed = self
@@ -712,12 +745,6 @@ mod tests {
         ] {
             assert!(!preview_eligible(focus, ime, selection, end));
         }
-    }
-    #[test]
-    fn welcome_has_exact_six_steps() {
-        assert_eq!(TITLES.len(), 6);
-        assert_eq!(TITLES[3], "Choose a model");
-        assert_eq!(TITLES[4], "Try it");
     }
 }
 

@@ -159,7 +159,7 @@ impl Item {
             "com.inklow.Inklow".into(),
             s.icons.clone(),
             "BroTypist".into(),
-            s.title.clone(),
+            format!("{}\n{}", s.title, s.native_detail),
         )
     }
     #[zbus(property)]
@@ -379,22 +379,16 @@ fn rows(status: &Value, config: &Config) -> Vec<Row> {
     };
     let mut rows = vec![
         make(&format!("BroTypist — {}", text(status, "state")), "", false),
-        make(&text(status, "native_status"), "", false),
         make(
-            &format!(
-                "Model: {}",
-                if config.backend == "gguf" {
-                    &config.model_path
-                } else {
-                    &config.model
-                }
-            ),
+            if status["inline_available"] == true {
+                "Inline available in this field"
+            } else {
+                "Inline unavailable — review Privacy settings"
+            },
             "",
             false,
         ),
-        make(&text(status, "inline_message"), "", false),
     ];
-    rows.push(make(&text(status, "context_message"), "", false));
     let mut separator = make("", "", false);
     separator.separator = true;
     rows.push(separator);
@@ -423,11 +417,7 @@ fn rows(status: &Value, config: &Config) -> Vec<Row> {
     for (index, (title, action, enabled)) in [
         ("Request completion", "force", true),
         ("Alternative words", "alternatives", true),
-        (
-            "Selected-text synonyms — unavailable on Linux",
-            "synonyms",
-            false,
-        ),
+        ("Synonyms (unavailable on Linux)", "synonyms", false),
         ("Settings…", "settings", true),
         ("Welcome…", "welcome", true),
         ("Models…", "models", true),
@@ -632,15 +622,17 @@ impl Tray {
     }
     pub fn update(&self, status: &Value, config: &Config) {
         let mut s = self.state.lock().unwrap();
-        let title = format!(
-            "BroTypist — {} — {}",
-            text(status, "state"),
-            text(status, "message")
-        );
+        let title = format!("BroTypist — {}", text(status, "state"));
         let detail = format!(
-            "{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\nModel: {}\nApp predictions: {} · Context: {}",
+            text(status, "message"),
             text(status, "native_status"),
             text(status, "inline_message"),
+            if config.backend == "gguf" {
+                &config.model_path
+            } else {
+                &config.model
+            },
             status["current_app_enabled"],
             text(status, "context_message")
         );

@@ -49,7 +49,12 @@ impl ModelWindow {
         root.set_margin_top(20);
         root.set_margin_bottom(20);
         window.add(&root);
-        root.pack_start(&label("Download verified local weights or reference your own GGUF file. Selecting a model does not run inference. Your writing is not uploaded."),false,false,0);
+        root.pack_start(
+            &label("Download a model or choose a GGUF file; your writing stays local."),
+            false,
+            false,
+            0,
+        );
         let catalog = gtk::ComboBoxText::new();
         catalog.set_widget_name("available_local_models");
         root.pack_start(&catalog, false, false, 0);
@@ -99,12 +104,16 @@ impl ModelWindow {
                 .find(|m| m["id"].as_str() == id.as_deref())
             {
                 details.set_text(&format!(
-                    "{}\n\nLicense: {}\n{}\n{}",
+                    "{}\nLicense: {}{}",
                     text(model, "description"),
                     text(model, "license_name"),
-                    text(model, "license_url"),
-                    text(model, "availability")
+                    if text(model, "availability").is_empty() {
+                        String::new()
+                    } else {
+                        format!("\n{}", text(model, "availability"))
+                    }
                 ));
+                details.set_tooltip_text(Some(&text(model, "license_url")));
             }
         });
         let items = inventory.clone();
@@ -272,11 +281,11 @@ impl ModelWindow {
         self.status.set_text(if !message.is_empty() {
             &message
         } else if active {
-            "Downloading verified weights; cancellation preserves previous weights."
+            "Downloading; existing models are kept if cancelled."
         } else if selected.is_some_and(|m| m["installed"] == true) {
-            "Installed. Choose Use installed model to select it; no inference is performed here."
+            "Installed. Select Use installed model to switch."
         } else {
-            "No download is running. Download or choose a local GGUF explicitly."
+            "Download a model or choose a GGUF file."
         });
     }
 }

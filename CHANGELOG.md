@@ -2,7 +2,16 @@
 
 # Changelog
 
-## 0.5.1 — macOS responsiveness and editor compatibility
+## 0.5.2 — macOS stable channel
+
+- Scope: macOS-only stable release preparation. Final package verification and publication are separate release gates; Windows and Linux remain **ALPHA**, with Windows MSI distribution held and ordinary Wayland inline completion unavailable. No full app-compatibility or three-platform parity claim.
+- Improve macOS responsiveness by avoiding repeated spelling assessment and overdue capture loops, releasing the learning-store lock before native waits, and safely restoring unchanged visible predictions.
+- Keep code-editor completions an explicit per-app opt-in. VS Code's verified geometry path requires `editor.accessibilitySupport: "on"` and `editor.editContext: false`; BroTypist does not silently change these settings or disable Copilot/Cursor Tab. Direct Cursor support remains unverified.
+- Keep reliable focus, text, caret/glyph geometry and insertion authority mandatory. Refuse protected fields, active composition and unsafe targets; WordCraft's nonfunctional editing contract remains excluded. Packages remain Apple Development-signed, **not notarized**.
+- Store downloaded weights in durable app data instead of purgeable OS caches. Isolate model downloads under `INKLOW_HOME/models` for disposable profiles rather than sharing the normal model directory.
+- Verify selected old-default primary and battery catalog weights against pinned size and SHA-256 before retention. Preserve original weights, existing durable selections, custom paths and unrelated settings; verify off the GUI thread, cancel on shutdown and reject stale primary selections or failed settings saves. Battery-only retention requires no settings write.
+
+### Implementation details
 
 - Preserve the completed spelling verdict through an unchanged automatic-generation handoff instead of repeating native assessment before the first streamed offer. Real input, focus and policy changes still revoke it.
 - Schedule routine native capture intervals from capture completion rather than an already expired tick-start deadline, avoiding back-to-back AX pressure from a busy host. Preserve immediate input/action capture and existing debounce, context and authority checks.

@@ -81,11 +81,10 @@ function Get-VerifiedTinyModel {
     $catalogue = Get-Content -LiteralPath 'crates/brotypist/assets/models.json' -Raw | ConvertFrom-Json
     $tiny = @($catalogue | Where-Object { $_.id -ceq 'tiny' })
     if ($tiny.Count -ne 1 -or [IO.Path]::GetFileName($tiny[0].filename) -cne $tiny[0].filename) { throw 'Expected one canonical Tiny preset with a plain filename.' }
-    if ($IsWindows) {
-        $cache = Join-Path $env:LOCALAPPDATA 'inklow/Cache/models'
-    } elseif ($IsLinux -and ![string]::IsNullOrWhiteSpace($env:XDG_CACHE_HOME)) {
-        $cache = Join-Path $env:XDG_CACHE_HOME 'inklow/models'
-    } else { throw 'Installer worker requires an explicit native CI model cache.' }
+    if ([string]::IsNullOrWhiteSpace($env:INKLOW_HOME) -or ![IO.Path]::IsPathRooted($env:INKLOW_HOME)) {
+        throw 'Native model verification requires an explicit isolated app profile.'
+    }
+    $cache = Join-Path $env:INKLOW_HOME 'models'
     $model = Join-Path $cache $tiny[0].filename
     if (!(Test-Path -LiteralPath $model -PathType Leaf)) { throw 'Earlier native CLI phase did not download the Tiny model.' }
     if ((Get-Item -LiteralPath $model).Length -ne $tiny[0].size_bytes -or (Get-FileHash -LiteralPath $model -Algorithm SHA256).Hash.ToLowerInvariant() -cne $tiny[0].sha256) {
@@ -155,6 +154,9 @@ switch ($Phase) {
     }
     desktop {
         Import-NativeRuntime
+        # Reuse only this verified, explicitly supplied read-only test artifact;
+        # a new profile must never inherit another profile's model directory.
+        $env:BROTYPIST_SMOKE_MODEL = Get-VerifiedTinyModel
         # Canonical UI smoke requires a distinct, genuinely empty disposable
         # profile, not the configuration touched by CLI/worker smoke.
         $env:INKLOW_HOME = Join-Path $env:RUNNER_TEMP 'brotypist-native-ui-profile'

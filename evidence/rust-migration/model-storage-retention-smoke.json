@@ -1,0 +1,53 @@
+{
+  "schema": "brotypist-model-storage-retention-smoke/1",
+  "status": "exercised on macOS arm64; unreleased source",
+  "model": {
+    "id": "gemma4-e2b",
+    "filename": "gemma-4-E2B-it-Q4_0.gguf",
+    "bytes": 2841481184,
+    "catalog_sha256": "8e30dff3ac4c8434c49a7036fa15564bdbb6044e42bf04550bf1a096ad7e6a52",
+    "downloaded_by_smoke": false
+  },
+  "retention": {
+    "environment": "new owned disposable HOME; no INKLOW_HOME; real weights hard-linked into its legacy default cache",
+    "exit_code": 0,
+    "elapsed_seconds": 127.839,
+    "build_profile": "debug; not a UI responsiveness measurement",
+    "executable_sha256": "e89307662cea660b9d29551b8362bc5271145155fe2eb9fe7a8e12113188a74e",
+    "catalog_verification": true,
+    "same_filesystem_hard_link_without_weight_copy": true,
+    "legacy_source_preserved_before_owned_cache_removal": true,
+    "durable_model_survives_owned_cache_removal": true,
+    "repeated_migration_is_noop": true,
+    "saved_model_selection_and_disabled_history_consents_preserved": true,
+    "normal_source_file_and_inode_preserved": true,
+    "normal_profile_read_or_modified": false,
+    "helper_source_removed_after_smoke": true,
+    "scope_note": "This executable predates the later removal of an unnecessary read-only hard-link flush; the read-only retention correction is covered by the subsequent macOS workspace run. Windows runtime is held."
+  },
+  "native_inference_after_owned_cache_removal": {
+    "executable": "BroTypist-cli",
+    "executable_sha256": "1235322ec0f5df17628073c6423511930f10ba5e20fa93fe83bec0a4132a8e47",
+    "model_argument": "explicit retained model in the disposable HOME",
+    "synthetic_prompt": "A França tem como capital a cidade de ",
+    "actual_stdout": "Paris.",
+    "exit_code": 0,
+    "elapsed_seconds": 2.791,
+    "timing_scope": "process startup plus CLI completion; not desktop keystroke-to-prediction latency"
+  },
+  "subsequent_workspace_verification": {
+    "command": "cargo test --locked --workspace",
+    "library_tests_passed": 408,
+    "offline_review_tests_passed": 13,
+    "xtask_tests_passed": 48,
+    "additional_isolated_child_invocations_passed": 3,
+    "failed": 0,
+    "coverage": "macOS/common source; Linux-only wire tests require native Linux execution"
+  },
+  "limits": [
+    "The original cache directory's deleter remains unidentified.",
+    "No normal application bundle or saved model path was changed by this smoke.",
+    "No native desktop rendering, keyboard acceptance, Linux application support or Windows runtime claim follows from this receipt.",
+    "No release was published."
+  ]
+}

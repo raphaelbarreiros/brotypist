@@ -28,6 +28,8 @@ use std::{
 };
 use unicode_normalization::UnicodeNormalization;
 
+mod native_client;
+
 #[derive(Clone, Debug)]
 pub enum Command {
     Action(Action),
@@ -883,6 +885,13 @@ impl Drop for AsyncPreparer {
 }
 
 #[derive(Clone)]
+enum PresentationEvidence {
+    Rendered,
+    NativePreedit(platform::NativePreedit),
+    NativeChoices(platform::NativeChoices),
+}
+
+#[derive(Clone)]
 struct Claim {
     key: SnapshotKey,
     authority: Authority,
@@ -891,6 +900,7 @@ struct Claim {
     visible: String,
     mode: String,
     count: usize,
+    evidence: PresentationEvidence,
 }
 #[derive(Clone, Copy)]
 struct CompletionOffer {
@@ -991,6 +1001,41 @@ struct Download {
     thread: JoinHandle<()>,
     receiver: Receiver<Value>,
 }
+struct ModelMigration {
+    cancel: models::DownloadCancellation,
+    thread: Option<JoinHandle<Result<Option<String>>>>,
+    provider: Vec<String>,
+    model_id: String,
+}
+impl ModelMigration {
+    fn start(config: &Config) -> Result<Self> {
+        let cancel = models::DownloadCancellation::new();
+        let worker_cancel = cancel.clone();
+        let mut selected = config.clone();
+        let thread = thread::Builder::new()
+            .name("brotypist-model-storage".into())
+            .spawn(move || {
+                config::migrate_model_storage(&mut selected, &worker_cancel)
+                    .map(|changed| changed.then_some(selected.model_path))
+            })?;
+        Ok(Self {
+            cancel,
+            thread: Some(thread),
+            provider: config.provider_identity(),
+            model_id: config.model_id.clone(),
+        })
+    }
+}
+impl Drop for ModelMigration {
+    fn drop(&mut self) {
+        self.cancel.set();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+const MODEL_STORAGE_WARNING: &str = "Couldn’t update model storage. Existing model kept.";
+
 const WHATSAPP_APP_ID: &str = "net.whatsapp.WhatsApp";
 
 #[derive(Clone, Copy, Default, serde::Serialize)]
@@ -1227,6 +1272,7 @@ impl Controller {
             Box::new(platform::create_bridge),
         )?;
         engine.set_spelling_factory(Box::new(native_spelling));
+        engine.start_model_migration();
         Self::with_engine(engine)
     }
     pub fn with_engine(engine: Engine) -> Result<Self> {
@@ -1244,6 +1290,7 @@ impl Controller {
     }
     pub fn poll(&self) -> Vec<Value> {
         let mut engine = self.engine.borrow_mut();
+        engine.pump_client_confirmations();
         while let Ok(command) = self.receiver.try_recv() {
             engine.command(command);
         }
@@ -1307,6 +1354,47 @@ impl Controller {
             bridge.present_native(anchor, text, paused)
         })
     }
+    pub fn set_native_panel_environment(
+        &self,
+        width: i32,
+        height: i32,
+        scale: i32,
+        dark: bool,
+    ) -> Result<()> {
+        self.engine
+            .borrow_mut()
+            .bridge
+            .as_mut()
+            .map_or(Ok(()), |bridge| {
+                bridge.set_native_panel_environment(width, height, scale, dark)
+            })
+    }
+    pub fn present_preedit(
+        &self,
+        key: &SnapshotKey,
+        authority: &Authority,
+        revision: u64,
+        anchor: &str,
+        text: &str,
+    ) -> Result<bool> {
+        self.engine
+            .borrow_mut()
+            .present_preedit(key, authority, revision, anchor, text)
+    }
+    pub fn present_choices(
+        &self,
+        key: &SnapshotKey,
+        authority: &Authority,
+        revision: u64,
+        anchor: &str,
+        mode: &str,
+        values: &[String],
+    ) -> Result<bool> {
+        self.engine
+            .borrow_mut()
+            .present_choices(key, authority, revision, anchor, mode, values)
+    }
+
     pub fn hide_native(&self) -> Result<()> {
         self.engine
             .borrow_mut()
@@ -1355,6 +1443,7 @@ pub struct Engine {
     choices: Option<Choices>,
     correction: Option<(Snapshot, SpellingResult)>,
     claims: Vec<Arc<Claim>>,
+    native_client: native_client::State,
     attempted: Option<(SnapshotKey, Authority, String)>,
     failed_correction: Option<(SnapshotKey, Authority)>,
     pending_edit: Option<PendingEdit>,
@@ -1384,6 +1473,7 @@ pub struct Engine {
     docs: Option<(Value, platform::Foreground, u64)>,
     docs_after: Instant,
     download: Option<Download>,
+    model_migration: Option<ModelMigration>,
     download_status: Option<Value>,
     spelling_cleanup: Vec<JoinHandle<()>>,
     spelling_factory: Option<Box<dyn Fn() -> Arc<dyn Spelling>>>,
@@ -1591,6 +1681,7 @@ impl Engine {
             choices: None,
             correction: None,
             claims: Vec::new(),
+            native_client: native_client::State::default(),
             advance: None,
             redraw_pending: false,
             attempted: None,
@@ -1619,6 +1710,7 @@ impl Engine {
             docs: None,
             docs_after: now,
             download: None,
+            model_migration: None,
             download_status: None,
             spelling_cleanup: Vec::new(),
             spelling_factory: None,
@@ -2062,6 +2154,7 @@ impl Engine {
         allowed.then_some(info)
     }
     fn capture(&mut self) -> Option<Snapshot> {
+        self.pump_client_confirmations();
         if !self.native_ready || !self.active() || self.secure_input() != Some(false) {
             return None;
         }
@@ -2070,7 +2163,16 @@ impl Engine {
             return None;
         }
         let revision = self.user_revision()?;
-        let mut snapshot = self.bridge.as_mut()?.capture().ok().flatten()?;
+        let confirmed_before = self.native_client.confirmed;
+        let mut captured = self.bridge.as_mut()?.capture();
+        self.pump_client_confirmations();
+        if matches!(&captured, Ok(None)) && self.native_client.confirmed != confirmed_before {
+            // A real edit completed while a pending client capture was refused.
+            // Re-read once; never replay the edit or synthesize a snapshot.
+            captured = self.bridge.as_mut()?.capture();
+            self.pump_client_confirmations();
+        }
+        let mut snapshot = captured.ok().flatten()?;
         let after = self.foreground()?;
         if snapshot.protected
             || !snapshot.valid_range()
@@ -3169,14 +3271,307 @@ impl Engine {
             self.fail("Model release");
         }
     }
+    fn presentation_is_current(
+        &self,
+        key: &SnapshotKey,
+        authority: &Authority,
+        revision: u64,
+        mode: &str,
+    ) -> bool {
+        let completion_view = mode == "completion"
+            || (mode == "alternatives" && self.choices.as_ref().is_some_and(|c| c.anchored));
+        self.candidate
+            .as_ref()
+            .is_some_and(|s| s.key() == *key && s.authority() == *authority)
+            && Some(self.candidate_revision) == self.user_revision()
+            && if completion_view {
+                self.completion_offer.is_some_and(|offer| {
+                    offer.serial == revision
+                        && offer.epoch == self.current_epoch()
+                        && offer.revision == self.candidate_revision
+                }) && !self.input_pending.load(Ordering::Acquire)
+                    && self.native_input_revision() == Some(self.input_revision)
+            } else {
+                revision == self.candidate_revision
+            }
+    }
+    fn presentation_count(
+        &self,
+        key: &SnapshotKey,
+        authority: &Authority,
+        visible: &str,
+        mode: &str,
+    ) -> Option<usize> {
+        if visible.is_empty() {
+            return None;
+        }
+        match mode {
+            "completion" => (self.suggestion.snapshot.as_ref().is_some_and(|s| {
+                s.key() == *key
+                    && s.authority() == *authority
+                    && (s.inline_safe()
+                        || self.advance.as_ref().is_some_and(|(k, a, g, _)| {
+                            *k == *key && *a == *authority && g.inline_safe()
+                        }))
+            }) && self.suggestion.text.starts_with(visible))
+            .then_some(0),
+            "correction" => self
+                .correction
+                .as_ref()
+                .is_some_and(|(s, r)| {
+                    s.key() == *key && s.authority() == *authority && r.replacement == visible
+                })
+                .then_some(0),
+            "alternatives" | "synonyms" | "emoji" => {
+                let choices = self.choices.as_ref().filter(|choices| {
+                    choices.mode == mode
+                        && choices.snapshot.key() == *key
+                        && choices.snapshot.authority() == *authority
+                })?;
+                let count = visible
+                    .split('\n')
+                    .zip(&choices.values)
+                    .take_while(|(shown, value)| *shown == value.as_str())
+                    .count();
+                (count != 0).then_some(count)
+            }
+            _ => None,
+        }
+    }
+    fn native_claim_valid(&self, claim: &Claim) -> bool {
+        match &claim.evidence {
+            PresentationEvidence::Rendered => true,
+            PresentationEvidence::NativePreedit(receipt) => self
+                .bridge
+                .as_ref()
+                .is_some_and(|bridge| bridge.native_preedit_valid(receipt)),
+            PresentationEvidence::NativeChoices(receipt) => self
+                .bridge
+                .as_ref()
+                .is_some_and(|bridge| bridge.native_choices_valid(receipt)),
+        }
+    }
+    fn present_preedit(
+        &mut self,
+        key: &SnapshotKey,
+        authority: &Authority,
+        revision: u64,
+        anchor: &str,
+        text: &str,
+    ) -> Result<bool> {
+        if !self.native_ready
+            || self.stopping
+            || self.shortcuts_suspended
+            || !self.presentation_is_current(key, authority, revision, "completion")
+            || self
+                .presentation_count(key, authority, text, "completion")
+                .is_none()
+            || !self
+                .candidate
+                .as_ref()
+                .is_some_and(|s| s.native_anchor == anchor)
+        {
+            return Ok(false);
+        }
+        let receipt = self
+            .bridge
+            .as_mut()
+            .map_or(Ok(None), |bridge| bridge.present_preedit(anchor, text))?;
+        let Some(receipt) = receipt else {
+            return Ok(false);
+        };
+        let valid = receipt.anchor == anchor
+            && receipt.text == text
+            && Some(receipt.revision) == self.user_revision()
+            && self.presentation_is_current(key, authority, revision, "completion")
+            && self
+                .bridge
+                .as_ref()
+                .is_some_and(|bridge| bridge.native_preedit_valid(&receipt));
+        if !valid {
+            if let Some(bridge) = &mut self.bridge {
+                let _ = bridge.hide_native();
+            }
+            return Ok(false);
+        }
+        self.claims.retain(|claim| claim.mode != "completion");
+        self.claims.push(Arc::new(Claim {
+            key: key.clone(),
+            authority: authority.clone(),
+            revision: self.candidate_revision,
+            epoch: self.current_epoch(),
+            visible: receipt.text.clone(),
+            mode: "completion".into(),
+            count: 0,
+            evidence: PresentationEvidence::NativePreedit(receipt),
+        }));
+        self.refresh_arming();
+        Ok(true)
+    }
+    fn present_choices(
+        &mut self,
+        key: &SnapshotKey,
+        authority: &Authority,
+        revision: u64,
+        anchor: &str,
+        mode: &str,
+        values: &[String],
+    ) -> Result<bool> {
+        if !matches!(mode, "alternatives" | "synonyms" | "emoji")
+            || !self.native_ready
+            || self.stopping
+            || self.shortcuts_suspended
+            || !self.presentation_is_current(key, authority, revision, mode)
+            || !self
+                .candidate
+                .as_ref()
+                .is_some_and(|s| s.native_anchor == anchor)
+            || !self
+                .choices
+                .as_ref()
+                .is_some_and(|choices| choices.mode == mode && choices.values == values)
+        {
+            return Ok(false);
+        }
+        let receipt = self
+            .bridge
+            .as_mut()
+            .map_or(Ok(None), |bridge| bridge.present_choices(anchor, values))?;
+        let Some(receipt) = receipt else {
+            return Ok(false);
+        };
+        let count = receipt.values.len();
+        let valid = count != 0
+            && count <= values.len()
+            && receipt.values == values[..count]
+            && receipt.anchor == anchor
+            && Some(receipt.revision) == self.user_revision()
+            && self.presentation_is_current(key, authority, revision, mode)
+            && self
+                .bridge
+                .as_ref()
+                .is_some_and(|bridge| bridge.native_choices_valid(&receipt));
+        if !valid {
+            if let Some(bridge) = &mut self.bridge {
+                let _ = bridge.hide_native();
+            }
+            return Ok(false);
+        }
+        self.claims.retain(|claim| claim.mode != mode);
+        self.claims.push(Arc::new(Claim {
+            key: key.clone(),
+            authority: authority.clone(),
+            revision: self.candidate_revision,
+            epoch: self.current_epoch(),
+            visible: receipt.values.join("\n"),
+            mode: mode.into(),
+            count,
+            evidence: PresentationEvidence::NativeChoices(receipt),
+        }));
+        self.refresh_arming();
+        Ok(true)
+    }
+    fn renew_native_presentations(&mut self) {
+        let renew_by = self.now() + Duration::from_millis(100);
+        for _ in 0..self.claims.len() {
+            let Some(claim) = self
+                .claims
+                .iter()
+                .find(|claim| match &claim.evidence {
+                    PresentationEvidence::Rendered => false,
+                    PresentationEvidence::NativePreedit(receipt) => receipt.expires_at <= renew_by,
+                    PresentationEvidence::NativeChoices(receipt) => receipt.expires_at <= renew_by,
+                })
+                .cloned()
+            else {
+                break;
+            };
+            let view_revision = if claim.mode == "completion"
+                || (claim.mode == "alternatives"
+                    && self
+                        .choices
+                        .as_ref()
+                        .is_some_and(|choices| choices.anchored))
+            {
+                self.completion_offer.map(|offer| offer.serial)
+            } else {
+                Some(claim.revision)
+            };
+            let renewed = if claim.epoch == self.current_epoch()
+                && Some(claim.revision) == self.user_revision()
+            {
+                if self
+                    .bridge
+                    .as_ref()
+                    .is_some_and(|bridge| bridge.client_owns_actions())
+                {
+                    Ok(view_revision
+                        .and_then(|revision| {
+                            self.present_client(&claim.key, &claim.authority, revision, &claim.mode)
+                        })
+                        .unwrap_or(false))
+                } else {
+                    match (&claim.evidence, view_revision) {
+                        (PresentationEvidence::NativePreedit(receipt), Some(revision)) => self
+                            .present_preedit(
+                                &claim.key,
+                                &claim.authority,
+                                revision,
+                                &receipt.anchor,
+                                &receipt.text,
+                            ),
+                        (PresentationEvidence::NativeChoices(receipt), Some(revision)) => {
+                            let values = self
+                                .choices
+                                .as_ref()
+                                .map(|choices| choices.values.clone())
+                                .unwrap_or_default();
+                            self.present_choices(
+                                &claim.key,
+                                &claim.authority,
+                                revision,
+                                &receipt.anchor,
+                                &claim.mode,
+                                &values,
+                            )
+                        }
+                        _ => Ok(false),
+                    }
+                }
+            } else {
+                Ok(false)
+            };
+            if !matches!(renewed, Ok(true)) {
+                self.claims
+                    .retain(|current| matches!(&current.evidence, PresentationEvidence::Rendered));
+                if let Some(bridge) = &mut self.bridge {
+                    let _ = bridge.hide_native();
+                }
+                self.redraw_pending = true;
+                self.refresh_arming();
+                break;
+            }
+        }
+    }
+
     fn refresh_arming(&self) {
+        let client_owned = self
+            .bridge
+            .as_ref()
+            .is_some_and(|bridge| bridge.client_owns_actions());
         let Ok(mut a) = self.armed.try_lock() else {
             return;
         };
-        if self.shortcuts_suspended || self.stopping {
+        if self.shortcuts_suspended || self.stopping || client_owned {
             a.claims.clear();
         } else {
-            a.claims.clone_from(&self.claims);
+            a.claims.clear();
+            a.claims.extend(
+                self.claims
+                    .iter()
+                    .filter(|claim| self.native_claim_valid(claim))
+                    .cloned(),
+            );
         }
         if let Some(candidate) = &self.candidate {
             if a.origin.as_ref().is_none_or(|origin| {
@@ -3194,7 +3589,7 @@ impl Engine {
         } else {
             a.origin = None;
         }
-        a.active = self.active() && self.native_ready && !self.shortcuts_suspended;
+        a.active = self.active() && self.native_ready && !self.shortcuts_suspended && !client_owned;
         a.alternatives = self.config.alternatives_enabled;
         a.synonyms = self.config.synonyms_enabled
             && self.candidate.as_ref().is_some_and(|s| self.can_replace(s));
@@ -3209,54 +3604,10 @@ impl Engine {
         visible: String,
         mode: String,
     ) {
-        let completion_view = mode == "completion"
-            || (mode == "alternatives" && self.choices.as_ref().is_some_and(|c| c.anchored));
-        let candidate = self.candidate.as_ref();
-        let current = candidate.is_some_and(|s| s.key() == key && s.authority() == authority)
-            && Some(self.candidate_revision) == self.user_revision()
-            && if completion_view {
-                self.completion_offer.is_some_and(|offer| {
-                    offer.serial == revision
-                        && offer.epoch == self.current_epoch()
-                        && offer.revision == self.candidate_revision
-                }) && !self.input_pending.load(Ordering::Acquire)
-                    && self.native_input_revision() == Some(self.input_revision)
-            } else {
-                revision == self.candidate_revision
-            };
-        let mut count = 0;
-        let valid = current
-            && !visible.is_empty()
-            && match mode.as_str() {
-                "completion" => {
-                    self.suggestion.snapshot.as_ref().is_some_and(|s| {
-                        s.key() == key
-                            && s.authority() == authority
-                            && (s.inline_safe()
-                                || self.advance.as_ref().is_some_and(|(k, a, g, _)| {
-                                    *k == key && *a == authority && g.inline_safe()
-                                }))
-                    }) && self.suggestion.text.starts_with(&visible)
-                }
-                "correction" => self.correction.as_ref().is_some_and(|(s, r)| {
-                    s.key() == key && s.authority() == authority && r.replacement == visible
-                }),
-                "alternatives" | "synonyms" | "emoji" => self.choices.as_ref().is_some_and(|c| {
-                    if c.mode != mode
-                        || c.snapshot.key() != key
-                        || c.snapshot.authority() != authority
-                    {
-                        return false;
-                    }
-                    count = visible
-                        .split('\n')
-                        .zip(&c.values)
-                        .take_while(|(drawn, value)| *drawn == value.as_str())
-                        .count();
-                    count != 0
-                }),
-                _ => false,
-            };
+        let current = self.presentation_is_current(&key, &authority, revision, &mode);
+        let count = self.presentation_count(&key, &authority, &visible, &mode);
+        let valid = current && count.is_some();
+        let count = count.unwrap_or(0);
         if key.app_id == WHATSAPP_APP_ID {
             let diagnostic = &mut self.whatsapp_diagnostic;
             diagnostic.observed = true;
@@ -3286,6 +3637,7 @@ impl Engine {
                 visible,
                 mode,
                 count,
+                evidence: PresentationEvidence::Rendered,
             }));
         }
         self.refresh_arming();
@@ -3310,6 +3662,7 @@ impl Engine {
                 && c.authority == current.authority()
                 && Some(c.revision) == self.user_revision()
                 && c.epoch == self.current_epoch()
+                && self.native_claim_valid(c)
         }) else {
             return false;
         };
@@ -3444,14 +3797,26 @@ impl Engine {
         // Any different observation expires the uncertain dispatch. Never retry it.
     }
     fn commit_edit(&mut self, edit: PendingEdit, readback: Snapshot) {
+        let count_completion = !self.completion_counted;
+        self.commit_confirmed_edit(edit, readback, true, count_completion);
+    }
+    fn commit_confirmed_edit(
+        &mut self,
+        edit: PendingEdit,
+        readback: Snapshot,
+        restore_view: bool,
+        count_completion: bool,
+    ) {
         if self.config.statistics_enabled {
             self.push_record(Record::Stats {
                 app: edit.before.app_id.clone(),
                 text: edit.text.clone(),
-                completion: !self.completion_counted,
+                completion: count_completion,
             });
         }
-        self.completion_counted = true;
+        if restore_view {
+            self.completion_counted = true;
+        }
         if self
             .uncertain_provenance
             .as_ref()
@@ -3459,7 +3824,13 @@ impl Engine {
         {
             self.uncertain_provenance = None;
         }
-        if self.record_allowed(&edit.before.app_id, &edit.before.domain) {
+        if self.record_allowed(&edit.before.app_id, &edit.before.domain)
+            && (restore_view
+                || self.session.as_ref().is_some_and(|session| {
+                    session.key == edit.before.authority()
+                        && session.text.as_str() == edit.before.text.as_ref()
+                }))
+        {
             self.history_suppressed = None;
             self.observe_session(&edit.before);
             if let Some(session) = &mut self.session {
@@ -3475,6 +3846,9 @@ impl Engine {
                     self.finish_session();
                 }
             }
+        }
+        if !restore_view {
+            return;
         }
         self.clear(false, true);
         self.candidate = Some(readback.clone());
@@ -3507,7 +3881,7 @@ impl Engine {
             primary_claim_index(&self.claims, true).map(|index| self.claims[index].clone())
         });
         if let Some(claim) = claim {
-            if !self.owns_claim(&claim) {
+            if !self.owns_claim(&claim) || !self.native_claim_valid(&claim) {
                 return false;
             }
             let Some(current) = self.capture() else {
@@ -3517,29 +3891,12 @@ impl Engine {
             if current.key() != claim.key
                 || current.authority() != claim.authority
                 || !self.input_claim_valid()
+                || !self.native_claim_valid(&claim)
             {
                 self.clear(true, true);
                 return false;
             }
-            self.clear(false, true);
-            self.mark_attempt(&current, &claim.mode); // R6: actual tool and authority.
-            if !bypass {
-                match self.config.escape_behavior.as_str() {
-                    "pause" => {
-                        self.field_pause = Some((
-                            current.authority(),
-                            self.now()
-                                + Duration::from_secs(self.config.escape_pause_seconds.into()),
-                        ))
-                    }
-                    "app" => {
-                        self.escape_app = current.app_id.clone();
-                        self.configure_native();
-                    }
-                    _ => {}
-                }
-            }
-            return bypass || self.config.escape_behavior != "passthrough";
+            return self.finish_dismissal(&current, &claim.mode, bypass, self.now(), true);
         }
         if !bypass && (self.request.is_some() || self.preparing.is_some()) {
             let mode = self
@@ -4103,6 +4460,59 @@ impl Engine {
             }
         }
     }
+    fn start_model_migration(&mut self) {
+        let needed = config::model_storage_migration_needed(&self.config);
+        match needed {
+            Ok(false) => {}
+            Ok(true) => match ModelMigration::start(&self.config) {
+                Ok(migration) => self.model_migration = Some(migration),
+                Err(_) if self.error.is_empty() => self.error = MODEL_STORAGE_WARNING.into(),
+                Err(_) => {}
+            },
+            Err(_) if self.error.is_empty() => self.error = MODEL_STORAGE_WARNING.into(),
+            Err(_) => {}
+        }
+    }
+    fn consume_model_migration(&mut self) {
+        if !self
+            .model_migration
+            .as_ref()
+            .and_then(|migration| migration.thread.as_ref())
+            .is_some_and(JoinHandle::is_finished)
+        {
+            return;
+        }
+        let mut migration = self
+            .model_migration
+            .take()
+            .expect("finished model migration");
+        let outcome = migration
+            .thread
+            .take()
+            .expect("model migration thread")
+            .join()
+            .unwrap_or_else(|_| Err(anyhow!("Model storage worker stopped.")));
+        if self.stopping {
+            return;
+        }
+        match outcome {
+            Ok(Some(path))
+                if self.config.provider_identity() == migration.provider
+                    && self.config.model_id == migration.model_id =>
+            {
+                // Only the migrated path is adopted. Consent and other settings
+                // may have changed while the file was verified in the worker.
+                let mut current = self.config.clone();
+                current.model_path = path;
+                if self.apply_config(current, true).is_err() && self.error.is_empty() {
+                    self.error = MODEL_STORAGE_WARNING.into();
+                }
+            }
+            Err(_) if self.error.is_empty() => self.error = MODEL_STORAGE_WARNING.into(),
+            _ => {}
+        }
+    }
+
     fn refresh_docs(&mut self, info: Option<platform::Foreground>) {
         let Some(revision) = self.native_input_revision() else {
             self.clear_docs();
@@ -4212,12 +4622,15 @@ impl Engine {
         {
             self.fail("Native event transport");
         }
+        self.consume_host_events();
         self.consume_download();
+        self.consume_model_migration();
         self.reap_spelling();
         if self.stopping {
             let _ = self.shutdown_step();
             return;
         }
+        self.run_host_actions();
         self.run_inputs();
         let now = self.now();
         if self.timed_pause && now >= self.paused_until {
@@ -4257,12 +4670,28 @@ impl Engine {
             }
         }
         let foreground = self.foreground();
+        if self.active()
+            && self
+                .bridge
+                .as_ref()
+                .is_some_and(|bridge| bridge.native_edit_pending())
+        {
+            let _ = self.flush_records();
+            self.refresh_arming();
+            return;
+        }
         if !self.active() || foreground.is_none() || self.secure_input() != Some(false) {
             self.observe(None);
             self.clear_docs();
         } else if now >= self.capture_after {
             let snapshot = self.capture();
-            self.observe(snapshot);
+            if !self
+                .bridge
+                .as_ref()
+                .is_some_and(|bridge| bridge.native_edit_pending())
+            {
+                self.observe(snapshot);
+            }
             // Slow native reads must not leave the next routine deadline
             // expired; input notifications and explicit actions still recapture.
             let captured_at = self.now();
@@ -4276,10 +4705,20 @@ impl Engine {
                     Duration::from_millis(100)
                 };
         }
+        if self
+            .bridge
+            .as_ref()
+            .is_some_and(|bridge| bridge.native_edit_pending())
+        {
+            let _ = self.flush_records();
+            self.refresh_arming();
+            return;
+        }
         self.refresh_docs(foreground);
         self.prepare_models();
         self.advance_preparation();
         self.consume_results();
+        self.renew_native_presentations();
         self.refresh_context();
         if let Some(s) = self.candidate.clone() {
             self.schedule(&s);
@@ -4363,6 +4802,9 @@ impl Engine {
         self.finish_session();
         self.stopping = true;
         self.bump_epoch();
+        if let Some(migration) = &self.model_migration {
+            migration.cancel.set();
+        }
         self.preparer.request_stop();
         if let Some(bridge) = &mut self.bridge {
             bridge.set_input_callback(None);
@@ -4452,6 +4894,10 @@ impl Engine {
         if self.download.is_none() {
             self.done.insert("download");
         }
+        self.consume_model_migration();
+        if self.model_migration.is_none() {
+            self.done.insert("model_migration");
+        }
         if self.done.contains("preparer") && !self.done.contains("records") {
             if self.flush_records().is_ok() {
                 self.done.insert("records");
@@ -4464,7 +4910,14 @@ impl Engine {
             self.done.insert("history");
         }
         let complete = [
-            "bridge", "worker", "preparer", "spelling", "download", "records", "history",
+            "bridge",
+            "worker",
+            "preparer",
+            "spelling",
+            "download",
+            "model_migration",
+            "records",
+            "history",
         ]
         .iter()
         .all(|name| self.done.contains(name));
@@ -4905,6 +5358,15 @@ mod tests {
         enables: usize,
         context: Option<ContextTicket>,
         configured: Config,
+        native_available: bool,
+        native_clock: Option<Rc<RefCell<Instant>>>,
+        native_preedit: Option<platform::NativePreedit>,
+        native_choices: Option<platform::NativeChoices>,
+        native_choice_limit: usize,
+        client_owned: bool,
+        client_pending: bool,
+        client_arm: bool,
+        host_events: Vec<platform::NativeHostEvent>,
     }
     struct Native(Rc<RefCell<NativeState>>);
     impl NativeBridge for Native {
@@ -4923,7 +5385,11 @@ mod tests {
             if let Some((clock, duration)) = &s.capture_time {
                 *clock.borrow_mut() += *duration;
             }
-            Ok(s.snapshot.clone())
+            Ok(if s.client_pending {
+                None
+            } else {
+                s.snapshot.clone()
+            })
         }
         fn context_ticket(
             &mut self,
@@ -5013,6 +5479,142 @@ mod tests {
         }
         fn bind_native_ui(&mut self, callback: Option<Arc<dyn Fn(String) + Send + Sync>>) {
             self.0.borrow_mut().ui_callback = callback;
+        }
+        fn client_owns_actions(&self) -> bool {
+            self.0.borrow().client_owned
+        }
+        fn native_edit_pending(&self) -> bool {
+            self.0.borrow().client_owned && self.0.borrow().client_pending
+        }
+        fn present_client_offer(
+            &mut self,
+            offer: &platform::NativeClientOffer<'_>,
+        ) -> Result<Option<platform::NativeHostPresentation>> {
+            if !self.0.borrow().client_owned {
+                return Ok(None);
+            }
+            if matches!(offer.mode, "completion" | "correction") {
+                Ok(self
+                    .present_preedit(&offer.snapshot.native_anchor, offer.text)?
+                    .map(platform::NativeHostPresentation::Preedit))
+            } else {
+                Ok(self
+                    .present_choices(&offer.snapshot.native_anchor, offer.values)?
+                    .map(platform::NativeHostPresentation::Choices))
+            }
+        }
+        fn arm_client_offer(
+            &mut self,
+            acceptance: &platform::NativeClientAcceptance<'_>,
+        ) -> Result<bool> {
+            Ok(self.0.borrow().client_arm
+                && match acceptance.presentation {
+                    platform::NativeHostPresentation::Preedit(receipt) => {
+                        self.native_preedit_valid(receipt)
+                    }
+                    platform::NativeHostPresentation::Choices(receipt) => {
+                        self.native_choices_valid(receipt)
+                    }
+                })
+        }
+        fn drain_host_events(&mut self) -> Vec<platform::NativeHostEvent> {
+            std::mem::take(&mut self.0.borrow_mut().host_events)
+        }
+        fn present_preedit(
+            &mut self,
+            anchor: &str,
+            text: &str,
+        ) -> Result<Option<platform::NativePreedit>> {
+            let mut state = self.0.borrow_mut();
+            if !state.native_available
+                || state
+                    .snapshot
+                    .as_ref()
+                    .is_none_or(|s| s.native_anchor != anchor)
+            {
+                return Ok(None);
+            }
+            let now = state
+                .native_clock
+                .as_ref()
+                .map_or_else(Instant::now, |clock| *clock.borrow());
+            let receipt = platform::NativePreedit {
+                anchor: anchor.into(),
+                text: text.into(),
+                revision: state.revision,
+                expires_at: now + Duration::from_secs(2),
+            };
+            state.native_preedit = Some(receipt.clone());
+            Ok(Some(receipt))
+        }
+        fn native_preedit_valid(&self, receipt: &platform::NativePreedit) -> bool {
+            let state = self.0.borrow();
+            let now = state
+                .native_clock
+                .as_ref()
+                .map_or_else(Instant::now, |clock| *clock.borrow());
+            state.native_available
+                && state.secure == Some(false)
+                && now < receipt.expires_at
+                && state.revision == receipt.revision
+                && state.native_preedit.as_ref().is_some_and(|current| {
+                    current.anchor == receipt.anchor
+                        && current.text == receipt.text
+                        && current.revision == receipt.revision
+                        && current.expires_at == receipt.expires_at
+                })
+        }
+        fn present_choices(
+            &mut self,
+            anchor: &str,
+            values: &[String],
+        ) -> Result<Option<platform::NativeChoices>> {
+            let mut state = self.0.borrow_mut();
+            if !state.native_available
+                || state.native_choice_limit == 0
+                || state
+                    .snapshot
+                    .as_ref()
+                    .is_none_or(|s| s.native_anchor != anchor)
+            {
+                return Ok(None);
+            }
+            let now = state
+                .native_clock
+                .as_ref()
+                .map_or_else(Instant::now, |clock| *clock.borrow());
+            let count = values.len().min(state.native_choice_limit);
+            let receipt = platform::NativeChoices {
+                anchor: anchor.into(),
+                values: values[..count].to_vec(),
+                revision: state.revision,
+                expires_at: now + Duration::from_secs(2),
+            };
+            state.native_choices = Some(receipt.clone());
+            Ok(Some(receipt))
+        }
+        fn native_choices_valid(&self, receipt: &platform::NativeChoices) -> bool {
+            let state = self.0.borrow();
+            let now = state
+                .native_clock
+                .as_ref()
+                .map_or_else(Instant::now, |clock| *clock.borrow());
+            state.native_available
+                && state.secure == Some(false)
+                && now < receipt.expires_at
+                && state.revision == receipt.revision
+                && state.native_choices.as_ref().is_some_and(|current| {
+                    current.anchor == receipt.anchor
+                        && current.values == receipt.values
+                        && current.revision == receipt.revision
+                        && current.expires_at == receipt.expires_at
+                })
+        }
+        fn hide_native(&mut self) -> Result<()> {
+            let mut state = self.0.borrow_mut();
+            state.native_preedit = None;
+            state.native_choices = None;
+            Ok(())
         }
         fn finish_input(&mut self, accepted: bool) -> Result<()> {
             self.0.borrow_mut().finished.push(accepted);
@@ -5225,6 +5827,15 @@ mod tests {
             Ok(())
         }
     }
+    struct PersistedServices(std::path::PathBuf);
+    impl Readers for PersistedServices {
+        fn power(&mut self) -> system::PowerStatus {
+            system::PowerStatus::default()
+        }
+        fn persist(&mut self, config: &Config) -> Result<()> {
+            config::save_config_to(config, &self.0)
+        }
+    }
     #[derive(Default)]
     struct SpellState {
         ready: bool,
@@ -5315,6 +5926,15 @@ mod tests {
             enables: 0,
             context: None,
             configured: config.clone(),
+            native_available: false,
+            native_clock: None,
+            native_preedit: None,
+            native_choices: None,
+            native_choice_limit: 0,
+            client_owned: false,
+            client_pending: false,
+            client_arm: true,
+            host_events: Vec::new(),
         }))
     }
     fn harness_start(
@@ -5473,6 +6093,508 @@ mod tests {
             callback(action)
         }
     }
+    fn finished_migration(config: &Config, path: String) -> ModelMigration {
+        let thread = thread::spawn(move || Ok(Some(path)));
+        while !thread.is_finished() {
+            thread::yield_now();
+        }
+        ModelMigration {
+            cancel: models::DownloadCancellation::new(),
+            thread: Some(thread),
+            provider: config.provider_identity(),
+            model_id: config.model_id.clone(),
+        }
+    }
+
+    fn migration_case() -> (tempfile::TempDir, Harness, std::path::PathBuf) {
+        let root = tempfile::tempdir().unwrap();
+        let old = root.path().join("old-model.gguf");
+        let migrated = root.path().join("retained-model.gguf");
+        std::fs::write(&old, b"storage producer fixture").unwrap();
+        std::fs::write(&migrated, b"storage producer fixture").unwrap();
+        let config = Config {
+            backend: "gguf".into(),
+            model_id: "tiny".into(),
+            model_path: old.to_str().unwrap().into(),
+            ..Config::default()
+        };
+        let mut h = harness(config, None);
+        h.engine.model_migration = Some(finished_migration(
+            &h.engine.config,
+            migrated.to_str().unwrap().into(),
+        ));
+        (root, h, migrated)
+    }
+
+    #[test]
+    fn model_storage_completion_preserves_settings_changed_during_verification() {
+        let (root, mut h, migrated) = migration_case();
+        let path = root.path().join("settings.json");
+        h.engine.readers = Box::new(PersistedServices(path.clone()));
+        let mut latest = h.engine.config.clone();
+        latest.global_enabled = false;
+        latest.record_history = false;
+        latest.record_unaccepted = false;
+        latest
+            .app_rules
+            .entry("app:writer".into())
+            .or_default()
+            .insert("enabled".into(), json!(false));
+        h.engine.apply_config(latest.clone(), false).unwrap();
+        h.engine.consume_model_migration();
+        let saved: Config = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(saved.model_path, migrated.to_str().unwrap());
+        assert!(!saved.global_enabled);
+        assert!(!saved.record_history);
+        assert!(!saved.record_unaccepted);
+        assert_eq!(saved.app_rules, latest.app_rules);
+        assert_eq!(h.engine.config.model_path, saved.model_path);
+        assert!(std::path::Path::new(&latest.model_path).is_file());
+    }
+
+    #[test]
+    fn model_storage_completion_does_not_override_a_new_model_selection() {
+        let (root, mut h, _) = migration_case();
+        let path = root.path().join("settings.json");
+        h.engine.readers = Box::new(PersistedServices(path.clone()));
+        let selected = root.path().join("chosen-model.gguf");
+        std::fs::write(&selected, b"new selection fixture").unwrap();
+        let mut latest = h.engine.config.clone();
+        latest.model_path = selected.to_str().unwrap().into();
+        h.engine.apply_config(latest, false).unwrap();
+        h.engine.consume_model_migration();
+        assert_eq!(h.engine.config.model_path, selected.to_str().unwrap());
+        assert!(!path.exists());
+        assert_eq!(std::fs::read(selected).unwrap(), b"new selection fixture");
+    }
+
+    #[test]
+    fn model_storage_persist_failure_keeps_the_existing_selection() {
+        let (root, mut h, migrated) = migration_case();
+        let original = h.engine.config.model_path.clone();
+        let not_directory = root.path().join("not-a-directory");
+        std::fs::write(&not_directory, b"owned failure fixture").unwrap();
+        h.engine.readers = Box::new(PersistedServices(not_directory.join("settings.json")));
+        h.engine.consume_model_migration();
+        assert_eq!(h.engine.config.model_path, original);
+        assert_eq!(h.engine.error, MODEL_STORAGE_WARNING);
+        assert!(std::path::Path::new(&original).is_file());
+        assert!(migrated.is_file());
+    }
+
+    #[test]
+    fn shutdown_cancels_model_storage_work_without_adopting_a_late_result() {
+        let (root, mut h, _) = migration_case();
+        let original = h.engine.config.model_path.clone();
+        let path = root.path().join("settings.json");
+        h.engine.readers = Box::new(PersistedServices(path.clone()));
+        let cancel = models::DownloadCancellation::new();
+        let worker_cancel = cancel.clone();
+        let thread = thread::spawn(move || {
+            while worker_cancel.check().is_ok() {
+                thread::yield_now();
+            }
+            Ok(Some("must-not-be-selected.gguf".into()))
+        });
+        h.engine.model_migration = Some(ModelMigration {
+            cancel: cancel.clone(),
+            thread: Some(thread),
+            provider: h.engine.config.provider_identity(),
+            model_id: h.engine.config.model_id.clone(),
+        });
+        h.engine.begin_shutdown();
+        assert!(cancel.check().is_err());
+        while !h
+            .engine
+            .model_migration
+            .as_ref()
+            .unwrap()
+            .thread
+            .as_ref()
+            .unwrap()
+            .is_finished()
+        {
+            thread::yield_now();
+        }
+        h.engine.consume_model_migration();
+        assert_eq!(h.engine.config.model_path, original);
+        assert!(!path.exists());
+        assert!(std::path::Path::new(&original).is_file());
+    }
+
+    fn native_offer(h: &mut Harness, text: &str) {
+        {
+            let mut state = h.native.borrow_mut();
+            state.native_available = true;
+            state.native_clock = Some(h.time.clone());
+        }
+        h.offer(text);
+        let snapshot = h.native.borrow().snapshot.clone().unwrap();
+        let serial = h.engine.completion_offer.unwrap().serial;
+        assert!(
+            h.engine
+                .present_preedit(
+                    &snapshot.key(),
+                    &snapshot.authority(),
+                    serial,
+                    &snapshot.native_anchor,
+                    text
+                )
+                .unwrap()
+        );
+    }
+
+    fn client_offer(h: &mut Harness) -> (Snapshot, platform::NativeHostPresentation) {
+        {
+            let mut native = h.native.borrow_mut();
+            native.client_owned = true;
+            native.native_available = true;
+            native.native_clock = Some(h.time.clone());
+        }
+        h.offer(" is ready");
+        let before = h.native.borrow().snapshot.clone().unwrap();
+        let serial = h.engine.completion_offer.unwrap().serial;
+        assert_eq!(
+            h.engine
+                .present_client(&before.key(), &before.authority(), serial, "completion"),
+            Some(true)
+        );
+        let receipt = h.native.borrow().native_preedit.clone().unwrap();
+        (before, platform::NativeHostPresentation::Preedit(receipt))
+    }
+    fn client_applied(
+        before: &Snapshot,
+        after: &Snapshot,
+        receipt: &platform::NativeHostPresentation,
+        at: Instant,
+    ) -> platform::NativeHostEvent {
+        platform::NativeHostEvent::Applied(platform::NativeHostEdit {
+            presentation: receipt.clone(),
+            before: before.clone(),
+            after: after.clone(),
+            start: before.caret,
+            length: 0,
+            text: " is ready".into(),
+            action: Action::All,
+            mode: "completion".into(),
+            accepted_at: at,
+        })
+    }
+    #[test]
+    fn client_confirmation_counts_once_without_reinsertion_or_global_tab() {
+        let mut config = Config::default();
+        config.statistics_enabled = true;
+        config.trailing_space = false;
+        let mut h = harness(config, None);
+        let (before, receipt) = client_offer(&mut h);
+        assert!(!h.invoke_hook(Action::All));
+        let after = field("The update is ready");
+        {
+            let mut native = h.native.borrow_mut();
+            native.snapshot = Some(after.clone());
+            native.native_preedit = None;
+            native
+                .host_events
+                .push(client_applied(&before, &after, &receipt, *h.time.borrow()));
+            native
+                .host_events
+                .push(client_applied(&before, &after, &receipt, *h.time.borrow()));
+        }
+        h.engine.tick();
+        assert_eq!(
+            h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+            "The update is ready"
+        );
+        assert_eq!(locked(&h.storage).stats, [(" is ready".into(), true)]);
+        assert!(h.native.borrow().edits.is_empty());
+    }
+    #[test]
+    fn client_confirmation_survives_later_input_without_repainting_old_text() {
+        let mut config = Config::default();
+        config.statistics_enabled = true;
+        config.trailing_space = false;
+        let mut h = harness(config, None);
+        let (before, receipt) = client_offer(&mut h);
+        let accepted_at = *h.time.borrow();
+        let after = field("The update is ready");
+        h.elapse(5);
+        {
+            let mut native = h.native.borrow_mut();
+            native.snapshot = Some(field("The update is ready!"));
+            native.native_preedit = None;
+            native.revision += 1;
+            native.input_at = Some(*h.time.borrow());
+            native
+                .host_events
+                .push(client_applied(&before, &after, &receipt, accepted_at));
+        }
+        h.engine.tick();
+        assert_eq!(
+            h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+            "The update is ready!"
+        );
+        assert_eq!(
+            h.engine.candidate.as_ref().unwrap().text.as_ref(),
+            "The update is ready!"
+        );
+        assert!(h.engine.suggestion.text.is_empty());
+        assert_eq!(locked(&h.storage).stats, [(" is ready".into(), true)]);
+        assert!(h.native.borrow().edits.is_empty());
+    }
+    #[test]
+    fn pending_client_edit_preserves_its_witness_until_real_confirmation() {
+        let mut config = Config::default();
+        config.statistics_enabled = true;
+        config.trailing_space = false;
+        let mut h = harness(config, None);
+        let (before, receipt) = client_offer(&mut h);
+        let accepted_at = *h.time.borrow();
+        {
+            let mut native = h.native.borrow_mut();
+            native.client_pending = true;
+            native.native_preedit = None;
+        }
+        h.elapse(1000);
+        h.engine.tick();
+        assert!(h.engine.candidate.as_ref().unwrap().same_key(&before));
+        assert_eq!(h.engine.suggestion.text, " is ready");
+        assert!(locked(&h.storage).stats.is_empty());
+        let after = field("The update is ready");
+        {
+            let mut native = h.native.borrow_mut();
+            native.client_pending = false;
+            native.snapshot = Some(after.clone());
+            native
+                .host_events
+                .push(client_applied(&before, &after, &receipt, accepted_at));
+        }
+        h.engine.tick();
+        assert_eq!(
+            h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+            "The update is ready"
+        );
+        assert_eq!(locked(&h.storage).stats, [(" is ready".into(), true)]);
+    }
+    #[test]
+    fn revoked_client_confirmation_protects_provenance_without_recording() {
+        let mut config = Config::default();
+        config.statistics_enabled = true;
+        let mut h = harness(config, None);
+        let (before, receipt) = client_offer(&mut h);
+        let mut disabled = h.engine.config.clone();
+        disabled.global_enabled = false;
+        h.engine.command(Command::ApplyConfig {
+            config: disabled,
+            persist: false,
+        });
+        h.native
+            .borrow_mut()
+            .host_events
+            .push(platform::NativeHostEvent::Indeterminate(
+                platform::NativeHostUncertain {
+                    presentation: receipt,
+                    before: before.clone(),
+                    mode: "completion".into(),
+                    accepted_at: *h.time.borrow(),
+                },
+            ));
+        h.engine.tick();
+        assert!(
+            h.engine
+                .uncertain_provenance
+                .as_ref()
+                .is_some_and(|(authority, _)| *authority == before.authority())
+        );
+        assert!(locked(&h.storage).stats.is_empty());
+        assert!(locked(&h.storage).records.is_empty());
+        assert!(h.native.borrow().edits.is_empty());
+    }
+    #[test]
+    fn client_app_toggle_reenables_a_disabled_app_without_text_capture_permission() {
+        let mut h = harness(Config::default(), None);
+        let snapshot = h.native.borrow().snapshot.clone().unwrap();
+        h.engine
+            .config
+            .app_rules
+            .entry(format!("app:{}", snapshot.app_id))
+            .or_default()
+            .insert("enabled".into(), json!(false));
+        assert!(!h.engine.allowed(&snapshot.app_id, &snapshot.domain, ""));
+        h.native.borrow_mut().client_owned = true;
+        h.native
+            .borrow_mut()
+            .host_events
+            .push(platform::NativeHostEvent::Action {
+                action: Action::AppToggle,
+                origin: Foreground {
+                    app_id: snapshot.app_id.clone(),
+                    domain: snapshot.domain.clone(),
+                    window_id: snapshot.window_id.clone(),
+                    window_pid: snapshot.window_pid,
+                    ..Default::default()
+                },
+            });
+        h.engine.tick();
+        assert!(h.engine.allowed(&snapshot.app_id, &snapshot.domain, ""));
+        assert_eq!(
+            h.native.borrow().snapshot.as_ref().unwrap().text,
+            snapshot.text
+        );
+    }
+
+    #[test]
+    fn native_preedit_acceptance_uses_a_live_protocol_lease_without_a_raster_ack() {
+        let mut h = harness(Config::default(), None);
+        native_offer(&mut h, " is ready");
+        assert!(h.invoke_hook(Action::All));
+        h.engine.tick();
+        assert_eq!(
+            h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+            "The update is ready"
+        );
+        assert_eq!(h.native.borrow().edits, [" is ready"]);
+        assert!(!h.invoke_hook(Action::All));
+    }
+
+    #[test]
+    fn expired_revoked_and_protected_native_offers_cannot_edit_or_dismiss() {
+        for transition in ["expired", "revoked", "protected"] {
+            let mut h = harness(Config::default(), None);
+            native_offer(&mut h, " is ready");
+            match transition {
+                "expired" => h.elapse(2100),
+                "revoked" => h.native.borrow_mut().native_preedit = None,
+                "protected" => h.native.borrow_mut().secure = Some(true),
+                _ => unreachable!(),
+            }
+            assert!(!h.engine.accept(&Action::All, None), "{transition}");
+            assert!(!h.engine.dismiss(false, None), "{transition}");
+            assert!(h.native.borrow().edits.is_empty(), "{transition}");
+            assert_eq!(
+                h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+                "The update"
+            );
+        }
+    }
+
+    #[test]
+    fn native_dismissal_expiring_during_capture_does_not_consume_or_suppress() {
+        for behavior in ["pause", "app"] {
+            let mut config = Config::default();
+            config.escape_behavior = behavior.into();
+            let mut h = harness(config, None);
+            native_offer(&mut h, " is ready");
+            h.elapse(1950);
+            h.native.borrow_mut().capture_time = Some((h.time.clone(), Duration::from_millis(75)));
+            assert!(!h.engine.dismiss(false, None), "{behavior}");
+            assert!(h.engine.field_pause.is_none(), "{behavior}");
+            assert!(h.engine.escape_app.is_empty(), "{behavior}");
+            assert!(h.native.borrow().edits.is_empty());
+        }
+    }
+
+    #[test]
+    fn native_preedit_renewal_survives_original_expiry_and_failure_revokes_acceptance() {
+        for available in [true, false] {
+            let mut h = harness(Config::default(), None);
+            native_offer(&mut h, " is ready");
+            h.elapse(1950);
+            h.native.borrow_mut().native_available = available;
+            h.engine.renew_native_presentations();
+            h.elapse(100);
+            if available {
+                assert!(h.invoke_hook(Action::All));
+                h.engine.tick();
+                assert_eq!(
+                    h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+                    "The update is ready"
+                );
+            } else {
+                assert!(!h.invoke_hook(Action::All));
+                assert!(h.native.borrow().native_preedit.is_none());
+                assert_eq!(
+                    h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+                    "The update"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn renewed_native_preedit_cannot_accept_a_replaced_claim() {
+        let mut h = harness(Config::default(), None);
+        native_offer(&mut h, " is ready");
+        let original = h.engine.claims[0].clone();
+        h.elapse(1950);
+        h.engine.renew_native_presentations();
+        assert!(!h.engine.accept(&Action::All, Some(original)));
+        assert!(h.native.borrow().edits.is_empty());
+        assert_eq!(
+            h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+            "The update"
+        );
+    }
+
+    #[test]
+    fn native_choices_never_accept_a_candidate_outside_the_presented_prefix() {
+        let mut config = Config::default();
+        config.prompt_style = "writing".into();
+        let mut h = harness(config, None);
+        {
+            let mut state = h.native.borrow_mut();
+            let mut selected = field("A useful update");
+            selected.caret = 2;
+            selected.selection_length = 6;
+            state.snapshot = Some(selected);
+            state.native_available = true;
+            state.native_clock = Some(h.time.clone());
+            state.native_choice_limit = 1;
+        }
+        h.engine.command(Command::Action(Action::Synonyms));
+        h.engine.tick();
+        h.prepared();
+        h.response("ready", "", false);
+        h.response("result", "[\"helpful\",\"practical\",\"valuable\"]", true);
+        let snapshot = h.native.borrow().snapshot.clone().unwrap();
+        let revision = h.native.borrow().revision;
+        let values = h.engine.choices.as_ref().unwrap().values.clone();
+        assert!(
+            h.engine
+                .present_choices(
+                    &snapshot.key(),
+                    &snapshot.authority(),
+                    revision,
+                    &snapshot.native_anchor,
+                    "synonyms",
+                    &values
+                )
+                .unwrap()
+        );
+        assert!(!h.invoke_hook(Action::Choice(1)));
+        h.engine.command(Command::Action(Action::Choice(1)));
+        h.engine.tick();
+        assert!(h.native.borrow().edits.is_empty());
+        assert!(
+            h.engine
+                .present_choices(
+                    &snapshot.key(),
+                    &snapshot.authority(),
+                    revision,
+                    &snapshot.native_anchor,
+                    "synonyms",
+                    &values
+                )
+                .unwrap()
+        );
+        assert!(h.invoke_hook(Action::Choice(0)));
+        h.engine.tick();
+        assert_eq!(
+            h.native.borrow().snapshot.as_ref().unwrap().text.as_ref(),
+            "A helpful update"
+        );
+        assert_eq!(h.native.borrow().edits, ["helpful"]);
+    }
+
     #[test]
     fn whatsapp_runtime_diagnostic_is_content_free_and_retained_across_foreground_switches() {
         let mut config = Config::default();

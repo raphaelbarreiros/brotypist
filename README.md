@@ -22,13 +22,16 @@ use. Accept what fits, dismiss what doesn't, and keep writing—without moving
 your draft into a chatbot. It lives in the menu bar or system tray, with
 OS-native Settings and local model inference.
 
-**Native Rust, with macOS first.** The [0.5.0 Mac preview](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.0)
-is available for Apple Silicon; **0.4.13 remains Latest stable**. The native
-prediction path has user confirmation, including in WhatsApp, but model relevance
-and text-field compatibility still vary. This is not cross-platform acceptance.
-Use the version-specific release notes and actual assets for download availability.
-The [migration and acceptance record](docs/rust-migration/README.md) tracks the
-verified Mac release, cutover history and remaining Windows/Linux gates.
+**Native Rust, with macOS first.** **0.5.2 is the macOS-only stable release
+channel; Windows and Linux remain ALPHA.** Publication follows final signed
+package verification; use assets actually listed in
+[Releases](https://github.com/renan-brasilio/brotypist/releases).
+The Mac update improves responsiveness and editor compatibility, removes raw
+debug text from Setup, and retains downloaded models in durable app data.
+Model relevance and text-field compatibility still vary: stable does not mean
+every app is supported or establish three-platform parity. The
+[migration and acceptance record](docs/rust-migration/README.md) separates
+source-bound observations from final release proof and remaining platform gates.
 
 ## Writing, with you in control
 
@@ -54,10 +57,10 @@ verified Mac release, cutover history and remaining Windows/Linux gates.
 
 | Platform | Current native status | Installation |
 | --- | --- | --- |
-| **macOS 15+, Apple Silicon** | Primary target; AppKit Settings. User-confirmed predictions in the installed signed candidate. Compatibility varies by text field. | DMG/ZIP when listed in Releases; Apple Development signed, not notarized. |
-| **Linux x86-64, X11** | Experimental. Packaging, inference and native UI have evidence; desktop typing compatibility is limited. Emoji/synonym/typo rewrites are unavailable. | Preview DEB or portable bundle when supplied for testing. |
-| **Linux x86-64, Wayland** | Ordinary inline completion is **unavailable**. Manual preview only; experimental KDE input-method controls require explicit selection and are not general inline support. | Same preview bundles; installation does not enable an input method. |
-| **Windows x86-64** | Unsigned portable preview; inference and owned-window GUI checks do not establish full physical typing, upgrade or rollback acceptance. **MSI distribution is held.** | Authorized portable test bundle only; no current Rust Windows release claim. |
+| **macOS 15+, Apple Silicon** | **0.5.2 stable channel.** AppKit Settings; responsiveness and bounded editor compatibility improvements. Compatibility varies by text field. | Mac-only DMG/ZIP when listed in Releases; Apple Development signed, **not notarized**. |
+| **Linux x86-64, X11** | **ALPHA.** Packaging, inference and native UI have evidence; desktop typing compatibility is limited. Emoji/synonym/typo rewrites are unavailable. | Alpha DEB or portable test bundle when supplied; not part of the macOS stable release. |
+| **Linux x86-64, Wayland** | **ALPHA. Ordinary inline completion is unavailable.** Manual preview only; experimental KDE input-method controls require explicit selection and are not general inline support. | Alpha test bundles; installation does not enable an input method. |
+| **Windows x86-64** | **ALPHA.** Unsigned portable testing; inference and owned-window GUI checks do not establish full physical typing, upgrade or rollback acceptance. **MSI distribution is held.** | Authorized portable test bundle only; not part of the macOS stable release. |
 
 **Not every text field is supported.** BroTypist needs reliable focus, text,
 caret geometry and insertion information. Password fields, active text
@@ -107,7 +110,12 @@ blocks a verified download, use the app-specific **Open Anyway** action in
 Privacy & Security. Do not disable Gatekeeper globally. Screen Recording is
 needed only for optional screenshot features.
 
-### Linux preview
+Downloaded models are retained outside the app bundle, so an app update does
+not require downloading them again. Startup verifies selected primary and battery
+catalog models from the old default cache before retaining missing weights in
+durable app data. Original weights and custom model paths are preserved.
+
+### Linux ALPHA
 
 For a supplied DEB on Ubuntu 24.04+/Debian 13+:
 
@@ -122,7 +130,7 @@ its directory. Keep the entire bundle together and run as your desktop user,
 use the manual preview; do not change session environment variables to pretend
 the session is X11.
 
-### Windows portable preview
+### Windows ALPHA — portable testing
 
 Extract the supplied ZIP into a user-writable folder, keep all bundled DLLs
 together, and launch `BroTypist.exe`. The preview is **unsigned**; do not disable
@@ -187,7 +195,9 @@ Build on the target OS and architecture. macOS packaging requires full Xcode 27.
 
 Windows compiler scratch uses a separate private temporary directory, not the requested bundle destination. Keep `TMP`/`TEMP` short for legacy MSBuild FileTracker limits. Failed builds report and retain both staging paths; successful builds remove compiler scratch without changing OS long-path policy.
 
-Use an absolute, disposable `INKLOW_HOME` for experiments. It isolates settings/history, not the shared model cache. Existing profile paths, the internal `inklow` identity and OS credential-store names are retained.
+Use an absolute, disposable `INKLOW_HOME` for experiments. It isolates settings, history, updates and models (`INKLOW_HOME/models`); it never migrates the normal profile's weights. Existing profile and credential-store identities are retained.
+
+Downloaded models are retained app data, not disposable cache: `~/Library/Application Support/inklow/models` on macOS, `$XDG_DATA_HOME/inklow/models` (normally `~/.local/share/inklow/models`) on Linux, and `%LOCALAPPDATA%/inklow/models` on Windows. App startup verifies and retains selected primary and configured battery catalog weights from the old default cache without deleting originals. Existing durable weights and custom model paths are unchanged.
 
 ```sh
 cargo run --locked -p xtask -- version

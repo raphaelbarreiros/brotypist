@@ -112,6 +112,8 @@ fn row(parent: &gtk::Box, title: &str, widget: &impl IsA<gtk::Widget>) {
     let l = label(title);
     l.set_mnemonic_widget(Some(widget));
     l.set_hexpand(true);
+    l.set_max_width_chars(42);
+    widget.as_ref().set_valign(gtk::Align::Center);
     if let Some(a) = widget.as_ref().accessible() {
         a.set_name(title);
     }
@@ -171,23 +173,25 @@ impl SettingsWindow {
         footer.set_margin_start(12);
         footer.set_margin_end(12);
         footer.set_margin_bottom(12);
-        let dirty = label("Changes apply only after Save.");
+        let dirty = label("");
         footer.pack_start(&dirty, true, true, 0);
         let save = button("Save", sender, UiAction::Save);
         let revert = button("Revert", sender, UiAction::Revert);
         for b in [
-            button("Quit BroTypist", sender, UiAction::Quit),
+            button("Quit", sender, UiAction::Quit),
             revert.clone(),
             save.clone(),
-            button("Close window", sender, UiAction::CloseSettings),
+            button("Close", sender, UiAction::CloseSettings),
         ] {
             footer.pack_start(&b, false, false, 0);
         }
         root.pack_end(&footer, false, false, 0);
-        let login = gtk::CheckButton::with_label("Launch BroTypist at login (applied immediately)");
-        let history = gtk::CheckButton::with_label(
-            "Learn locally from recorded writing by default (applied immediately)",
-        );
+        let login = gtk::CheckButton::with_label("Launch at login");
+        login.set_tooltip_text(Some("Changes apply immediately."));
+        let history = gtk::CheckButton::with_label("Learn from my writing");
+        history.set_tooltip_text(Some(
+            "Changes apply immediately. Recorded writing stays on this device.",
+        ));
         let login_status = label("");
         let status_label = label("");
         let model = label("");
@@ -241,27 +245,26 @@ impl SettingsWindow {
         let p = &pages["General"];
         let app = section(p, "Application");
         app.pack_start(&s.login, false, false, 0);
-        app.pack_start(&label("Close window keeps BroTypist resident only while a tray host is available. Quit always stops assistance and leaves KDE's selected input method unchanged."),false,false,0);
         app.pack_start(&s.login_status, false, false, 0);
         s.check(&app, "global_enabled", "Enable predictions", "");
         s.check(
             &app,
             "enabled",
-            "Enable in eligible apps by default",
+            "Enable by default",
             "Application rules may override this default.",
         );
         s.check(
             &app,
             "show_accessory",
-            "Show accessory beside the text field",
-            "",
+            "Show accessory button",
+            "Beside the active text field.",
         );
-        let stats_section = section(p, "Local aggregate statistics");
+        let stats_section = section(p, "Statistics");
         s.check(
             &stats_section,
             "statistics_enabled",
-            "Count successfully accepted completions",
-            "Aggregate counts only, never draft text.",
+            "Count accepted predictions",
+            "Aggregate counts only; never draft text.",
         );
         let period = gtk::ComboBoxText::new();
         for (id, title) in [
@@ -300,7 +303,7 @@ impl SettingsWindow {
             0,
         );
         let p = &pages["AI Models"];
-        let selected = section(p, "Current local model");
+        let selected = section(p, "Current model");
         selected.pack_start(&s.model, false, false, 0);
         selected.pack_start(
             &button("Manage local models…", sender, UiAction::Models),
@@ -324,7 +327,7 @@ impl SettingsWindow {
                 ("writing", "Instruction-tuned writing"),
             ],
         );
-        let inference = section(p, "Local inference configuration");
+        let inference = section(p, "Local inference");
         s.combo(
             &inference,
             "backend",
@@ -350,7 +353,12 @@ impl SettingsWindow {
             1.,
             128.,
         );
-        inference.pack_start(&label("Server endpoints must be literal loopback URLs. Externally managed servers own their logging and model residency. No remote API substitute."),false,false,0);
+        inference.pack_start(
+            &label("Local servers must use loopback URLs and manage their own logging."),
+            false,
+            false,
+            0,
+        );
         let power = section(p, "While on battery");
         s.check(
             &power,
@@ -412,7 +420,13 @@ impl SettingsWindow {
         ] {
             s.shortcut(&shortcuts, action, title);
         }
-        shortcuts.pack_start(&label("Click then press the actual chord. Escape cancels; Backspace clears. Physical Above-Tab works across layouts. Desktop-reserved chords remain system-owned. Linux selected-text replacement is unavailable."),false,false,0);
+        shortcuts.pack_start(
+            &label("Click a shortcut, then press the keys; Escape cancels and Backspace clears."),
+            false,
+            false,
+            0,
+        );
+        shortcuts.set_tooltip_text(Some("Physical Above-Tab works across layouts. Desktop-reserved chords remain system-owned. Selected-text replacement is unavailable on Linux."));
         s.combo(
             &shortcuts,
             "escape_behavior",
@@ -446,7 +460,7 @@ impl SettingsWindow {
                 ("never", "Never"),
             ],
         );
-        let emoji = section(p, "Emoji preferences (not available on Linux)");
+        let emoji = section(p, "Emoji (unavailable on Linux)");
         s.check(&emoji, "emoji_enabled", "Find emoji by :name", "");
         s.check(&emoji, "emoticons_enabled", "Replace emoticons", "");
         s.combo(
@@ -479,7 +493,7 @@ impl SettingsWindow {
             ],
         );
         emoji.set_sensitive(false);
-        p.pack_start(&label("AT-SPI cannot atomically replace a typed suffix. Emoji and emoticon preferences are preserved but native rewrites remain disabled."),false,false,0);
+        emoji.set_tooltip_text(Some("AT-SPI cannot atomically replace a typed suffix. Preferences are preserved, but native emoji and emoticon rewrites remain disabled."));
         let alternatives = section(p, "Alternative words");
         s.check(
             &alternatives,
@@ -500,7 +514,7 @@ impl SettingsWindow {
             100.,
             10000.,
         );
-        let synonyms = section(p, "Contextual synonyms (not available on Linux)");
+        let synonyms = section(p, "Synonyms (unavailable on Linux)");
         s.check(
             &synonyms,
             "synonyms_enabled",
@@ -525,7 +539,14 @@ impl SettingsWindow {
         );
         synonyms.set_sensitive(false);
         let p = &pages["Languages"];
-        p.pack_start(&label("Language support comes from your selected local model, not a language-quality selector. Instructions can request your preferred language; output quality depends on the model."),false,false,0);
+        p.pack_start(
+            &label(
+                "Your model determines language support; use instructions to request a language.",
+            ),
+            false,
+            false,
+            0,
+        );
         let instructions = section(p, "Custom instructions");
         s.multiline(&instructions, "custom_instructions", false);
         let spelling = section(p, "Spelling");
@@ -538,7 +559,7 @@ impl SettingsWindow {
         );
         spelling.set_sensitive(false);
         let p = &pages["Privacy"];
-        p.pack_start(&label("Predictions run on this computer. Optional local servers must use loopback URLs. Downloads fetch weights, not writing. Every additional data source requires independent consent."),false,false,0);
+        p.pack_start(&label("Predictions stay on this computer; optional context and learning each need consent."), false, false, 0);
         let access = section(p, "System access");
         access.pack_start(&s.status_label, false, false, 0);
         for (title, kind) in [("Open accessibility / input permissions", "accessibility")] {
@@ -550,7 +571,8 @@ impl SettingsWindow {
             });
             access.pack_start(&b, false, false, 0);
         }
-        access.pack_start(&label("X11 uses AT-SPI and replayable grabs. KWin Wayland requires explicitly choosing BroTypist as the private input method. Manual controls only: ordinary inline/preedit is unavailable, no popup fallback. Other compositors are not claimed supported."),false,false,0);
+        access.pack_start(&label("KDE Wayland requires selecting BroTypist as the input method; ordinary inline is unavailable."), false, false, 0);
+        access.set_tooltip_text(Some("X11 uses AT-SPI and replayable grabs. KWin Wayland requires explicitly choosing BroTypist as the private input method. Manual controls only: ordinary inline/preedit is unavailable, with no popup fallback. Other compositors are not supported."));
         let install = gtk::Button::with_label("Install KDE input-method entry…");
         let parent = s.window.clone();
         install.connect_clicked(move |_|{if confirm(Some(&parent),"Install KDE entry?","Create the owned KDE input-method desktop entry? This does not change the selected input method. Quit BroTypist and select it in Virtual Keyboard settings afterward."){match system::install_wayland_input_method(){Ok(path)=>error(Some(&parent),format!("Installed {}. Choose BroTypist explicitly in KDE Virtual Keyboard settings. Ordinary inline remains unavailable.",path.display())),Err(e)=>error(Some(&parent),e)}}});
@@ -594,7 +616,7 @@ impl SettingsWindow {
             8000.,
         );
         context.pack_start(&s.context, false, false, 0);
-        let unsupported = section(p, "macOS-specific sources (unavailable on Linux)");
+        let unsupported = section(p, "macOS sources (unavailable on Linux)");
         for (field, title) in [
             ("screenshot_context", "Screenshot / OCR context"),
             ("screenshot_appearance", "Screenshot appearance sampling"),
@@ -608,9 +630,10 @@ impl SettingsWindow {
             );
         }
         unsupported.set_sensitive(false);
-        let history = section(p, "Encrypted local writing learning");
+        let history = section(p, "Encrypted writing history");
         history.pack_start(&s.history, false, false, 0);
-        history.pack_start(&label("History is off by default and requires OS-backed encryption; no plaintext fallback. App recording overrides take precedence even when this default is off. Learning uses bounded authored style/vocabulary, not raw sentence replay or weight training."),false,false,0);
+        history.pack_start(&label("Off by default; encrypted locally with no plaintext fallback, and app recording rules override the default."), false, false, 0);
+        history.set_tooltip_text(Some("Requires OS-backed encryption. Learning uses bounded authored style and vocabulary, not raw sentence replay or model-weight training."));
         s.check(
             &history,
             "record_unaccepted",
@@ -655,8 +678,9 @@ impl SettingsWindow {
             false,
             0,
         );
-        let rules = section(p, "Application and website rules");
-        rules.pack_start(&label("Exact app identifiers only. Browser URLs are unavailable here. Existing website exclusions fail closed for recognized browsers with unknown URLs; editing them does not imply per-site support. Rule changes remain staged until Save."),false,false,0);
+        let rules = section(p, "App and website rules");
+        rules.pack_start(&label("Use exact app IDs; website detection is unavailable, so existing website exclusions block unknown browser URLs."), false, false, 0);
+        rules.set_tooltip_text(Some("Editing website rules does not enable per-site support. Rule changes apply only after Save."));
         rules.pack_start(&s.rules, false, false, 0);
         let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         for (title, edit) in [("Add…", false), ("Edit…", true)] {
@@ -741,7 +765,12 @@ impl SettingsWindow {
             false,
             0,
         );
-        p.pack_start(&label("An independent local typing assistant. No account, cloud sync, subscription or main writing editor. Models retain their respective licenses. Unsupported or protected fields stay inactive."),false,false,0);
+        p.pack_start(
+            &label("A local typing assistant; no account or subscription required."),
+            false,
+            false,
+            0,
+        );
         p.pack_start(
             &gtk::LinkButton::with_label(
                 "https://github.com/renan-brasilio/brotypist",
@@ -845,9 +874,7 @@ impl SettingsWindow {
         c.set_widget_name(field);
         c.set_tooltip_text(Some(help));
         parent.pack_start(&c, false, false, 0);
-        if !help.is_empty() {
-            parent.pack_start(&label(help), false, false, 0);
-        }
+        // Detailed help stays on the control instead of repeating below every row.
         let d = self.draft.clone();
         let l = self.loading.clone();
         let f = field.to_owned();
@@ -1078,19 +1105,32 @@ impl SettingsWindow {
         self.login.set_active(c.launch_at_login);
         self.history.set_active(c.record_history);
         self.loading.set(false);
-        let status = if std::env::var_os("INKLOW_HOME").is_some() {
-            "Login registration is disabled for isolated profiles.".into()
+        let (status, detail) = if std::env::var_os("INKLOW_HOME").is_some() {
+            (
+                "Isolated profile",
+                "Login registration is disabled for isolated profiles.".into(),
+            )
         } else {
             match system::launch_at_login_state() {
-                Ok(true) => "Launch at login is on.".into(),
-                Ok(false) => "Launch at login is off.".into(),
-                Err(e) => format!("Login registration unavailable: {e}"),
+                Ok(enabled) => (
+                    if enabled { "Login: on" } else { "Login: off" },
+                    "Operating-system login-item state. Changes apply immediately.".into(),
+                ),
+                Err(error) => (
+                    "Login unavailable",
+                    format!("Login registration unavailable: {error}"),
+                ),
             }
         };
-        self.login_status.set_text(&status);
+        self.login_status.set_text(status);
+        self.login_status.set_tooltip_text(Some(&detail));
     }
     pub fn set_recovery(&self, recovery: bool) {
-        self.recovery.set_text(if recovery{"No system tray host is available. Keep Settings open to control BroTypist. Closing offers Quit; the tray reconnects automatically."}else{""});
+        self.recovery
+            .set_text(if recovery { "No system tray" } else { "" });
+        self.recovery.set_tooltip_text(Some(
+            "Keep Settings open for access, or choose Quit to stop BroTypist.",
+        ));
     }
     pub fn status(&self, status: &Value, c: &Config, update: &Value) {
         let dirty = self.draft.borrow().is_dirty();
@@ -1101,15 +1141,27 @@ impl SettingsWindow {
         } else {
             "All changes saved"
         });
-        self.status_label.set_text(&format!("{}\n{}\nCurrent application: {}\nObservable website: {}\nSession completions: {} · Tab: {} · Recording: {}",text(status,"native_status"),text(status,"inline_message"),text(status,"current_app"),if text(status,"current_domain").is_empty(){"Unknown / unavailable".into()}else{text(status,"current_domain")},status["current_app_enabled"],status["current_tab_enabled"],status["current_recording"]));
+        self.status_label.set_text(&format!(
+            "{}\n{}",
+            text(status, "native_status"),
+            text(status, "inline_message")
+        ));
+        self.status_label.set_tooltip_text(Some(&format!(
+            "Application: {}\nWebsite: {}\nSession predictions: {} · Tab: {} · Recording: {}",
+            text(status, "current_app"),
+            text(status, "current_domain"),
+            status["current_app_enabled"],
+            status["current_tab_enabled"],
+            status["current_recording"]
+        )));
         let field_state = if !c.global_enabled {
             "Disabled"
         } else if status["state"] == "paused" {
             "Paused"
         } else if status["inline_available"] == true {
-            "Eligible field"
+            "Ready"
         } else {
-            "Unsupported / inactive field"
+            "No supported field"
         };
         let model = if c.backend == "gguf" {
             std::path::Path::new(&c.model_path)
@@ -1126,10 +1178,19 @@ impl SettingsWindow {
         } else {
             text(status, "message")
         };
-        self.notice.set_text(&format!(
-            "{field_state} · {} · {model}\n{message}",
-            text(status, "state")
-        ));
+        let summary = format!("{field_state} · {model}");
+        if c.global_enabled
+            && !matches!(
+                status["state"].as_str(),
+                Some("idle" | "ready" | "paused" | "disabled")
+            )
+            && !message.is_empty()
+        {
+            self.notice.set_text(&format!("{summary}\n{message}"));
+        } else {
+            self.notice.set_text(&summary);
+        }
+        self.notice.set_tooltip_text(Some(&message));
         self.model.set_text(&format!(
             "Selected: {}\n{}",
             if c.backend == "gguf" {
@@ -1142,13 +1203,13 @@ impl SettingsWindow {
         self.context.set_text(&text(status, "context_message"));
         let power = system::power_status();
         self.battery.set_text(if !power.available {
-            "Battery state unavailable; unknown is not low battery."
+            "Battery state unavailable."
         } else if !power.has_battery {
             "No battery detected."
         } else if power.on_battery {
-            "On battery; configured limits apply."
+            "On battery."
         } else {
-            "External power; normal preferences apply."
+            "External power."
         });
         let state = text(update, "state");
         let busy = matches!(state.as_str(), "checking" | "downloading" | "installing");
@@ -1192,7 +1253,18 @@ impl SettingsWindow {
                 let totals = &result["totals"];
                 let today = &result["today"];
                 let average = &result["daily_average"];
-                self.stats.set_text(&format!("{} completions · {} words · {} characters\nEstimated time saved: {} seconds · {} active days\nToday: {} completions · {} words · {} characters\nDaily average: {} completions · {} words · {} characters",totals["completions"],totals["words"],totals["characters"],result["estimated_seconds"],result["active_days"],today["completions"],today["words"],today["characters"],average["completions"],average["words"],average["characters"]));
+                self.stats.set_text(&format!(
+                    "{} predictions · {} words · {} characters\nEstimated time saved: {} seconds",
+                    totals["completions"],
+                    totals["words"],
+                    totals["characters"],
+                    result["estimated_seconds"]
+                ));
+                self.stats.set_tooltip_text(Some(&format!(
+                    "{} active days\nToday: {} predictions · {} words · {} characters\nDaily average: {} predictions · {} words · {} characters",
+                    result["active_days"], today["completions"], today["words"], today["characters"],
+                    average["completions"], average["words"], average["characters"]
+                )));
                 for child in self.stats_rows.children() {
                     self.stats_rows.remove(&child);
                 }
@@ -1210,8 +1282,9 @@ impl SettingsWindow {
                 self.stats_rows.show_all();
             }
             "statistics_cleared" => {
+                self.stats.set_text("Statistics cleared");
                 self.stats
-                    .set_text("Statistics cleared. Encrypted history was kept.");
+                    .set_tooltip_text(Some("Encrypted history was kept."));
                 for child in self.stats_rows.children() {
                     self.stats_rows.remove(&child);
                 }
@@ -1386,7 +1459,12 @@ fn rule_dialog(parent: &gtk::Window, key: &str, initial: &Value) -> Option<(Stri
         row(&body, title, &c);
         controls.push((field, c));
     }
-    body.pack_start(&label("Existing domain exclusions fail closed without a trusted URL. Enabled recording overrides require OS-backed encryption. Unknown rule fields are preserved."),false,false,0);
+    body.pack_start(
+        &label("Website exclusions block unknown URLs; recording requires OS-backed encryption."),
+        false,
+        false,
+        0,
+    );
     body.pack_start(&label("Application-specific instructions"), false, false, 0);
     let instructions = text_view(&body, 120);
     instructions

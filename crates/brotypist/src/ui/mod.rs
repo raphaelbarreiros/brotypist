@@ -23,6 +23,12 @@ pub struct LaunchOptions {
 
 pub fn launch(config: Config, options: LaunchOptions) -> Result<i32> {
     let Some(_instance) = crate::instance::InstanceLock::acquire()? else {
+        #[cfg(target_os = "linux")]
+        if crate::platform::wayland::is_prepared() {
+            anyhow::bail!(
+                "The profile is already owned by another BroTypist process. Quit its tray instance, then reselect BroTypist in KDE Virtual Keyboard settings. The private compositor socket cannot be transferred to an existing process; no input-method instance was started."
+            );
+        }
         eprintln!("BroTypist is already running. Open Settings from its menu-bar or tray icon.");
         return Ok(0);
     };
@@ -100,7 +106,10 @@ pub fn smoke(output: &std::path::Path) -> Result<i32> {
         let descriptor = std::env::var("WAYLAND_SOCKET")
             .context("KWin must supply the private smoke input-method socket")?
             .parse::<i32>()?;
-        crate::platform::wayland::prepare_input_method(descriptor)?;
+        // Smoke has the same pre-toolkit private-socket ownership contract as normal launch.
+        unsafe {
+            crate::platform::wayland::prepare_input_method(descriptor)?;
+        }
         true
     } else {
         false

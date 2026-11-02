@@ -15,8 +15,27 @@ pub fn config_dir() -> Result<PathBuf> {
 pub fn cache_dir() -> Result<PathBuf> {
     platform_cache_dir()
 }
+/// User-retained weights belong to app data, never to purgeable OS caches.
 pub fn model_dir() -> Result<PathBuf> {
-    Ok(cache_dir()?.join("models"))
+    Ok(profile_data_dir(home_override()?, platform_data_dir)?.join("models"))
+}
+
+/// Isolated profiles must never inspect or migrate the normal user's model cache.
+pub(crate) fn legacy_model_dir() -> Result<Option<PathBuf>> {
+    if home_override()?.is_some() {
+        return Ok(None);
+    }
+    Ok(Some(cache_dir()?.join("models")))
+}
+
+fn profile_data_dir(
+    profile: Option<PathBuf>,
+    platform: impl FnOnce() -> Result<PathBuf>,
+) -> Result<PathBuf> {
+    match profile {
+        Some(path) => Ok(path),
+        None => platform(),
+    }
 }
 pub fn update_dir() -> Result<PathBuf> {
     Ok(match home_override()? {
@@ -136,12 +155,20 @@ pub(crate) fn platform_config_dir() -> Result<PathBuf> {
     Ok(home_dir()?.join("Library/Application Support/inklow"))
 }
 #[cfg(target_os = "macos")]
+fn platform_data_dir() -> Result<PathBuf> {
+    platform_config_dir()
+}
+#[cfg(target_os = "macos")]
 fn platform_cache_dir() -> Result<PathBuf> {
     Ok(home_dir()?.join("Library/Caches/inklow"))
 }
 #[cfg(all(unix, not(target_os = "macos")))]
 pub(crate) fn platform_config_dir() -> Result<PathBuf> {
     Ok(xdg_base("XDG_CONFIG_HOME", ".config")?.join("inklow"))
+}
+#[cfg(all(unix, not(target_os = "macos")))]
+fn platform_data_dir() -> Result<PathBuf> {
+    Ok(xdg_base("XDG_DATA_HOME", ".local/share")?.join("inklow"))
 }
 #[cfg(all(unix, not(target_os = "macos")))]
 fn platform_cache_dir() -> Result<PathBuf> {
@@ -157,6 +184,10 @@ fn xdg_base(name: &str, fallback: &str) -> Result<PathBuf> {
 #[cfg(windows)]
 pub(crate) fn platform_config_dir() -> Result<PathBuf> {
     Ok(local_app_data()?.join("inklow"))
+}
+#[cfg(windows)]
+fn platform_data_dir() -> Result<PathBuf> {
+    platform_config_dir()
 }
 #[cfg(windows)]
 fn platform_cache_dir() -> Result<PathBuf> {
@@ -278,6 +309,62 @@ mod tests {
             );
             assert_eq!(cache, home_dir().unwrap().join("Library/Caches/inklow"));
         }
+    }
+    #[test]
+    fn isolated_models_never_resolve_or_create_normal_storage() {
+        let temp = tempfile::tempdir().unwrap();
+        let profile = temp.path().join("profile");
+        let data = profile_data_dir(Some(profile.clone()), || {
+            panic!("an isolated profile must not resolve normal model storage")
+        })
+        .unwrap();
+        let models = data.join("models");
+        assert_eq!(models, profile.join("models"));
+        assert!(!profile.exists());
+        private_directory(&models).unwrap();
+        std::fs::write(models.join("owned.gguf"), b"owned synthetic weights").unwrap();
+        assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 1);
+        assert_ne!(platform_data_dir().unwrap(), platform_cache_dir().unwrap());
+    }
+    #[test]
+    fn isolated_model_storage_child() {
+        if std::env::var_os("BROTYPIST_MODEL_PATH_TEST_CHILD").is_none() {
+            return;
+        }
+        let profile = PathBuf::from(std::env::var_os("INKLOW_HOME").unwrap());
+        assert_eq!(model_dir().unwrap(), profile.join("models"));
+        assert!(legacy_model_dir().unwrap().is_none());
+        private_directory(&model_dir().unwrap()).unwrap();
+        std::fs::write(
+            model_dir().unwrap().join("owned.gguf"),
+            b"synthetic weights",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn isolated_profile_owns_models_without_global_environment_changes() {
+        let root = tempfile::tempdir().unwrap();
+        let profile = root.path().join("profile");
+        let forbidden = root.path().join("normal-profile-must-not-be-created");
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "paths::tests::isolated_model_storage_child",
+                "--nocapture",
+            ])
+            .env("BROTYPIST_MODEL_PATH_TEST_CHILD", "1")
+            .env("INKLOW_HOME", &profile)
+            .env("HOME", &forbidden)
+            .env("USERPROFILE", &forbidden)
+            .env("XDG_DATA_HOME", &forbidden)
+            .env("XDG_CACHE_HOME", &forbidden)
+            .status()
+            .unwrap();
+        assert!(result.success());
+        assert!(profile.join("models/owned.gguf").is_file());
+        assert!(!forbidden.exists());
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
     }
     #[test]
     fn creation_is_private_without_creating_profile_artifacts() {
