@@ -22,12 +22,12 @@ use. Accept what fits, dismiss what doesn't, and keep writing—without moving
 your draft into a chatbot. It lives in the menu bar or system tray, with
 OS-native Settings and local model inference.
 
-**Native Rust, with macOS first.** **[0.5.2 is the Latest macOS-only stable
-release](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.2);
+**Native Rust, with macOS first.** **[0.5.3 is the Latest macOS-only stable
+release](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.3);
 Windows and Linux remain ALPHA.** It contains Apple Silicon DMG/ZIP assets only,
-bound to source `730cb78`.
-The Mac update improves responsiveness and editor compatibility, removes raw
-debug text from Setup, and retains downloaded models in durable app data.
+bound to source `f7e80cf`.
+This patch polishes native Settings alignment, sidebar icons, grouped controls,
+text spacing, and responsive layouts while preserving unsaved instruction drafts.
 Model relevance and text-field compatibility still vary: stable does not mean
 every app is supported or establish three-platform parity. The
 [migration and acceptance record](docs/rust-migration/README.md) separates
@@ -49,15 +49,15 @@ source-bound observations from final release proof and remaining platform gates.
   and native controls rather than another writing window.
 
 <p align="center">
-  <img src="evidence/rust-migration/macos-gui-status/general-baseline.png" alt="BroTypist native macOS General Settings with startup, accessory and completion controls" width="760">
+  <img src="evidence/rust-migration/macos-0.5.3-menu.png" alt="BroTypist 0.5.3 native macOS General Settings with aligned sidebar icons and grouped controls" width="760">
 </p>
-<p align="center"><sub>Actual native macOS Settings, captured in an owned disposable profile—not a mockup or a personal conversation. <a href="evidence/rust-migration/macos-gui-status/receipt.json">Capture record</a>.</sub></p>
+<p align="center"><sub>Actual native macOS Settings, rasterized from tagged source with synthetic preferences and no runtime services—not a mockup or a personal conversation. <a href="evidence/rust-migration/macos-0.5.3-release-verification.json">Capture and release verification record</a>.</sub></p>
 
 ## Platform support
 
 | Platform | Current native status | Installation |
 | --- | --- | --- |
-| **macOS 15+, Apple Silicon** | **0.5.2 stable channel.** AppKit Settings; responsiveness and bounded editor compatibility improvements. Compatibility varies by text field. | Mac-only DMG/ZIP when listed in Releases; Apple Development signed, **not notarized**. |
+| **macOS 15+, Apple Silicon** | **0.5.3 stable channel.** Polished AppKit Settings; existing responsiveness and bounded editor compatibility improvements retained. Compatibility varies by text field. | Mac-only DMG/ZIP in Releases; Apple Development signed, **not notarized**. |
 | **Linux x86-64, X11** | **ALPHA.** Packaging, inference and native UI have evidence; desktop typing compatibility is limited. Emoji/synonym/typo rewrites are unavailable. | Alpha DEB or portable test bundle when supplied; not part of the macOS stable release. |
 | **Linux x86-64, Wayland** | **ALPHA. Ordinary inline completion is unavailable.** Manual preview only; experimental KDE input-method controls require explicit selection and are not general inline support. | Alpha test bundles; installation does not enable an input method. |
 | **Windows x86-64** | **ALPHA.** Unsigned portable testing; inference and owned-window GUI checks do not establish full physical typing, upgrade or rollback acceptance. **MSI distribution is held.** | Authorized portable test bundle only; not part of the macOS stable release. |

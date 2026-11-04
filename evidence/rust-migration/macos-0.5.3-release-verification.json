@@ -1,0 +1,256 @@
+{
+  "schema": 1,
+  "version": "0.5.3",
+  "source_commit": "f7e80cfddaa69ca03e237cd7689cf2dd0f7d34c7",
+  "publication": {
+    "release_id": 433791567,
+    "url": "https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.3",
+    "published_at": "2026-11-04T10:50:56Z",
+    "latest": true,
+    "draft": false,
+    "prerelease": false,
+    "target": "macos-arm64"
+  },
+  "public_downloads": {
+    "passed": true,
+    "all_six_files_match_sealed_bytes": true,
+    "sha256sums_verified": true,
+    "publisher_signature_verified": true,
+    "publisher_public_key": "pB0JKiHFFxEyLxxVCuxpB+A71/m42Mg98HC709zRsHI=",
+    "assets": [
+      {
+        "name": "BroTypist-0.5.3-macos-arm64.dmg",
+        "size": 18844538,
+        "sha256": "3f8542c99b16cb936a7f01e744dbeb02fda0a9f4001127795c7caf5e5cfefa0f"
+      },
+      {
+        "name": "BroTypist-0.5.3-macos-arm64.zip",
+        "size": 18045856,
+        "sha256": "08ca1b1b183b9d1a4b6d2af166ff624edc4ae06ed638ac0aa2c85a8a3b8979e9"
+      },
+      {
+        "name": "SHA256SUMS",
+        "size": 457,
+        "sha256": "9b8c975d2172e6d6d710b792d7bcec54faa06fb9c9c0132e68cef48f652ab04a"
+      },
+      {
+        "name": "release-manifest.json",
+        "size": 20807,
+        "sha256": "af002bfaf9afa9dab29f78764fc553aa74af105514cb0c8c4765378310fa6ad6"
+      },
+      {
+        "name": "update-manifest.json",
+        "size": 481,
+        "sha256": "f7bd31e788bc2867fb7cb03b27ac0b06f09bb8cf8c7c5d5e232bf5e28d17c509"
+      },
+      {
+        "name": "update-manifest.sig",
+        "size": 89,
+        "sha256": "d9b557c4ff90b2dd17254140624e8c2c0d2989eab85c2f67efb82d529fa8c29d"
+      }
+    ]
+  },
+  "tests": {
+    "command": "cargo test --locked --workspace --all-targets --features native-smoke",
+    "passed_results_including_child_process_results": 542,
+    "failures": 0,
+    "formatting_command": "cargo fmt --all -- --check",
+    "formatting_passed": true
+  },
+  "layout": {
+    "passed": true,
+    "source_commit": "f7e80cfddaa69ca03e237cd7689cf2dd0f7d34c7",
+    "screenshots": 43,
+    "geometry_observations": 67,
+    "draft_resize_observations": [
+      {
+        "bounds": {
+          "height": 158.0,
+          "width": 712.0,
+          "x": 0.0,
+          "y": 0.0
+        },
+        "native_editor_identity": "0x7cd614b700",
+        "passed": true,
+        "readback": "Layout draft \u2014 amanh\u00e3 \ud83e\udd80\n\u65e5\u672c\u8a9e \u2022 \u0645\u0631\u062d\u0628\u064b\u0627 \u2022 caf\u00e9",
+        "same_native_editor": true,
+        "scroll_frame": {
+          "height": 160.0,
+          "width": 714.0,
+          "x": 38.0,
+          "y": 776.0
+        },
+        "scroll_visible_rect": {
+          "height": 688.0,
+          "width": 790.0,
+          "x": -38.0,
+          "y": -452.0
+        },
+        "selection_utf16": {
+          "length": 9,
+          "location": 15
+        },
+        "size_case": "before",
+        "visible_rect": {
+          "height": 158.0,
+          "width": 712.0,
+          "x": 0.0,
+          "y": 0.0
+        }
+      },
+      {
+        "bounds": {
+          "height": 158.0,
+          "width": 472.0,
+          "x": 0.0,
+          "y": 0.0
+        },
+        "native_editor_identity": "0x7cd614b700",
+        "passed": true,
+        "readback": "Layout draft \u2014 amanh\u00e3 \ud83e\udd80\n\u65e5\u672c\u8a9e \u2022 \u0645\u0631\u062d\u0628\u064b\u0627 \u2022 caf\u00e9",
+        "same_native_editor": true,
+        "scroll_frame": {
+          "height": 160.0,
+          "width": 474.0,
+          "x": 38.0,
+          "y": 854.0
+        },
+        "scroll_visible_rect": {
+          "height": 508.0,
+          "width": 550.0,
+          "x": -38.0,
+          "y": -348.0
+        },
+        "selection_utf16": {
+          "length": 9,
+          "location": 15
+        },
+        "size_case": "minimum",
+        "visible_rect": {
+          "height": 158.0,
+          "width": 472.0,
+          "x": 0.0,
+          "y": 0.0
+        }
+      },
+      {
+        "bounds": {
+          "height": 158.0,
+          "width": 612.0,
+          "x": 0.0,
+          "y": 0.0
+        },
+        "native_editor_identity": "0x7cd614b700",
+        "passed": true,
+        "readback": "Layout draft \u2014 amanh\u00e3 \ud83e\udd80\n\u65e5\u672c\u8a9e \u2022 \u0645\u0631\u062d\u0628\u064b\u0627 \u2022 caf\u00e9",
+        "same_native_editor": true,
+        "scroll_frame": {
+          "height": 160.0,
+          "width": 614.0,
+          "x": 38.0,
+          "y": 776.0
+        },
+        "scroll_visible_rect": {
+          "height": 588.0,
+          "width": 690.0,
+          "x": -38.0,
+          "y": -352.0
+        },
+        "selection_utf16": {
+          "length": 9,
+          "location": 15
+        },
+        "size_case": "baseline",
+        "visible_rect": {
+          "height": 158.0,
+          "width": 612.0,
+          "x": 0.0,
+          "y": 0.0
+        }
+      },
+      {
+        "bounds": {
+          "height": 158.0,
+          "width": 712.0,
+          "x": 0.0,
+          "y": 0.0
+        },
+        "native_editor_identity": "0x7cd614b700",
+        "passed": true,
+        "readback": "Layout draft \u2014 amanh\u00e3 \ud83e\udd80\n\u65e5\u672c\u8a9e \u2022 \u0645\u0631\u062d\u0628\u064b\u0627 \u2022 caf\u00e9",
+        "same_native_editor": true,
+        "scroll_frame": {
+          "height": 160.0,
+          "width": 714.0,
+          "x": 38.0,
+          "y": 776.0
+        },
+        "scroll_visible_rect": {
+          "height": 688.0,
+          "width": 790.0,
+          "x": -38.0,
+          "y": -452.0
+        },
+        "selection_utf16": {
+          "length": 9,
+          "location": 15
+        },
+        "size_case": "expanded",
+        "visible_rect": {
+          "height": 158.0,
+          "width": 712.0,
+          "x": 0.0,
+          "y": 0.0
+        }
+      }
+    ],
+    "scope": "Canonical owned native Settings controls, theme frame, chooser and same-line OverlayOwner ghost; synthetic preferences/status/writing, no runtime services. Native menu inspected without opening it.",
+    "limits": "Native geometry assertions and NSView rasterization do not prove WindowServer vibrancy/compositing or external-host typing. Visual review of images is required.",
+    "receipt_sha256": "63f2ba6461ba3a0807a2f99b54d43a0d305e56ace6d209a51ba61c3dc6188d88",
+    "general_screenshot": {
+      "file": "macos-0.5.3-menu.png",
+      "sha256": "59c6846abeb69e62dd78db2362a019d00d4af96efae2d22f15048a8068cf095c"
+    }
+  },
+  "installer": {
+    "passed": true,
+    "receipt_sha256": "d2ba5b4545683dc2de6cb49002e5d5917ddd5f5f8e7e5c288fb106355b9ed4b5",
+    "checks": [
+      "actual_bundled_cli_version_and_doctor",
+      "disposable_drag_copy",
+      "dmg_detached",
+      "launchservices_gui_and_os_quit",
+      "owned_assets_and_canonical_payload",
+      "read_only_dmg_layout_and_payload",
+      "real_tiny_worker",
+      "uninstall_preserves_owned_and_unrelated_profile_fixture",
+      "zip_preflight_real_extraction_identity_and_traversal_refusal"
+    ],
+    "real_tiny_worker": {
+      "app": "exact disposable DMG copy",
+      "canonical_receipt_sha256": "58486bf88692b0bd4bdc11095bdc20a50c66cbe50f2e63e7ea5b4d2fdc66cbeb",
+      "helper_sha256": "cc073ea8b1f3f0c7ce98c5b8fb07d0a15ba30ad7f07bbf291d62e04a7116703e",
+      "model_sha256": "e3131339bf4e8065265593d4fd8f7bb7ff2d3abff1edb5618aa1197b89cad9f5",
+      "passed": true
+    },
+    "full_matrix": false,
+    "prior_version_upgrade": {
+      "reason": "no genuine prior-version native fixture supplied",
+      "status": "not_exercised"
+    },
+    "public_evidence": "release-manifest.json"
+  },
+  "github_actions": {
+    "run_id": 41815894398,
+    "status_observed_after_publication": "pending",
+    "jobs": [],
+    "counted_as_passing": false,
+    "incident": "https://www.githubstatus.com/incidents/smtdswd1h2w4"
+  },
+  "limits": [
+    "Apple Development-signed; not notarized",
+    "Windows and Linux remain alpha; no assets published for them",
+    "No installed-app replacement or personal-profile changes",
+    "No new physical typing or full prior-version upgrade matrix claim"
+  ]
+}

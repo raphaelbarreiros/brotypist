@@ -4,7 +4,7 @@
 
 ## 0.5.3 — macOS menu polish
 
-- Scope: macOS-only patch. Windows and Linux remain **ALPHA**. Packages remain Apple Development-signed, **not notarized**.
+- Scope: [published macOS-only stable patch](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.3), source `f7e80cfddaa69ca03e237cd7689cf2dd0f7d34c7`. Windows and Linux remain **ALPHA**. Packages remain Apple Development-signed, **not notarized**.
 - Refine native macOS Settings with compact, consistently aligned sidebar rows, proportional SF Symbols, a legible Emoji icon, and a two-line status footer.
 - Restore appearance-aware rounded setting groups using AppKit's supported custom-fill configuration. Keep group content clear of native border insets.
 - Fit descriptions to each row's actual control instead of reserving a wide empty column for switches. Use consistent text spacing, tighter row/section rhythm, compact numeric inputs, and content-sized action buttons that remeasure when their title changes.
