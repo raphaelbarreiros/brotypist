@@ -2,8 +2,9 @@
 
 # Changelog
 
-## Unreleased
+## 0.5.3 — macOS menu polish
 
+- Scope: macOS-only patch. Windows and Linux remain **ALPHA**. Packages remain Apple Development-signed, **not notarized**.
 - Refine native macOS Settings with compact, consistently aligned sidebar rows, proportional SF Symbols, a legible Emoji icon, and a two-line status footer.
 - Restore appearance-aware rounded setting groups using AppKit's supported custom-fill configuration. Keep group content clear of native border insets.
 - Fit descriptions to each row's actual control instead of reserving a wide empty column for switches. Use consistent text spacing, tighter row/section rhythm, compact numeric inputs, and content-sized action buttons that remeasure when their title changes.

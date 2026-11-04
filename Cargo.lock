@@ -367,7 +367,7 @@ dependencies = [
 
 [[package]]
 name = "brotypist"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -431,7 +431,7 @@ dependencies = [
 
 [[package]]
 name = "brotypist-updater"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3900,7 +3900,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
