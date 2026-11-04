@@ -2779,10 +2779,7 @@ fn sidebar_image_ink(image: &AnyObject) -> Result<(NSSize, NSRect, NSSize)> {
                 tile = (tile.0.min(x), tile.1.min(y), tile.2.max(x), tile.3.max(y));
             }
         }
-        anyhow::ensure!(
-            tile.2 >= tile.0,
-            "Sidebar image has no visible ink"
-        );
+        anyhow::ensure!(tile.2 >= tile.0, "Sidebar image has no visible ink");
         let measured = |bounds: (isize, isize, isize, isize)| {
             rect(
                 bounds.0 as f64 * canvas.width / width as f64,
