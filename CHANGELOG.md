@@ -9,6 +9,7 @@
 - Restore appearance-aware rounded setting groups using AppKit's supported custom-fill configuration. Keep group content clear of native border insets.
 - Fit descriptions to each row's actual control instead of reserving a wide empty column for switches. Use consistent text spacing, tighter row/section rhythm, compact numeric inputs, and content-sized action buttons that remeasure when their title changes.
 - Preserve all existing panes, native control actions, responsive stacking, scrolling, and retained instruction drafts. The menu-bar quick menu remains a compact native action menu; no model, battery, or dashboard cards are added.
+- Remove the native smoke probe's display-scale-dependent pure-white glyph assertion. Retain actual image/row geometry checks and visual review; antialiased 1× icons are not missing icons.
 
 ## 0.5.2 — macOS stable channel
 

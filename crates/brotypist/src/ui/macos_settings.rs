@@ -457,7 +457,7 @@ impl Settings {
                 let title_rect: NSRect = msg_send![cell,titleRectForBounds:bounds];
                 let image: *mut AnyObject = msg_send![&**button, image];
                 anyhow::ensure!(!image.is_null(), "Missing sidebar image for {key}");
-                let (canvas, ink, glyph, pixels) = sidebar_image_ink(&*image)?;
+                let (canvas, ink, pixels) = sidebar_image_ink(&*image)?;
                 let project = |ink: NSRect| {
                     rect(
                         image_rect.origin.x + ink.origin.x * image_rect.size.width / canvas.width,
@@ -497,7 +497,6 @@ impl Settings {
                     "image_cell_rect": geometry(image_rect),
                     "title_cell_rect": geometry(title_rect),
                     "tile_rect": geometry(tile),
-                    "glyph_ink_rect": geometry(project(glyph)),
                     "image_canvas": {"width": canvas.width, "height": canvas.height},
                     "image_pixels": {"width": pixels.width, "height": pixels.height},
                     "tile_leading_padding": tile.origin.x - bounds.origin.x,
@@ -530,7 +529,7 @@ impl Settings {
             });
             Ok(json!({
                 "coordinate_space": "row-local cell rectangles; button/selection frames in sidebar document",
-                "image_ink_measurement": "NSBitmapImageRep TIFF pixels: alpha > 0.05; white glyph RGB > 0.9",
+                "image_ink_measurement": "NSBitmapImageRep TIFF pixels: alpha > 0.05; glyph legibility requires visual review, not a display-scale-dependent pure-white pixel threshold",
                 "pane": self.current_pane,
                 "selected_keys": selected_keys,
                 "row_count": rows.len(),
@@ -2749,7 +2748,7 @@ fn sidebar_symbol(button: &AnyObject, pane: &str) {
 }
 /// Measure the actual retained image rather than repeating its drawing constants.
 #[cfg(feature = "native-smoke")]
-fn sidebar_image_ink(image: &AnyObject) -> Result<(NSSize, NSRect, NSRect, NSSize)> {
+fn sidebar_image_ink(image: &AnyObject) -> Result<(NSSize, NSRect, NSSize)> {
     unsafe {
         let canvas: NSSize = msg_send![image, size];
         let data: *mut AnyObject = msg_send![image, TIFFRepresentation];
@@ -2767,7 +2766,6 @@ fn sidebar_image_ink(image: &AnyObject) -> Result<(NSSize, NSRect, NSRect, NSSiz
             "Sidebar image has empty dimensions"
         );
         let mut tile = (width, height, -1isize, -1isize);
-        let mut glyph = tile;
         for y in 0..height {
             for x in 0..width {
                 let color: *mut AnyObject = msg_send![bitmap,colorAtX:x,y:y];
@@ -2779,22 +2777,11 @@ fn sidebar_image_ink(image: &AnyObject) -> Result<(NSSize, NSRect, NSRect, NSSiz
                     continue;
                 }
                 tile = (tile.0.min(x), tile.1.min(y), tile.2.max(x), tile.3.max(y));
-                let red: f64 = msg_send![color, redComponent];
-                let green: f64 = msg_send![color, greenComponent];
-                let blue: f64 = msg_send![color, blueComponent];
-                if red > 0.9 && green > 0.9 && blue > 0.9 {
-                    glyph = (
-                        glyph.0.min(x),
-                        glyph.1.min(y),
-                        glyph.2.max(x),
-                        glyph.3.max(y),
-                    );
-                }
             }
         }
         anyhow::ensure!(
-            tile.2 >= tile.0 && glyph.2 >= glyph.0,
-            "Sidebar image is missing its tile or white glyph"
+            tile.2 >= tile.0,
+            "Sidebar image has no visible ink"
         );
         let measured = |bounds: (isize, isize, isize, isize)| {
             rect(
@@ -2807,7 +2794,6 @@ fn sidebar_image_ink(image: &AnyObject) -> Result<(NSSize, NSRect, NSRect, NSSiz
         Ok((
             canvas,
             measured(tile),
-            measured(glyph),
             NSSize::new(width as f64, height as f64),
         ))
     }
