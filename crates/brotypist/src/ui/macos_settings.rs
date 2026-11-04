@@ -167,7 +167,7 @@ impl Settings {
         // Match the source-list baseline: navigation starts below the traffic lights.
         let navigation = self.kit.view(rect(0., 0., 194., 0.));
         let sidebar_scroll = obj("NSScrollView");
-        frame(&sidebar_scroll, &rect(8., 50., 194., 470.));
+        frame(&sidebar_scroll, &rect(8., 50., 194., 534.));
         unsafe {
             let _: () = msg_send![&*sidebar_scroll,setDrawsBackground:false];
             let _: () = msg_send![&*sidebar_scroll,setHasVerticalScroller:true];
@@ -181,7 +181,8 @@ impl Settings {
         let selection = obj("NSBox");
         unsafe {
             let _: () = msg_send![&*selection,setBoxType:4usize];
-            let _: () = msg_send![&*selection,setBorderType:0usize];
+            let _: () = msg_send![&*selection,setBorderType:1usize];
+            let _: () = msg_send![&*selection,setBorderWidth:0.0f64];
             let _: () = msg_send![&*selection,setTitlePosition:0usize];
             let _: () = msg_send![&*selection,setCornerRadius:8.0f64];
             let color: *mut AnyObject = msg_send![
@@ -209,7 +210,7 @@ impl Settings {
             let button = self.kit.button(
                 title,
                 &format!("inklow.sidebar.{key}"),
-                rect(0., y, 194., 36.),
+                rect(0., y, 194., 32.),
                 action,
             );
             // Keep one native full-row button; the padded image supplies its content inset.
@@ -225,10 +226,10 @@ impl Settings {
             }
             add(&navigation, &button);
             self.sidebar_buttons.insert((*key).into(), button);
-            y += 36.;
+            y += 32.;
         }
         frame(&navigation, &rect(0., 0., 194., y));
-        let badge = self.kit.label("●", rect(171., 9., 12., 18.), 10., false);
+        let badge = self.kit.label("●", rect(171., 7., 12., 18.), 10., false);
         identify(
             &badge,
             "inklow.sidebar.setup.pending",
@@ -242,12 +243,15 @@ impl Settings {
         add(&navigation, &badge);
         self.sidebar_badge = Some(badge);
         identify(&sidebar, "inklow.sidebar", "Settings categories");
-        let status = self.kit.label("", rect(20., 574., 174., 48.), 11., false);
+        let status = self.kit.label("", rect(16., 588., 178., 36.), 11., false);
         identify(&status, "inklow.sidebar.status", "BroTypist status");
         unsafe {
             let _: () = msg_send![&*status,setAutoresizingMask:8usize];
-            let _: () = msg_send![&*status,setMaximumNumberOfLines:1isize];
+            let _: () = msg_send![&*status,setMaximumNumberOfLines:2isize];
             let _: () = msg_send![&*status,setLineBreakMode:4usize];
+            let color: *mut AnyObject =
+                msg_send![AnyClass::get(c"NSColor").unwrap(), secondaryLabelColor];
+            let _: () = msg_send![&*status,setTextColor:color];
         }
         add(&sidebar, &status);
         self.sidebar_status = Some(status);
@@ -654,7 +658,7 @@ impl Settings {
         if let Some(scroll) = &self.sidebar_scroll {
             let clip: *mut AnyObject = unsafe { msg_send![&**scroll, contentView] };
             let previous: NSRect = unsafe { msg_send![clip, bounds] };
-            frame(scroll, &rect(8., 50., 194., (height - 120.).max(1.)));
+            frame(scroll, &rect(8., 50., 194., (height - 106.).max(1.)));
             let viewport: NSRect = unsafe { msg_send![clip, bounds] };
             if previous.size != viewport.size {
                 // Resizing may clip a previously visible selection; ordinary refreshes
@@ -672,7 +676,7 @@ impl Settings {
             }
         }
         if let Some(footer) = &self.sidebar_status {
-            frame(footer, &rect(20., height - 66., 174., 48.));
+            frame(footer, &rect(16., height - 52., 178., 36.));
         }
         frame(
             self.title.as_ref().unwrap(),
@@ -829,7 +833,7 @@ impl Settings {
         let view = self.kit.text(
             &format!("inklow.{}.{}", self.current_pane, field),
             title,
-            rect(0., 0., 530., 28.),
+            rect(0., 0., if integer { 88. } else { 220. }, 28.),
             value,
             integer,
             UiAction::Set(field.into(), Value::Null),
@@ -1991,7 +1995,7 @@ impl Settings {
                     let _: () = msg_send![&**button,setState:isize::from(selected)];
                     let font: *mut AnyObject = msg_send![
                         AnyClass::get(c"NSFont").unwrap(),
-                        systemFontOfSize:14.0f64,
+                        systemFontOfSize:13.0f64,
                         weight:if selected { 0.23f64 } else { 0.0f64 }
                     ];
                     let _: () = msg_send![&**button,setFont:font];
@@ -2047,7 +2051,7 @@ impl Settings {
                     &c.model
                 });
             let label = format!(
-                "{} · {active}",
+                "{}\n{active}",
                 if status["enabled"].as_bool() == Some(true) {
                     "On"
                 } else {
@@ -2714,30 +2718,32 @@ fn sidebar_symbol(button: &AnyObject, pane: &str) {
         }
         let color_class = AnyClass::get(c"NSColor").unwrap();
         let white: *mut AnyObject = msg_send![color_class, whiteColor];
-        let colors = obj("NSMutableArray");
-        let _: () = msg_send![&*colors,addObject:white];
-        let config: *mut AnyObject = msg_send![AnyClass::get(c"NSImageSymbolConfiguration").unwrap(),configurationWithPaletteColors:&*colors];
+        // Preserve symbol layers: a one-color palette paints the smile's cutouts solid white.
+        let config: *mut AnyObject = msg_send![AnyClass::get(c"NSImageSymbolConfiguration").unwrap(),configurationWithHierarchicalColor:white];
         let symbol: *mut AnyObject = msg_send![symbol,imageWithSymbolConfiguration:config];
         let raw: *mut AnyObject = msg_send![image_class, alloc];
-        // The 24pt tile lives inside a transparent row-height canvas: 8pt on each
-        // horizontal edge keeps the native cell's image away from the selection edge
-        // and its title, without replacing NSButton's title, hit target or AXPress.
-        let raw: *mut AnyObject = msg_send![raw,initWithSize:NSSize::new(40.,36.)];
+        // A 20pt tile in a row-height canvas keeps icon and title aligned while
+        // retaining NSButton's full-row hit target, keyboard focus and AXPress.
+        let raw: *mut AnyObject = msg_send![raw,initWithSize:NSSize::new(36.,32.)];
         let tile = Retained::from_raw(raw).expect("sidebar icon");
         let _: () = msg_send![&*tile, lockFocus];
         let color: *mut AnyObject =
             msg_send![color_class,colorWithSRGBRed:r/255.,green:g/255.,blue:b/255.,alpha:1.0f64];
         let _: () = msg_send![color, setFill];
-        let path: *mut AnyObject = msg_send![AnyClass::get(c"NSBezierPath").unwrap(),bezierPathWithRoundedRect:rect(8.,6.,24.,24.),xRadius:6.0f64,yRadius:6.0f64];
+        let path: *mut AnyObject = msg_send![AnyClass::get(c"NSBezierPath").unwrap(),bezierPathWithRoundedRect:rect(8.,6.,20.,20.),xRadius:5.0f64,yRadius:5.0f64];
         let _: () = msg_send![path, fill];
-        let _: () = msg_send![symbol,drawInRect:rect(12.,10.,16.,16.),fromRect:rect(0.,0.,0.,0.),operation:2usize,fraction:1.0f64,respectFlipped:false,hints:std::ptr::null::<AnyObject>()];
+        let size: NSSize = msg_send![symbol, size];
+        let scale = (14. / size.width).min(14. / size.height);
+        let width = size.width * scale;
+        let height = size.height * scale;
+        let _: () = msg_send![symbol,drawInRect:rect(18.-width/2.,16.-height/2.,width,height),fromRect:rect(0.,0.,0.,0.),operation:2usize,fraction:1.0f64,respectFlipped:false,hints:std::ptr::null::<AnyObject>()];
         let _: () = msg_send![&*tile, unlockFocus];
         let _: () = msg_send![&*tile,setTemplate:false];
         let _: () = msg_send![button,setImage:&*tile];
         let _: () = msg_send![button,setImagePosition:2usize];
         let _: () = msg_send![button,setImageScaling:2usize];
         let font: *mut AnyObject =
-            msg_send![AnyClass::get(c"NSFont").unwrap(),systemFontOfSize:14.0f64];
+            msg_send![AnyClass::get(c"NSFont").unwrap(),systemFontOfSize:13.0f64];
         let _: () = msg_send![button,setFont:font];
     }
 }

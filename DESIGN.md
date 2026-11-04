@@ -76,31 +76,29 @@ Everything else uses system colors: `labelColor`, `secondaryLabelColor`, `separa
 
 ## 4. Spacing, radii, materials
 - Spacing scale: 4, 8, 12, 16, 20, 24, 32.
-- Settings rows are at least 40 pt tall, with a 14 pt horizontal inset inside groups. Window content padding is 24. Onboarding side padding is 56.
+- Native Settings rows are at least 48 pt tall, with 12 pt vertical padding and a 14 pt horizontal inset inside groups. Group margins are 24 pt; headings, row text, notes and editors share the resulting 38 pt content edge. Title/detail spacing is 4 pt, heading/group spacing 8 pt, and section spacing 24 pt. Onboarding side padding remains 56.
 - Radii: key cap 6, chip 8, group 10, menu panel 12. Windows use the system radius.
 - Materials: menu panel `.menu`, chip `.popover` / `.regularMaterial`, settings sidebar `.sidebar`. No custom glass or blur.
 - Shadows only on floating surfaces. Chip: y 6, blur 16, black 14% (40% in dark mode). Panel: y 12, blur 32, 18%.
 
 ---
 
-## 5. Menu bar panel — `MenuBarExtra(.window)`, width 300
+## 5. Menu bar — native `NSMenu`
 
-From top to bottom, with 6 pt panel padding:
-1. **Header row** (padding 8/10): icon at 28 pt · "BroTypist" (13 Semibold) above a subtitle "Predicting in {App}" (11, secondary) · on the right, a status badge (`● Active`).
-2. **Model card** (inset 4 pt, radius 8, control background, hairline border): "Model" on the left and "on-device · MLX" on the right (11, secondary). Below that, the model name in SF Mono 12.5 Medium, e.g. `Llama 3.2 1B Instruct · 4-bit`. Below that, `38 tok/s · 0.9 GB memory` (11, secondary).
-3. Row "Predictions" with a switch.
-4. Row "Pause for 1 hour" with the shortcut `⌥⌘P` shown on the right.
-5. Row "Pause until tomorrow".
-6. Row "Turn off in {App}" (adds the app to the excluded list).
+The implemented macOS quick menu is an AppKit action menu, not a custom panel:
+
+1. Enable predictions (checked when enabled).
+2. Pause submenu: For 1 hour, Until tomorrow, and Resume now when paused.
+3. Predictions in {App} (checked for the current app).
+4. Separator.
+5. Settings… `⌘,`
+6. Check for Updates…
 7. Separator.
-8. "Settings…" `⌘,`
-9. "Quit BroTypist" `⌘Q`
+8. Quit BroTypist `⌘Q`
 
-Rows are 30 pt tall with a 6 pt radius, and the highlight uses the accent color. Shortcuts show at 55% opacity.
+AppKit owns item alignment, selection, keyboard navigation, checkmarks, submenus, and appearance. Pause availability follows the existing enabled/paused state. Update checking is disabled while an update operation is in progress.
 
-**Paused panel:** subtitle "Resumes at 11:41", badge `■ Paused`, then a full-width "Resume now" button in place of rows 2–6.
-**Loading panel:** subtitle "Warming up model…", badge "Loading", then a 4 pt progress bar with the model ID and a percentage below it.
-**Error state:** badge `▲ Needs attention`, a one-line reason, and a "Open Settings" button.
+Do not add a logo header, model card, battery card, statistics, or diagnostic text to this menu. Detailed controls belong in Settings.
 
 ---
 
@@ -123,11 +121,16 @@ The window is reopened from About ("Show Welcome…") or when no model is instal
 
 ---
 
-## 7. Settings — `Settings` scene → `NavigationSplitView`, min 900×620
+## 7. Settings — retained native AppKit, default/minimum window 900×640
 
-- **Sidebar** 210 pt, sidebar material, rows 30 pt. Each row has an icon in a 20 pt colored rounded square (radius 5) holding a white SF Symbol: General `gearshape` (gray) · AI Models `cpu` (green `#1FA97A`) · Autocomplete `text.cursor` (blue) · Languages `globe` (indigo) · Privacy `lock.shield` (graphite) · About `info.circle` (gray). At the sidebar's foot: a status dot plus "Active · {model}" or "Predictions off".
-- **Detail:** 52 pt header with the pane title, then `Form(.grouped)`. Section headers are 11 pt uppercase.
-- `⌘1`–`⌘6` switch panes.
+- **Sidebar:** 210 pt wide with the system sidebar material, 32 pt native button rows, 13 pt system text, and 20 pt colored symbol tiles inside a padded image canvas. Symbols preserve their aspect ratio and use hierarchical white rendering so their internal details remain legible. One 8 pt rounded selection follows the current pane.
+- **Navigation:** Setup, General, AI Models, Context, Personalization, Emoji, Shortcuts, Battery, App Settings, Labs, Statistics, About, and Support. All native actions are retained; Support opens the issue tracker. The sidebar scrolls independently when necessary.
+- **Status footer:** two 11 pt secondary-text lines for state and model, separated from navigation. Full status remains available in the tooltip and accessibility help.
+- **Detail:** a 52 pt title area, followed by a scrolling retained form. Group backgrounds use dynamic `underPageBackgroundColor`; their custom `NSBox` uses a zero-width line border to enable rounded fills without shrinking the content grid.
+- **Rows:** one leading text edge and one trailing control edge. Text uses the available width beside each control, capped at 480 pt, with a 24 pt control gap. Rows stack the control below the text when fewer than 220 pt remain for the text column. Switches retain AppKit's intrinsic size; action buttons measure their current titles; numeric inputs are 88 pt wide. Native alignment rectangles account for control bezel/shadow outsets.
+- **Resize:** reflow the existing views rather than replacing editors. Preserve unsaved Unicode text, selections and independent scrolling. Layout stress captures also exercise 760×560 content below the normal minimum.
+
+The pane examples below remain historical concepts, not a replacement for the implemented controls in `macos_settings.rs`.
 
 **General**
 - Group: Launch BroTypist at login [switch, on] · Enable predictions [switch, on; help: "Turn off to keep BroTypist running without suggesting anything."] · Toggle predictions shortcut [recorder `⌥⌘P`]

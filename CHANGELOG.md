@@ -2,6 +2,13 @@
 
 # Changelog
 
+## Unreleased
+
+- Refine native macOS Settings with compact, consistently aligned sidebar rows, proportional SF Symbols, a legible Emoji icon, and a two-line status footer.
+- Restore appearance-aware rounded setting groups using AppKit's supported custom-fill configuration. Keep group content clear of native border insets.
+- Fit descriptions to each row's actual control instead of reserving a wide empty column for switches. Use consistent text spacing, tighter row/section rhythm, compact numeric inputs, and content-sized action buttons that remeasure when their title changes.
+- Preserve all existing panes, native control actions, responsive stacking, scrolling, and retained instruction drafts. The menu-bar quick menu remains a compact native action menu; no model, battery, or dashboard cards are added.
+
 ## 0.5.2 — macOS stable channel
 
 - Scope: [published macOS-only stable release](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.2), source `730cb78cec9b9bb7032bf6634a3b215342c4aafa`. Windows and Linux remain **ALPHA**, with Windows MSI/OTA distribution held and ordinary Wayland inline completion unavailable. No full app-compatibility or three-platform parity claim.

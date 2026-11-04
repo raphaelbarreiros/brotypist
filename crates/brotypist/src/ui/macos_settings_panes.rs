@@ -9,21 +9,22 @@ pub(super) const CONTENT_INSET: f64 = 38.;
 const GROUP_MARGIN: f64 = 24.;
 const ROW_INSET: f64 = CONTENT_INSET - GROUP_MARGIN;
 const CONTROL_COLUMN: f64 = 220.;
-const CONTROL_GAP: f64 = 32.;
-const TEXT_MAX_WIDTH: f64 = 420.;
-const TEXT_MIN_WIDTH: f64 = 240.;
-const ROW_PADDING: f64 = 16.;
-const ROW_MIN_HEIGHT: f64 = 60.;
-const TITLE_DETAIL_GAP: f64 = 8.;
+const CONTROL_GAP: f64 = 24.;
+const TEXT_MAX_WIDTH: f64 = 480.;
+const TEXT_MIN_WIDTH: f64 = 220.;
+const ROW_PADDING: f64 = 12.;
+const ROW_MIN_HEIGHT: f64 = 48.;
+const TITLE_DETAIL_GAP: f64 = 4.;
 const STACKED_CONTROL_GAP: f64 = 12.;
-const HEADING_GROUP_GAP: f64 = 12.;
-const SECTION_GAP: f64 = 32.;
+const HEADING_GROUP_GAP: f64 = 8.;
+const SECTION_GAP: f64 = 24.;
 
 struct Row {
     title: Obj,
     detail: Option<Obj>,
     control: Option<Obj>,
     control_size: NSSize,
+    fit_action_title: bool,
     divider: Option<Obj>,
 }
 struct Group {
@@ -68,11 +69,13 @@ impl Form {
         let content = kit.view(rect(0., 0., 550., 0.));
         unsafe {
             let _: () = msg_send![&*box_view,setBoxType:4usize];
-            let _: () = msg_send![&*box_view,setBorderType:0usize];
+            // A zero-width line border enables custom fill without shrinking the content grid.
+            let _: () = msg_send![&*box_view,setBorderType:1usize];
+            let _: () = msg_send![&*box_view,setBorderWidth:0.0f64];
             let _: () = msg_send![&*box_view,setTitlePosition:0usize];
             let _: () = msg_send![&*box_view,setTransparent:false];
             let color: *mut AnyObject =
-                msg_send![AnyClass::get(c"NSColor").unwrap(), controlBackgroundColor];
+                msg_send![AnyClass::get(c"NSColor").unwrap(), underPageBackgroundColor];
             let _: () = msg_send![&*box_view,setFillColor:color];
             let _: () = msg_send![&*box_view,setCornerRadius:10.0f64];
             let _: () = msg_send![&*box_view,setContentViewMargins:NSSize::new(0.,0.)];
@@ -120,20 +123,28 @@ impl Form {
         if let Some(control) = &control {
             add(&group.content, control);
         }
-        let control_size = control
+        let (control_size, fit_action_title) = control
             .as_ref()
             .map(|control| unsafe {
                 let bounds: NSRect = msg_send![&**control, frame];
-                NSSize::new(
-                    if bounds.size.width > 0. && bounds.size.width < 400. {
-                        bounds.size.width
-                    } else {
-                        CONTROL_COLUMN
-                    },
-                    bounds.size.height.max(1.),
+                let explicit_width = bounds.size.width > 0. && bounds.size.width < 400.;
+                let button: bool =
+                    msg_send![&**control,isKindOfClass:AnyClass::get(c"NSButton").unwrap()];
+                let popup: bool =
+                    msg_send![&**control,isKindOfClass:AnyClass::get(c"NSPopUpButton").unwrap()];
+                (
+                    NSSize::new(
+                        if explicit_width {
+                            bounds.size.width
+                        } else {
+                            CONTROL_COLUMN
+                        },
+                        bounds.size.height.max(1.),
+                    ),
+                    !explicit_width && button && !popup,
                 )
             })
-            .unwrap_or(NSSize::new(CONTROL_COLUMN, 28.));
+            .unwrap_or((NSSize::new(CONTROL_COLUMN, 28.), false));
         let divider = if group.rows.is_empty() {
             None
         } else {
@@ -149,6 +160,7 @@ impl Form {
             detail,
             control,
             control_size,
+            fit_action_title,
             divider,
         });
     }
@@ -165,23 +177,24 @@ impl Form {
                         frame(heading, &rect(CONTENT_INSET, y, text_width, height));
                         y += height + HEADING_GROUP_GAP;
                     }
-                    // Reserve one column per group, including rows without a control.
-                    let control_column = group
-                        .rows
-                        .iter()
-                        .filter(|row| row.control.is_some())
-                        .map(|row| row.control_size.width)
-                        .fold(CONTROL_COLUMN, f64::max);
-                    let stacked = text_width - control_column - CONTROL_GAP < TEXT_MIN_WIDTH;
-                    let column_width = if stacked {
-                        text_width
-                    } else {
-                        text_width - control_column - CONTROL_GAP
-                    }
-                    .min(TEXT_MAX_WIDTH);
                     let mut row_y = 0.;
-                    for row in &group.rows {
+                    for row in &mut group.rows {
+                        if row.fit_action_title {
+                            // Measure live action titles without widening explicitly sized disclosure controls.
+                            let control = row.control.as_ref().unwrap();
+                            let intrinsic: NSSize =
+                                unsafe { msg_send![&**control, intrinsicContentSize] };
+                            row.control_size.width = intrinsic.width.max(80.);
+                        }
                         let control_width = row.control_size.width.min(text_width);
+                        let stacked = row.control.is_some()
+                            && text_width - control_width - CONTROL_GAP < TEXT_MIN_WIDTH;
+                        let column_width = if stacked || row.control.is_none() {
+                            text_width
+                        } else {
+                            text_width - control_width - CONTROL_GAP
+                        }
+                        .min(TEXT_MAX_WIDTH);
                         let title_height = text_height(&row.title, column_width);
                         let detail_height = row
                             .detail
@@ -215,11 +228,11 @@ impl Form {
                             text_block_height.max(control_height.unwrap_or(0.))
                         };
                         let row_height = (content_height + 2. * ROW_PADDING).max(ROW_MIN_HEIGHT);
-                        let content_top = row_y + (row_height - content_height) / 2.;
+                        let content_top = row_y + ((row_height - content_height) / 2.).floor();
                         let text_top = if stacked {
                             content_top
                         } else {
-                            content_top + (content_height - text_block_height) / 2.
+                            content_top + ((content_height - text_block_height) / 2.).floor()
                         };
                         frame(
                             &row.title,
@@ -241,7 +254,7 @@ impl Form {
                             let top = if stacked {
                                 text_top + text_block_height + STACKED_CONTROL_GAP
                             } else {
-                                content_top + (content_height - height) / 2.
+                                content_top + ((content_height - height) / 2.).floor()
                             };
                             // Align native content, not frames that include shadow/bezel outsets.
                             let alignment = rect(
@@ -281,7 +294,7 @@ impl Form {
                             }
                             let _: () = msg_send![&**action, sizeToFit];
                             let intrinsic: NSSize = msg_send![&**action, intrinsicContentSize];
-                            let action_width = (intrinsic.width + 18.).max(100.).min(text_width);
+                            let action_width = intrinsic.width.max(80.).min(text_width);
                             if x > 0. && x + action_width > text_width {
                                 x = 0.;
                                 row_y += 36.;
@@ -383,27 +396,22 @@ impl Form {
                     block_gaps.push(gap);
                 }
                 let available_width = (trailing - leading).max(1.);
-                let control_column = group
-                    .rows
-                    .iter()
-                    .filter(|row| row.control.is_some())
-                    .map(|row| row.control_size.width)
-                    .fold(CONTROL_COLUMN, f64::max);
-                let stacked = available_width - control_column - CONTROL_GAP < TEXT_MIN_WIDTH;
-                let column_width = if stacked {
-                    available_width
-                } else {
-                    available_width - control_column - CONTROL_GAP
-                }
-                .min(TEXT_MAX_WIDTH);
                 sections.push(json!({
                     "heading":group.heading.as_ref().map(|view| string(view)),
                     "group_rect":packed(group_bounds),"heading_group_gap":heading_gap,
-                    "previous_block_gap":section_gap,"reserved_control_column":control_column,
-                    "text_column_width":column_width,"stacked":stacked
+                    "previous_block_gap":section_gap
                 }));
                 let mut previous_content_bottom: Option<f64> = None;
                 for (index, row) in group.rows.iter().enumerate() {
+                    let control_width = row.control_size.width.min(available_width);
+                    let stacked = row.control.is_some()
+                        && available_width - control_width - CONTROL_GAP < TEXT_MIN_WIDTH;
+                    let column_width = if stacked || row.control.is_none() {
+                        available_width
+                    } else {
+                        available_width - control_width - CONTROL_GAP
+                    }
+                    .min(TEXT_MAX_WIDTH);
                     let title = native_rect(&row.title, false)?;
                     ensure!(
                         (title.origin.x - leading).abs() <= 0.5
@@ -556,8 +564,12 @@ impl Form {
                         row_bottom - row_top + 0.5 >= ROW_MIN_HEIGHT
                             && top_padding + 0.5 >= ROW_PADDING
                             && bottom_padding + 0.5 >= ROW_PADDING,
-                        "Row lost its comfortable height or vertical padding: {}",
-                        string(&row.title)
+                        "Row lost its comfortable height or vertical padding: {} (height {}, top {}, bottom {}, group {:?})",
+                        string(&row.title),
+                        row_bottom - row_top,
+                        top_padding,
+                        bottom_padding,
+                        packed(group_bounds)
                     );
                     if let Some(gap) = row_separation {
                         ensure!(
@@ -614,7 +626,7 @@ impl Form {
         }
         Ok(json!({"text_leading":leading,"control_trailing":trailing,
             "rows":rows,"sections":sections,"block_gaps":block_gaps,
-            "geometry_contract":{"minimum_control_column":CONTROL_COLUMN,"text_control_gap":CONTROL_GAP,
+            "geometry_contract":{"default_control_width":CONTROL_COLUMN,"text_control_gap":CONTROL_GAP,
                 "maximum_text_width":TEXT_MAX_WIDTH,"minimum_side_by_side_text_width":TEXT_MIN_WIDTH,
                 "row_padding":ROW_PADDING,"minimum_row_height":ROW_MIN_HEIGHT,
                 "title_detail_gap":TITLE_DETAIL_GAP,"stacked_control_gap":STACKED_CONTROL_GAP,

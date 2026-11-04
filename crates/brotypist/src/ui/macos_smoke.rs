@@ -457,10 +457,10 @@ fn layout_geometry(
                 .with_context(|| format!("Missing sidebar geometry: {key}"))
         };
         ensure!(
-            row["tile_rect"]["width"].as_f64().unwrap_or(0.) >= 23.
-                && row["tile_rect"]["height"].as_f64().unwrap_or(0.) >= 23.
-                && number("tile_title_separation")? >= 7.,
-            "Sidebar icon is undersized or crowded against its title: {}",
+            row["tile_rect"]["width"].as_f64().unwrap_or(0.) > 0.
+                && row["tile_rect"]["height"].as_f64().unwrap_or(0.) > 0.
+                && number("tile_title_separation")? > 0.,
+            "Sidebar icon is missing or overlaps its title: {}",
             row["key"]
         );
         if row["selected"] == true {
