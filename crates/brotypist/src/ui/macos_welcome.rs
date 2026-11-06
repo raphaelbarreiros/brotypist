@@ -641,6 +641,38 @@ impl Welcome {
         // used by keyDown, not accessibilityHelp's unbounded generated candidate.
         Some((current, ghost.text.clone(), visible))
     }
+    #[cfg(feature = "native-smoke")]
+    pub(super) fn preview_diagnostic(&self) -> Value {
+        let ghost = self.state.ghost.borrow();
+        let key: bool = unsafe { msg_send![&*self.window, isKeyWindow] };
+        let editor = self.editor.as_ref().map(|editor| {
+            let current = read_editor(editor.as_ref()).ok();
+            json!({
+                "native_focus": native_focus(editor.as_ref()),
+                "marked": marked(editor.as_ref()),
+                "readable": current.is_some(),
+                "text_scalars": current.as_ref().map(|s| s.text.chars().count()),
+                "caret": current.as_ref().map(|s| s.caret),
+                "selection_length": current.as_ref().map(|s| s.selection_length),
+                "ghost_matches": current.as_ref().is_some_and(|s| ghost.snapshot.as_ref().is_some_and(|g| g.same_key(s))),
+            })
+        });
+        json!({
+            "step": self.step,
+            "visible": self.visible(),
+            "key_window": key,
+            "active": self.state.active.get(),
+            "stopping": self.stopping,
+            "closing": self.closing,
+            "suspended": self.suspended,
+            "awaiting_resume": self.awaiting_resume,
+            "session_present": self.session.is_some(),
+            "generated_scalars": ghost.text.chars().count(),
+            "visible_scalars": ghost.visible.chars().count(),
+            "status": self.controls.get("preview_status").map(|label| string(label)),
+            "editor": editor,
+        })
+    }
     pub(super) fn preview_accept(&mut self, full: bool) -> Result<()> {
         let Some(editor) = self.editor.as_ref() else {
             return Ok(());

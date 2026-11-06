@@ -856,13 +856,7 @@ mod tests {
         let mut config = Config {
             backend: "gguf".into(),
             model_id: preset.id.clone(),
-            model_path: crate::paths::cache_dir()
-                .unwrap()
-                .join("models")
-                .join(&preset.filename)
-                .to_str()
-                .unwrap()
-                .into(),
+            model_path: std::env::var("BROTYPIST_CONFIG_MODEL_PATH").unwrap(),
             battery_model: "balanced".into(),
             ..Config::default()
         };
@@ -887,6 +881,14 @@ mod tests {
                 "--nocapture",
             ])
             .env("BROTYPIST_CONFIG_MODEL_ISOLATION_CHILD", "1")
+            // The child must not resolve the deliberately unusable normal profile
+            // while constructing the input to the isolation checks.
+            .env(
+                "BROTYPIST_CONFIG_MODEL_PATH",
+                forbidden
+                    .join("models")
+                    .join(&crate::models::get_preset("tiny").unwrap().filename),
+            )
             .env("INKLOW_HOME", &profile)
             .env("HOME", &forbidden)
             .env("USERPROFILE", &forbidden)

@@ -1652,6 +1652,22 @@ fn welcome(shell: &mut Shell, receipt: &mut Value, output: &Path) -> Result<()> 
                 }
             }
         }
+        if offered.is_none() {
+            receipt["preview_failure"] = json!({
+                "language": language,
+                "welcome": shell.welcome.preview_diagnostic(),
+                "controller_state": shell.status["state"],
+                "controller_preview": shell.status["preview"],
+                "controller_preview_suspended": shell.status["preview_suspended"],
+            });
+            snapshot(
+                shell,
+                receipt,
+                output,
+                "inklow.welcome",
+                &format!("preview-{language}-deadline"),
+            )?;
+        }
         let (before, generated, visible, insertion, expected) = offered.with_context(|| {
             format!("Actual {language} preview did not expose a drawn, word-acceptable suggestion before its deadline")
         })?;

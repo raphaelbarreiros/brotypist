@@ -1,8 +1,9 @@
 # Changelog
 
 Historical release source hashes identify the original builds. Repository history
-is being redacted with maintainer approval; unchanged published binaries retain
-their original signed provenance, not the source identity of rewritten tags.
+was redacted with maintainer approval; unchanged native downloads retain their
+original signed provenance, not the source identity of rewritten tags. Legacy
+Python-era downloads were withdrawn; their release pages remain historical records.
 
 ## 0.5.4 — macOS prediction responsiveness
 
@@ -19,6 +20,8 @@ their original signed provenance, not the source identity of rewritten tags.
 - Separate opt-in child preparation measurements into backend initialization, model loading, context/batch creation, framing and synchronized initial evaluation. Normal builds omit those callbacks and diagnostic synchronization; preparation policy and generation settings are unchanged.
 - Preserve incremental long-draft state by placing complete earlier text before changing healing metadata while retaining recent prose in model prefill. Keep batch alternatives on full-draft prefill after a measured factual regression; do not reduce authored context or change the model.
 - Retain strong same-clause language evidence when an uncertain final word obscures it, using the existing native confidence threshold. Add diagnostic-only case-independent benchmark seeds without changing production sampling.
+- Make the isolated-profile model-migration regression independent of Windows normal-folder discovery. Preserve checks that neither the normal profile nor the isolated profile is created or migrated.
+- Retain native-smoke-only focus, lifecycle, and draw-state evidence plus an owned-window screenshot when a preview deadline fails; normal builds omit the diagnostic method.
 - Scope: macOS-only patch preparation, authorized after the M1 local test was reported to feel better. Final signed packages and publication are verified separately. See the [prefill latency record](docs/rust-migration/README.md#25-native-prediction-latency-investigation), [grammar verification](docs/rust-migration/README.md#26-quality-preserving-grammar-sampling), [TextEdit and 128-token verification](docs/rust-migration/README.md#27-textedit-geometry-stage-attribution-and-128-token-prefill), [owner-wake and preparation verification](docs/rust-migration/README.md#28-owner-thread-wake-and-child-preparation), [M1 incremental-prefill verification](docs/rust-migration/README.md#29-m1-independent-seeds-and-incremental-prefill), and [implementation plan](docs/rust-migration/prediction-performance-plan.md). Sustained callbacks improve; first-request cost, semantic quality and useful-visible-offer targets remain unresolved.
 
 ## 0.5.3 — macOS menu polish
