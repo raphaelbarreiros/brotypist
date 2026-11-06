@@ -8460,15 +8460,19 @@ mod tests {
                 *locked(&gate.0) = true;
                 gate.1.notify_all();
             }
-            let locked_state = locked(&state.0);
-            let (locked_state, wait) = state
-                .1
-                .wait_timeout_while(locked_state, Duration::from_secs(1), |s| {
-                    s.results.is_empty()
-                })
-                .unwrap();
-            assert!(!wait.timed_out());
-            drop(locked_state);
+            // force() also ticks the owner, which may already have consumed a
+            // completed handoff. Only wait on the queue while it is unconsumed.
+            if h.worker.borrow().submitted.is_empty() {
+                let locked_state = locked(&state.0);
+                let (locked_state, wait) = state
+                    .1
+                    .wait_timeout_while(locked_state, Duration::from_secs(1), |s| {
+                        s.results.is_empty()
+                    })
+                    .unwrap();
+                assert!(!wait.timed_out());
+                drop(locked_state);
+            }
             h.engine.tick();
             let submitted = h.worker.borrow();
             assert_eq!(submitted.submitted.len(), 1);
