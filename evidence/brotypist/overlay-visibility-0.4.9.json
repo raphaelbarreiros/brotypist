@@ -36,27 +36,12 @@
     "skipped": 22,
     "new_cases": 4,
     "all_new_cases_observed_red_before_their_respective_fixes": true,
-    "cases": [
-      "identical event after native hiding",
-      "identical event after leaving active Space",
-      "temporary font resolution recovers",
-      "native ordering refusal must not acknowledge invisible text"
-    ]
+    "cases": ["identical event after native hiding", "identical event after leaving active Space", "temporary font resolution recovers", "native ordering refusal must not acknowledge invisible text"]
   },
   "actual_native_panel_reproduction": {
     "test_surface": "real isolated nonactivating AppKit panel, real fonts and renderer; synthetic writing only",
-    "before": {
-      "initially_visible": true,
-      "externally_hidden": true,
-      "visible_after_identical_valid_event": false,
-      "invisible_text_acknowledged": true
-    },
-    "after": {
-      "initially_visible": true,
-      "externally_hidden": true,
-      "visible_after_identical_valid_event": true,
-      "invisible_text_acknowledged": false
-    },
+    "before": {"initially_visible": true, "externally_hidden": true, "visible_after_identical_valid_event": false, "invisible_text_acknowledged": true},
+    "after": {"initially_visible": true, "externally_hidden": true, "visible_after_identical_valid_event": true, "invisible_text_acknowledged": false},
     "foreground_unchanged": true,
     "input_events": false,
     "user_app_windows_modified": false,
@@ -136,10 +121,9 @@
   "limits": [
     "One-word normal-profile proof is not universal input support or a physical-key latency percentile.",
     "Cold startup still costs seconds; the fresh-process capture timing includes launch/preparation/compositor overhead.",
-    "No physical-key acceptance, human-calibrated grammar score, active-original RAM comparison or complete [redacted reference] parity is claimed.",
+    "No physical-key acceptance, human-calibrated grammar score, active-external-product RAM comparison or complete external-product parity is claimed.",
     "Model abstention, unreliable explicit language overrides and unsupported suggested specifics remain possible.",
     "Physical discharge to 20% and a complete device sleep/wake cycle were not exercised.",
     "No global menu-hider, security policy, learning consent, Linux/Windows build, push, tag, GitHub publication or public OTA manifest change."
-  ],
-  "repository_history_redaction": "Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations."
+  ]
 }

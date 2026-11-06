@@ -1,5 +1,3 @@
-> Historical record: Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations.
-
 # BroTypist: feature-preserving Rust conversion
 
 Status: **[0.5.3 is the published Latest macOS-only stable release](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.3) (release `433791567`, tag source `f7e80cfddaa69ca03e237cd7689cf2dd0f7d34c7`); Windows and Linux remain ALPHA.** This Settings-polish patch passed 542 local test results, formatting, 43 native captures, 67 geometry observations, four retained Unicode-draft resize observations, and source-bound signed DMG/ZIP installer/launch/Quit and real Tiny-worker checks. All six public assets matched sealed local bytes and SHA256SUMS; the update signature verified against the pinned publisher. [Publication and capture evidence](../../evidence/rust-migration/macos-0.5.3-release-verification.json). Tagged-source Actions were still pending during the GitHub incident at publication and are not counted as passing. No new full prior-version upgrade matrix or physical typing acceptance is claimed.
@@ -187,7 +185,7 @@ Signed spacing source `315d125c2a9bf36143af63208afd6c1ab585f864` is installed an
 
 ## 12. Sidebar selection craft and pending icon handoff
 
-The user's [redacted reference] reference establishes the sidebar's visual acceptance: the selected row must contain its icon with visible inset padding, and the category icons need more visual weight. Rows now retain a full native button target while placing a larger tile inside a transparent padded image canvas. One opaque rounded `NSBox` supplies selection; native button-cell alternate/highlight fills are disabled without removing logical state or actions. A dynamic semantic fill is retained directly so switching from dark to light does not freeze the dark selection color. Actual selection movement, rather than only a native push-on/push-off button's already-changed state, drives emphasis and reveal; ordinary status refreshes do not force sidebar scrolling. Rule details keep App Settings selected.
+The selected sidebar row must contain its icon with visible inset padding, and the category icons need more visual weight. Rows retain a full native button target while placing a larger tile inside a transparent padded image canvas. One opaque rounded `NSBox` supplies selection; native button-cell alternate/highlight fills are disabled without removing logical state or actions. A dynamic semantic fill is retained directly so switching from dark to light does not freeze the dark selection color. Actual selection movement, rather than only a native push-on/push-off button's already-changed state, drives emphasis and reveal; ordinary status refreshes do not force sidebar scrolling. Rule details keep App Settings selected.
 
 [Sidebar evidence](../../evidence/rust-migration/macos-sidebar-craft/receipt.json) contains 43 native images and 67 geometry observations, including selected About in dark/light and narrow-height cases. The probe measures the actual image bitmap ink and native cell drawing rectangles: larger tiles, inset padding, title separation, one selection background and visible selected rows all passed. Images are retained through refreshes; all thirteen native destinations remain present. Native view images were visually inspected, workspace tests passed 396 plus two child invocations, foreground stayed unchanged and the isolated profile directory was never created. The probe now installs the production source-launch classic icon fallback, so About does not display a generic example-process icon. These are not compositor/external-host/TCC claims.
 
@@ -385,4 +383,230 @@ The observer sampled WindowServer at 16 ms; actual [warm prediction glyphs](../.
 The signed app was atomically replaced, its real GUI loop and eight-second startup liveness observed, and the exact previous signed 0.5.0 app plus opaque profile retained privately. The original Code settings also have a verified private rollback copy. History database bytes remained unchanged; normal BroTypist settings differ only by the approved Code rule. This is preservation/retained rollback evidence, not a new updater downgrade matrix. The app remains Apple Development-signed, **not notarized**.
 
 No usable Cursor bundle was present; the user chose installed Code instead of a Cursor download. The shared Monaco path is exercised, **direct Cursor support is unverified**. Code-editor completions remain a per-app opt-in; the VS Code settings above are explicit prerequisites, not silent preference changes. BroTypist does not disable Copilot or Cursor Tab; use one automatic inline provider per editor. WordCraft 0.13.2's owned document reported writable AXValue but its setter returned success without changing text; the user chose BroTypist-only changes, so no upstream WordCraft edit or unsafe document-role fallback was made. Reliable field identity, caret/glyph geometry and insertion authority remain mandatory; protected fields, active composition and unsafe/unobservable targets stay excluded. **Windows and Linux remain ALPHA; Windows MSI distribution remains held and ordinary Wayland inline completion remains unavailable.**
+
+## 25. Native prediction latency investigation
+
+**Source-only, not installed or published; the requested performance target is not achieved.** The [sanitized receipt](../../evidence/rust-migration/macos-prediction-latency-unreleased.json) records the changed source files, executables, engine libraries, model bytes and individual observations. Public receipts omit third-party research and are not the unchanged original evidence bundles. The available validation host is **M1 Pro, 10 logical CPUs, 16 GiB**, not the user's M5 Pro.
+
+### Changes and preserved contracts
+
+- Request the vocabulary output only for the final prefill chunk. Intermediate chunks still populate the KV cache.
+- Keep the existing 64-token cancellation boundary, match its microbatch size, and use the pinned engine's automatic Flash Attention selection/fallback. No larger production batch was adopted: the separate 1,024-token batch experiment did not establish a reliable gain beyond observed run-to-run drift.
+- Track cached-logit validity separately from cached tokens. An exact-prefix successor after cancelled intermediate prefill must replay its final token before sampling; a native decode error clears both ledgers.
+- Remove repeated native authorization from the queued clipboard wait while it owns the result mutex. Cheap cancellation, shutdown and deadline checks remain in the wait; fresh authorization still surrounds the real read and result acceptance.
+- Expose opt-in native benchmark counters and synchronized wall-time stages. Ordinary prediction does not enable those synchronization points. Sampling time is not called CPU time.
+
+The actual Gemma 4 E2B Q4_0 weights, 4,096-token context, 2,000-character draft limit, medium four-word/32-token cap, sampler order/parameters/seed, prompt semantics, privacy and native geometry/freshness guards remain unchanged.
+
+### Uninstrumented worker comparison
+
+Three serial runs, baseline → candidate → baseline, each contain three rounds. These are request-proceed → first displayable worker text, **excluding** debounce, native context preparation, desktop supervision and rendering. Non-offers are not zero-latency successes.
+
+| Scenario | Offers per run | Baseline A median | Candidate median | Baseline A2 median |
+| --- | ---: | ---: | ---: | ---: |
+| 2,000-character draft / edits | 31 / 33 | 844 ms | 685 ms | 833 ms |
+| Draft plus changed reference | 6 / 6 | 2,513 ms | 2,056 ms | 2,439 ms |
+| Identical reference repeat | 3 / 3 | 133 ms | 126 ms | 137 ms |
+| Draft edit, stable reference | 3 / 3 | 915 ms | 789 ms | 899 ms |
+
+The separate short fixture returned no offer in all six attempts in each run. Instrumented attribution, not used for the speedup ratio, found **1,334 ms of prefill across 14 decode calls for 880 evaluated reference-prompt tokens**, versus 63 ms of generation decode and 141 ms of sampling. Re-evaluating changed long prompts remains the main measured cost.
+
+Six timed real-worker supersessions per build produced no stale result after cancellation. Baseline/candidate old-request drain medians were **24/32 ms**, maxima **41/52 ms**; successor first-displayable medians were **391/414 ms**. This exercises real worker cancellation, not a proven Metal abort boundary or the desktop supervisor's escalation path.
+
+### Actual native desktop observations
+
+User-authorized disposable signed applications and an external, owned AppKit text view exercised normal capture, context preparation, inference and suggestion panels. Only the fixture's app ID was enabled. AX screen context and screenshot appearance were enabled; clipboard, OCR context, history, personalization and statistics were disabled in the private profiles. Normal installation/profile and permissions were not changed.
+
+Forty successful observations across baseline → candidate → baseline → candidate runs used local synthetic edits with 150 ms debounce. WindowServer was sampled at roughly 16 ms. The metric below is **last local edit → first owned suggestion panel**, not physical-key latency or an exact first-painted-pixel timestamp. Actual [baseline](../../evidence/rust-migration/macos-prediction-latency-unreleased-baseline.png) and [candidate](../../evidence/rust-migration/macos-prediction-latency-unreleased-candidate.png) suggestion glyphs were separately inspected. All owned drafts remained unchanged; final focus restoration and process cleanup were observed.
+
+| Warm scenario | Samples per build | Baseline median | Candidate median |
+| --- | ---: | ---: | ---: |
+| Short English draft | 6 | 450 ms | 426 ms |
+| 1,992-character English draft | 6 | 1,105 ms | 963 ms |
+| Short Portuguese draft | 6 | 428 ms | 452 ms |
+
+The first-request observations after app launch were **1,013/465 ms baseline** and **5,539/492 ms candidate**. OS/model/shader caches were not evicted, so these are not a controlled cold-start comparison. The large candidate outlier is retained, not averaged away. Neither consistently faster short-input behavior nor a cold-start improvement is established.
+
+Initial fixture calibration was excluded: a stale observer run loop, an unpadded first text row rejected by existing geometry checks, and the observer's incorrect assumption that a floating NSPanel retains level 101. The actual AppKit level is 3. No production guard was relaxed to obtain a passing observation.
+
+### Quality, correctness and remaining boundary
+
+The 64-case, three-round direct corpus preserved **191/192 exact suggestion strings**, with **183/192 mechanical passes on both builds**. The same nine no-offer failures remain: three each for `language-en-locale-preference`, `grammar-fr-agreement`, and `suffix-ja-unspaced`. The one changed Portuguese fragment stays in Portuguese and does not import the unrelated reference's battery facts; assistant inspection is not calibrated human semantic evaluation or proof of contextual utility.
+
+`cargo test --locked --workspace --all-targets --features native-smoke` passed **548 tests**, with one real-model test ignored by default and no failures. That regression was then explicitly run with the actual Gemma model in **auto and CPU modes**, both passing. It covers cancelled intermediate prefill, final-token replay, shortened/exact cache reuse, sampling and native-error reset. The release CLI/benchmark build passed. Two independent code reviews reported no actionable findings.
+
+The measured improvements are modest: long desktop drafts improve, while changed-reference worker requests still take about two seconds and short desktop cases are mixed. These changes do **not** establish M5 Pro performance, competitor parity, general application compatibility, physical typing/acceptance latency or a release-ready performance SLA. Further work needs source-bound measurements on the M5 and a calibrated competitor workflow, with particular attention to long-prompt cache reuse and startup variance rather than reducing model quality.
+
+## 26. Quality-preserving grammar sampling
+
+**Local source only; not installed, pushed or released.** The [source-bound receipt](../../evidence/rust-migration/macos-quality-speed-unreleased.json) records individual outputs, native stages, worker requests, desktop insertions, binary/model/library fingerprints, rejected experiments and limits. The [implementation plan](prediction-performance-plan.md) sets the remaining quality, cache-reuse, startup and comparator gates. Measurements use the available **M1 Pro / 16 GiB**, not the user's M5 Pro.
+
+The baseline here already includes section 25's prefill/logit/clipboard changes. These are incremental shortlist results, not a comparison against the installed 0.5.2 or published 0.5.3 application.
+
+### Exact constrained sampling
+
+The pinned grammar sampler checks the full vocabulary before top-k selection. The new wrapper checks a fixed 128-candidate high-logit shortlist only when it can establish the same top-k survivors. Boundary/internal ties, too few valid candidates, non-finite exceptional scores, small inputs and unsupported top-k sizes retain the original path with the original candidate buffer/order. Grammar state advances only on acceptance; clone/reset/free preserve ownership.
+
+The wrapper uses fixed storage and in-place heap sorting, with no per-token wrapper allocation. This does not claim that the underlying native grammar or whole inference path allocates nothing. The prompt, model, context, seed policy and downstream sampling order/parameters are unchanged.
+
+The complete 64-case, three-round direct corpus preserved **192/192 displayed outputs and all 270 native-call raw outputs, seed sequences, prompt-token counts and resolved settings**. Both builds offered 176/192 samples and passed 183/192 mechanical checks. The same nine no-offer failures remain in English locale preference, French agreement and Japanese unspaced suffix cases. Output identity establishes no measured regression, not an improvement in semantic quality.
+
+Instrumented median per-call sampling cost per token fell from **22.89 ms to 5.08 ms**. Median first displayable text fell from **274 ms to 233 ms**; total stream median fell from **351 ms to 264 ms**. These direct diagnostics use medium four-word/**24-token** limits and synchronized stage timing; they are not desktop latency or a production SLA.
+
+### Canonical worker and actual desktop
+
+Three serial worker runs—baseline A, shortlist, baseline B—used ten selected cases, three rounds each, with four-word/**32-token** limits and no native diagnostic synchronization. All **90 requests offered text, passed their mechanical checks and retained identical paired outputs**. Worker timing starts at proceed and excludes debounce, native context capture and rendering.
+
+| Worker case | Baseline A median | Shortlist median | Baseline B median |
+| --- | ---: | ---: | ---: |
+| English email | 289 ms | 250 ms | 290 ms |
+| Portuguese email | 272 ms | 193 ms | 275 ms |
+| Stable focused-window facts | 369 ms | 321 ms | 353 ms |
+| Long optional reference | 1,497 ms | 1,442 ms | 1,476 ms |
+
+The desktop run used an owned native text view and four alternating baseline/shortlist/shortlist/baseline launches. Each case set a synthetic prefix, then injected its final two characters as actual CG key events. All **64 attempts produced an offer; all 64 Tab and 64 Ctrl+Tab insertions passed readback and append-integrity checks**. These checks verify nonempty insertion, preserved authored prefix and absence of spurious tabs/newlines, not OCR equality for every overlay.
+
+| Warm desktop case | Samples per build | Baseline median | Shortlist median |
+| --- | ---: | ---: | ---: |
+| Short English | 6 | 541 ms | 467 ms |
+| Short Portuguese | 8 | 616 ms | 537 ms |
+| Partial English word | 8 | 555 ms | 509 ms |
+| 1,992-character English draft | 8 | 882 ms | 905 ms |
+
+The desktop metric is **last native edit → first owned on-screen panel**, not physical-device latency or exact first painted pixels. Separately inspected glyphs show [English](../../evidence/rust-migration/macos-quality-speed-unreleased-english.png), [Portuguese](../../evidence/rust-migration/macos-quality-speed-unreleased-portuguese.png), and [partial long-draft](../../evidence/rust-migration/macos-quality-speed-unreleased-partial-long-draft.png) completions corresponding to accepted text. An immediate after-word PNG was blank; it is not evidence of painted punctuation, although subsequent readback verified insertion of the remaining period.
+
+First-after-launch requests were **1,173/627 ms baseline** and **5,214/564 ms shortlist**. Caches were not evicted. The large candidate outlier remains unexplained; neither controlled cold-start improvement nor an adequate startup experience is established. The long-draft desktop median did not improve.
+
+The final long fixture starts its last clause on a new paragraph. An earlier single-paragraph fixture produced no offer near a wrap edge; it was not counted as successful inference timing. Initial immediate acceptance readback also raced asynchronous insertion; bounded waiting corrected the harness. No production geometry, freshness or insertion-authorization guard was relaxed.
+
+### Verification, rejected work and remaining prerequisite
+
+The workspace/native-smoke suite passed **549 tests**, with one ignored by default and no failures. The release CLI/benchmark builds passed; the benchmark was rebuilt after adding source fingerprints for the new header/build script. The ignored actual-model cache/cancelled-prefill recovery test then passed separately in **auto and CPU modes**.
+
+Native regression coverage compares complete candidate IDs, logits, probabilities, selected indices and evolving state, including clone/reset, sparse/low-ranked constraints, exceptional logits, top-k boundaries and untouched fallback order. A disposable mutation weakening the omitted-boundary tie guard made the new test fail at its buffer/order assertion; the unchanged production guard passed. Two independent reviews identified the libc `qsort` allocation risk and missing isolated boundary/fallback coverage; both were resolved.
+
+All nine before-proceed worker cancellations passed without later output. All nine after-first-result cancellation requests arrived after generation had already completed and are **inconclusive**, which explains the worker benchmarks' exit code 1. These are not active-generation cancellation successes. The direct corpus exits 1 for its nine unchanged no-offer failures.
+
+A separate prompt-cache ablation removed changing healing metadata before the draft. Mechanical checks improved, but blinded model review found new malformed Chinese, Japanese suffix corruption and language switches. It was rejected and the original prompt bytes restored. Utility retries also shifted later seeds in that experiment; its aggregate review counts are not a fully seed-controlled causal comparison. No smaller model or shortened context was adopted.
+
+Owned desktop processes were stopped and original Tern foreground ownership was restored and checked. Normal installation, permission grants, publication state and remote gaming hosts were not changed. The measured short-input gain is useful, but long-context recomputation, first-use variance and existing writing-quality defects still prevent calling this the target experience.
+
+## 27. TextEdit geometry, stage attribution and 128-token prefill
+
+Source-only verification on an **M1 Pro, 16 GiB**, not the reported M5 Pro. The [source-bound receipt](../../evidence/rust-migration/macos-textedit-prefill-unreleased.json) identifies source/binaries/model, all synthetic attempts, configuration mistakes and remaining gates. Nothing was installed, pushed or released.
+
+### Verified geometry and desktop behavior
+
+TextEdit's Menlo 11 row exposes a 13-point native line fragment and a 10-point baseline offset. Its nominal 10.21045-point ascent previously put the computed top 0.21045 points above the first-row clip and correctly failed the global render validator. Native and typographic range models now jointly corroborate the row before using its actual line-fragment envelope. Baseline, font, clipping, security and insertion checks remain intact; browser geometry is unchanged. Negative coverage retains refusal for conflicting rows, clipping, privacy and invalid metrics.
+
+Historical desktop observations used a private diagnostic harness, not a shipped or in-tree tool. It guarded synthetic TextEdit documents, text, selection and focus; missing/ambiguous captures were not eligible offers. Acceptance required independent OCR and exact prefix/suffix/caret readback. These historical checks do not eliminate the non-atomic OS check-to-post race or establish current desktop acceptance.
+
+An initial private profile accidentally omitted `prompt_style`, selecting raw `continuation` rather than the intended `writing` mode for the instruction-tuned model. That pilot had 11/17 observed offer phases and no acceptance attempts; it is retained, not pooled with writing-mode results. Production settings/defaults were not changed.
+
+With explicit writing mode, the 128-token candidate completed **15/15 scenarios, 17/17 offer phases and both independent acceptance checks**. Tab inserted `time` while preserving ` tomorrow.`; Ctrl+Tab inserted `confirmação.`. [Word-acceptance ghost pixels](../../evidence/rust-migration/macos-textedit-word-acceptance.png) and [full-acceptance ghost pixels](../../evidence/rust-migration/macos-textedit-full-acceptance.png) are bound to exact readback in the receipt. Ordinary short-case panel observations were roughly 479–651 ms, long English/Portuguese 1,073/1,186 ms; the suffix-bearing word case took 1,667 ms. These are one corpus run, not a p95/SLA or a matched 64/128 desktop speedup. A focus switch retained old pixels briefly; the first absent observation was 305 ms after observed switch, within a sample cadence that does not establish a strict 300 ms dismissal bound.
+
+### Model and canonical worker comparison
+
+The only model-path change in this experiment is the shared prefill capacity from 64 to 128; the model, prompt, context, sampler and seed policy remain unchanged. Across the full 64-case corpus, three rounds per build, **all 192 outputs, raw generations, sampler seeds and resolved arguments were identical**. Both builds retained **183/192 mechanical passes and 176 offers**. Nine no-offer failures remain in English locale preference, French agreement and Japanese suffix joining. Equality is not a new semantic-quality pass.
+
+Instrumented direct first-displayable median was **215.50 → 200.19 ms**, with long-reference prefill reduced from 14 to 7 batches. Because synchronized diagnostic batch boundaries affect those measurements, a separate canonical IPC baseline/candidate/baseline run used four explicitly reported cases, three rounds each:
+
+| Canonical worker case | 64-token A median | 128-token median | 64-token B median |
+| --- | ---: | ---: | ---: |
+| English email | 233 ms | 218 ms | 239 ms |
+| Portuguese email | 183 ms | 172 ms | 176 ms |
+| Focused-window facts | 291 ms | 271 ms | 287 ms |
+| Long optional reference | 1,205 ms | 1,114 ms | 1,206 ms |
+
+All 36 worker samples passed mechanical checks and produced identical matched text/errors across builds. Nine before-proceed cancellations passed with no later output; nine after-first-result requests were already completed and remain **inconclusive**, causing benchmark exit 1. All nine release/shutdown checks passed. Actual-model interrupted-prefill/cache/logit recovery passed separately in **auto and CPU modes** at the 128-token cancellation boundary.
+
+The final workspace/all-target native-smoke suite passed **554 tests**, one ignored by default. Release native-smoke and normal-feature CLI builds passed. A normal-feature real-worker smoke passed all four selected cases, before-proceed cancellation and release/shutdown; its after-result cancellation was likewise inconclusive. This is not an active-generation cancellation-latency measurement.
+
+### Stage attribution
+
+`native-smoke` plus `INKLOW_NATIVE_STAGE_TRACE=disposable-profile` enables a preallocated, bounded 4,096-event content-free ring. `BroTypistExportNativeStages` exports only into a canonical private owned `INKLOW_HOME` that cannot overlap the normal profile or escape through symlinks. Capture/context/scheduling, supervisor loading/prepared/ready, first nonempty result, first usable runtime completion and presentation acknowledgements have distinct boundaries. Spans overlap; observations are not additive and acknowledgements are not paint.
+
+The retained writing trace showed a 165 ms median eligibility/debounce interval, 14 ms native context preparation, 33 ms supervisor-ready → runtime-ready and 33 ms first-nonempty → usable-completion intervals. Its ring dropped 1,454 earlier events; only retained intervals are reported. A final all-apps-disabled, nonactivating startup smoke specifically observed loading and prepared lifecycle events, no writing request, no foreground takeover and no dropped events. Loading → prepared was **6.813 seconds** in that run. Earlier fresh-process model preparations varied around 0.9–7.0 seconds without cache eviction. Child model-open versus first-prefill work is not separated by the parent trace.
+
+## 28. Owner-thread wake and child preparation
+
+**Local source only; not installed, pushed or released.** The [scoped receipt](../../evidence/rust-migration/macos-owner-wake-preparation-unreleased.json) records the M1 Pro observations, exact artifacts, rejected shader experiment and verification limits. It does not establish M5 performance or the useful-visible-offer targets.
+
+### Event-driven handoff and actual AppKit correction
+
+Worker/preparer publications now coalesce through an `OwnerWake` state and a default-mode Core Foundation source. A private AppKit event interrupts the existing event wait; ready-only processing drains published results and bounded renderer acknowledgements without shortening the global polling interval. Native capture still supplies fresh authorization. Routine capture deadlines are measured from capture completion, preventing already-expired recapture loops; menu tracking and shutdown retain their exclusion boundaries.
+
+The first nonactivating production-loop probe exposed a real integration failure: AppKit copies posted NSEvents. Pointer-identity matching recorded owner notifications through ordinary polling but **zero native wake deliveries**. A separate nonactivating native check reproduced the changed object identity with preserved event type/subtype/data. Matching now requires an outstanding queued event, application-defined type, private subtype and per-instance cookie.
+
+The corrected signed disposable app observed **two actual private-event deliveries**, three scheduled/consumed owner notifications, successful resident preparation and zero dropped trace records. No writing request was made; every app was disabled in the private profile. Tern retained foreground ownership, and graceful Quit returned zero. Over roughly 12 seconds, the GUI process used 1.07 CPU seconds before the cookie correction and 1.09 afterward, approximately 8.9% and 9.1% of one core. This is a short lifecycle/no-runaway check, not a low-idle-CPU claim or a measured typing-to-glyph improvement.
+
+The existing CI-owned native shell scenario now consumes private events and requires two successive wake cycles. Its full interactive UI suite was not run on this occupied desktop; no `CI` override or permission bypass was used.
+
+### Preparation attribution and rejected offline-shader promotion
+
+The separate child recorder requires `native-smoke`, `INKLOW_NATIVE_STAGE_TRACE=disposable-profile` and `INKLOW_NATIVE_PREPARE_TRACE=disposable-profile`, with the same canonical private-profile export boundaries. It records no text, tokens, app identities or paths. Child timestamps are monotonic and separate from the parent clock. Initial evaluation includes explicit backend synchronization only during opted-in preparation; export happens after measured preparation and before the prepared/error protocol event.
+
+One fresh-process auto run measured backend initialization/GPU discovery at **5,418 ms**, model load at **1,798 ms**, context creation at **38 ms**, framing at **2 ms** and initial evaluation at **277 ms**. Total provider preparation was **7,533 ms**. Subsequent auto preparations were **978/976 ms**. Three CPU preparations were **4,195/3,360/3,077 ms**. These are serial fresh-process observations without OS/Metal cache eviction, not controlled cold-cache percentiles.
+
+The pinned engine embeds shader source and compiles it during Metal initialization. A disposable experiment used an already-downloaded, read-only-mounted Apple Metal toolchain to compile default and tensor libraries, retaining explicit BF16 support; no compiler was installed and no vendor/build/package change was adopted. Runtime loader observations confirmed the experimental libraries were selected.
+
+In the later embedded → precompiled → embedded sequence, provider preparations were **2,457/1,008/1,017 ms**, **2,187/974/967 ms**, and **999/982/987 ms**. Precompiled initial evaluation itself took **1,403 ms** on its first run, then **227/223 ms**. Cache/order differences prevent attributing the earlier 7.5-second outlier as a proven startup speedup. Offline compilation remains unpromoted: warm generation did not improve, and controlled cold behavior, packaging, supported-OS compatibility and physical M5 tensor execution remain unverified.
+
+### Canonical worker and verification boundaries
+
+Four cases, three serial rounds per condition, retained **12/12 mechanical passes and identical matched output** in the previous build, current implementation, offline shader experiment and trailing previous build. These canonical-worker timings exclude desktop capture, debounce and rendering:
+
+| Case | Previous A median | Current median | Offline shader median | Previous B median |
+| --- | ---: | ---: | ---: | ---: |
+| English email | 221 ms | 209 ms | 209 ms | 209 ms |
+| Portuguese email | 182 ms | 173 ms | 171 ms | 169 ms |
+| Focused-window facts | 289 ms | 270 ms | 270 ms | 268 ms |
+| Long optional reference | 1,201 ms | 1,129 ms | 1,126 ms | 1,129 ms |
+
+The trailing baseline tracks the current build: this is **not evidence of a new inference speedup**. All 12 before-proceed cancellations passed without later output; all 12 after-result requests were already complete and remain inconclusive, explaining benchmark exit 1. Release/shutdown checks passed. The final workspace/all-target native-smoke suite passed **566 tests**, one ignored by default, with zero failures. Actual-model interrupted-prefill/cache recovery passed in auto and CPU modes before the final AppKit-only cookie correction; inference code did not change afterward.
+
+The final normal-feature release build also passed. Its real worker passed all four selected cases, before-proceed cancellation, model release and shutdown; after-result cancellation was again already complete/inconclusive. Even with both diagnostic opt-ins supplied, it produced no child diagnostic export. Its first preparation took **8,119 ms**: startup variance is still unresolved, not hidden by the faster warm measurements. The desktop harness's pure parser/corpus/key/text-boundary self-check passed.
+
+## 29. M1 independent seeds and incremental prefill
+
+**Local source only; not installed, pushed or released.** The M1 Pro/16 GiB is the acceptance target. The [scoped receipt](../../evidence/rust-migration/macos-m1-incremental-prefill-unreleased.json) retains BroTypist outputs, rejected experiments, binary/source identities and remaining gates; third-party research is omitted.
+
+### Desktop verification boundary
+
+The final implementation below has **no new on-screen latency or acceptance measurement**. Historical desktop observations do not establish useful-offer quality or an alternating-order statistical benchmark. A foreground guard refused a later reset before input was sent; no further GUI test or preference/permission change was performed. The private diagnostic harness is not distributed in this repository.
+
+
+### Retained implementation and controlled rejection
+
+- Direct benchmark cases use `fnv1a64-base-round-case-v1`: base seed, zero-based round and complete UTF-8 case ID determine the initial RNG state. Prior retries cannot shift another case's seed. Reset leaves KV, framing and model ownership intact; production sampling is unchanged.
+- Incremental inline prompts keep at least 256 recent Unicode scalars in model prefill. At a safe whitespace/CJK-punctuation boundary, complete earlier text becomes untrusted JSON before changing healing metadata. Both portions remain present; short/unbroken drafts retain full prefill.
+- Batch alternatives retain full-draft prefill. A universal split produced unsupported Thursday schedules against authored Tuesday/10 a.m. facts. Preserving the alternatives flag through internal direct sampling removes that new regression without a language-specific exception or new public mode parameter.
+- If whole-clause language evidence is uncertain, completed words from that same clause may supply evidence through the unchanged native confidence gate. `The results were extraordinar` now completes as `extraordinary.` in all three matched cases, rather than malformed Portuguese continuations or an empty offer.
+
+The full-draft/empty-prefill variant fell to 163/192 mechanical passes and was rejected. Replacing replay metadata rose to 186/192 but corrupted Chinese; a separate global hidden-replay clarification also reached 186/192 but introduced an ungrounded “usual spot” and did not close the quality gaps. Neither wording change was retained.
+
+### Sustained inference results and first-request cost
+
+The same 43 synthetic steps ran in three serial rounds per build: long English/PT drafts, partial words, Japanese, Chinese, suffix changes and refreshed references. Continued-request figures exclude each trace's first request. Timings end at the first nonempty canonical callback after healing replay—not a proven useful word, worker transport or painted overlay. No-offer requests remain in the denominators and raw results.
+
+| Continued long draft | Baseline nonempty/requests | Retained nonempty/requests | Baseline median / p95 | Retained median / p95 |
+| --- | ---: | ---: | ---: | ---: |
+| English | 18/21 | 20/21 | 531 / 606 ms | 162 / 235 ms |
+| Portuguese | 18/21 | 18/21 | 634 / 730 ms | 207 / 266 ms |
+
+Median evaluated prefill tokens fell from 321 to 54 in English and 401 to 70 in Portuguese. The first long request became slower: median English 582→649 ms and Portuguese 644→725 ms, three observations each. Preparation, initial-context cost and changed references must not be hidden inside a sustained-cache headline.
+
+Across all steps, nonempty results increased from 114/129 to 116/129. The two extra English endpoint offers were dangling additions, not established usefulness gains. The complete 64-case/three-round corpus retained 184/192 mechanical passes versus 183/192 before the language fix. Eight no-offer failures remain: two English locale-preference, three French agreement and three Japanese suffix cases. Literal checks observed no contradiction in their 12 covered samples; that narrow result does not clear broader grounding.
+
+### Quality and verification boundaries
+
+Independent machine-assisted blinded review covered all 333 paired samples from the corpus, traces and 12 long-context worker cases. It was not calibrated human review. Final corpus/trace outputs are byte-identical to the reviewed candidate; final worker outputs were already represented on one of the reviewed sides. The review found shared fabricated dates/rooms, weak contextual use, suffix problems and Portuguese synonym agreement errors. The preserved English alternatives still include unsupported fiscal-quarter/month-end deadlines. Baseline equivalence is not quality acceptance.
+
+The actual canonical-worker probe exercised 12 fresh-worker cases, withholding `proceed` for 100 ms without output, then requiring final/done and acknowledged shutdown. All 12 completed without protocol error. All four final batch-alternative outputs matched their baseline outputs, including removal of the newly invented Japanese schedules; this does not excuse the baseline's own factual errors.
+
+The final all-target native-smoke run reported 570 passes and two opt-in tests ignored by default. Both real-model tests—independent seed isolation and interrupted-prefill/cache-logit recovery—then passed serially in **auto and CPU** modes. All three corpus rounds also passed pre-cancel and first-native-chunk cancellation with no post-cancel output. These are specific native boundaries, not a desktop active-generation cancellation claim. Normal-feature GUI/CLI binaries compiled, and the desktop harness's pure self-check passed without importing or exercising UI.
+
+The normal-feature CLI then passed the same 12 fresh-worker long-context cases with outputs identical to native-smoke and all shutdowns acknowledged. Supplying both diagnostic opt-ins still produced no diagnostic export. The existing `worker_smoke` also passed with the digest-verified cached Gemma model on CPU: explicit proceed barriers, ordinary writing, partial-word/suffix acceptance and stale-document refusal, ready-before-proceed cancellation, release, reload, shutdown and the public `complete` CLI. Its acceptance checks use the canonical suggestion state, not a live application; they do not replace GUI proof.
+
+Promotion remains blocked on semantic-quality gates and a fresh M1 foreground interval for the retained candidate: realistic typing, first useful readable offer, exact acceptance, focus/stale-result behavior, startup/idle reload and resident-resource observations. The 300 ms median / 600 ms p95 useful-visible-offer target is **not yet proven**. Installed applications, normal saved preferences, publication state and remote gaming hosts are unchanged.
 

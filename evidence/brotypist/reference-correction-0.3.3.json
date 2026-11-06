@@ -1,54 +1,21 @@
 {
   "version": "0.3.3",
-  "original_executable_sha256": "78286accbb9f388d724fc6c759df7ba3af9ff0e04b49bbe0c828f90ca235f0cb",
-  "rea_native_general_record": "ev_2855ed0731f4d62eeb867d56075de15720d62ac7db980ad9041cc7f13b2d9ce5",
-  "rea_controlled_static_strings_record": "ev_adb78e1bfc3af42a977b18dcc067fa1659662d5f63aba3f9ea73782a031c8a9e",
-  "[redacted reference]_selected_model": "Gemma 4 E2B (2.8 GB)",
-  "[redacted reference]_recommended_model": "Gemma 4 E2B",
-  "[redacted reference]_prediction_execution_traced": false,
-  "deep_decompilation_available": false,
+  "publication_note": "Redacted historical summary: third-party research records removed. Retained BroTypist observations are unchanged; this is not the original authenticated evidence bundle.",
   "brotypist_native_source_menu_smoke": {
     "context": "Synthetic fixture.writer target, isolated paused profile; no personal writing read",
-    "actions": [
-      "Predictions in fixture.writer: Enabled",
-      "Pause for 1 hour",
-      "Settings…"
-    ],
+    "actions": ["Predictions in fixture.writer: Enabled", "Pause for 1 hour", "Settings…"],
     "custom_header_present": false,
     "menu_bar_quit_preserved": true,
     "screenshot": "minimal-field-menu-0.3.3.png",
     "visual_provenance": "Native AppKit menu shown on an owned blank test window; actual capture, not a mockup"
   },
-  "macos_source_tests": {
-    "passed": 361,
-    "skipped": 21
-  },
-  "linux_source_tests": {
-    "passed": 403,
-    "skipped": 1
-  },
-  "artwork": {
-    "full": "I-beam serifs and two pills",
-    "compact": "stem and one pill at logical sizes up to 32 points",
-    "field": "unboxed template glyph with explicit 1x/2x representations"
-  },
-  "portable_menu_smoke": {
-    "real_qt_menu_visible": true,
-    "isolated_profile": true,
-    "mode": "offscreen; native desktop input not exercised",
-    "screenshot": "minimal-field-menu-qt-0.3.3.png"
-  },
-  "review_pool": {
-    "name": "BroTypistReferenceReview",
-    "independent_lenses": 3,
-    "verified_findings_fixed": [
-      "multiline left-edge accessory overlap",
-      "application-wide small-icon variant routing"
-    ]
-  },
+  "macos_source_tests": {"passed": 361, "skipped": 21},
+  "linux_source_tests": {"passed": 403, "skipped": 1},
+  "artwork": {"full": "I-beam serifs and two pills", "compact": "stem and one pill at logical sizes up to 32 points", "field": "unboxed template glyph with explicit 1x/2x representations"},
+  "portable_menu_smoke": {"real_qt_menu_visible": true, "isolated_profile": true, "mode": "offscreen; native desktop input not exercised", "screenshot": "minimal-field-menu-qt-0.3.3.png"},
+  "review_pool": {"name": "BroTypistReferenceReview", "independent_lenses": 3, "verified_findings_fixed": ["multiline left-edge accessory overlap", "application-wide small-icon variant routing"]},
   "icon_dpi_regression": "10 logical-size/DPR combinations rendered through QWidget.windowIcon(), checking actual DPR, physical dimensions and visible one/two-pill geometry",
   "gemma_model_changed_or_downloaded": false,
   "model_migration_constraint": "Guided writing explicitly requires qwen2 and uses Qwen chat tokens; Gemma requires a tested adapter and separate performance/quality comparison.",
-  "strict_native_input_policy_unchanged": true,
-  "repository_history_redaction": "Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations."
+  "strict_native_input_policy_unchanged": true
 }

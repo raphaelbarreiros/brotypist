@@ -11,13 +11,18 @@ use std::{
 };
 
 pub const LLAMA_REVISION: &str = "0c1e57098bba43ac29e6e3b677cdceebdd22334f";
+// Shared with the opaque native owner at creation; cancellation remains bounded
+// by one prefill batch and generated tokens still decode individually.
+const PREFILL_BATCH_TOKENS: usize = 128;
 unsafe extern "C" {
     fn bt_llama_open(
         path: *const c_char,
         auto_gpu: c_int,
         threads: c_int,
+        batch_capacity: c_int,
         error: *mut c_char,
         cap: usize,
+        #[cfg(feature = "native-smoke")] preparation: Option<extern "C" fn(c_int, c_int)>,
     ) -> *mut c_void;
     fn bt_llama_close(owner: *mut c_void);
     fn bt_llama_context_size(owner: *const c_void) -> c_int;
@@ -41,7 +46,15 @@ unsafe extern "C" {
     fn bt_llama_is_eog(owner: *const c_void, token: i32) -> c_int;
     fn bt_llama_trim(owner: *mut c_void, from: i32) -> c_int;
     fn bt_llama_reset(owner: *mut c_void);
-    fn bt_llama_decode(owner: *mut c_void, tokens: *const i32, count: i32, position: i32) -> c_int;
+    fn bt_llama_decode(
+        owner: *mut c_void,
+        tokens: *const i32,
+        count: i32,
+        position: i32,
+        final_logits: c_int,
+    ) -> c_int;
+    #[cfg(feature = "native-smoke")]
+    fn bt_llama_synchronize(owner: *mut c_void);
     fn bt_llama_sampler(
         owner: *mut c_void,
         top_k: c_int,
@@ -129,9 +142,36 @@ impl SamplerOptions {
     }
 }
 
+/// Opt-in native-smoke counters. Timings use synchronized monotonic wall clocks,
+/// not CPU time: decode includes backend completion, sampling starts after it.
+/// Counts include only successful decodes, and never contain prompt/token text.
+#[cfg(feature = "native-smoke")]
+#[derive(Clone, Copy, Debug, Default, serde::Serialize)]
+pub struct NativeDiagnostics {
+    pub prompt_tokens: usize,
+    pub reused_prompt_tokens: usize,
+    pub evaluated_prompt_tokens: usize,
+    pub prefill_decode_batches: usize,
+    pub prefill_output_rows: usize,
+    pub generation_evaluated_tokens: usize,
+    pub generation_decode_batches: usize,
+    pub generation_output_rows: usize,
+    pub sample_calls: usize,
+    pub prefill_decode_wall_ms: f64,
+    pub generation_decode_wall_ms: f64,
+    pub sampling_wall_ms: f64,
+}
+
 pub struct NativeModel {
     owner: NonNull<c_void>,
     evaluated: Vec<i32>,
+    // A cached prefix alone is insufficient: an interrupted no-output prefill
+    // has KV entries but no logits from which it is safe to sample.
+    current_logits_valid: bool,
+    #[cfg(feature = "native-smoke")]
+    diagnostics: Option<NativeDiagnostics>,
+    #[cfg(all(test, feature = "native-smoke"))]
+    cancel_after_decode_batches: Option<usize>,
     context_size: usize,
     seed: u64,
     // The foreign model/context/sampler must never move to another thread.
@@ -139,6 +179,10 @@ pub struct NativeModel {
 }
 impl NativeModel {
     pub fn open(path: &Path, acceleration: &str) -> Result<Self> {
+        #[cfg(feature = "native-smoke")]
+        let _span = crate::runtime::stage_diagnostics::preparation_span(
+            crate::runtime::stage_diagnostics::Stage::NativeModelOpen,
+        );
         ensure!(
             path.is_file(),
             "GGUF model file does not exist. Choose an existing model in Settings."
@@ -159,8 +203,12 @@ impl NativeModel {
                 path.as_ptr(),
                 (acceleration == "auto") as c_int,
                 threads,
+                PREFILL_BATCH_TOKENS as c_int,
                 error.as_mut_ptr().cast(),
                 error.len(),
+                #[cfg(feature = "native-smoke")]
+                crate::runtime::stage_diagnostics::preparation_active()
+                    .then_some(crate::runtime::stage_diagnostics::native_open_phase),
             )
         };
         let Some(owner) = NonNull::new(raw) else {
@@ -177,6 +225,11 @@ impl NativeModel {
         Ok(Self {
             owner,
             evaluated: Vec::new(),
+            current_logits_valid: false,
+            #[cfg(feature = "native-smoke")]
+            diagnostics: None,
+            #[cfg(all(test, feature = "native-smoke"))]
+            cancel_after_decode_batches: None,
             context_size: context_size as usize,
             seed: u32::MAX as u64,
             _thread: PhantomData,
@@ -189,6 +242,26 @@ impl NativeModel {
     pub fn diagnostic_sampler_seed(&self) -> u64 {
         self.seed
     }
+    #[cfg(feature = "native-smoke")]
+    pub fn diagnostic_reset_sampler_seed(&mut self, seed: u64) {
+        self.seed = seed;
+    }
+    #[cfg(feature = "native-smoke")]
+    pub fn enable_diagnostics(&mut self) {
+        self.diagnostics = Some(NativeDiagnostics::default());
+    }
+    #[cfg(feature = "native-smoke")]
+    pub fn diagnostics(&self) -> Option<NativeDiagnostics> {
+        self.diagnostics
+    }
+    #[cfg(feature = "native-smoke")]
+    fn diagnostic_clock(&self) -> Option<std::time::Instant> {
+        self.diagnostics.as_ref().map(|_| {
+            // Finish previously queued backend work before starting this clock.
+            unsafe { bt_llama_synchronize(self.owner.as_ptr()) };
+            std::time::Instant::now()
+        })
+    }
     pub fn evaluated_tokens(&self) -> usize {
         self.evaluated.len()
     }
@@ -197,25 +270,61 @@ impl NativeModel {
             bt_llama_reset(self.owner.as_ptr());
         }
         self.evaluated.clear();
+        self.current_logits_valid = false;
     }
-    fn decode(&mut self, tokens: &[i32], cancel: &AtomicBool) -> Result<bool> {
-        for batch in tokens.chunks(64) {
+    fn decode(&mut self, tokens: &[i32], cancel: &AtomicBool, _prefill: bool) -> Result<bool> {
+        for (index, batch) in tokens.chunks(PREFILL_BATCH_TOKENS).enumerate() {
             if cancel.load(Ordering::Acquire) {
                 return Ok(false);
             }
+            let final_logits = index == (tokens.len() - 1) / PREFILL_BATCH_TOKENS;
+            self.current_logits_valid = false;
+            #[cfg(feature = "native-smoke")]
+            let started = self.diagnostic_clock();
             let result = unsafe {
                 bt_llama_decode(
                     self.owner.as_ptr(),
                     batch.as_ptr(),
                     batch.len() as i32,
                     self.evaluated.len() as i32,
+                    final_logits as c_int,
                 )
             };
+            #[cfg(feature = "native-smoke")]
+            let elapsed = started.map(|started| {
+                unsafe { bt_llama_synchronize(self.owner.as_ptr()) };
+                started.elapsed().as_secs_f64() * 1000.0
+            });
             if result != 0 {
                 self.reset();
                 bail!("Native model evaluation failed ({result}).");
             }
             self.evaluated.extend_from_slice(batch);
+            self.current_logits_valid = final_logits;
+            #[cfg(feature = "native-smoke")]
+            if let (Some(metrics), Some(elapsed)) = (&mut self.diagnostics, elapsed) {
+                if _prefill {
+                    metrics.evaluated_prompt_tokens += batch.len();
+                    metrics.prefill_decode_batches += 1;
+                    metrics.prefill_output_rows += usize::from(final_logits);
+                    metrics.prefill_decode_wall_ms += elapsed;
+                } else {
+                    metrics.generation_evaluated_tokens += batch.len();
+                    metrics.generation_decode_batches += 1;
+                    metrics.generation_output_rows += usize::from(final_logits);
+                    metrics.generation_decode_wall_ms += elapsed;
+                }
+            }
+            // Deterministic native regression hook: cancellation happens at the
+            // real post-decode boundary, not in a simulated cache implementation.
+            #[cfg(all(test, feature = "native-smoke"))]
+            if let Some(remaining) = &mut self.cancel_after_decode_batches {
+                *remaining -= 1;
+                if *remaining == 0 {
+                    self.cancel_after_decode_batches = None;
+                    cancel.store(true, Ordering::Release);
+                }
+            }
             if cancel.load(Ordering::Acquire) {
                 return Ok(false);
             }
@@ -223,6 +332,13 @@ impl NativeModel {
         Ok(true)
     }
     pub fn evaluate(&mut self, tokens: &[i32], cancel: &AtomicBool) -> Result<bool> {
+        #[cfg(feature = "native-smoke")]
+        if let Some(metrics) = &mut self.diagnostics {
+            *metrics = NativeDiagnostics {
+                prompt_tokens: tokens.len(),
+                ..NativeDiagnostics::default()
+            };
+        }
         ensure!(
             !tokens.is_empty() && tokens.len() < self.context_size,
             "The model prompt exceeds its context window."
@@ -231,9 +347,13 @@ impl NativeModel {
             return Ok(false);
         }
         let exact = self.evaluated == tokens;
-        if exact {
+        if exact && self.current_logits_valid {
+            #[cfg(feature = "native-smoke")]
+            if let Some(metrics) = &mut self.diagnostics {
+                metrics.reused_prompt_tokens = tokens.len();
+            }
             return Ok(true);
-        } // Current logits belong to a live decode.
+        }
         let common = self
             .evaluated
             .iter()
@@ -248,13 +368,25 @@ impl NativeModel {
         } else {
             common
         };
+        self.current_logits_valid = false;
         if reuse > 0 && unsafe { bt_llama_trim(self.owner.as_ptr(), reuse as i32) } != 0 {
             self.evaluated.truncate(reuse);
         } else {
             self.reset();
         }
         let start = self.evaluated.len();
-        self.decode(&tokens[start..], cancel)
+        #[cfg(feature = "native-smoke")]
+        if let Some(metrics) = &mut self.diagnostics {
+            metrics.reused_prompt_tokens = start;
+        }
+        let result = self.decode(&tokens[start..], cancel, true);
+        #[cfg(feature = "native-smoke")]
+        if crate::runtime::stage_diagnostics::preparation_active() {
+            // Preparation attribution must include actual backend completion,
+            // not merely queued work. Never synchronize normal generation here.
+            unsafe { bt_llama_synchronize(self.owner.as_ptr()) };
+        }
+        result
     }
     fn piece(&self, token: i32, bytes: &mut Vec<u8>) -> Result<()> {
         bytes.resize(128, 0);
@@ -303,6 +435,10 @@ impl NativeModel {
         cancel: &AtomicBool,
         emit: &mut dyn FnMut(&str, Option<FinishReason>) -> Result<bool>,
     ) -> Result<()> {
+        #[cfg(feature = "native-smoke")]
+        if let Some(metrics) = &mut self.diagnostics {
+            *metrics = NativeDiagnostics::default();
+        }
         if cancel.load(Ordering::Acquire) {
             return Ok(());
         }
@@ -345,7 +481,21 @@ impl NativeModel {
                 if cancel.load(Ordering::Acquire) {
                     return Ok(());
                 }
+                ensure!(
+                    self.current_logits_valid,
+                    "Native sampling requires current logits."
+                );
+                #[cfg(feature = "native-smoke")]
+                let started = self.diagnostic_clock();
                 let token = unsafe { bt_llama_sample(self.owner.as_ptr()) };
+                #[cfg(feature = "native-smoke")]
+                if let Some(started) = started {
+                    unsafe { bt_llama_synchronize(self.owner.as_ptr()) };
+                    if let Some(metrics) = &mut self.diagnostics {
+                        metrics.sample_calls += 1;
+                        metrics.sampling_wall_ms += started.elapsed().as_secs_f64() * 1000.0;
+                    }
+                }
                 ensure!(token >= 0, "Native sampling did not select a token.");
                 if cancel.load(Ordering::Acquire) {
                     return Ok(());
@@ -369,7 +519,7 @@ impl NativeModel {
                 if stopped || terminal.is_some() {
                     return Ok(());
                 }
-                if !self.decode(&[token], cancel)? {
+                if !self.decode(&[token], cancel, false)? {
                     return Ok(());
                 }
             }
@@ -601,6 +751,167 @@ fn next_python_seed(seed: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "native-smoke")]
+    #[test]
+    fn constrained_shortlist_preserves_sampling_distribution_and_state() {
+        unsafe extern "C" {
+            fn bt_grammar_sampler_regression() -> c_int;
+        }
+        let failed_line = unsafe { bt_grammar_sampler_regression() };
+        assert_eq!(
+            failed_line, 0,
+            "native sampler regression at C line {failed_line}"
+        );
+    }
+
+    /// Explicitly opt in with BROTYPIST_NATIVE_SMOKE_MODEL=/existing/model.gguf.
+    /// Uses the real pinned backend and canonical generation, without downloads
+    /// or application/profile writes. Run serially; backend lifetime is global.
+    #[cfg(feature = "native-smoke")]
+    #[test]
+    #[ignore = "requires an explicitly supplied existing GGUF model"]
+    fn native_cache_logits_and_cancelled_prefill_recovery() -> Result<()> {
+        let path = std::env::var_os("BROTYPIST_NATIVE_SMOKE_MODEL")
+            .context("Set BROTYPIST_NATIVE_SMOKE_MODEL to an existing GGUF model")?;
+        let acceleration =
+            std::env::var("BROTYPIST_NATIVE_SMOKE_ACCELERATION").unwrap_or_else(|_| "cpu".into());
+        ensure!(matches!(acceleration.as_str(), "cpu" | "auto"));
+        let mut model = NativeModel::open(Path::new(&path), &acceleration)?;
+        model.enable_diagnostics();
+        let cancel = AtomicBool::new(false);
+        let mut tokens = model.tokenize(
+            &"The project report records progress and the next planned task. ".repeat(96),
+            true,
+            true,
+        )?;
+        let multi_batch_tokens = 3 * PREFILL_BATCH_TOKENS + 1;
+        ensure!(
+            tokens.len() >= multi_batch_tokens && model.context_size() > multi_batch_tokens + 1
+        );
+        tokens.truncate(multi_batch_tokens);
+
+        // Multi-batch prefill produces exactly one output row, not one per
+        // intermediate chunk. A live exact prefix can skip all evaluation.
+        assert!(!model.current_logits_valid);
+        assert!(model.evaluate(&tokens, &cancel)?);
+        let metrics = model.diagnostics().unwrap();
+        assert_eq!(metrics.reused_prompt_tokens, 0);
+        assert_eq!(metrics.evaluated_prompt_tokens, tokens.len());
+        assert_eq!(metrics.prefill_output_rows, 1);
+        assert!(model.current_logits_valid);
+        // Independent diagnostic cases must retain the resident prompt/logits.
+        model.diagnostic_reset_sampler_seed(7);
+        assert!(model.evaluate(&tokens, &cancel)?);
+        let metrics = model.diagnostics().unwrap();
+        assert_eq!(metrics.reused_prompt_tokens, tokens.len());
+        assert_eq!(metrics.evaluated_prompt_tokens, 0);
+        assert_eq!(metrics.prefill_output_rows, 0);
+
+        // Shortening a live cache must refresh the last token's logits.
+        assert!(model.evaluate(&tokens[..128], &cancel)?);
+        let metrics = model.diagnostics().unwrap();
+        assert!(matches!(metrics.reused_prompt_tokens, 0 | 127));
+        assert_eq!(
+            metrics.evaluated_prompt_tokens,
+            128 - metrics.reused_prompt_tokens
+        );
+        assert_eq!(metrics.prefill_output_rows, 1);
+        assert!(model.current_logits_valid);
+
+        // Generated single-token decodes still produce usable logits.
+        assert!(model.decode(&tokens[128..129], &cancel, false)?);
+        let metrics = model.diagnostics().unwrap();
+        assert_eq!(metrics.generation_evaluated_tokens, 1);
+        assert_eq!(metrics.generation_decode_batches, 1);
+        assert_eq!(metrics.generation_output_rows, 1);
+        assert!(model.current_logits_valid);
+
+        fn completion(model: &mut NativeModel, tokens: &[i32]) -> Result<String> {
+            let mut text = String::new();
+            let mut sampler = SamplerOptions::for_family(None, false);
+            sampler.temperature = 0.0;
+            model.generate(
+                tokens,
+                1,
+                sampler,
+                None,
+                &[],
+                &AtomicBool::new(false),
+                &mut |delta, _| {
+                    text.push_str(delta);
+                    Ok(true)
+                },
+            )?;
+            assert_eq!(model.diagnostics().unwrap().sample_calls, 1);
+            Ok(text)
+        }
+
+        // Exercise both intermediate chunk boundaries. The successor is
+        // exactly the cached KV prefix: equality must NOT skip final replay.
+        for interrupted_batches in [1, 2] {
+            model.reset();
+            assert!(!model.current_logits_valid);
+            model.cancel_after_decode_batches = Some(interrupted_batches);
+            assert!(!model.evaluate(&tokens, &cancel)?);
+            let prefix_len = interrupted_batches * PREFILL_BATCH_TOKENS;
+            assert_eq!(model.evaluated_tokens(), prefix_len);
+            assert!(!model.current_logits_valid);
+            let metrics = model.diagnostics().unwrap();
+            assert_eq!(metrics.evaluated_prompt_tokens, prefix_len);
+            assert_eq!(metrics.prefill_decode_batches, interrupted_batches);
+            assert_eq!(metrics.prefill_output_rows, 0);
+
+            // An already cancelled request cannot repair or consume logits.
+            assert!(!model.evaluate(&tokens[..prefix_len], &cancel)?);
+            assert!(!model.current_logits_valid);
+            assert_eq!(model.diagnostics().unwrap().prefill_decode_batches, 0);
+            cancel.store(false, Ordering::Release);
+            let recovered = completion(&mut model, &tokens[..prefix_len])?;
+            let metrics = model.diagnostics().unwrap();
+            // A hybrid model may refuse partial trim; full replay is safe too.
+            assert!(
+                metrics.reused_prompt_tokens == prefix_len - 1 || metrics.reused_prompt_tokens == 0
+            );
+            assert_eq!(
+                metrics.evaluated_prompt_tokens,
+                prefix_len - metrics.reused_prompt_tokens
+            );
+            assert_eq!(metrics.prefill_output_rows, 1);
+            assert!(model.current_logits_valid);
+            assert!(model.evaluate(&tokens[..prefix_len], &cancel)?);
+            assert_eq!(model.diagnostics().unwrap().evaluated_prompt_tokens, 0);
+
+            model.reset();
+            let cold = completion(&mut model, &tokens[..prefix_len])?;
+            assert_eq!(
+                recovered, cold,
+                "recovered logits must match cold generation"
+            );
+        }
+
+        // Cancelling after the FINAL chunk leaves valid logits, unlike an
+        // intermediate chunk, and the exact successor should reuse them.
+        model.reset();
+        model.cancel_after_decode_batches = Some(tokens.len().div_ceil(PREFILL_BATCH_TOKENS));
+        assert!(!model.evaluate(&tokens, &cancel)?);
+        assert!(model.current_logits_valid);
+        cancel.store(false, Ordering::Release);
+        assert!(model.evaluate(&tokens, &cancel)?);
+        assert_eq!(model.diagnostics().unwrap().evaluated_prompt_tokens, 0);
+
+        // Force the bridge's real position-boundary error without asking the
+        // backend to evaluate an invalid token. Errors must clear BOTH states.
+        model.evaluated.resize(model.context_size(), tokens[0]);
+        assert!(model.decode(&tokens[..1], &cancel, true).is_err());
+        assert_eq!(model.evaluated_tokens(), 0);
+        assert!(!model.current_logits_valid);
+        assert!(model.evaluate(&tokens[..64], &cancel)?);
+        assert_eq!(model.diagnostics().unwrap().evaluated_prompt_tokens, 64);
+        assert!(model.current_logits_valid);
+        Ok(())
+    }
+
     #[test]
     fn bytes_assemble_multibyte_and_stop_at_every_boundary() {
         let wire = " ready 月🚀<turn|>private".as_bytes();

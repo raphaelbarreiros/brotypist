@@ -340,6 +340,14 @@ fn source_hashes() -> Value {
             include_bytes!("../native/llama_bridge.c").as_slice(),
         ),
         (
+            "crates/brotypist/native/grammar_sampler.h",
+            include_bytes!("../native/grammar_sampler.h").as_slice(),
+        ),
+        (
+            "crates/brotypist/build.rs",
+            include_bytes!("../build.rs").as_slice(),
+        ),
+        (
             "crates/brotypist/examples/benchmark_writing/writing_quality.json",
             corpus::QUALITY_BYTES,
         ),

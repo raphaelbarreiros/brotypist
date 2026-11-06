@@ -179,7 +179,7 @@ fn pump(shell: &mut Shell, deadline: Instant) -> Result<()> {
             let date: *mut AnyObject =
                 msg_send![AnyClass::get(c"NSDate").unwrap(),dateWithTimeIntervalSinceNow:wait];
             let event: *mut AnyObject = msg_send![&*shell.app,nextEventMatchingMask:usize::MAX,untilDate:date,inMode:&*NSString::from_str("kCFRunLoopDefaultMode"),dequeue:true];
-            if !event.is_null() {
+            if !event.is_null() && !shell.wake.consume(&*event) {
                 let _: () = msg_send![&*shell.app,sendEvent:event];
             }
             let _: () = msg_send![&*shell.app, updateWindows];
@@ -188,6 +188,25 @@ fn pump(shell: &mut Shell, deadline: Instant) -> Result<()> {
     });
     result?;
     guard.finish()
+}
+fn owner_wake_cycles(shell: &mut Shell, receipt: &mut Value) -> Result<()> {
+    let mut deliveries = [0; 2];
+    for delivery in &mut deliveries {
+        let before = shell.wake.delivery_count();
+        shell.wake.notifier.take();
+        shell.wake.notifier.notify();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while shell.wake.delivery_count() == before {
+            pump(shell, deadline)?;
+        }
+        *delivery = shell.wake.delivery_count() - before;
+    }
+    assert_record(
+        receipt,
+        "owner_wake.rearms_after_native_event_consumption",
+        deliveries == [1, 1],
+        json!({"successive_delivery_cycles": deliveries}),
+    )
 }
 fn settle(shell: &mut Shell) -> Result<()> {
     shell.tick()?;
@@ -1788,6 +1807,7 @@ pub(super) fn run(output: &Path) -> Result<i32> {
     let startup_result = startup_guard.finish();
     shell.controller.borrow().suspend_shortcuts(true)?;
     let result = startup_result.and_then(|_| {
+        owner_wake_cycles(&mut shell, &mut receipt)?;
         sidebar_press_contract(&mut shell, &mut receipt)?;
         navigate_panes(&mut shell, &mut receipt, output)?;
         drafts(&mut shell, &mut receipt, output)?;

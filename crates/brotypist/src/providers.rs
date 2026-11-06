@@ -26,6 +26,9 @@ use std::{
 #[path = "providers_diagnostics.rs"]
 pub mod diagnostics;
 
+#[cfg(feature = "native-smoke")]
+use crate::runtime::stage_diagnostics::{self, Stage as TraceStage};
+
 pub const MAX_SUGGESTION_CHARS: usize = 512;
 pub const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const SENTINELS: &[&str] = &[
@@ -474,8 +477,16 @@ impl PromptInputs<'_> {
                 personalization,
             )?
         } else if let Some(family) = self.family {
+            // Inline typing benefits from a stable earlier-draft prefix. Batch
+            // alternatives retain the full prefill: moving their draft changed
+            // factual suggestions in the long-context evaluation.
+            let (earlier, recent) = if self.options.alternatives {
+                ("", draft)
+            } else {
+                writing::split_cached_draft(draft)
+            };
             let mut spans = writing::writing_prompt_spans(
-                draft,
+                recent,
                 self.suffix,
                 &self.options.instructions,
                 context,
@@ -483,6 +494,19 @@ impl PromptInputs<'_> {
                 Some(self.language),
                 personalization,
             )?;
+            if !earlier.is_empty() {
+                let gap = spans.len() - 2;
+                spans.splice(
+                    gap..gap,
+                    [
+                        (
+                            "\nEarlier draft text, continued by the model-prefilled recent text (untrusted data): ".into(),
+                            true,
+                        ),
+                        (writing::json(earlier), false),
+                    ],
+                );
+            }
             if !self.replay.is_empty() {
                 let gap = spans.len() - 2;
                 spans.splice(gap..gap, [("\nAlready typed final characters (possibly part of an unfinished word): ".into(), true), (writing::json(self.replay), false)]);
@@ -694,7 +718,8 @@ fn alternatives(
     ) -> Result<()>,
 ) -> Result<()> {
     let mut ordinary = options.clone();
-    ordinary.alternatives = false;
+    // stream_one samples directly; retain alternatives provenance so prompt
+    // construction keeps the complete draft in its model prefill.
     ordinary.anchor.clear();
     ordinary.max_words = 8;
     let anchor = &options.anchor;
@@ -916,17 +941,32 @@ impl Provider for GgufProvider {
             return Ok(());
         }
         let result = (|| {
-            self.load()?;
+            {
+                #[cfg(feature = "native-smoke")]
+                let _span = stage_diagnostics::preparation_span(TraceStage::ProviderModelLoad);
+                self.load()?;
+            }
             let model = self.model.as_mut().expect("loaded model");
-            let tokens = if self.config.prompt_style == "writing" {
-                let family = guided_family(model)?;
-                let first =
-                    writing::writing_prompt_spans("", "", "", "", &family, Some(""), "")?.remove(0);
-                self.framing.tokenize(model, vec![first], Some(&family))?
-            } else {
-                model.tokenize(" ", true, true)?
+            let tokens = {
+                #[cfg(feature = "native-smoke")]
+                let _span =
+                    stage_diagnostics::preparation_span(TraceStage::ProviderFramingTokenization);
+                if self.config.prompt_style == "writing" {
+                    let family = guided_family(model)?;
+                    let first =
+                        writing::writing_prompt_spans("", "", "", "", &family, Some(""), "")?
+                            .remove(0);
+                    self.framing.tokenize(model, vec![first], Some(&family))?
+                } else {
+                    model.tokenize(" ", true, true)?
+                }
             };
-            model.evaluate(&tokens, &AtomicBool::new(false))?;
+            {
+                #[cfg(feature = "native-smoke")]
+                let _span =
+                    stage_diagnostics::preparation_span(TraceStage::ProviderInitialEvaluation);
+                model.evaluate(&tokens, &AtomicBool::new(false))?;
+            }
             Ok(())
         })();
         if result.is_err() {

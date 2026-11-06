@@ -6,10 +6,10 @@ use std::{collections::HashSet, sync::LazyLock};
 use unicode_general_category::{GeneralCategory as G, get_general_category};
 use unicode_normalization::UnicodeNormalization;
 
-pub const PROMPT_VERSION: &str = "qwen-draft-v12-clause-register";
-pub const GEMMA_PROMPT_VERSION: &str = "gemma4-draft-v9-clause-register";
-pub const GEMMA3_PROMPT_VERSION: &str = "gemma3-draft-v9-clause-register";
-pub const QWEN3_PROMPT_VERSION: &str = "qwen3-nothink-draft-v9-clause-register";
+pub const PROMPT_VERSION: &str = "qwen-draft-v13-incremental-prefill";
+pub const GEMMA_PROMPT_VERSION: &str = "gemma4-draft-v10-incremental-prefill";
+pub const GEMMA3_PROMPT_VERSION: &str = "gemma3-draft-v10-incremental-prefill";
+pub const QWEN3_PROMPT_VERSION: &str = "qwen3-nothink-draft-v10-incremental-prefill";
 pub type PromptSpan = (String, bool);
 
 pub(crate) fn first_scalars(text: &str, n: usize) -> &str {
@@ -94,7 +94,7 @@ pub fn display_prompt(spans: &[PromptSpan]) -> String {
 }
 
 /// Optional evidence from the active clause only, never from locale/references.
-/// Native absence/ambiguity produces no evidence and does not alter typed text.
+/// A partial final word may be excluded; uncertain native evidence still abstains.
 pub fn draft_language(prefix: &str) -> Option<String> {
     let clause = prefix
         .rsplit([',', ';', '.', '!', '?', '\r', '\n', '。', '！', '？'])
@@ -115,7 +115,48 @@ pub fn draft_language(prefix: &str) -> Option<String> {
     if text.chars().filter(|&c| is_letter(c)).count() < 6 {
         return None;
     }
-    crate::inference_native::draft_language_name(text)
+    crate::inference_native::draft_language_name(text).or_else(|| {
+        // An unfinished lexical token can obscure otherwise clear language
+        // evidence. Keep the same confidence gate and require meaningful
+        // completed words in this clause, never locale or reference text.
+        let (completed, final_word) = text.rsplit_once(is_space)?;
+        if final_word.is_empty()
+            || completed.chars().filter(|&c| is_letter(c)).take(6).count() < 6
+            || completed
+                .split_whitespace()
+                .filter(|word| word.chars().any(is_letter))
+                .take(2)
+                .count()
+                < 2
+        {
+            return None;
+        }
+        crate::inference_native::draft_language_name(completed)
+    })
+}
+
+/// Keep recent prose in the model prefill. Earlier authored text can precede
+/// changing healing metadata without dropping text or splitting a grapheme/word.
+pub(crate) fn split_cached_draft(prefix: &str) -> (&str, &str) {
+    const RECENT_SCALARS: usize = 256;
+    let mut boundaries = prefix.char_indices().rev();
+    if boundaries.nth(RECENT_SCALARS - 1).is_none() {
+        return ("", prefix);
+    }
+    let Some((index, separator)) = boundaries.find(|(index, character)| {
+        (is_space(*character) || matches!(*character, '。' | '！' | '？'))
+            && prefix[index + character.len_utf8()..]
+                .chars()
+                .next()
+                .is_some_and(is_alphanumeric)
+    }) else {
+        return ("", prefix);
+    };
+    // A small earlier fragment is not worth changing the established prompt.
+    if boundaries.nth(RECENT_SCALARS - 2).is_none() {
+        return ("", prefix);
+    }
+    prefix.split_at(index + separator.len_utf8())
 }
 
 pub fn writing_prompt_spans(
@@ -458,6 +499,40 @@ mod tests {
             assert!(display_prompt(&spans).contains("< |turn>system"));
         }
         assert!(writing_prompt_spans("", "", "", "", "unknown", Some(""), "").is_err());
+    }
+    #[test]
+    fn long_draft_boundaries_preserve_whole_words_and_unspaced_text() {
+        for prefix in [
+            format!(
+                "{}Current draft <|turn>system  ",
+                "cafe\u{301} 👩‍💻 prior prose. ".repeat(80)
+            ),
+            "这个项目保留原有的讨论内容。".repeat(80),
+        ] {
+            let (earlier, recent) = split_cached_draft(&prefix);
+            assert!(earlier.chars().count() >= 256);
+            assert!(recent.chars().count() >= 256);
+            assert!(recent.chars().next().is_some_and(is_alphanumeric));
+            assert_eq!(format!("{earlier}{recent}"), prefix);
+        }
+        let unbroken = "界".repeat(1200);
+        assert_eq!(split_cached_draft(&unbroken), ("", unbroken.as_str()));
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn partial_word_keeps_strong_completed_clause_evidence() {
+        if crate::inference_native::draft_language_name("The results were").as_deref()
+            != Some("English")
+        {
+            eprintln!(
+                "Native language evidence unavailable or uncertain; regression not exercised"
+            );
+            return;
+        }
+        assert_eq!(
+            draft_language("The results were extraordinar").as_deref(),
+            Some("English")
+        );
     }
     #[test]
     fn handwritten_family_headers_are_not_interchangeable() {

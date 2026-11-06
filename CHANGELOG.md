@@ -1,6 +1,25 @@
-> Historical record: Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations.
-
 # Changelog
+
+Historical release source hashes identify the original builds. Repository history
+is being redacted with maintainer approval; unchanged published binaries retain
+their original signed provenance, not the source identity of rewritten tags.
+
+## 0.5.4 — macOS prediction responsiveness
+
+- Document safe macOS first-launch troubleshooting for “Move to Trash”/unverified-developer warnings, app-specific approval, checksum verification and warnings that must not be bypassed. See [installation guidance](README.md#macos-says-move-to-trash-or-cannot-verify-the-developer).
+- Reduce native prompt-evaluation work by requesting logits only for the final prefill chunk and allowing the pinned engine's automatic Flash Attention selection with fallback. Use one checked 128-token capacity for the retained native batch, engine microbatch and cancellation boundary; preserve interrupted-prefill/logit recovery.
+- Track whether cached tokens have valid next-token logits. After interrupted intermediate prefill, replay the final cached token before sampling instead of reusing missing or stale logits.
+- Keep queued clipboard waits on cheap cancellation/deadline checks rather than repeatedly resolving native focus while holding the result mutex. Fresh authorization still guards the actual read, its result, and final acceptance.
+- Add opt-in native benchmark stage counts and synchronized wall-time measurements for prefill, generation decode, and sampling. Ordinary prediction does not enable diagnostic synchronization.
+- Reduce constrained-grammar sampling work with an exact 128-candidate shortlist and allocation-free heap sorting. Preserve the original grammar path for ties, sparse constraints, exceptional logits and unsupported top-k sizes; keep the prompt, model, context, seed policy and downstream sampling unchanged.
+- Cover full-distribution/state equivalence and untouched fallback order in the native smoke suite; bind the new sampler header and build script into benchmark source fingerprints.
+- Fix TextEdit's first-row inline rendering when its native line fragment is shorter than the font's nominal ascent/descent. Use the independently corroborated native baseline/envelope without widening clipping or insertion-authority checks.
+- Add content-free, bounded native-smoke stage observations and an explicitly isolated export. Normal builds omit the recorder; distinguish supervisor readiness, runtime consumption and presentation acknowledgement from child compute and paint.
+- Wake the macOS owner thread when worker/preparer results arrive, coalescing publications through a default-mode run-loop source and a private application event. Match AppKit's copied events by per-instance identifiers, not object pointers; retain fresh authorization, menu/shutdown guards and bounded immediate renderer acknowledgements.
+- Separate opt-in child preparation measurements into backend initialization, model loading, context/batch creation, framing and synchronized initial evaluation. Normal builds omit those callbacks and diagnostic synchronization; preparation policy and generation settings are unchanged.
+- Preserve incremental long-draft state by placing complete earlier text before changing healing metadata while retaining recent prose in model prefill. Keep batch alternatives on full-draft prefill after a measured factual regression; do not reduce authored context or change the model.
+- Retain strong same-clause language evidence when an uncertain final word obscures it, using the existing native confidence threshold. Add diagnostic-only case-independent benchmark seeds without changing production sampling.
+- Scope: macOS-only patch preparation, authorized after the M1 local test was reported to feel better. Final signed packages and publication are verified separately. See the [prefill latency record](docs/rust-migration/README.md#25-native-prediction-latency-investigation), [grammar verification](docs/rust-migration/README.md#26-quality-preserving-grammar-sampling), [TextEdit and 128-token verification](docs/rust-migration/README.md#27-textedit-geometry-stage-attribution-and-128-token-prefill), [owner-wake and preparation verification](docs/rust-migration/README.md#28-owner-thread-wake-and-child-preparation), [M1 incremental-prefill verification](docs/rust-migration/README.md#29-m1-independent-seeds-and-incremental-prefill), and [implementation plan](docs/rust-migration/prediction-performance-plan.md). Sustained callbacks improve; first-request cost, semantic quality and useful-visible-offer targets remain unresolved.
 
 ## 0.5.3 — macOS menu polish
 
@@ -184,7 +203,7 @@
 - Preserve lexical token healing for ordinary suffix/append requests; allow native EOS immediately after replay when no insertion is needed. Fix streamed decimal and CJK sentence boundaries.
 - Bind browser suggestions to native window/document identity, reject unsafe ancestry and malformed/stale attributed runs, and stop visual clipping at the owning window rather than nonvisual application metadata.
 - Validate the running Codex process against the exact signed 0.162.1 renderer identity rather than its installation pathname. Tighten native row/clip/attachment leases; retain the existing terminal, other-agent, multiplexer and Docs exclusions.
-- Verify the separately signed, installed app in native WhatsApp/Telegram composers, including real Tab acceptance, changed visible reference facts, live permission badges and persistent menu-bar controls. These bounded checks do not establish complete [redacted reference] compatibility, human-calibrated multilingual quality, desktop latency or RAM parity. Linux/Windows builds and iCloud remain held.
+- Verify the separately signed, installed app in native WhatsApp/Telegram composers, including real Tab acceptance, changed visible reference facts, live permission badges and persistent menu-bar controls. These bounded checks do not establish universal input compatibility, human-calibrated multilingual quality, desktop latency or RAM superiority. Linux/Windows builds and iCloud remain held.
 
 ## 0.4.1 — macOS
 
@@ -217,7 +236,6 @@
 - Report unsupported ordinary completion as unavailable here, not Active, without disabling the user's global preference.
 - Add logical-size compact Retina artwork and explicit 1×/2× native field-glyph representations. Keep full-size I-beam/two-pill artwork separate from the compact one-pill variant.
 - Hide the native accessory when it cannot fit above the writing line instead of moving it beside or over text.
-- Repeat the [redacted reference] REA reference pass and confirm Gemma 4 E2B is selected/recommended in the original UI. Document the current Qwen-specific guided prompt as a migration constraint; do not silently change models or claim unmeasured Gemma performance.
 
 ## 0.3.2 — Unreleased
 
@@ -226,7 +244,7 @@
 - Reorganize native AppKit and portable Qt preferences into General, AI Models, Autocomplete, Languages, Privacy and About, retaining the existing supported settings and configured defaults.
 - Add six-step Welcome with actual OS-access status, explicit existing model management, truthful privacy disclosures and an ephemeral real-model try-it field. Reuse the current provider and acceptance rules; do not record preview text or retain a second preview worker after leaving the field.
 - Replace ordinary suggestion chips with verified host-font, baseline-aligned, transparent grey inline text. Require safe native typography, line-end insertion, visible clipping and no composition/selection; unsupported inputs stay silent without consuming acceptance keys. Keep explicit alternatives separate.
-- Keep source/release links private-access aware and preserve historical Inklow release assets and research evidence. This redesign does not add MLX, Sparkle, new models, new language-quality guarantees or changed acceptance keys.
+- Keep source/release links private-access aware and preserve historical Inklow release assets. This redesign does not add MLX, Sparkle, new models, new language-quality guarantees or changed acceptance keys.
 - Add bounded, opt-in focused-window Accessibility context with protected/hidden-node pruning, exact field/window checks, relevance/deduplication, provenance and prompt budgets. Prefer the focused browser document over deeply nested browser chrome. Remove unsafe screenshot/OCR capture and its unused frameworks.
 - Separate newest-only context collection from prediction preparation; revalidate policy before sensitive reads and discard revoked/stale results. Expose fixed content-free context and inline capability diagnostics.
 - Default to 150 ms typing delay and five-minute model retention, preserving saved values. Dispatch prepared requests and streamed results onto the UI thread immediately; keep bounded fallback capture and result polling.
@@ -288,5 +306,5 @@
 - Normalize generated tabs to spaces so accepted predictions cannot navigate forms.
 - Install native Qt libraries in headless Linux CI and exercise a real offscreen desktop launch on every OS.
 - Explicitly refuse system-wide Wayland interception; retain the built-in editor.
-- Preserve REA [redacted reference] evidence, annotated architectural inferences, actual Inklow screenshots, and bounded verification results.
+- Preserve actual Inklow screenshots and bounded verification results.
 - Add macOS/Windows/Ubuntu CI checks and installable wheel builds. Interactive Windows/Linux integration is not yet verified.

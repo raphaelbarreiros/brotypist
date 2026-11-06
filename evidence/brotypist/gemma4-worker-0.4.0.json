@@ -3,37 +3,9 @@
   "actual_private_worker": true,
   "model_sha256": "8e30dff3ac4c8434c49a7036fa15564bdbb6044e42bf04550bf1a096ad7e6a52",
   "cases": [
-    {
-      "prefix": "Thank you for your help with the report. I really",
-      "text": " appreciate it.",
-      "first_result_ms": 2755.79,
-      "final_ms": 2792.67,
-      "worker_pid": 80752
-    },
-    {
-      "prefix": "The launch review is Thursday at 14:30 in",
-      "context": "The launch review is Thursday at 14:30 in Room Cedar, not Room Maple.",
-      "text": " Room Cedar, not Room Maple.",
-      "first_result_ms": 230.49,
-      "final_ms": 429.3,
-      "worker_pid": 80752
-    },
-    {
-      "prefix": "Please send me your feed",
-      "alternatives": true,
-      "anchor": "back.",
-      "text": "",
-      "first_result_ms": 747.28,
-      "final_ms": 747.3,
-      "worker_pid": 80752
-    }
+    {"prefix": "Thank you for your help with the report. I really", "text": " appreciate it.", "first_result_ms": 2755.79, "final_ms": 2792.67, "worker_pid": 80752},
+    {"prefix": "The launch review is Thursday at 14:30 in", "context": "The launch review is Thursday at 14:30 in Room Cedar, not Room Maple.", "text": " Room Cedar, not Room Maple.", "first_result_ms": 230.49, "final_ms": 429.3, "worker_pid": 80752},
+    {"prefix": "Please send me your feed", "alternatives": true, "anchor": "back.", "text": "", "first_result_ms": 747.28, "final_ms": 747.3, "worker_pid": 80752}
   ],
-  "limits": [
-    "Not a frozen/install receipt",
-    "The cold sample includes process/model startup",
-    "No visible typing latency SLA",
-    "Empty alternatives is safe absence, not a quality pass",
-    "No calibrated grammar, memory or [redacted reference]-parity claim"
-  ],
-  "repository_history_redaction": "Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations."
+  "limits": ["Not a frozen/install receipt", "The cold sample includes process/model startup", "No visible typing latency SLA", "Empty alternatives is safe absence, not a quality pass", "No calibrated grammar, memory or external-product parity claim"]
 }

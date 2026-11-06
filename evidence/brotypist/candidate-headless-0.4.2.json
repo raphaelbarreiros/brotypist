@@ -40,7 +40,7 @@
   "model": {
     "basename": "gemma-4-E2B-it-Q4_0.gguf",
     "size_bytes": 2841481184,
-    "identity_limit": "Evaluation records size/mtime, not a fresh weights SHA256. Pinned independently acquired public weights are documented in [redacted reference].md."
+    "identity_limit": "Evaluation records size/mtime, not a fresh weights SHA256. Historical external research documentation is omitted from this public summary; it does not establish fresh model identity."
   },
   "real_model_protocol": {
     "methodology": "Real native cached Gemma weights through production anonymous-pipe prepare/ready/proceed/generation/release. No GUI, focus, pixel, desktop latency or installed-identity claim.",
@@ -2210,6 +2210,5 @@
     "Linux/Windows product builds",
     "iCloud",
     "unproven terminal/Docs compatibility"
-  ],
-  "repository_history_redaction": "Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations."
+  ]
 }

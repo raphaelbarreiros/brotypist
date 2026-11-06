@@ -2,6 +2,9 @@
 //! Pipe I/O and process waits never hold the public state lock.
 use crate::config::Config;
 use crate::providers::GenerationOptions;
+use crate::runtime::owner_wake::OwnerWake;
+#[cfg(feature = "native-smoke")]
+use crate::runtime::stage_diagnostics::{self, Span as DiagnosticSpan, Stage as TraceStage};
 use crate::worker;
 #[cfg(test)]
 use crate::worker::MAX_MESSAGE_BYTES;
@@ -60,6 +63,7 @@ struct Shared {
     cancel: AtomicBool,
     stopped: AtomicBool,
     epoch: AtomicU64,
+    owner_wake: OwnerWake,
 }
 
 /// An isolated worker is allocated lazily. A `ready` event is NOT permission to
@@ -112,6 +116,9 @@ impl WorkerClient {
     pub fn new() -> Result<Self> {
         Self::with_command(WorkerCommand::native()?)
     }
+    pub(crate) fn new_with_wake(owner_wake: OwnerWake) -> Result<Self> {
+        Self::with_command_and_wake(WorkerCommand::native()?, owner_wake)
+    }
     /// Explicit application binary for owned smoke/consumer tools. Resolve the
     /// supplied file, rather than allowing a bare filename to search PATH.
     pub fn for_executable(path: impl Into<PathBuf>) -> Result<Self> {
@@ -130,6 +137,9 @@ impl WorkerClient {
         })
     }
     fn with_command(command: WorkerCommand) -> Result<Self> {
+        Self::with_command_and_wake(command, OwnerWake::default())
+    }
+    fn with_command_and_wake(command: WorkerCommand, owner_wake: OwnerWake) -> Result<Self> {
         Ok(Self {
             shared: Arc::new(Shared {
                 state: Mutex::new(State {
@@ -158,6 +168,7 @@ impl WorkerClient {
                 cancel: AtomicBool::new(false),
                 stopped: AtomicBool::new(false),
                 epoch: AtomicU64::new(0),
+                owner_wake,
             }),
             thread: None,
             command,
@@ -248,6 +259,8 @@ impl WorkerClient {
         state.events.clear();
         state.proceed = None;
         self.shared.cancel.store(false, Ordering::Release);
+        #[cfg(feature = "native-smoke")]
+        stage_diagnostics::mark(TraceStage::WorkerSubmitted, Some(id));
         self.shared.changed.notify_all();
         drop(state);
         self.start()?;
@@ -546,6 +559,8 @@ struct Supervisor {
     evaluating: bool,
     awaiting_proceed: bool,
     last_activity: Instant,
+    #[cfg(feature = "native-smoke")]
+    first_stream_observed: bool,
 }
 impl Supervisor {
     fn new(shared: Arc<Shared>, command: WorkerCommand) -> Self {
@@ -567,9 +582,13 @@ impl Supervisor {
             evaluating: false,
             awaiting_proceed: false,
             last_activity: Instant::now(),
+            #[cfg(feature = "native-smoke")]
+            first_stream_observed: false,
         }
     }
     fn spawn(&mut self) -> Result<()> {
+        #[cfg(feature = "native-smoke")]
+        let _stage = DiagnosticSpan::start(TraceStage::WorkerSpawn, None);
         ensure!(
             self.process.is_none() && self.terminating.is_none(),
             "Previous worker still owns native resources"
@@ -729,6 +748,8 @@ impl Supervisor {
             event.message = message.into();
             push_event(&mut state, event);
         }
+        drop(state);
+        self.shared.owner_wake.notify();
     }
     fn run(mut self) {
         loop {
@@ -770,6 +791,8 @@ impl Supervisor {
         state.released_generation = state.release_generation;
         state.released_through = state.released_through.max(state.serial);
         self.shared.changed.notify_all();
+        drop(state);
+        self.shared.owner_wake.notify();
     }
     fn step(&mut self) -> Result<()> {
         let now = Instant::now();
@@ -926,6 +949,10 @@ impl Supervisor {
                     return Ok(());
                 }
                 self.active = Some(pending.id);
+                #[cfg(feature = "native-smoke")]
+                {
+                    self.first_stream_observed = false;
+                }
                 self.prepare_id = pending.preparing.then_some(pending.id);
                 self.configured = Some(pending.identity);
                 self.cancel_sent = false;
@@ -935,6 +962,8 @@ impl Supervisor {
                 state.configured = self.configured.clone();
                 state.awaiting_proceed = false;
                 drop(state);
+                #[cfg(feature = "native-smoke")]
+                stage_diagnostics::mark(TraceStage::WorkerDispatch, Some(pending.id));
                 self.process
                     .as_ref()
                     .context("Worker unavailable")?
@@ -982,6 +1011,8 @@ impl Supervisor {
                 .as_ref()
                 .context("Worker unavailable")?
                 .send(worker::encode_frame(&json!({"type":"proceed", "id":id}))?)?;
+            #[cfg(feature = "native-smoke")]
+            stage_diagnostics::mark(TraceStage::WorkerProceed, Some(id));
             self.awaiting_proceed = false;
             self.evaluating = true;
             let mut state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -1021,9 +1052,15 @@ impl Supervisor {
                 self.evaluating = false;
             }
             "loading" => {
+                // Configuration-only preparation survives typing cancellation;
+                // observe its lifecycle even when its UI event is superseded.
+                #[cfg(feature = "native-smoke")]
+                stage_diagnostics::mark(TraceStage::WorkerLoading, Some(event.id));
                 self.initializing = true;
             }
             "prepared" => {
+                #[cfg(feature = "native-smoke")]
+                stage_diagnostics::mark(TraceStage::WorkerPrepared, Some(event.id));
                 self.initializing = false;
                 state.model_loaded = event.model_loaded;
                 state.state = "ready";
@@ -1048,6 +1085,15 @@ impl Supervisor {
         {
             return Ok(());
         }
+        #[cfg(feature = "native-smoke")]
+        match event.kind.as_str() {
+            "ready" => stage_diagnostics::mark(TraceStage::WorkerReady, Some(event.id)),
+            "result" if !self.first_stream_observed && !event.text.is_empty() => {
+                stage_diagnostics::mark(TraceStage::WorkerFirstNonemptyResult, Some(event.id));
+                self.first_stream_observed = true;
+            }
+            _ => {}
+        }
         match event.kind.as_str() {
             "ready" => {
                 state.state = "ready";
@@ -1065,6 +1111,8 @@ impl Supervisor {
         }
         push_event(&mut state, event);
         self.shared.changed.notify_all();
+        drop(state);
+        self.shared.owner_wake.notify();
         Ok(())
     }
 }
@@ -1145,6 +1193,69 @@ mod tests {
     use std::os::fd::{AsRawFd, FromRawFd};
     use std::os::unix::net::UnixStream;
     use std::rc::Rc;
+
+    #[test]
+    fn actionable_publications_wake_after_unlock_and_stale_work_does_not() {
+        let target: Arc<Mutex<Option<std::sync::Weak<Shared>>>> = Arc::new(Mutex::new(None));
+        let observed = target.clone();
+        let calls = Arc::new(AtomicU64::new(0));
+        let signals = calls.clone();
+        let wake = OwnerWake::new(move || {
+            let shared = observed
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .upgrade()
+                .unwrap();
+            assert!(
+                shared.state.try_lock().is_ok(),
+                "publication still holds state"
+            );
+            signals.fetch_add(1, Ordering::Relaxed);
+        });
+        let mut client = WorkerClient::new_with_wake(wake.clone()).unwrap();
+        *target.lock().unwrap() = Some(Arc::downgrade(&client.shared));
+        let mut owner = Supervisor::new(client.shared.clone(), client.command.clone());
+        owner.active = Some(1);
+        client.shared.state.lock().unwrap().serial = 1;
+        owner
+            .handle(WorkerEvent::new("ready", 1), Instant::now())
+            .unwrap();
+        owner
+            .handle(WorkerEvent::new("result", 1), Instant::now())
+            .unwrap();
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        assert!(wake.take());
+        assert_eq!(client.poll().len(), 2);
+
+        // Replacement and cancellation retain the existing serial/cancel
+        // fences; signalling cannot authorize or resurrect an obsolete event.
+        client.shared.state.lock().unwrap().serial = 2;
+        owner
+            .handle(WorkerEvent::new("result", 1), Instant::now())
+            .unwrap();
+        owner.active = Some(2);
+        client.shared.cancel.store(true, Ordering::Release);
+        owner
+            .handle(WorkerEvent::new("ready", 2), Instant::now())
+            .unwrap();
+        assert!(!wake.take());
+        assert!(client.poll().is_empty());
+        client.shared.cancel.store(false, Ordering::Release);
+        owner
+            .handle(WorkerEvent::new("ready", 2), Instant::now())
+            .unwrap();
+        assert!(wake.take());
+        assert_eq!(client.poll()[0].id, 2);
+        client.request_stop().unwrap();
+        owner
+            .handle(WorkerEvent::new("result", 2), Instant::now())
+            .unwrap();
+        assert!(!wake.take());
+        assert!(client.poll().is_empty());
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+    }
 
     struct Control {
         reader: BufReader<UnixStream>,

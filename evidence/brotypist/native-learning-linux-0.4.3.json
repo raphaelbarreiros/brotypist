@@ -133,14 +133,14 @@
           "window": {
             "id": "0x200007",
             "pid": 450,
-            "title": "BroTypist Settings — BroTypist",
+            "title": "BroTypist Settings \u2014 BroTypist",
             "map_state": "IsViewable",
             "width": 900,
             "height": 620
           },
           "accessibility": {
             "pid": 450,
-            "title": "BroTypist Settings — BroTypist",
+            "title": "BroTypist Settings \u2014 BroTypist",
             "role": "dialog",
             "accessible_children": 8,
             "visible_showing_enabled": true,
@@ -151,7 +151,7 @@
           "survived_seconds": 1.28,
           "quit": {
             "pid": 450,
-            "title": "BroTypist Settings — BroTypist",
+            "title": "BroTypist Settings \u2014 BroTypist",
             "role": "dialog",
             "accessible_children": 8,
             "visible_showing_enabled": true,
@@ -196,14 +196,14 @@
           "window": {
             "id": "0x200007",
             "pid": 502,
-            "title": "BroTypist Settings — BroTypist",
+            "title": "BroTypist Settings \u2014 BroTypist",
             "map_state": "IsViewable",
             "width": 900,
             "height": 620
           },
           "accessibility": {
             "pid": 502,
-            "title": "BroTypist Settings — BroTypist",
+            "title": "BroTypist Settings \u2014 BroTypist",
             "role": "dialog",
             "accessible_children": 8,
             "visible_showing_enabled": true,
@@ -214,7 +214,7 @@
           "survived_seconds": 1.24,
           "quit": {
             "pid": 502,
-            "title": "BroTypist Settings — BroTypist",
+            "title": "BroTypist Settings \u2014 BroTypist",
             "role": "dialog",
             "accessible_children": 8,
             "visible_showing_enabled": true,
@@ -360,7 +360,7 @@
             "case": 1,
             "first_displayable_ms": 408.91595799985225,
             "total_ms": 770.6652500000928,
-            "text": " Ipê, terça-feira às 10h."
+            "text": " Ip\u00ea, ter\u00e7a-feira \u00e0s 10h."
           },
           {
             "round": 0,
@@ -381,7 +381,7 @@
             "case": 1,
             "first_displayable_ms": 395.77537500008475,
             "total_ms": 756.091875000493,
-            "text": " Ipê, terça-feira às 10h."
+            "text": " Ip\u00ea, ter\u00e7a-feira \u00e0s 10h."
           },
           {
             "round": 1,
@@ -427,7 +427,7 @@
             "case": 1,
             "first_displayable_ms": 396.9737499992334,
             "total_ms": 743.7549589994887,
-            "text": " Ipê, terça-feira às 10h."
+            "text": " Ip\u00ea, ter\u00e7a-feira \u00e0s 10h."
           },
           {
             "round": 0,
@@ -448,7 +448,7 @@
             "case": 1,
             "first_displayable_ms": 403.38558300027216,
             "total_ms": 749.4134999997186,
-            "text": " Ipê, terça-feira às 10h."
+            "text": " Ip\u00ea, ter\u00e7a-feira \u00e0s 10h."
           },
           {
             "round": 1,
@@ -494,7 +494,7 @@
             "case": 1,
             "first_displayable_ms": 419.7431669999787,
             "total_ms": 765.9887499994511,
-            "text": " Ipê, terça-feira às 10h."
+            "text": " Ip\u00ea, ter\u00e7a-feira \u00e0s 10h."
           },
           {
             "round": 0,
@@ -515,7 +515,7 @@
             "case": 1,
             "first_displayable_ms": 399.9311249990569,
             "total_ms": 747.5930000000517,
-            "text": " Ipê, terça-feira às 10h."
+            "text": " Ip\u00ea, ter\u00e7a-feira \u00e0s 10h."
           },
           {
             "round": 1,
@@ -561,7 +561,7 @@
             "case": 1,
             "first_displayable_ms": 400.2419589996862,
             "total_ms": 747.8286250006931,
-            "text": " Ipê, terça-feira às 10h."
+            "text": " Ip\u00ea, ter\u00e7a-feira \u00e0s 10h."
           },
           {
             "round": 0,
@@ -582,7 +582,7 @@
             "case": 1,
             "first_displayable_ms": 396.5735000001587,
             "total_ms": 742.5255840007594,
-            "text": " Ipê, terça-feira às 10h."
+            "text": " Ip\u00ea, ter\u00e7a-feira \u00e0s 10h."
           },
           {
             "round": 1,
@@ -630,7 +630,7 @@
             "case": 1,
             "first_displayable_ms": 402.34400000008463,
             "total_ms": 752.4967919998744,
-            "text": " Ipê, terça-feira às 10h."
+            "text": " Ip\u00ea, ter\u00e7a-feira \u00e0s 10h."
           },
           {
             "round": 0,
@@ -651,7 +651,7 @@
             "case": 1,
             "first_displayable_ms": 397.70516700082226,
             "total_ms": 748.2596670015482,
-            "text": " Ipê, terça-feira às 10h."
+            "text": " Ip\u00ea, ter\u00e7a-feira \u00e0s 10h."
           },
           {
             "round": 1,
@@ -696,7 +696,7 @@
             "case": 1,
             "first_displayable_ms": 407.21750000011525,
             "total_ms": 754.4663330008916,
-            "text": " Ipê, terça-feira às 10h."
+            "text": " Ip\u00ea, ter\u00e7a-feira \u00e0s 10h."
           },
           {
             "round": 0,
@@ -717,7 +717,7 @@
             "case": 1,
             "first_displayable_ms": 405.9726249997766,
             "total_ms": 760.2678750008636,
-            "text": " Ipê, terça-feira às 10h."
+            "text": " Ip\u00ea, ter\u00e7a-feira \u00e0s 10h."
           },
           {
             "round": 1,
@@ -762,7 +762,7 @@
             "case": 1,
             "first_displayable_ms": 408.12758399988525,
             "total_ms": 758.2143339986942,
-            "text": " Ipê, terça-feira às 10h."
+            "text": " Ip\u00ea, ter\u00e7a-feira \u00e0s 10h."
           },
           {
             "round": 0,
@@ -783,7 +783,7 @@
             "case": 1,
             "first_displayable_ms": 406.3854169999104,
             "total_ms": 754.374292000648,
-            "text": " Ipê, terça-feira às 10h."
+            "text": " Ip\u00ea, ter\u00e7a-feira \u00e0s 10h."
           },
           {
             "round": 1,
@@ -828,7 +828,7 @@
             "case": 1,
             "first_displayable_ms": 401.5319170011935,
             "total_ms": 751.4851670002827,
-            "text": " Ipê, terça-feira às 10h."
+            "text": " Ip\u00ea, ter\u00e7a-feira \u00e0s 10h."
           },
           {
             "round": 0,
@@ -849,7 +849,7 @@
             "case": 1,
             "first_displayable_ms": 399.42716599944106,
             "total_ms": 752.1667909986718,
-            "text": " Ipê, terça-feira às 10h."
+            "text": " Ip\u00ea, ter\u00e7a-feira \u00e0s 10h."
           },
           {
             "round": 1,
@@ -886,8 +886,7 @@
     "X11 requires explicit inactive composition and compatible native metrics; unsupported providers stay silent",
     "Cold native preparation still takes seconds; source/provider samples are not visible-desktop SLA",
     "Docs and terminal compatibility remain consent/provider bounded",
-    "No calibrated multilingual grammar accuracy or [redacted reference] memory parity",
+    "No calibrated multilingual grammar accuracy or external-product memory parity",
     "Windows held; iCloud deferred"
-  ],
-  "repository_history_redaction": "Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations."
+  ]
 }

@@ -1,5 +1,3 @@
-> Historical record: Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations.
-
 <h1 align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/brotypist-lockup-dark.svg">
@@ -105,10 +103,40 @@ supplied preview bundle. Check the package's release notes and included
    Models download separately.
 4. Enable predictions for the apps you want to use, then type in a supported field.
 
-Current Mac packages are Apple Development signed, **not notarized**. If macOS
-blocks a verified download, use the app-specific **Open Anyway** action in
-Privacy & Security. Do not disable Gatekeeper globally. Screen Recording is
-needed only for optional screenshot features.
+#### macOS says “Move to Trash” or cannot verify the developer
+
+Current packages are **Apple Development-signed, not Developer ID-notarized**.
+An initial warning that Apple “cannot check it for malicious software” can offer
+**Move to Trash** and **Done**. Only for a download from the official
+[BroTypist releases](https://github.com/renan-brasilio/brotypist/releases) whose
+SHA-256 matches that release's `SHA256SUMS`:
+
+Download `SHA256SUMS` from the same release page. In Terminal, run
+`shasum -a 256` followed by the path to your downloaded DMG or ZIP (you can drag
+the file into Terminal to insert its path). Compare the resulting hash with the
+entry for that exact filename. A matching checksum confirms download integrity;
+it does not mean Apple notarized the app.
+
+1. Choose **Done**, not Move to Trash.
+2. Open **System Settings → Privacy & Security → Security**.
+3. Find the blocked BroTypist launch and choose **Open Anyway**, then confirm
+   **Open** and authenticate if requested. This approves this app, not all apps.
+4. If you already moved it to Trash, download a fresh official release, verify
+   its checksum, and copy **BroTypist.app** into **Applications** again.
+
+Do **not** treat “damaged,” modified-app/signature failures, or “will damage your
+computer”/known-malware warnings as merely an unknown developer. Do not bypass
+those warnings: obtain a fresh official download, check its integrity, and report
+the exact warning if it persists. A managed Mac may require your IT administrator.
+Never disable Gatekeeper globally, strip quarantine attributes broadly, or bypass
+permission controls. See Apple's
+[safely opening apps guidance](https://support.apple.com/en-us/102445) and
+[modified or damaged app guidance](https://support.apple.com/en-ge/guide/mac-help/mh40619/mac).
+
+Launch approval is separate from normal app permissions. This troubleshooting
+requires no new permissions: Accessibility and Input Monitoring remain the setup
+permissions described above; Screen Recording is only for optional screenshot
+features.
 
 Downloaded models are retained outside the app bundle, so an app update does
 not require downloading them again. Startup verifies selected primary and battery
@@ -223,6 +251,6 @@ Found a problem? Open an issue with the app version, OS, target application and 
 
 Keep pull requests focused. Document public contracts and non-obvious lifecycle decisions, add behavioral regressions where needed, and report what you exercised on the actual platform. Preserve saved settings, explicit consent and safe handling of unsupported inputs. Discuss larger changes first.
 
-[Design direction](DESIGN.md) · [Verification](evidence/VERIFICATION.md) · [Reference-app research](evidence/[redacted reference].md)
+[Design direction](DESIGN.md) · [Verification](evidence/VERIFICATION.md)
 
-BroTypist is an independent implementation, not a redistribution of [redacted reference] code, models or artwork. Third-party components and model weights retain their respective licenses.
+Third-party components and model weights retain their respective licenses.

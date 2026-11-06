@@ -11,6 +11,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=BROTYPIST_LLAMA_LIB_DIR");
     println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
     println!("cargo:rerun-if-changed=native/llama_bridge.c");
+    println!("cargo:rerun-if-changed=native/grammar_sampler.h");
+    println!("cargo:rerun-if-changed=native/grammar_sampler_tests.c");
     println!("cargo:rerun-if-changed=native/include");
     println!("cargo:rerun-if-changed=vendor/llama.cpp/CMakeLists.txt");
     println!("cargo:rustc-env=BROTYPIST_LLAMA_REVISION={LLAMA_REVISION}");
@@ -115,9 +117,14 @@ fn main() {
         (library_dir, runtime_dirs, "pinned-source")
     };
     let mut shim = cc::Build::new();
+    shim.std("c11");
     shim.file("native/llama_bridge.c")
         .include("native/include")
         .warnings(true);
+    if env::var_os("CARGO_FEATURE_NATIVE_SMOKE").is_some() {
+        shim.define("BROTYPIST_NATIVE_SMOKE", None);
+        shim.file("native/grammar_sampler_tests.c");
+    }
     shim.define("LLAMA_SHARED", None);
     if target == "windows" {
         shim.static_crt(true);

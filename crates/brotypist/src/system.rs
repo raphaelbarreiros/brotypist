@@ -532,10 +532,23 @@ fn native_clipboard() -> Result<String> {
 
 pub type ClipboardAuthorization = Arc<dyn Fn() -> bool + Send + Sync>;
 struct ClipboardRequest {
+    liveness: ClipboardAuthorization,
     authorized: ClipboardAuthorization,
     deadline: Instant,
     cancelled: AtomicBool,
     result: Mutex<Option<Result<String>>>,
+}
+impl ClipboardRequest {
+    // Queue polling must never resolve the native ticket or take its mutex.
+    fn is_live(&self, queue: &ClipboardQueue) -> bool {
+        !self.cancelled.load(Ordering::Acquire)
+            && !queue.stopped.load(Ordering::Acquire)
+            && Instant::now() < self.deadline
+            && (self.liveness)()
+    }
+    fn is_authorized(&self, queue: &ClipboardQueue) -> bool {
+        self.is_live(queue) && (self.authorized)() && self.is_live(queue)
+    }
 }
 struct ClipboardQueue {
     owner: ThreadId,
@@ -579,12 +592,7 @@ impl ClipboardService {
             .unwrap_or_else(|p| p.into_inner())
             .take();
         if let Some(request) = request {
-            let live = || {
-                !request.cancelled.load(Ordering::Acquire)
-                    && !self.queue.stopped.load(Ordering::Acquire)
-                    && Instant::now() < request.deadline
-                    && (request.authorized)()
-            };
+            let live = || request.is_authorized(&self.queue);
             let result = clipboard_read(&live, read);
             *request.result.lock().unwrap_or_else(|p| p.into_inner()) = Some(result);
         }
@@ -606,29 +614,37 @@ impl Drop for ClipboardService {
     }
 }
 /// Marshal when a GUI service is installed; otherwise use native thread-independent access.
-pub fn clipboard_text_shared(authorized: ClipboardAuthorization) -> Result<String> {
-    if !authorized() {
+/// Liveness must be cheap and must not resolve a native authorization ticket.
+/// Full authorization stays fresh at the read and result-acceptance fences.
+pub fn clipboard_text_shared(
+    liveness: ClipboardAuthorization,
+    authorized: ClipboardAuthorization,
+) -> Result<String> {
+    if !liveness() {
         return Ok(String::new());
     }
     let queue = CLIPBOARD
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .upgrade();
+    let full_guard = || liveness() && authorized() && liveness();
     let Some(queue) = queue else {
-        return clipboard_text(&*authorized);
+        return clipboard_text(&full_guard);
     };
     if queue.owner == thread::current().id() {
-        return clipboard_text(&*authorized);
+        return clipboard_text(&full_guard);
     }
-    clipboard_from_queue(queue, authorized, Duration::from_millis(250))
+    clipboard_from_queue(queue, liveness, authorized, Duration::from_millis(250))
 }
 fn clipboard_from_queue(
     queue: Arc<ClipboardQueue>,
+    liveness: ClipboardAuthorization,
     authorized: ClipboardAuthorization,
     timeout: Duration,
 ) -> Result<String> {
     let request = Arc::new(ClipboardRequest {
-        authorized: authorized.clone(),
+        liveness,
+        authorized,
         deadline: Instant::now() + timeout,
         cancelled: AtomicBool::new(false),
         result: Mutex::new(None),
@@ -644,20 +660,17 @@ fn clipboard_from_queue(
         *pending = Some(request.clone());
     }
     loop {
-        if !authorized()
-            || queue.stopped.load(Ordering::Acquire)
-            || Instant::now() >= request.deadline
-        {
+        if !request.is_live(&queue) {
             request.cancelled.store(true, Ordering::Release);
             return Ok(String::new());
         }
-        if let Some(result) = request
+        let result = request
             .result
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .take()
-        {
-            return if authorized() {
+            .take();
+        if let Some(result) = result {
+            return if request.is_authorized(&queue) {
                 result
             } else {
                 Ok(String::new())
@@ -1583,6 +1596,7 @@ mod tests {
         deadline: Instant,
     ) -> Arc<ClipboardRequest> {
         let request = Arc::new(ClipboardRequest {
+            liveness: Arc::new(|| true),
             authorized,
             deadline,
             cancelled: AtomicBool::new(false),
@@ -1919,7 +1933,12 @@ mod tests {
         let service = local_clipboard_service();
         let queue = service.queue.clone();
         let worker = thread::spawn(move || {
-            clipboard_from_queue(queue, Arc::new(|| true), Duration::from_millis(10))
+            clipboard_from_queue(
+                queue,
+                Arc::new(|| true),
+                Arc::new(|| true),
+                Duration::from_millis(10),
+            )
         });
         assert_eq!(worker.join().unwrap().unwrap(), "");
         service
@@ -1931,6 +1950,7 @@ mod tests {
         let worker = thread::spawn(move || {
             clipboard_from_queue(
                 queue,
+                Arc::new(|| true),
                 Arc::new(move || check.load(Ordering::Acquire)),
                 Duration::from_secs(1),
             )
@@ -1944,6 +1964,149 @@ mod tests {
         service
             .poll_with(|| panic!("Queued revocation read the clipboard"))
             .unwrap();
+        assert_eq!(worker.join().unwrap().unwrap(), "");
+    }
+    fn spawn_clipboard_request(
+        service: &ClipboardService,
+        liveness: ClipboardAuthorization,
+        authorized: ClipboardAuthorization,
+    ) -> (
+        thread::JoinHandle<Result<String>>,
+        std::sync::mpsc::Receiver<()>,
+    ) {
+        let queue = service.queue.clone();
+        let (waiting, observed) = std::sync::mpsc::sync_channel(1);
+        let worker = thread::spawn(move || {
+            clipboard_from_queue(
+                queue,
+                Arc::new(move || {
+                    let _ = waiting.try_send(());
+                    liveness()
+                }),
+                authorized,
+                Duration::from_secs(10),
+            )
+        });
+        (worker, observed)
+    }
+    fn observe_clipboard_wait(waiting: &std::sync::mpsc::Receiver<()>) {
+        waiting.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+    #[test]
+    fn clipboard_queue_wait_does_not_resolve_native_authorization() {
+        use std::sync::atomic::AtomicUsize;
+
+        let service = local_clipboard_service();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let checks = calls.clone();
+        // Model an expensive native ticket held elsewhere while the owner
+        // has not polled. Waiting must make progress without this mutex.
+        let native_ticket = Arc::new(Mutex::new(()));
+        let busy_ticket = native_ticket.lock().unwrap();
+        let ticket = native_ticket.clone();
+        let (worker, waiting) = spawn_clipboard_request(
+            &service,
+            Arc::new(|| true),
+            Arc::new(move || {
+                checks.fetch_add(1, Ordering::AcqRel);
+                let _ticket = ticket.lock().unwrap();
+                true
+            }),
+        );
+        for _ in 0..4 {
+            observe_clipboard_wait(&waiting);
+        }
+        assert_eq!(calls.load(Ordering::Acquire), 0);
+        drop(busy_ticket);
+        service
+            .poll_with(|| Ok("owned synthetic text".into()))
+            .unwrap();
+        assert_eq!(worker.join().unwrap().unwrap(), "owned synthetic text");
+        // Fresh pre-read, post-read and accepting-worker fences only.
+        assert_eq!(calls.load(Ordering::Acquire), 3);
+    }
+    #[test]
+    fn clipboard_queue_cancellation_while_waiting_prevents_read() {
+        let service = local_clipboard_service();
+        let live = Arc::new(AtomicBool::new(true));
+        let check = live.clone();
+        let (worker, waiting) = spawn_clipboard_request(
+            &service,
+            Arc::new(move || check.load(Ordering::Acquire)),
+            Arc::new(|| panic!("Cancelled work resolved native authorization")),
+        );
+        observe_clipboard_wait(&waiting);
+        live.store(false, Ordering::Release);
+        assert_eq!(worker.join().unwrap().unwrap(), "");
+        service
+            .poll_with(|| panic!("Cancelled work read late"))
+            .unwrap();
+    }
+    #[test]
+    fn clipboard_queue_native_revocation_while_waiting_prevents_read() {
+        let service = local_clipboard_service();
+        let grant = Arc::new(AtomicBool::new(true));
+        let check = grant.clone();
+        let (worker, waiting) = spawn_clipboard_request(
+            &service,
+            Arc::new(|| true),
+            Arc::new(move || check.load(Ordering::Acquire)),
+        );
+        observe_clipboard_wait(&waiting);
+        grant.store(false, Ordering::Release);
+        service
+            .poll_with(|| panic!("Revoked native ticket read"))
+            .unwrap();
+        assert_eq!(worker.join().unwrap().unwrap(), "");
+    }
+    #[test]
+    fn clipboard_queue_post_read_revocation_drops_private_text() {
+        let service = local_clipboard_service();
+        let grant = Arc::new(AtomicBool::new(true));
+        let check = grant.clone();
+        let (worker, waiting) = spawn_clipboard_request(
+            &service,
+            Arc::new(|| true),
+            Arc::new(move || check.load(Ordering::Acquire)),
+        );
+        observe_clipboard_wait(&waiting);
+        service
+            .poll_with(|| {
+                grant.store(false, Ordering::Release);
+                Ok("discard owned synthetic text".into())
+            })
+            .unwrap();
+        assert_eq!(worker.join().unwrap().unwrap(), "");
+    }
+    #[test]
+    fn clipboard_queue_acceptance_rechecks_native_authorization() {
+        use std::sync::atomic::AtomicUsize;
+
+        let service = local_clipboard_service();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let checks = calls.clone();
+        let (worker, waiting) = spawn_clipboard_request(
+            &service,
+            Arc::new(|| true),
+            Arc::new(move || checks.fetch_add(1, Ordering::AcqRel) < 2),
+        );
+        observe_clipboard_wait(&waiting);
+        service
+            .poll_with(|| Ok("discard owned synthetic text".into()))
+            .unwrap();
+        assert_eq!(worker.join().unwrap().unwrap(), "");
+        assert_eq!(calls.load(Ordering::Acquire), 3);
+    }
+    #[test]
+    fn clipboard_queue_owner_shutdown_unblocks_waiter() {
+        let service = local_clipboard_service();
+        let (worker, waiting) = spawn_clipboard_request(
+            &service,
+            Arc::new(|| true),
+            Arc::new(|| panic!("Stopped owner resolved native authorization")),
+        );
+        observe_clipboard_wait(&waiting);
+        drop(service);
         assert_eq!(worker.join().unwrap().unwrap(), "");
     }
     #[test]

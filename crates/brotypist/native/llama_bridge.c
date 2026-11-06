@@ -3,6 +3,7 @@
  * This owner is confined to the inference worker's single model thread.
  */
 #include "llama.h"
+#include "grammar_sampler.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -21,6 +22,7 @@ struct bt_llama {
     int batch_initialized;
     int backend_initialized;
     int gpu_layers;
+    int batch_capacity;
 };
 
 void bt_llama_sampler_close(struct bt_llama *p) {
@@ -38,15 +40,32 @@ void bt_llama_close(struct bt_llama *p) {
 static void quiet_log(enum ggml_log_level level, const char *text, void *user) {
     (void)level; (void)text; (void)user;
 }
-struct bt_llama *bt_llama_open(const char *path, int auto_gpu, int threads, char *error, size_t cap) {
+#ifdef BROTYPIST_NATIVE_SMOKE
+#define PREPARATION_PHASE(phase, entering) do { if (preparation) preparation(phase, entering); } while (0)
+#else
+#define PREPARATION_PHASE(phase, entering) ((void)0)
+#endif
+struct bt_llama *bt_llama_open(const char *path, int auto_gpu, int threads, int batch_capacity, char *error, size_t cap
+#ifdef BROTYPIST_NATIVE_SMOKE
+    , void (*preparation)(int phase, int entering)
+#endif
+) {
+    if (batch_capacity < 1 || batch_capacity > 4096) {
+        snprintf(error, cap, "Native inference batch capacity is invalid."); return NULL;
+    }
     struct bt_llama *p = calloc(1, sizeof(*p));
     if (!p) { snprintf(error, cap, "Native model owner allocation failed."); return NULL; }
+    p->batch_capacity = batch_capacity;
     llama_log_set(quiet_log, NULL);
+    PREPARATION_PHASE(0, 1);
     llama_backend_init(); p->backend_initialized = 1;
     p->gpu_layers = auto_gpu && llama_supports_gpu_offload() ? -1 : 0;
+    PREPARATION_PHASE(0, 0);
     struct llama_model_params mp = llama_model_default_params();
     mp.n_gpu_layers = p->gpu_layers;
+    PREPARATION_PHASE(1, 1);
     p->model = llama_model_load_from_file(path, mp);
+    PREPARATION_PHASE(1, 0);
     if (!p->model) { snprintf(error, cap, "The native engine could not load this GGUF model."); goto fail; }
     if (llama_model_has_encoder(p->model) || !llama_model_has_decoder(p->model)) {
         snprintf(error, cap, "Local writing requires a decoder-only GGUF model."); goto fail;
@@ -54,14 +73,18 @@ struct bt_llama *bt_llama_open(const char *path, int auto_gpu, int threads, char
     p->vocab = llama_model_get_vocab(p->model);
     if (!p->vocab) { snprintf(error, cap, "The GGUF model has no vocabulary."); goto fail; }
     struct llama_context_params cp = llama_context_default_params();
-    cp.n_ctx = 4096; cp.n_batch = 64; cp.n_ubatch = 32;
+    cp.n_ctx = 4096; cp.n_batch = (uint32_t)batch_capacity; cp.n_ubatch = (uint32_t)batch_capacity;
     cp.n_threads = threads > 1 ? threads / 2 : 1;
     cp.n_threads_batch = threads > 0 ? threads : 1;
-    cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
+    cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
     if (!auto_gpu) { cp.offload_kqv = false; cp.op_offload = false; }
+    PREPARATION_PHASE(2, 1);
     p->context = llama_init_from_model(p->model, cp);
+    PREPARATION_PHASE(2, 0);
     if (!p->context) { snprintf(error, cap, "The native engine could not allocate the model context."); goto fail; }
-    p->batch = llama_batch_init(64, 0, 1); p->batch_initialized = 1;
+    PREPARATION_PHASE(3, 1);
+    p->batch = llama_batch_init(batch_capacity, 0, 1); p->batch_initialized = 1;
+    PREPARATION_PHASE(3, 0);
     if (!p->batch.token || !p->batch.pos || !p->batch.n_seq_id || !p->batch.seq_id || !p->batch.logits) {
         snprintf(error, cap, "Native inference batch allocation failed."); goto fail;
     }
@@ -85,13 +108,14 @@ int bt_llama_trim(struct bt_llama *p, int32_t from) {
     return llama_memory_seq_rm(llama_get_memory(p->context), -1, from, -1);
 }
 void bt_llama_reset(struct bt_llama *p) { llama_memory_clear(llama_get_memory(p->context), true); }
-int bt_llama_decode(struct bt_llama *p, const int32_t *tokens, int32_t count, int32_t start_pos) {
-    if (count < 1 || count > 64 || start_pos < 0 || start_pos + count > (int32_t)llama_n_ctx(p->context)) return -100;
+void bt_llama_synchronize(struct bt_llama *p) { llama_synchronize(p->context); }
+int bt_llama_decode(struct bt_llama *p, const int32_t *tokens, int32_t count, int32_t start_pos, int final_logits) {
+    if (count < 1 || count > p->batch_capacity || start_pos < 0 || start_pos + count > (int32_t)llama_n_ctx(p->context)) return -100;
     struct llama_batch batch = p->batch;
     batch.n_tokens = count;
     for (int32_t i = 0; i < count; ++i) {
         batch.token[i] = tokens[i]; batch.pos[i] = start_pos + i;
-        batch.n_seq_id[i] = 1; batch.seq_id[i][0] = 0; batch.logits[i] = i == count - 1;
+        batch.n_seq_id[i] = 1; batch.seq_id[i][0] = 0; batch.logits[i] = final_logits && i == count - 1;
     }
     return llama_decode(p->context, batch);
 }
@@ -109,7 +133,7 @@ int bt_llama_sampler(struct bt_llama *p, int top_k, float top_p, float min_p, fl
      * sampled output (accepting the draft would corrupt exact replay grammar).
      */
     if (add_sampler(p, llama_sampler_init_penalties(llama_vocab_n_tokens(p->vocab), 64, repeat_penalty, 0.0f, 0.0f))) goto fail;
-    if (grammar && grammar[0] && add_sampler(p, llama_sampler_init_grammar(p->vocab, grammar, "root"))) goto fail;
+    if (grammar && grammar[0] && add_sampler(p, bt_grammar_wrap(llama_sampler_init_grammar(p->vocab, grammar, "root"), top_k))) goto fail;
     if (add_sampler(p, llama_sampler_init_top_k(top_k)) ||
         add_sampler(p, llama_sampler_init_typical(1.0f, 1)) ||
         add_sampler(p, llama_sampler_init_top_p(top_p, 1)) ||

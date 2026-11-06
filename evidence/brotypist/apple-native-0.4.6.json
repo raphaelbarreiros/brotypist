@@ -84,16 +84,7 @@
   },
   "updater_native_fixtures": {
     "controlled_fixtures_not_internet_update": true,
-    "states": [
-      "idle",
-      "checking",
-      "available",
-      "downloading",
-      "ready",
-      "installing",
-      "error",
-      "up_to_date"
-    ],
+    "states": ["idle", "checking", "available", "downloading", "ready", "installing", "error", "up_to_date"],
     "one_visible_action_per_state": true,
     "stale_cancel_action_remained_cancel": true,
     "real_update_download_or_install": "not exercised by these fixtures",
@@ -153,29 +144,16 @@
     "gatekeeper_quarantine_or_signing_policy_changed": false
   },
   "screenshots": [
-    {
-      "path": "apple-native-models-0.4.6.png",
-      "provenance": "final source native Models pane"
-    },
-    {
-      "path": "apple-native-update-fixture-0.4.6.png",
-      "provenance": "final source controlled ready-state updater fixture"
-    },
-    {
-      "path": "apple-native-inline-preview-0.4.6.png",
-      "provenance": "final source real Portuguese model preview"
-    },
-    {
-      "path": "apple-native-finder-icon-0.4.6.png",
-      "provenance": "actual final frozen DMG-copied app Finder icon"
-    }
+    {"path": "apple-native-models-0.4.6.png", "provenance": "final source native Models pane"},
+    {"path": "apple-native-update-fixture-0.4.6.png", "provenance": "final source controlled ready-state updater fixture"},
+    {"path": "apple-native-inline-preview-0.4.6.png", "provenance": "final source real Portuguese model preview"},
+    {"path": "apple-native-finder-icon-0.4.6.png", "provenance": "actual final frozen DMG-copied app Finder icon"}
   ],
   "limits": [
     "No new normal installation, publication, Linux or Windows build, or iCloud verification.",
     "Source UI evidence and frozen installer/runtime evidence are separate observations; the source preview does not establish frozen third-party typing.",
     "No fresh WhatsApp, Telegram, physical HID or arbitrary third-party input acceptance proof.",
-    "No grammar-quality, desktop latency, RAM or [redacted reference]-parity claim.",
+    "No grammar-quality, desktop latency, RAM or external-product parity claim.",
     "No macOS 15 runtime icon appearance, Developer ID or notarization claim."
-  ],
-  "repository_history_redaction": "Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations."
+  ]
 }

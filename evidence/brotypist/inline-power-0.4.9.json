@@ -29,11 +29,7 @@
     "developer_id_distribution": "not claimed",
     "notarization": "not claimed"
   },
-  "source_regressions": {
-    "passed": 1330,
-    "skipped": 22,
-    "native_contract_slice_passed": 238
-  },
+  "source_regressions": {"passed": 1330, "skipped": 22, "native_contract_slice_passed": 238},
   "actual_whatsapp_component": {
     "cause": "Identical typography split into word/blank runs by spell-check metadata; the former all-attribute run rejected a blank before inference.",
     "inline_safe_before": false,
@@ -66,10 +62,7 @@
   "normal_profile_whatsapp": {
     "visible_ghost_gate": "not passed",
     "first_existing_draft_focus_observation_seconds": 12,
-    "separate_own_menu_status_observations": [
-      "Generating a local suggestion…",
-      "Ready."
-    ],
+    "separate_own_menu_status_observations": ["Generating a local suggestion…", "Ready."],
     "menu_status_is_visible_prediction_proof": false,
     "enabled_native_status_item": "inklow.statusItem",
     "enabled_quit_menu_item": "Quit BroTypist",
@@ -81,25 +74,13 @@
     "automated_typing_acceptance_sending_or_draft_changes": false,
     "full_chat_tree_read_by_observer": false,
     "later_foreground_refusal": "com.apple.loginwindow",
-    "later_session_flags": {
-      "on_console": true,
-      "login_done": true,
-      "locked": false
-    },
+    "later_session_flags": {"on_console": true, "login_done": true, "locked": false},
     "loginwindow_activated_or_unlocked_by_observer": false,
     "cause": "unresolved; not attributed to permissions, context or model abstention without evidence"
   },
   "source_native_ui": {
     "exact_owned_window_compositor_images": 7,
-    "surfaces": [
-      "General",
-      "App Settings",
-      "Models",
-      "Battery",
-      "charging",
-      "reduced-motion/contrast charging",
-      "synthetic 20% preview"
-    ],
+    "surfaces": ["General", "App Settings", "Models", "Battery", "charging", "reduced-motion/contrast charging", "synthetic 20% preview"],
     "external_window_or_desktop_capture": false,
     "foreground_unchanged": true,
     "key_or_main_window_taken": false,
@@ -107,13 +88,7 @@
     "limit": "Source layout/state proof precedes the final presentation-opacity retarget adjustment; not frozen-GUI proof. The later probe produced no images; a separate session check positively confirmed the console was locked."
   },
   "power": {
-    "actual_hardware_sample": {
-      "available": true,
-      "has_battery": true,
-      "on_battery": false,
-      "charging": false,
-      "percent": 80
-    },
+    "actual_hardware_sample": {"available": true, "has_battery": true, "on_battery": false, "charging": false, "percent": 80},
     "actual_sampling_thread": "brotypist-power",
     "optimized_charge_hold_parser_regression": "failed before, passed after",
     "normal_charging_cue_seconds": 3.6,
@@ -130,52 +105,19 @@
     "repetitions": 2,
     "nonblank_insertions": 60,
     "samples": 62,
-    "first_displayable_provider_ms": {
-      "median": 163.59285449652816,
-      "min": 81.9580000024871,
-      "max": 437.18783400254324
-    },
+    "first_displayable_provider_ms": {"median": 163.59285449652816, "min": 81.9580000024871, "max": 437.18783400254324},
     "quality": "Assistant-inspected assembled drafts; not human-calibrated grammar or factuality accuracy.",
-    "known_limits": [
-      "One Portuguese work-message case abstained twice.",
-      "Explicit language overrides remained unreliable.",
-      "Suggestions can add unsupported specifics.",
-      "Ambiguous short prefixes do not determine the user's intended language."
-    ],
-    "timing_excludes": [
-      "desktop debounce",
-      "IPC",
-      "AX capture",
-      "native rendering"
-    ]
+    "known_limits": ["One Portuguese work-message case abstained twice.", "Explicit language overrides remained unreliable.", "Suggestions can add unsupported specifics.", "Ambiguous short prefixes do not determine the user's intended language."],
+    "timing_excludes": ["desktop debounce", "IPC", "AX capture", "native rendering"]
   },
   "frozen_inference": {
     "cli_version": "BroTypist 0.4.9",
     "cli_exit_code": 0,
-    "cli_synthetic_example": {
-      "prefix": "Hey, I'll text you when",
-      "suggestion": " I get home."
-    },
-    "configuration_only_prepare": {
-      "event_types": [
-        "loading",
-        "prepared",
-        "done"
-      ],
-      "generated_writing": false,
-      "elapsed_ms": 1411.0006670016446
-    },
+    "cli_synthetic_example": {"prefix": "Hey, I'll text you when", "suggestion": " I get home."},
+    "configuration_only_prepare": {"event_types": ["loading", "prepared", "done"], "generated_writing": false, "elapsed_ms": 1411.0006670016446},
     "medium_worker_examples": [
-      {
-        "prefix": "Então ",
-        "suggestion": "preciso confirmar se o ",
-        "first_protocol_result_ms_after_preparation": 264.65445900248596
-      },
-      {
-        "prefix": "Could you send me your feedb",
-        "suggestion": "ack on this draft?",
-        "first_protocol_result_ms_after_preparation": 386.7212500044843
-      }
+      {"prefix": "Então ", "suggestion": "preciso confirmar se o ", "first_protocol_result_ms_after_preparation": 264.65445900248596},
+      {"prefix": "Could you send me your feedb", "suggestion": "ack on this draft?", "first_protocol_result_ms_after_preparation": 386.7212500044843}
     ],
     "worker_exit_code": 0,
     "note": "Real signed frozen executable and worker, private profile, actual cached model; not GUI or desktop latency proof.",
@@ -209,7 +151,6 @@
     "The signed isolated profile proved real grey WhatsApp pixels after one word; the normal-profile visible-prediction discrepancy remains unresolved.",
     "Further live inspection requires the interactive desktop rather than protected loginwindow foreground; physical typing/acceptance and warm keystroke latency remain unverified.",
     "No Linux/Windows build, push, tag, GitHub release or public OTA manifest was produced.",
-    "No [redacted reference] parity, memory superiority, universal input support, grammar guarantee or spoken TTS is claimed."
-  ],
-  "repository_history_redaction": "Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations."
+    "No external-product parity, memory superiority, universal input support, grammar guarantee or spoken TTS is claimed."
+  ]
 }

@@ -1,0 +1,784 @@
+{
+  "publication_note": "Redacted historical receipt: third-party research and artifact entries removed. Retained BroTypist measurements, failures and source digests describe the original run, not current source. This is a limited-scope summary, not the original authenticated bundle.",
+  "schema": "brotypist-owner-wake-preparation-verification/1",
+  "created_at": "2026-11-05T20:21:44.775025+00:00",
+  "status": "local_implementation_verified_with_open_desktop_quality_and_m5_gates",
+  "release_boundary": {
+    "installed": false,
+    "committed_or_pushed": false,
+    "released": false,
+    "normal_preferences_changed": false,
+    "new_permissions_granted": false,
+    "remote_workloads": false
+  },
+  "host": {
+    "model": "Apple M1 Pro",
+    "logical_cpus": 10,
+    "memory_gib": 16,
+    "is_requested_m5": false
+  },
+  "source_sha256": {
+    "crates/brotypist/build.rs": "8827db65e57b73f7ed7b2ad2fcc8b2c190884b111508bc33b15358c6319699b2",
+    "crates/brotypist/examples/benchmark_desktop.py": "8e6aa8674f0a9b399803f7abc464e1e8704c0d765681316ab5d5b293084da6c6",
+    "crates/brotypist/examples/benchmark_desktop_ocr.m": "fbe48ddf31d5bcd76160ff17d1316f99967c7e1dc4a40f56987704bb9cd82434",
+    "crates/brotypist/examples/benchmark_writing.rs": "29256c958b284ec2099e090d5534ea7fb3ec1bf9ca5b446877a3b684087ad6ff",
+    "crates/brotypist/examples/benchmark_writing/contextual_quality.json": "aaa04b4afaeedd9726faad12dc697610b8042c21bf66a499e9474e25e6494512",
+    "crates/brotypist/examples/benchmark_writing/corpus.rs": "b8917dc7c72f394a372579f289f2859f338875945f53bc8a03849d1d6c23f20d",
+    "crates/brotypist/examples/benchmark_writing/direct.rs": "8212aeb20ee2b9bc5674a0059b0bfbaf283640d593d52ebd19dd8643f129edd2",
+    "crates/brotypist/examples/benchmark_writing/direct_checks.rs": "5c13f755ea03b02460435f120291bf0526507da589c55f89e169ea4dc51ee313",
+    "crates/brotypist/examples/benchmark_writing/direct_process.rs": "a3e0d12701220adf8e41162863eca473b720710853de5cb266cb868eb946415e",
+    "crates/brotypist/examples/benchmark_writing/evaluation.rs": "ed2268533cd4c64d99be7cba869602e5f16fb962b34fadcbc170dc6d65c443cc",
+    "crates/brotypist/examples/benchmark_writing/native_details.rs": "2c4598a1f5d34682d3bfbaf7d42c12d15c291ebc435fc36b9f37a7a607661f83",
+    "crates/brotypist/examples/benchmark_writing/runner.rs": "d0b878d05f6a88e81b1faafc3832e33746e4a850bb139e461fe4b61f6e9c37e7",
+    "crates/brotypist/examples/benchmark_writing/writing_quality.json": "384defd052ec86a38cb934fdfd1eb083c8f43e5b5538496117d058a55c1efbf9",
+    "crates/brotypist/native/grammar_sampler.h": "b021a2348ea0ac1d474f3dda8b0f8686aee4ce73fc8796c46263e4b66bd7b137",
+    "crates/brotypist/native/llama_bridge.c": "1a9475134c1fae4467f023c97e286c526a697b09f3d43d0116949d61ff9835f9",
+    "crates/brotypist/src/config.rs": "a8b8fdc1c66f67a9cc7b2b5319c5c5c5a90cb2e519b5eaa1a461d0ce4e055e96",
+    "crates/brotypist/src/features.rs": "0395a33719eb42fceaaa4f68143f3b481d4c8fbc662714b7a0e29a81d7c65817",
+    "crates/brotypist/src/inference_native.rs": "2a8fe0dbcbac8fc44811bfafae61b2f9fba39ea2a6d1033c71cd4dcb0d1f803d",
+    "crates/brotypist/src/platform/macos_geometry.rs": "53f11371dad853fd762ab0ac025a3d9c483f4552e187ba18f9712eeacb86ecaf",
+    "crates/brotypist/src/process_client.rs": "a103416dd8f6eaa24dde84cf4359075c79c7359b7013ff90f2ceda20f655f680",
+    "crates/brotypist/src/providers.rs": "f59c637e0e0f28198ec65764819f7448674aac146f46f8cd9cc46e99c1e1012c",
+    "crates/brotypist/src/providers_diagnostics.rs": "492233f9a52e2bc5e1ab0e4354b4efa8ed50f73ecac6217dbef7eb96031dbf05",
+    "crates/brotypist/src/runtime.rs": "909fd79668b07cef5b2729c282401fead77132205b2f382b42296bd002188797",
+    "crates/brotypist/src/runtime/owner_wake.rs": "b1243144581fdecdcae976ae585558508700b6509859091a4ae7476501b578be",
+    "crates/brotypist/src/stage_diagnostics.rs": "3f65097467c73ba4c4a0b8e8bb67129c271ecd82f2ea49666ded054bf903dfc7",
+    "crates/brotypist/src/ui/macos.rs": "984b7065bddb2abe2998f768f2aa8884172e9edfbcb1d3547af2e7316f074cb8",
+    "crates/brotypist/src/ui/macos_smoke.rs": "b062fb43af505d7e880699b47fa9bf7a8012b1d127d8eb98070e6ca90e96cb93",
+    "crates/brotypist/src/ui/macos_wake.rs": "9fcf8bb1315754ce1d972e17661ca4aa8b6a2eddd883e4b57b2566faa312a821",
+    "crates/brotypist/src/worker.rs": "e57f81186b3f02e05a5aee7a8084c430e463e75e4d9862e661cf25b7648f65eb",
+    "crates/brotypist/src/writing.rs": "2ffacb4fbb25e15ee5ad88ab91f5c9c7ef6b048872df162d5e10339e78e966db"
+  },
+  "documentation_sha256": {
+    "CHANGELOG.md": "e40947088e9fc73b5b94c63b32d046271a6d95188485922657c5dfe8123ae34c",
+    "docs/rust-migration/README.md": "a5855e814182e4088eece982c2addf98a6fe2992ba04f0852991c9e98ca1f3bf",
+    "docs/rust-migration/prediction-performance-plan.md": "8a8fba20a9abf2e221ab25ee3e98a41cd9e56e897d5fe3767ebc1cc08f05cc1e"
+  },
+  "model": {
+    "basename": "gemma-4-E2B-it-Q4_0.gguf",
+    "sha256": "8e30dff3ac4c8434c49a7036fa15564bdbb6044e42bf04550bf1a096ad7e6a52",
+    "replaced": false
+  },
+  "engine": {
+    "llama_revision": "0c1e57098bba43ac29e6e3b677cdceebdd22334f",
+    "production_shaders": "embedded_source_unchanged",
+    "library_sha256": {
+      "libggml-base.0.25.3.dylib": "27729a693da1a456b446449d2ebd056ccce714c8a29aea1ff24053ac2fd34fff",
+      "libggml-base.0.dylib": "27729a693da1a456b446449d2ebd056ccce714c8a29aea1ff24053ac2fd34fff",
+      "libggml-base.dylib": "27729a693da1a456b446449d2ebd056ccce714c8a29aea1ff24053ac2fd34fff",
+      "libggml-blas.0.25.3.dylib": "7675306e300dede97609629ecc2848938476b196dcec30ba6722749d3760cc6f",
+      "libggml-blas.0.dylib": "7675306e300dede97609629ecc2848938476b196dcec30ba6722749d3760cc6f",
+      "libggml-blas.dylib": "7675306e300dede97609629ecc2848938476b196dcec30ba6722749d3760cc6f",
+      "libggml-cpu.0.25.3.dylib": "63e25cf982797850332425c2692e2ed2fc846ab143fd34fe952c4c5ab8428b23",
+      "libggml-cpu.0.dylib": "63e25cf982797850332425c2692e2ed2fc846ab143fd34fe952c4c5ab8428b23",
+      "libggml-cpu.dylib": "63e25cf982797850332425c2692e2ed2fc846ab143fd34fe952c4c5ab8428b23",
+      "libggml-metal.0.25.3.dylib": "3b9219551285a200bc6c1bdf5dc789a8fee7f58094074b423f3d586f71a4ae31",
+      "libggml-metal.0.dylib": "3b9219551285a200bc6c1bdf5dc789a8fee7f58094074b423f3d586f71a4ae31",
+      "libggml-metal.dylib": "3b9219551285a200bc6c1bdf5dc789a8fee7f58094074b423f3d586f71a4ae31",
+      "libggml.0.25.3.dylib": "1fd1db827db09d62ff419cfd13b92bdf1e2b47444c89342b5793239401f2f4a3",
+      "libggml.0.dylib": "1fd1db827db09d62ff419cfd13b92bdf1e2b47444c89342b5793239401f2f4a3",
+      "libggml.dylib": "1fd1db827db09d62ff419cfd13b92bdf1e2b47444c89342b5793239401f2f4a3",
+      "libllama.0.5.0.dylib": "f050bbd23146ad71522ba231223c914721e35dd08ba0c31964eb107566327aa5",
+      "libllama.0.dylib": "f050bbd23146ad71522ba231223c914721e35dd08ba0c31964eb107566327aa5",
+      "libllama.dylib": "f050bbd23146ad71522ba231223c914721e35dd08ba0c31964eb107566327aa5"
+    }
+  },
+  "artifacts": {
+    "root": "$HOME/tmp/brotypist-owner-wake-preparation-20261105-211436",
+    "files": {
+      "prepare-auto/report.json": {
+        "sha256": "73f5e3902a9574992806ca87d4cff702d76e7a47a97709d5481c16c7fcd76ce8",
+        "bytes": 7217
+      },
+      "prepare-cpu/report.json": {
+        "sha256": "726f82937f553e4349c0d3f92770ab9f5d6225a4c4bb3aaf87db13f253463093",
+        "bytes": 7222
+      },
+      "prepare-split-auto/report.json": {
+        "sha256": "681c83ec9df9b0b293a05d5df0afee37f14dd77fd9639ca321b1652444f0829e",
+        "bytes": 9624
+      },
+      "prepare-current-a/report.json": {
+        "sha256": "e3192ffe547963b863f948902eab3b810444f1344a29ed5106328b7c5577914a",
+        "bytes": 9627
+      },
+      "prepare-offline-b/report.json": {
+        "sha256": "97afbea3f7ed7dfe4e21d1b06c5d99315254a71d30c59975b6c1a28971c9d754",
+        "bytes": 9614
+      },
+      "prepare-current-a2/report.json": {
+        "sha256": "954a9151ace4a18901a8b58264ca75d3de27e3a599477ebec43ca15b64c0118b",
+        "bytes": 9612
+      },
+      "worker-before-a.json": {
+        "sha256": "d02e152f8530f86c7f913147f46d261164f68f9f7205db97198db7750ca38111",
+        "bytes": 279087
+      },
+      "worker-current.json": {
+        "sha256": "8354bf89fcfc1c26f0c9863766aa4befb9523008ac6474b46391cb50e0a4b722",
+        "bytes": 279205
+      },
+      "worker-offline.json": {
+        "sha256": "e7351048ca0c31eeadbe7be64a28ffb8f89abdee33c5505461f5ec855a00b9a1",
+        "bytes": 279162
+      },
+      "worker-after-a.json": {
+        "sha256": "45eed60c0449dd119a90e74ec9be7b64f612fd549a2b9844a1971374f44ad9a6",
+        "bytes": 279122
+      },
+      "appkit-probe-final/receipt.json": {
+        "sha256": "dbbe44c6fcb0cc651d5fe8bb4a3c20fbd42c99e086e666d91275c38139e5afd7",
+        "bytes": 5313
+      },
+      "appkit-wake-fixed/receipt.json": {
+        "sha256": "e7024f31ed1bfdf490ca5849410f9ad04bc11778b17d923494d05b2239b414d6",
+        "bytes": 5643
+      },
+      "binaries/native-smoke-cli": {
+        "sha256": "4cef425860d945db9df3b08f6c626ab7609a7c91fa0998fa153cc3680ae41e9a",
+        "bytes": 11930976
+      },
+      "binaries/benchmark_writing": {
+        "sha256": "259b724fc7aa6a1e4d100e5bda9e1ade7812a2bc52165eef00aac016b9a15d9f",
+        "bytes": 4314400
+      },
+      "binaries/signed-probe-executable": {
+        "sha256": "b019c0c7c48ec449290bde05b64701540c0fa3374db78b5eb5b984391ff6dee7",
+        "bytes": 11879904
+      },
+      "binaries/normal-cli": {
+        "sha256": "96b64a1735f15872a8fd229693699e811f95b448343ea4fb72938dab7250f1a9",
+        "bytes": 11892512
+      },
+      "worker-normal.json": {
+        "sha256": "bf299434cd993c120af7c1acdede677d7e464fa49c535fe5250c34b45da30cbb",
+        "bytes": 216133
+      },
+      "binaries/worker-comparison-cli": {
+        "sha256": "f46ea0e0e1e5f00928e7b535f500b6673beb58cbc8709e8748f8065d3a92834e",
+        "bytes": 11930976
+      },
+      "offline-engine/default.metallib": {
+        "sha256": "1ade6c5e4515a546452a4d5ce34d1eda08e446aad83f3d2cce566f0b6457ad7f",
+        "bytes": 15139790
+      },
+      "offline-engine/ggml-tensor.metallib": {
+        "sha256": "d3e9611a7429641d3b1d4b4c9c8a050dd26bd39553ffa77ac4d86985e924f2a9",
+        "bytes": 1830146
+      },
+      "offline-engine/libggml-base.0.25.3.dylib": {
+        "sha256": "27729a693da1a456b446449d2ebd056ccce714c8a29aea1ff24053ac2fd34fff",
+        "bytes": 736408
+      },
+      "offline-engine/libggml-blas.0.25.3.dylib": {
+        "sha256": "e24fc9034b30ddb6ff8454e6aab544406ba761e5f0bc5325c59ee5edde895813",
+        "bytes": 58776
+      },
+      "offline-engine/libggml-cpu.0.25.3.dylib": {
+        "sha256": "0bb8040f8a30314cb9d2b00c68cce37b8939babbc551f8eb4de4aa97758b20a8",
+        "bytes": 990680
+      },
+      "offline-engine/libggml-metal.0.25.3.dylib": {
+        "sha256": "c8a90bca4f22997cd8fbc04466e57c9276326171d8803721182845cab9ce9453",
+        "bytes": 301624
+      },
+      "offline-engine/libggml.0.25.3.dylib": {
+        "sha256": "469909d1a140d407b0a104f779055730396151be726ef33abbbb295624f8f8f2",
+        "bytes": 60232
+      },
+      "offline-engine/libllama.0.5.0.dylib": {
+        "sha256": "d714e93245a610b79c99240340dad5709314f86553c61aa915b70045ac339278",
+        "bytes": 3333080
+      },
+      "final-native-checks.log": {
+        "sha256": "633c149b32b4b1c919454213bcad226b08cca8cd2d379dad2762bac4fc53d0c2",
+        "bytes": 54519,
+        "source_tool_artifact": "499"
+      },
+      "preparation-recovery-checks.log": {
+        "sha256": "769b6285123a553af1320b28dc5c433c8c757851aa0b282140052cdbc253ba21",
+        "bytes": 55232,
+        "source_tool_artifact": "461"
+      },
+      "offline-engine-build.log": {
+        "sha256": "1f345639b6d8a672b60bdc31a2d9a63674804a6c56f5df9f4ac9517ec33f08eb",
+        "bytes": 16900,
+        "source_tool_artifact": "470"
+      },
+      "binaries/aggregate-preparation-cli": {
+        "sha256": "8922146d29d016c6d9d473dde042869fb8bfd66c774d205ca82a7fbb4153370e",
+        "bytes": 11930256
+      },
+      "binaries/split-preparation-cli": {
+        "sha256": "3a98076dc97bd59caebfe253ce68df2a63c9c2e33cc51b734fc3ee5d9630f4ab",
+        "bytes": 11930976
+      }
+    }
+  },
+  "appkit_wake": {
+    "before_native_deliveries": 0,
+    "after_stage_counts": {
+      "owner_wake_scheduled": 3,
+      "owner_wake_consumed": 3,
+      "worker_spawn": 1,
+      "worker_dispatch": 1,
+      "worker_loading": 1,
+      "native_capture": 2,
+      "app_kit_wake_delivered": 2,
+      "worker_prepared": 1
+    },
+    "dropped": 0,
+    "event_copy_reproduction": {
+      "same_object": false,
+      "returned_type": 15,
+      "subtype": 16980,
+      "data1": 17,
+      "default_mode": "kCFRunLoopDefaultMode",
+      "foundation_mode": "kCFRunLoopDefaultMode"
+    },
+    "normal_poll_deadline_ms": 25,
+    "capture_cadence_note": "Next periodic capture deadline starts after capture completion; immediate input invalidation retained.",
+    "foreground_preserved": true,
+    "graceful_exit": 0,
+    "idle_samples": [
+      {
+        "condition": "pointer_match_before",
+        "wall_seconds": 12.0136410840787,
+        "gui_cpu_seconds": 1.07,
+        "one_core_percent": 8.907,
+        "not_whole_system_cpu": true
+      },
+      {
+        "condition": "cookie_match_after",
+        "wall_seconds": 12.01189974998124,
+        "gui_cpu_seconds": 1.09,
+        "one_core_percent": 9.074,
+        "not_whole_system_cpu": true
+      }
+    ],
+    "idle_limit": "One short pair; no low-idle or typing-latency claim.",
+    "no_writing_requested": true,
+    "full_ci_ui_smoke_run": false
+  },
+  "preparation": {
+    "clock": "child-local monotonic; no parent-child timestamp subtraction",
+    "diagnostic_opt_in": [
+      "native-smoke feature",
+      "INKLOW_NATIVE_STAGE_TRACE=disposable-profile",
+      "INKLOW_NATIVE_PREPARE_TRACE=disposable-profile"
+    ],
+    "initial_evaluation": "Includes preparation-only backend synchronization, not generation",
+    "cache_condition": "Fresh serial processes; shared OS/Metal caches not evicted",
+    "runs": {
+      "prepare-auto": [
+        {
+          "round": 0,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_model_open": 6971.458,
+            "provider_model_load": 6971.555,
+            "provider_framing_tokenization": 6.587,
+            "provider_initial_evaluation": 301.626,
+            "provider_preparation": 7279.775
+          }
+        },
+        {
+          "round": 1,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_model_open": 752.425,
+            "provider_model_load": 752.438,
+            "provider_framing_tokenization": 2.061,
+            "provider_initial_evaluation": 249.431,
+            "provider_preparation": 1003.931
+          }
+        },
+        {
+          "round": 2,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_model_open": 738.388,
+            "provider_model_load": 738.401,
+            "provider_framing_tokenization": 2.29,
+            "provider_initial_evaluation": 240.104,
+            "provider_preparation": 980.798
+          }
+        }
+      ],
+      "prepare-cpu": [
+        {
+          "round": 0,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_model_open": 2318.18,
+            "provider_model_load": 2318.206,
+            "provider_framing_tokenization": 9.012,
+            "provider_initial_evaluation": 1868.086,
+            "provider_preparation": 4195.317
+          }
+        },
+        {
+          "round": 1,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_model_open": 1588.487,
+            "provider_model_load": 1588.503,
+            "provider_framing_tokenization": 0.996,
+            "provider_initial_evaluation": 1770.79,
+            "provider_preparation": 3360.293
+          }
+        },
+        {
+          "round": 2,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_model_open": 1483.821,
+            "provider_model_load": 1483.834,
+            "provider_framing_tokenization": 0.69,
+            "provider_initial_evaluation": 1592.95,
+            "provider_preparation": 3077.478
+          }
+        }
+      ],
+      "prepare-split-auto": [
+        {
+          "round": 0,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_backend_initialization": 5417.737,
+            "native_model_load": 1797.502,
+            "native_context_creation": 38.065,
+            "native_batch_allocation": 0.009,
+            "native_model_open": 7253.758,
+            "provider_model_load": 7253.797,
+            "provider_framing_tokenization": 2.041,
+            "provider_initial_evaluation": 277.181,
+            "provider_preparation": 7533.021
+          }
+        },
+        {
+          "round": 1,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_backend_initialization": 77.437,
+            "native_model_load": 641.895,
+            "native_context_creation": 21.762,
+            "native_batch_allocation": 0.002,
+            "native_model_open": 741.173,
+            "provider_model_load": 741.183,
+            "provider_framing_tokenization": 1.264,
+            "provider_initial_evaluation": 235.825,
+            "provider_preparation": 978.274
+          }
+        },
+        {
+          "round": 2,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_backend_initialization": 57.544,
+            "native_model_load": 654.849,
+            "native_context_creation": 21.749,
+            "native_batch_allocation": 0.005,
+            "native_model_open": 734.211,
+            "provider_model_load": 734.219,
+            "provider_framing_tokenization": 2.028,
+            "provider_initial_evaluation": 239.701,
+            "provider_preparation": 975.955
+          }
+        }
+      ],
+      "prepare-current-a": [
+        {
+          "round": 0,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_backend_initialization": 132.699,
+            "native_model_load": 2011.649,
+            "native_context_creation": 54.386,
+            "native_batch_allocation": 0.008,
+            "native_model_open": 2199.995,
+            "provider_model_load": 2200.037,
+            "provider_framing_tokenization": 1.634,
+            "provider_initial_evaluation": 255.122,
+            "provider_preparation": 2456.797
+          }
+        },
+        {
+          "round": 1,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_backend_initialization": 76.447,
+            "native_model_load": 669.348,
+            "native_context_creation": 22.841,
+            "native_batch_allocation": 0.001,
+            "native_model_open": 768.708,
+            "provider_model_load": 768.718,
+            "provider_framing_tokenization": 0.709,
+            "provider_initial_evaluation": 238.355,
+            "provider_preparation": 1007.788
+          }
+        },
+        {
+          "round": 2,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_backend_initialization": 75.978,
+            "native_model_load": 669.807,
+            "native_context_creation": 22.349,
+            "native_batch_allocation": 0.004,
+            "native_model_open": 768.276,
+            "provider_model_load": 768.29,
+            "provider_framing_tokenization": 2.546,
+            "provider_initial_evaluation": 246.009,
+            "provider_preparation": 1016.85
+          }
+        }
+      ],
+      "prepare-offline-b": [
+        {
+          "round": 0,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_backend_initialization": 64.44,
+            "native_model_load": 693.548,
+            "native_context_creation": 22.492,
+            "native_batch_allocation": 0.005,
+            "native_model_open": 780.678,
+            "provider_model_load": 780.712,
+            "provider_framing_tokenization": 2.859,
+            "provider_initial_evaluation": 1403.145,
+            "provider_preparation": 2186.719
+          }
+        },
+        {
+          "round": 1,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_backend_initialization": 61.855,
+            "native_model_load": 659.944,
+            "native_context_creation": 23.351,
+            "native_batch_allocation": 0.003,
+            "native_model_open": 745.223,
+            "provider_model_load": 745.232,
+            "provider_framing_tokenization": 2.545,
+            "provider_initial_evaluation": 226.534,
+            "provider_preparation": 974.314
+          }
+        },
+        {
+          "round": 2,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_backend_initialization": 61.673,
+            "native_model_load": 657.641,
+            "native_context_creation": 22.75,
+            "native_batch_allocation": 0.002,
+            "native_model_open": 742.163,
+            "provider_model_load": 742.173,
+            "provider_framing_tokenization": 1.83,
+            "provider_initial_evaluation": 222.851,
+            "provider_preparation": 966.863
+          }
+        }
+      ],
+      "prepare-current-a2": [
+        {
+          "round": 0,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_backend_initialization": 73.427,
+            "native_model_load": 656.932,
+            "native_context_creation": 23.749,
+            "native_batch_allocation": 0.003,
+            "native_model_open": 754.181,
+            "provider_model_load": 754.19,
+            "provider_framing_tokenization": 2.421,
+            "provider_initial_evaluation": 242.624,
+            "provider_preparation": 999.241
+          }
+        },
+        {
+          "round": 1,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_backend_initialization": 76.34,
+            "native_model_load": 660.858,
+            "native_context_creation": 22.502,
+            "native_batch_allocation": 0.005,
+            "native_model_open": 759.76,
+            "provider_model_load": 759.768,
+            "provider_framing_tokenization": 2.252,
+            "provider_initial_evaluation": 220.325,
+            "provider_preparation": 982.35
+          }
+        },
+        {
+          "round": 2,
+          "process_exit": 0,
+          "spans_ms": {
+            "native_backend_initialization": 72.725,
+            "native_model_load": 661.005,
+            "native_context_creation": 22.586,
+            "native_batch_allocation": 0.005,
+            "native_model_open": 756.384,
+            "provider_model_load": 756.395,
+            "provider_framing_tokenization": 2.602,
+            "provider_initial_evaluation": 227.88,
+            "provider_preparation": 986.885
+          }
+        }
+      ]
+    }
+  },
+  "offline_metal_experiment": {
+    "promoted": false,
+    "toolchain": "Existing cached Apple Metal 32023.921, read-only mounted; no install/download",
+    "base_options": [
+      "-O3",
+      "-mmacosx-version-min=15.0",
+      "-DGGML_METAL_HAS_BF16",
+      "-std=metal3.2"
+    ],
+    "tensor_options": [
+      "-O3",
+      "-mtargetos=macos26.0",
+      "-DGGML_METAL_HAS_BF16",
+      "-DGGML_METAL_HAS_TENSOR",
+      "-std=metal4.0"
+    ],
+    "runtime_libraries_observed": 6,
+    "library_layout": [
+      {
+        "name": "libggml-base.0.25.3.dylib",
+        "target": "libggml-base.0.25.3.dylib",
+        "sha256": "27729a693da1a456b446449d2ebd056ccce714c8a29aea1ff24053ac2fd34fff"
+      },
+      {
+        "name": "libggml-base.0.dylib",
+        "target": "libggml-base.0.25.3.dylib",
+        "sha256": "27729a693da1a456b446449d2ebd056ccce714c8a29aea1ff24053ac2fd34fff"
+      },
+      {
+        "name": "libggml-base.dylib",
+        "target": "libggml-base.0.25.3.dylib",
+        "sha256": "27729a693da1a456b446449d2ebd056ccce714c8a29aea1ff24053ac2fd34fff"
+      },
+      {
+        "name": "libggml-blas.0.25.3.dylib",
+        "target": "libggml-blas.0.25.3.dylib",
+        "sha256": "e24fc9034b30ddb6ff8454e6aab544406ba761e5f0bc5325c59ee5edde895813"
+      },
+      {
+        "name": "libggml-blas.0.dylib",
+        "target": "libggml-blas.0.25.3.dylib",
+        "sha256": "e24fc9034b30ddb6ff8454e6aab544406ba761e5f0bc5325c59ee5edde895813"
+      },
+      {
+        "name": "libggml-blas.dylib",
+        "target": "libggml-blas.0.25.3.dylib",
+        "sha256": "e24fc9034b30ddb6ff8454e6aab544406ba761e5f0bc5325c59ee5edde895813"
+      },
+      {
+        "name": "libggml-cpu.0.25.3.dylib",
+        "target": "libggml-cpu.0.25.3.dylib",
+        "sha256": "0bb8040f8a30314cb9d2b00c68cce37b8939babbc551f8eb4de4aa97758b20a8"
+      },
+      {
+        "name": "libggml-cpu.0.dylib",
+        "target": "libggml-cpu.0.25.3.dylib",
+        "sha256": "0bb8040f8a30314cb9d2b00c68cce37b8939babbc551f8eb4de4aa97758b20a8"
+      },
+      {
+        "name": "libggml-cpu.dylib",
+        "target": "libggml-cpu.0.25.3.dylib",
+        "sha256": "0bb8040f8a30314cb9d2b00c68cce37b8939babbc551f8eb4de4aa97758b20a8"
+      },
+      {
+        "name": "libggml-metal.0.25.3.dylib",
+        "target": "libggml-metal.0.25.3.dylib",
+        "sha256": "c8a90bca4f22997cd8fbc04466e57c9276326171d8803721182845cab9ce9453"
+      },
+      {
+        "name": "libggml-metal.0.dylib",
+        "target": "libggml-metal.0.25.3.dylib",
+        "sha256": "c8a90bca4f22997cd8fbc04466e57c9276326171d8803721182845cab9ce9453"
+      },
+      {
+        "name": "libggml-metal.dylib",
+        "target": "libggml-metal.0.25.3.dylib",
+        "sha256": "c8a90bca4f22997cd8fbc04466e57c9276326171d8803721182845cab9ce9453"
+      },
+      {
+        "name": "libggml.0.25.3.dylib",
+        "target": "libggml.0.25.3.dylib",
+        "sha256": "469909d1a140d407b0a104f779055730396151be726ef33abbbb295624f8f8f2"
+      },
+      {
+        "name": "libggml.0.dylib",
+        "target": "libggml.0.25.3.dylib",
+        "sha256": "469909d1a140d407b0a104f779055730396151be726ef33abbbb295624f8f8f2"
+      },
+      {
+        "name": "libggml.dylib",
+        "target": "libggml.0.25.3.dylib",
+        "sha256": "469909d1a140d407b0a104f779055730396151be726ef33abbbb295624f8f8f2"
+      },
+      {
+        "name": "libllama.0.5.0.dylib",
+        "target": "libllama.0.5.0.dylib",
+        "sha256": "d714e93245a610b79c99240340dad5709314f86553c61aa915b70045ac339278"
+      },
+      {
+        "name": "libllama.0.dylib",
+        "target": "libllama.0.5.0.dylib",
+        "sha256": "d714e93245a610b79c99240340dad5709314f86553c61aa915b70045ac339278"
+      },
+      {
+        "name": "libllama.dylib",
+        "target": "libllama.0.5.0.dylib",
+        "sha256": "d714e93245a610b79c99240340dad5709314f86553c61aa915b70045ac339278"
+      }
+    ],
+    "matched_worker_outputs": 12,
+    "warm_generation_gain_demonstrated": false,
+    "controlled_cold_gain_demonstrated": false,
+    "m5_execution_verified": false,
+    "reason": "Warm generation unchanged; first precompiled evaluation 1403ms; shared cache/order prevents claiming earlier startup outlier as an attributable gain."
+  },
+  "worker_comparison": {
+    "cases": 4,
+    "rounds_per_condition": 3,
+    "conditions": [
+      "before",
+      "current",
+      "offline",
+      "after"
+    ],
+    "median_first_displayable_ms": {
+      "before": {
+        "email-en": 221.362,
+        "email-pt": 182.101,
+        "same-window-facts": 288.61,
+        "long-optional-reference": 1201.443
+      },
+      "current": {
+        "email-en": 208.757,
+        "email-pt": 172.522,
+        "same-window-facts": 269.961,
+        "long-optional-reference": 1129.444
+      },
+      "offline": {
+        "email-en": 209.445,
+        "email-pt": 171.429,
+        "same-window-facts": 269.511,
+        "long-optional-reference": 1125.757
+      },
+      "after": {
+        "email-en": 208.672,
+        "email-pt": 168.526,
+        "same-window-facts": 268.467,
+        "long-optional-reference": 1129.056
+      }
+    },
+    "matching_text_all_conditions": true,
+    "mechanical_passes_per_condition": 12,
+    "before_proceed_cancellations_passed": 12,
+    "after_result_cancellations_already_completed_inconclusive": 12,
+    "benchmark_exit_each": 1,
+    "release_and_shutdown_passed": true,
+    "timing_excludes": [
+      "desktop capture",
+      "debounce",
+      "AppKit rendering"
+    ],
+    "interpretation": "Trailing previous build matches current; not a demonstrated new inference speedup.",
+    "binary_timing_boundary": "Comparison precedes final AppKit-only event-cookie correction; inference source unchanged."
+  },
+  "verification": {
+    "workspace_all_targets_native_smoke": {
+      "passed": 566,
+      "ignored": 1,
+      "failed": 0,
+      "suites": 14
+    },
+    "release_native_smoke_build": "pass",
+    "release_normal_build": "pass",
+    "actual_model_recovery": {
+      "auto": "pass",
+      "cpu": "pass",
+      "boundary": "Before final AppKit-only cookie correction; inference source unchanged"
+    },
+    "normal_worker": {
+      "cases_passed": 4,
+      "first_preparation_ms": 8118.821875,
+      "before_proceed_cancellation": "pass",
+      "after_result_cancellation": "inconclusive_request_already_completed",
+      "release": "pass",
+      "shutdown": "pass",
+      "exit": 1,
+      "child_diagnostic_absent_despite_both_optins": true
+    },
+    "desktop_harness_pure_selfcheck": "pass",
+    "independent_reviews": [
+      "preparation safety: no findings",
+      "final wake lifecycle/cookie safety: no findings",
+      "composite freshness: fixed after review"
+    ]
+  },
+  "retained_failures_and_limits": [
+    "Initial pointer matching delivered no native wake events; real AppKit copied events. Fixed and retested.",
+    "First disposable probe shutdown helper used the wrong PyObjC selector; owned app then gracefully stopped through verified executable identity. No input or foreground takeover.",
+    "All after-result worker cancellations were already complete; not active-generation cancellation proof.",
+    "Normal-feature first preparation still took about 8.1 seconds.",
+    "No final-source typing/paint p50/p95 or matched competitor quality/acceptance run.",
+    "No M5 target identified; no M5 performance/compatibility claim.",
+    "Full 192-case quality comparison remains prior-phase evidence, not rerun for AppKit/diagnostic changes.",
+    "Existing locale-preference, French agreement and Japanese suffix availability defects are not fixed."
+  ],
+  "cleanup": {
+    "owned_applications_remaining": [],
+    "foreground": "so.stencil.tern",
+    "read_only_toolchain_detached": true,
+    "owned_profiles_apps_builds_and_scripts_removed": [
+      "candidate-initial",
+      "candidate-split",
+      "candidate-current",
+      "candidate-final",
+      "candidate-normal",
+      "precompiled-metal",
+      "metal-sdk",
+      "appkit-probe",
+      "appkit-probe-final",
+      "appkit-wake-fixed",
+      "offline-loader-profile",
+      "worker-offline-profile",
+      "worker-before-a-profile",
+      "prepare-offline-b/profile-0",
+      "prepare-offline-b/profile-1",
+      "prepare-offline-b/profile-2",
+      "worker-normal-profile",
+      "prepare-auto/profile-0",
+      "prepare-auto/profile-1",
+      "prepare-auto/profile-2",
+      "worker-current-profile",
+      "prepare-current-a/profile-0",
+      "prepare-current-a/profile-1",
+      "prepare-current-a/profile-2",
+      "prepare-current-a2/profile-0",
+      "prepare-current-a2/profile-1",
+      "prepare-current-a2/profile-2",
+      "prepare-split-auto/profile-0",
+      "prepare-split-auto/profile-1",
+      "prepare-split-auto/profile-2",
+      "prepare-cpu/profile-0",
+      "prepare-cpu/profile-1",
+      "prepare-cpu/profile-2",
+      "worker-after-a-profile",
+      "prepare_probe.py",
+      "appkit_probe.py",
+      "benchmark_desktop_ocr"
+    ],
+    "synthetic_textedit_documents_preserved": true,
+    "unrelated_editor_windows_untouched": true
+  }
+}

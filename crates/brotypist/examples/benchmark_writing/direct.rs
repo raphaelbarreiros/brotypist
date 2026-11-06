@@ -19,6 +19,25 @@ use std::{
     time::Instant,
 };
 
+const SEED_SCHEDULE: &str = "fnv1a64-base-round-case-v1";
+const BASE_SEED: u64 = u32::MAX as u64;
+
+// Stable across processes/platforms; never use Rust's randomized hashers.
+// Fixed-width little-endian fields precede the complete UTF-8 case ID.
+// This is the state BEFORE the native CPython-compatible per-call seed step.
+fn case_seed(base: u64, round: u64, case_id: &str) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in base
+        .to_le_bytes()
+        .into_iter()
+        .chain(round.to_le_bytes())
+        .chain(case_id.bytes())
+    {
+        hash = (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
 fn ms(started: Instant) -> f64 {
     started.elapsed().as_secs_f64() * 1000.0
 }
@@ -46,9 +65,11 @@ fn stream_case(
     case: &Case,
     token_cap: u32,
     words: u32,
+    seed: u64,
 ) -> Result<Value> {
     let options = options(case, words);
     direct.reset_observations();
+    direct.reset_case_seed(seed);
     let cancel = AtomicBool::new(false);
     let started = Instant::now();
     let mut text = String::new();
@@ -77,6 +98,7 @@ fn stream_case(
         "assembled_draft":if case.kind == "completion" { Some(format!("{}{}{}", case.prefix, text, case.suffix)) } else { None },
         "reference_context_used":options.context, "reference_context_truncated_for_worker":false,
         "requested_limits":{"max_tokens":token_cap, "max_words":words},
+        "seed_schedule":{"version":SEED_SCHEDULE, "base_seed":BASE_SEED, "initial_native_seed_state":seed},
         "time_to_first_displayable_text_ms":first, "total_stream_ms":if error.is_none() { Some(elapsed) } else { None },
         "stream_observed_ms":elapsed, "stream_updates":updates, "error":error,
         "protocol_completed":execution.is_ok(), "measurement_path":"direct_native_provider",
@@ -137,7 +159,7 @@ pub fn run(request: &Value, emit: &mut dyn FnMut(Value) -> Result<()>) -> Result
     let model = PathBuf::from(request["model"].as_str().context("Missing direct model")?);
     let round = request["round_index"]
         .as_u64()
-        .context("Missing direct round")? as usize;
+        .context("Missing direct round")?;
     let token_cap = u32::try_from(
         request["max_tokens"]
             .as_u64()
@@ -193,6 +215,10 @@ pub fn run(request: &Value, emit: &mut dyn FnMut(Value) -> Result<()>) -> Result
         .filter(|case| requested.contains(&case.id))
         .collect();
     let mut report = json!({"round":round + 1, "model_path":model, "cases":[], "cancellation":[], "close":{"status":"not_started"},
+        "seed_schedule":{"version":SEED_SCHEDULE, "base_seed":BASE_SEED, "round_index":round,
+            "encoding":"FNV-1a-64 over base_seed u64 LE, round_index u64 LE, then UTF-8 case ID",
+            "application":"Reset native seed state before each case; native CPython-compatible step chooses each call's seed; retries advance only within the case",
+            "cache_policy":"Preserve warm native KV and framing across cases"},
         "measurement_path":"direct_native_provider", "config":{"backend":"gguf", "prompt_style":config.prompt_style,
             "max_tokens":token_cap, "diagnostic_token_cap":token_cap, "production_validated_max_tokens":config.max_tokens, "context_chars":config.context_chars,
             "acceleration":config.acceleration, "record_history":false, "record_unaccepted":false,
@@ -214,9 +240,9 @@ pub fn run(request: &Value, emit: &mut dyn FnMut(Value) -> Result<()>) -> Result
     let execution = (|| -> Result<()> {
         report["model"] = native_details::model_details(&model, &direct)?;
         emit(
-            json!({"prepared":{"model":report["model"], "config":report["config"], "cold_prepare_ms":report["cold_prepare_ms"]}}),
+            json!({"prepared":{"model":report["model"], "config":report["config"], "seed_schedule":report["seed_schedule"], "cold_prepare_ms":report["cold_prepare_ms"]}}),
         )?;
-        let offset = round % cases.len();
+        let offset = (round % cases.len() as u64) as usize;
         for case in cases[offset..].iter().chain(cases[..offset].iter()) {
             emit(json!({"phase":"case", "case":case.id}))?;
             let row = stream_case(
@@ -228,6 +254,7 @@ pub fn run(request: &Value, emit: &mut dyn FnMut(Value) -> Result<()>) -> Result
                     128
                 },
                 words,
+                case_seed(BASE_SEED, round, &case.id),
             )?;
             let failed = !row["error"].is_null();
             emit(json!({"case_result":row}))?;
@@ -257,4 +284,38 @@ pub fn run(request: &Value, emit: &mut dyn FnMut(Value) -> Result<()>) -> Result
     report["close"] = json!({"status":"pass", "elapsed_ms":ms(close), "native_owner_dropped":true});
     report["process_lifetime_peak_rss_bytes"] = json!(native_details::peak_rss_bytes()?);
     Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn case_seeds_are_independent_of_selection_and_order() {
+        let all = ["completion-en", "alternatives-pt", "completion-日本語"];
+        let selected = ["completion-日本語", "completion-en"];
+        for id in selected {
+            let original = all
+                .iter()
+                .map(|id| (*id, case_seed(BASE_SEED, 2, id)))
+                .find(|(candidate, _)| *candidate == id)
+                .unwrap()
+                .1;
+            assert_eq!(case_seed(BASE_SEED, 2, id), original);
+        }
+    }
+
+    #[test]
+    fn seed_schedule_distinguishes_base_round_and_complete_case_id() {
+        let seed = case_seed(BASE_SEED, 0, "case");
+        assert_ne!(seed, case_seed(BASE_SEED - 1, 0, "case"));
+        assert_ne!(seed, case_seed(BASE_SEED, 1, "case"));
+        assert_ne!(seed, case_seed(BASE_SEED, 1 << 32, "case"));
+        assert_ne!(seed, case_seed(BASE_SEED, 0, "case-other"));
+        assert_ne!(
+            case_seed(BASE_SEED, 0, "日本語-a"),
+            case_seed(BASE_SEED, 0, "日本語-b")
+        );
+        assert_ne!(case_seed(BASE_SEED, 1, "23"), case_seed(BASE_SEED, 12, "3"));
+    }
 }

@@ -1006,14 +1006,19 @@ fn inline_checked<B: Backend>(
     }
     *diagnostic = "font_baseline_unverified";
     let (ascent, descent) = backend.metrics(&font);
+    if !ascent.is_finite() || ascent <= 0.0 || !descent.is_finite() || descent < 0.0 {
+        return Some((None, Some(evidence)));
+    }
     let (top, height) = (whole[1], whole[3]);
     let mut baselines = Vec::with_capacity(2);
-    if (height - ascent - descent).abs() <= 1.0 {
+    let typographic_line = (height - ascent - descent).abs() <= 1.0;
+    if typographic_line {
         baselines.push(top + ascent);
     }
     let (line_height, baseline_offset) = backend.line_metrics(&font);
     let line_tolerance = if height.fract() == 0.0 { 1.0 } else { 0.75 };
-    if (height - line_height).abs() <= line_tolerance {
+    let native_line = (height - line_height).abs() <= line_tolerance;
+    if native_line {
         baselines.push(top + baseline_offset);
     }
     if browser
@@ -1034,6 +1039,18 @@ fn inline_checked<B: Backend>(
         baselines[0]
     } else {
         *baselines.last()?
+    };
+    // AppKit lays native text out in its line fragment, with a rounded baseline
+    // offset that can be smaller than the font's nominal ascender (Menlo 11:
+    // offset 10, ascender 10.210449). Use that verified fragment as the drawing
+    // envelope, preserving its baseline and the observed host clip. Mixing the
+    // native baseline with typographic extents falsely rejects the first row.
+    // Require the independently corroborated typographic model as well; other
+    // native rows and browsers retain their original font extents.
+    let (ascent, descent) = if !browser && native_line && typographic_line {
+        (baseline_offset, line_height - baseline_offset)
+    } else {
+        (ascent, descent)
     };
     *diagnostic = "inline_render_invalid";
     let mut render = InlineRender {
@@ -2447,6 +2464,117 @@ mod tests {
             }
         }
     }
+    // Captured from the owned synthetic TextEdit document, with independent
+    // NSLayoutManager layout proving a baseline of 10 in a 13-point fragment.
+    const TEXTEDIT_TEXT: &str = "I would appreciate your feedb";
+    const TEXTEDIT_CARET: Rect = [416.05419921875, 947.0, 1.0, 13.0];
+
+    fn textedit_first_row_host() -> Host {
+        let mut host = Host::metrics(TEXTEDIT_TEXT);
+        let attributes = &mut host.attributed.as_mut().unwrap().runs[0].1;
+        *attributes = font_attributes("Menlo-Regular");
+        let TestValue::Dictionary(font) = attributes.get_mut("AXFont").unwrap() else {
+            unreachable!()
+        };
+        font.insert("AXFontSize".into(), TestValue::Number(11.0));
+        let normalization = 13.0 / 11.0;
+        host.ascent = 10.21044921875 * normalization;
+        host.descent = 2.59423828125 * normalization;
+        host.line_height = 13.0 * normalization;
+        host.baseline = 10.0 * normalization;
+        host.widths = HashMap::from([
+            (TEXTEDIT_TEXT.into(), 192.05419921875 * normalization),
+            (TEXTEDIT_TEXT[14..].into(), 99.33837890625 * normalization),
+        ]);
+        host.rows = HashMap::from([
+            ((0, 0, 29), [224.0, 947.0, 192.05419921875, 13.0]),
+            ((0, 14, 15), [316.7158203125, 947.0, 99.33837890625, 13.0]),
+            ((0, 28, 1), [409.431640625, 947.0, 6.62255859375, 13.0]),
+            ((0, 29, 0), [416.05419921875, 934.0, 0.0, 13.0]),
+        ]);
+        host.nodes[0].frame = Some([214.0, 947.0, 656.0, 384.0]);
+        host.visible = Some(Ok(r(0, 29)));
+        host
+    }
+
+    fn textedit_first_row_result(
+        host: &Host,
+        browser: bool,
+    ) -> (Option<InlineRender>, Option<AppearanceEvidence>) {
+        let text = TextBuffer::from(TEXTEDIT_TEXT);
+        let observed_caret = caret(host, &0, "secure", &text, 29, 29);
+        inline(
+            host,
+            &0,
+            "secure",
+            &text,
+            29,
+            29,
+            observed_caret,
+            host.nodes[0].frame,
+            browser,
+            &mut "not_observed",
+        )
+    }
+
+    #[test]
+    fn native_first_row_preserves_baseline_and_uses_verified_line_fragment_envelope() {
+        let host = textedit_first_row_host();
+        assert_eq!(
+            caret(&host, &0, "secure", &TEXTEDIT_TEXT.into(), 29, 29),
+            Some(TEXTEDIT_CARET)
+        );
+        let (render, evidence) = textedit_first_row_result(&host, false);
+        let render = render.expect("visible native first row must offer inline geometry");
+        assert!(evidence.is_none());
+        assert_eq!(render.font_name, "Menlo-Regular");
+        assert_eq!(render.font_size, 11.0);
+        assert_eq!(render.baseline, 957.0);
+        assert!((render.ascent - 10.0).abs() < 1e-9);
+        assert!((render.descent - 3.0).abs() < 1e-9);
+        assert_eq!(render.clip_rect, host.nodes[0].frame.unwrap());
+        assert!(render.valid(Some(TEXTEDIT_CARET)));
+        // These are the bounds consumed by the overlay, not a shifted baseline
+        // or an expanded host clip hiding the nominal ascender discrepancy.
+        assert_eq!(render.baseline - render.ascent, 947.0);
+        assert_eq!(render.baseline + render.descent, 960.0);
+
+        let (browser, _) = textedit_first_row_result(&host, true);
+        let browser = browser.unwrap();
+        assert!((browser.ascent - 10.21044921875).abs() < 1e-9);
+        assert!((browser.descent - 2.59423828125).abs() < 1e-9);
+        assert!((browser.baseline - 957.21044921875).abs() < 1e-9);
+    }
+
+    #[test]
+    fn native_line_envelope_does_not_repair_clipping_mismatch_or_unsafe_evidence() {
+        for case in 0..11 {
+            let mut host = textedit_first_row_host();
+            match case {
+                0 => host.nodes[0].frame.as_mut().unwrap()[1] += 0.25,
+                1 => host.nodes[0].frame.as_mut().unwrap()[3] = 11.0,
+                2 => host.baseline += 2.0 * 13.0 / 11.0,
+                3 => {
+                    host.widths.insert(TEXTEDIT_TEXT[14..].into(), 150.0);
+                }
+                4 => host.rows.get_mut(&(0, 14, 15)).unwrap()[1] += 2.0,
+                5 => {
+                    host.nodes[0].flags.insert("AXProtectedContent".into());
+                }
+                6 => host.ascent = f64::NAN,
+                7 => host.descent = -1.0,
+                8 => host.ascent = 0.0,
+                9 => host.descent = f64::INFINITY,
+                10 => host.ascent = 40.0,
+                _ => unreachable!(),
+            }
+            assert!(
+                textedit_first_row_result(&host, false).0.is_none(),
+                "case {case}"
+            );
+        }
+    }
+
     #[test]
     fn baseline_models_require_agreement_and_allow_only_observed_browser_leading() {
         for (height, accepted) in [(21.0, true), (22.0, false)] {

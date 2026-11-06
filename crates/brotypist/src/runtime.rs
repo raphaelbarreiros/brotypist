@@ -29,6 +29,13 @@ use std::{
 use unicode_normalization::UnicodeNormalization;
 
 mod native_client;
+pub(crate) mod owner_wake;
+use owner_wake::OwnerWake;
+#[cfg(feature = "native-smoke")]
+#[path = "stage_diagnostics.rs"]
+pub(crate) mod stage_diagnostics;
+#[cfg(feature = "native-smoke")]
+use stage_diagnostics::{Span as DiagnosticSpan, Stage as TraceStage};
 
 #[derive(Clone, Debug)]
 pub enum Command {
@@ -368,7 +375,12 @@ impl Readers for NativeReaders {
 /// Worker-local optional sources. Injection replaces external I/O only; the
 /// production preparer still owns epoch, ticket, consent and result fences.
 pub trait BackgroundReaders: Send + Sync {
-    fn clipboard(&self, authorized: Arc<dyn Fn() -> bool + Send + Sync>) -> Result<String>;
+    /// Poll only liveness while queued; resolve authorization at private-data fences.
+    fn clipboard(
+        &self,
+        liveness: Arc<dyn Fn() -> bool + Send + Sync>,
+        authorized: Arc<dyn Fn() -> bool + Send + Sync>,
+    ) -> Result<String>;
     fn screen(
         &self,
         snapshot: &Snapshot,
@@ -381,8 +393,12 @@ pub trait BackgroundReaders: Send + Sync {
 }
 pub struct NativeBackgroundReaders;
 impl BackgroundReaders for NativeBackgroundReaders {
-    fn clipboard(&self, guard: Arc<dyn Fn() -> bool + Send + Sync>) -> Result<String> {
-        system::clipboard_text_shared(guard)
+    fn clipboard(
+        &self,
+        liveness: Arc<dyn Fn() -> bool + Send + Sync>,
+        authorized: Arc<dyn Fn() -> bool + Send + Sync>,
+    ) -> Result<String> {
+        system::clipboard_text_shared(liveness, authorized)
     }
     fn screen(
         &self,
@@ -559,6 +575,14 @@ impl AsyncPreparer {
         epoch: Arc<AtomicU64>,
         readers: Arc<dyn BackgroundReaders>,
     ) -> Result<Self> {
+        Self::new_with_wake(storage, epoch, readers, OwnerWake::default())
+    }
+    fn new_with_wake(
+        storage: SharedStorage,
+        epoch: Arc<AtomicU64>,
+        readers: Arc<dyn BackgroundReaders>,
+        owner_wake: OwnerWake,
+    ) -> Result<Self> {
         let state = Arc::new((
             Mutex::new(PreparationState {
                 pending: None,
@@ -574,6 +598,7 @@ impl AsyncPreparer {
         let shared = state.clone();
         let screen_epoch = epoch.clone();
         let screen_readers = readers.clone();
+        let screen_wake = owner_wake.clone();
         let screen_thread = thread::Builder::new()
             .name("brotypist-window-context".into())
             .spawn(move || {
@@ -631,6 +656,8 @@ impl AsyncPreparer {
                             .consumer_token;
                         s.screen_result = Some((token, job.epoch, result, Instant::now()));
                         shared.1.notify_all();
+                        drop(s);
+                        screen_wake.notify();
                     }
                 }
             })?;
@@ -641,6 +668,8 @@ impl AsyncPreparer {
                 while s.pending.is_none() && !s.stopped { s = shared.1.wait(s).unwrap_or_else(std::sync::PoisonError::into_inner); }
                 if s.stopped { break; } s.pending.take().expect("pending request")
             };
+            #[cfg(feature = "native-smoke")]
+            let _stage = DiagnosticSpan::start(TraceStage::ContextPreparation, Some(request.token));
             let expected = request.epoch; let check_epoch = epoch.clone(); let check_state = shared.clone();
             let guard: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || guard_epoch(&check_epoch, expected) && !locked(&check_state.0).stopped);
             let source_guard = guard.clone();
@@ -691,7 +720,7 @@ impl AsyncPreparer {
             if c.clipboard_context {
                 context_diagnostic.clipboard = if authorization_available { ContextCollectorOutcome::AuthorizationStale } else { ContextCollectorOutcome::TicketUnavailable };
                 if private_guard() {
-                    match readers.clipboard(private_guard.clone()) {
+                    match readers.clipboard(guard.clone(), private_guard.clone()) {
                         Ok(text) => {
                             if private_guard() {
                                 if text.is_empty() { context_diagnostic.clipboard = ContextCollectorOutcome::Empty; }
@@ -731,6 +760,8 @@ impl AsyncPreparer {
             if guard_epoch(&epoch, request.epoch) && !s.stopped && s.pending.is_none() {
                 s.results.clear(); s.results.push_back(Prepared { token: request.token, epoch: request.epoch, options, context_status: status, context_diagnostic, warning, reference_expires: expires });
                 shared.1.notify_all();
+                drop(s);
+                owner_wake.notify();
             }
         });
         match thread_result {
@@ -947,6 +978,8 @@ struct Request {
     reference_expires: Option<Instant>,
     provider_identity: Vec<String>,
     prompt_style: String,
+    #[cfg(feature = "native-smoke")]
+    first_usable_observed: bool,
 }
 struct PendingPreparation {
     token: u64,
@@ -1248,21 +1281,26 @@ pub struct Controller {
     engine: Rc<RefCell<Engine>>,
     sender: SyncSender<Command>,
     receiver: Receiver<Command>,
+    owner_wake: OwnerWake,
 }
 impl Controller {
-    pub fn start(mut config: Config) -> Result<Self> {
+    pub fn start(config: Config) -> Result<Self> {
+        Self::start_with_wake(config, OwnerWake::default())
+    }
+    pub(crate) fn start_with_wake(mut config: Config, owner_wake: OwnerWake) -> Result<Self> {
         config.validate()?;
         let storage: SharedStorage = Arc::new(Mutex::new(Box::new(HistoryStore::open()?)));
         let epoch = Arc::new(AtomicU64::new(1));
-        let preparer = AsyncPreparer::new(
+        let preparer = AsyncPreparer::new_with_wake(
             storage.clone(),
             epoch.clone(),
             Arc::new(NativeBackgroundReaders),
+            owner_wake.clone(),
         )?;
         let spelling = (config.typo_suppression || config.typo_fixes).then(native_spelling);
         let mut engine = Engine::with_native_factory(
             config,
-            Box::new(WorkerClient::new()?),
+            Box::new(WorkerClient::new_with_wake(owner_wake.clone())?),
             storage,
             Box::new(preparer),
             spelling,
@@ -1273,28 +1311,64 @@ impl Controller {
         )?;
         engine.set_spelling_factory(Box::new(native_spelling));
         engine.start_model_migration();
-        Self::with_engine(engine)
+        Self::with_engine_and_wake(engine, owner_wake)
     }
     pub fn with_engine(engine: Engine) -> Result<Self> {
+        Self::with_engine_and_wake(engine, OwnerWake::default())
+    }
+    fn with_engine_and_wake(engine: Engine, owner_wake: OwnerWake) -> Result<Self> {
         let (sender, receiver) = mpsc::sync_channel(128);
         Ok(Self {
             engine: Rc::new(RefCell::new(engine)),
             sender,
             receiver,
+            owner_wake,
         })
     }
     pub fn send(&self, command: Command) -> Result<()> {
         self.sender
             .try_send(command)
-            .map_err(|_| anyhow!("Controller command queue is unavailable or full."))
+            .map_err(|_| anyhow!("Controller command queue is unavailable or full."))?;
+        self.owner_wake.notify();
+        Ok(())
     }
     pub fn poll(&self) -> Vec<Value> {
+        self.owner_wake.take();
         let mut engine = self.engine.borrow_mut();
         engine.pump_client_confirmations();
-        while let Ok(command) = self.receiver.try_recv() {
+        self.process_commands(&mut engine);
+        engine.tick();
+        engine.drain_events()
+    }
+    fn process_commands(&self, engine: &mut Engine) {
+        // Queue capacity is 128; one owner turn must not become a busy drain.
+        for command in self.receiver.try_iter().take(128) {
+            if matches!(&command, Command::PresentationResult { .. }) && !engine.stopping {
+                let fresh = engine.capture();
+                engine.observe(fresh);
+            }
             engine.command(command);
         }
-        engine.tick();
+    }
+    /// Command-only renderer acknowledgement pass: no scheduling, housekeeping
+    /// or recursive tick. Events created here are rendered once by the shell.
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn flush_commands(&self) -> Vec<Value> {
+        let mut engine = self.engine.borrow_mut();
+        self.process_commands(&mut engine);
+        engine.drain_events()
+    }
+    /// A wake consumes only already-actionable work. Routine capture, debounce,
+    /// model preparation and housekeeping keep their periodic deadlines.
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn poll_ready(&self) -> Vec<Value> {
+        if !self.owner_wake.take() {
+            return Vec::new();
+        }
+        let mut engine = self.engine.borrow_mut();
+        engine.pump_client_confirmations();
+        self.process_commands(&mut engine);
+        engine.consume_ready();
         engine.drain_events()
     }
     pub fn status(&self) -> Value {
@@ -2154,6 +2228,8 @@ impl Engine {
         allowed.then_some(info)
     }
     fn capture(&mut self) -> Option<Snapshot> {
+        #[cfg(feature = "native-smoke")]
+        let _stage = DiagnosticSpan::start(TraceStage::NativeCapture, None);
         self.pump_client_confirmations();
         if !self.native_ready || !self.active() || self.secure_input() != Some(false) {
             return None;
@@ -2228,6 +2304,10 @@ impl Engine {
         }
     }
     fn clear_state(&mut self, hide: bool, cancel: bool, preserve_context: bool) {
+        #[cfg(feature = "native-smoke")]
+        if self.preparing.is_some() || self.request.is_some() || !self.suggestion.text.is_empty() {
+            stage_diagnostics::mark(TraceStage::RuntimeCleared, None);
+        }
         let whatsapp = self.whatsapp_relevant();
         if whatsapp {
             self.whatsapp_stage(DiagnosticStage::Cleared);
@@ -2755,6 +2835,8 @@ impl Engine {
             config,
             native_pending: true,
         });
+        #[cfg(feature = "native-smoke")]
+        stage_diagnostics::scheduled(self.candidate_since, self.serial);
         self.whatsapp_stage(DiagnosticStage::Scheduled);
         self.whatsapp_state();
         true
@@ -2764,6 +2846,8 @@ impl Engine {
         // reacquires AX handles and fences every phase; no AppKit/TIS is moved.
         if self.preparing.as_ref().is_some_and(|p| p.native_pending) {
             let mut p = self.preparing.take().expect("preparation");
+            #[cfg(feature = "native-smoke")]
+            let _stage = DiagnosticSpan::start(TraceStage::NativeContextPreparation, Some(p.token));
             let current = self.capture();
             if !current
                 .as_ref()
@@ -2829,6 +2913,8 @@ impl Engine {
             if !self.escape_app.is_empty() {
                 hard_disabled_apps.insert(self.escape_app.clone());
             }
+            #[cfg(feature = "native-smoke")]
+            stage_diagnostics::mark(TraceStage::ContextQueued, Some(p.token));
             self.preparer.submit(Preparation {
                 token: p.token,
                 epoch: p.lease.epoch,
@@ -2853,6 +2939,8 @@ impl Engine {
                 self.preparing = Some(p);
                 continue;
             }
+            #[cfg(feature = "native-smoke")]
+            stage_diagnostics::mark(TraceStage::ContextConsumed, Some(p.token));
             self.whatsapp_stage(DiagnosticStage::Prepared);
             let current = self.capture();
             if !current.as_ref().is_some_and(|s| {
@@ -2914,6 +3002,8 @@ impl Engine {
                         reference_expires: prepared.reference_expires,
                         provider_identity: c.provider_identity(),
                         prompt_style: c.prompt_style.clone(),
+                        #[cfg(feature = "native-smoke")]
+                        first_usable_observed: false,
                     });
                     self.whatsapp_stage(DiagnosticStage::Submitted);
                     self.whatsapp_state();
@@ -2962,6 +3052,8 @@ impl Engine {
             let current = current.expect("current lease");
             match event.kind.as_str() {
                 "ready" => {
+                    #[cfg(feature = "native-smoke")]
+                    stage_diagnostics::mark(TraceStage::RuntimeReady, Some(request.id));
                     self.whatsapp_stage(DiagnosticStage::Ready);
                     self.whatsapp_worker();
                     let effective = self.effective_config(&request.mode);
@@ -2981,6 +3073,8 @@ impl Engine {
                             && (request.mode != "completion" || s.inline_safe())
                     }) {
                         if self.worker.proceed(request.id).is_ok() {
+                            #[cfg(feature = "native-smoke")]
+                            stage_diagnostics::mark(TraceStage::RuntimeProceed, Some(request.id));
                             request.proceeded = true;
                             self.request = Some(request);
                             self.whatsapp_stage(DiagnosticStage::Proceeded);
@@ -3084,6 +3178,14 @@ impl Engine {
                 }
                 let text = request.pending_text.take().expect("pending text");
                 if self.suggestion.offer(request.generation, s, text) {
+                    #[cfg(feature = "native-smoke")]
+                    if !request.first_usable_observed && !self.suggestion.text.trim().is_empty() {
+                        stage_diagnostics::mark(
+                            TraceStage::FirstUsableCompletion,
+                            Some(request.id),
+                        );
+                        request.first_usable_observed = true;
+                    }
                     self.publish_completion();
                 }
                 if !request.final_ {
@@ -3608,6 +3710,17 @@ impl Engine {
         let count = self.presentation_count(&key, &authority, &visible, &mode);
         let valid = current && count.is_some();
         let count = count.unwrap_or(0);
+        #[cfg(feature = "native-smoke")]
+        if mode == "completion" {
+            stage_diagnostics::mark(
+                if valid && self.native_ready && !self.shortcuts_suspended {
+                    TraceStage::PresentationAccepted
+                } else {
+                    TraceStage::PresentationRejected
+                },
+                None,
+            );
+        }
         if key.app_id == WHATSAPP_APP_ID {
             let diagnostic = &mut self.whatsapp_diagnostic;
             diagnostic.observed = true;
@@ -4614,6 +4727,27 @@ impl Engine {
         self.capture_after = self.now();
         self.emit(json!({"type":"docs_result","result":result}));
     }
+    #[cfg(any(target_os = "macos", test))]
+    fn consume_ready(&mut self) {
+        if self.stopping || self.shortcuts_suspended {
+            return;
+        }
+        self.consume_host_events();
+        self.run_host_actions();
+        self.run_inputs();
+        if self
+            .bridge
+            .as_ref()
+            .is_some_and(|bridge| bridge.native_edit_pending())
+        {
+            return;
+        }
+        self.advance_preparation();
+        self.consume_results();
+        self.consume_context_updates();
+        self.refresh_arming();
+        self.whatsapp_state();
+    }
     pub fn tick(&mut self) {
         if self
             .bridge
@@ -5014,7 +5148,7 @@ impl Engine {
     }
 }
 impl Engine {
-    fn refresh_context(&mut self) {
+    fn consume_context_updates(&mut self) {
         for update in self.preparer.context_updates() {
             if self.active()
                 && update.epoch == self.current_epoch()
@@ -5032,6 +5166,9 @@ impl Engine {
                     Some((update.key, update.authority, update.epoch, self.now()));
             }
         }
+    }
+    fn refresh_context(&mut self) {
+        self.consume_context_updates();
         if !self.active()
             || !(self.config.screen_context || self.config.screenshot_context)
             || self.preparing.is_some()
@@ -5321,6 +5458,162 @@ mod tests {
     use super::*;
     use crate::core::InlineRender;
     use crate::platform::{DetachedContextRead, Foreground, Permission, ShortcutHandler};
+
+    #[test]
+    fn owner_wake_consumes_prepared_ready_and_result_without_periodic_tick() {
+        let mut h = harness(Config::default(), None);
+        h.force();
+        let pending = h.preparation.borrow_mut().pending.take().unwrap();
+        h.preparation.borrow_mut().results.push(Prepared {
+            token: pending.token,
+            epoch: pending.epoch,
+            options: GenerationOptions::default(),
+            context_status: "off".into(),
+            context_diagnostic: ContextPreparationDiagnostic::default(),
+            warning: String::new(),
+            reference_expires: None,
+        });
+        let deadlines = (h.engine.capture_after, h.engine.power_after);
+        let model_preparations = h.worker.borrow().prepared;
+        let wake = OwnerWake::new(|| {});
+        let controller = Controller::with_engine_and_wake(h.engine, wake.clone()).unwrap();
+        wake.notify();
+        controller.poll_ready();
+        assert_eq!(h.worker.borrow().submitted.len(), 1);
+        assert!(h.worker.borrow().proceeds.is_empty());
+        h.worker.borrow_mut().events.push(WorkerEvent {
+            id: 1,
+            kind: "ready".into(),
+            text: String::new(),
+            final_: false,
+            model_loaded: true,
+            message: String::new(),
+        });
+        wake.notify();
+        controller.poll_ready();
+        assert_eq!(h.worker.borrow().proceeds, vec![1]);
+        h.worker.borrow_mut().events.push(WorkerEvent {
+            id: 1,
+            kind: "result".into(),
+            text: " arrives tomorrow".into(),
+            final_: true,
+            model_loaded: true,
+            message: String::new(),
+        });
+        wake.notify();
+        let events = controller.poll_ready();
+        assert!(
+            events
+                .iter()
+                .any(|e| { e["type"] == "suggestion" && e["text"] == " arrives tomorrow" })
+        );
+        let engine = controller.engine.borrow();
+        assert_eq!((engine.capture_after, engine.power_after), deadlines);
+        assert_eq!(h.worker.borrow().prepared, model_preparations);
+        drop(engine);
+        let captures = h.native.borrow().capture_count;
+        assert!(controller.poll_ready().is_empty());
+        assert_eq!(h.native.borrow().capture_count, captures);
+    }
+
+    #[test]
+    fn wake_ready_event_cannot_proceed_after_authority_changes() {
+        let mut h = harness(Config::default(), None);
+        h.force();
+        h.prepared();
+        h.native.borrow_mut().snapshot = None;
+        h.worker.borrow_mut().events.push(WorkerEvent {
+            id: 1,
+            kind: "ready".into(),
+            text: String::new(),
+            final_: false,
+            model_loaded: true,
+            message: String::new(),
+        });
+        let wake = OwnerWake::new(|| {});
+        let controller = Controller::with_engine_and_wake(h.engine, wake.clone()).unwrap();
+        wake.notify();
+        controller.poll_ready();
+        assert!(h.worker.borrow().proceeds.is_empty());
+        assert!(controller.engine.borrow().request.is_none());
+    }
+
+    #[test]
+    fn command_only_presentation_flush_rechecks_authority_without_running_tick() {
+        for invalidation in ["none", "focus", "menu", "shutdown"] {
+            let mut h = harness(Config::default(), None);
+            h.offer(" arrives tomorrow");
+            let offer = h
+                .engine
+                .drain_events()
+                .into_iter()
+                .find(|e| e["type"] == "suggestion" && e["text"] == " arrives tomorrow")
+                .unwrap();
+            let deadline = h.engine.capture_after;
+            let preparations = h.worker.borrow().prepared;
+            let controller = Controller::with_engine(h.engine).unwrap();
+            match invalidation {
+                "focus" => h.native.borrow_mut().snapshot = None,
+                "menu" => controller.suspend_shortcuts(true).unwrap(),
+                "shutdown" => controller.engine.borrow_mut().begin_shutdown(),
+                _ => {}
+            }
+            controller
+                .send(Command::PresentationResult {
+                    key: serde_json::from_value(offer["key"].clone()).unwrap(),
+                    authority: serde_json::from_value(offer["authority"].clone()).unwrap(),
+                    revision: offer["revision"].as_u64().unwrap(),
+                    visible_text: offer["text"].as_str().unwrap().into(),
+                    mode: "completion".into(),
+                })
+                .unwrap();
+            controller.flush_commands();
+            let engine = controller.engine.borrow();
+            assert_eq!(
+                !engine.claims.is_empty(),
+                invalidation == "none",
+                "{invalidation}"
+            );
+            if invalidation == "none" {
+                assert_eq!(engine.capture_after, deadline);
+            }
+            assert_eq!(h.worker.borrow().prepared, preparations);
+            assert!(h.native.borrow().edits.is_empty());
+        }
+    }
+
+    #[test]
+    fn background_preparation_notifies_after_actual_result_publication() {
+        let stored = Arc::new(Mutex::new(Stored::default()));
+        let storage: SharedStorage = Arc::new(Mutex::new(Box::new(Memory(stored))));
+        let (signal, receive) = mpsc::sync_channel(1);
+        let wake = OwnerWake::new(move || signal.try_send(()).unwrap());
+        let mut service = AsyncPreparer::new_with_wake(
+            storage,
+            Arc::new(AtomicU64::new(1)),
+            Arc::new(SyntheticSources),
+            wake.clone(),
+        )
+        .unwrap();
+        for token in [1, 2] {
+            let mut request = preparation(field("The update"), token, 1, None);
+            request.config.screen_context = false;
+            service.submit(request);
+            // A watchdog only: synchronization is the publication notification,
+            // not a sleep or repeated polling of the result queue.
+            receive.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(wake.take());
+            let result = service.poll();
+            assert_eq!(result.len(), 1);
+            assert_eq!(result[0].token, token);
+            assert!(service.poll().is_empty());
+            service.cancel();
+        }
+        service.request_stop();
+        service.submit(preparation(field("The update"), 3, 1, None));
+        assert!(service.poll().is_empty());
+        assert!(receive.try_recv().is_err());
+    }
 
     #[derive(Clone, Copy, Default)]
     enum Outcome {
@@ -8090,7 +8383,11 @@ mod tests {
     }
     struct SyntheticSources;
     impl BackgroundReaders for SyntheticSources {
-        fn clipboard(&self, _: Arc<dyn Fn() -> bool + Send + Sync>) -> Result<String> {
+        fn clipboard(
+            &self,
+            _: Arc<dyn Fn() -> bool + Send + Sync>,
+            _: Arc<dyn Fn() -> bool + Send + Sync>,
+        ) -> Result<String> {
             panic!("clipboard must be independently opted in and authorized")
         }
         fn screen(

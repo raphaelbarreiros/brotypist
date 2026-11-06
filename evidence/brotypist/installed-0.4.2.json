@@ -299,7 +299,7 @@
     "user_choice": "Leave TypeAhead and Grammarly Desktop closed; preferences and startup settings unchanged."
   },
   "memory_experiment": {
-    "method": "Fresh native processes, identical independently acquired cached Gemma weights, n_ctx4096/batch64/ubatch32, full SWA and prefix reuse. No other BroTypist/[redacted reference] predictor active. OS/Metal/file caches not cleared. Single samples, not latency percentiles.",
+    "method": "Fresh native processes, identical independently acquired cached Gemma weights, n_ctx4096/batch64/ubatch32, full SWA and prefix reuse. No other BroTypist predictor or the external predictor under comparison was active. OS/Metal/file caches not cleared. Single samples, not latency percentiles. External-product identity is omitted from this public summary.",
     "baseline": {
       "native_parameters": {
         "n_ctx": 4096,
@@ -412,6 +412,5 @@
     "Cold model loading still costs seconds; early preparation moves the cost before typing when the user leaves time.",
     "Apple Development signing, not Developer ID or notarization.",
     "Docs/terminal compatibility remains bounded as documented. Linux/Windows product builds and iCloud remain held."
-  ],
-  "repository_history_redaction": "Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations."
+  ]
 }

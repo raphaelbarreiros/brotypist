@@ -48,7 +48,8 @@ impl DiagnosticSession {
             ..Config::default()
         };
         config.validate()?;
-        let model = NativeModel::open(path, &config.acceleration)?;
+        let mut model = NativeModel::open(path, &config.acceleration)?;
+        model.enable_diagnostics();
         let mut direct = Self {
             model,
             config,
@@ -162,6 +163,7 @@ impl DiagnosticSession {
         let mut stopped_by_consumer = false;
         let mut cancelled_at = None;
         let cancel_on_first = self.cancel_on_first_chunk;
+        observation["native_seed_state_before_call"] = json!(self.model.diagnostic_sampler_seed());
         let generation = self.model.generate(
             &tokens,
             limit,
@@ -208,6 +210,10 @@ impl DiagnosticSession {
         observation["finish_reasons"] = json!(finish);
         observation["native_call_error"] =
             json!(generation.as_ref().err().map(ToString::to_string));
+        observation["native_evaluation"] = json!(self.model.diagnostics());
+        observation["native_timing_clock"] = json!(
+            "synchronized monotonic wall milliseconds; decode includes backend completion; sampling excludes preceding decode; not CPU time"
+        );
         let seed = self.model.diagnostic_sampler_seed();
         observation["native_seed_state_after_call"] = json!(seed);
         if generation.is_ok() || !first_chunk {
@@ -252,6 +258,12 @@ impl DiagnosticSession {
     pub fn observations(&self) -> &[Value] {
         &self.calls
     }
+    /// Reset only the diagnostic RNG state at a benchmark case boundary.
+    /// The next native call applies the normal CPython-compatible seed step;
+    /// retries then advance normally without discarding warm KV or framing.
+    pub fn reset_case_seed(&mut self, seed: u64) {
+        self.model.diagnostic_reset_sampler_seed(seed);
+    }
     pub fn reset_observations(&mut self) {
         self.calls.clear();
         self.cancelled_at = None;
@@ -270,5 +282,69 @@ impl DiagnosticSession {
     }
     pub fn gpu_layers_requested(&self) -> i32 {
         self.model.gpu_layers_requested()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires an explicitly supplied existing GGUF model"]
+    fn diagnostic_case_seed_overrides_prior_retries_without_reopening() -> Result<()> {
+        let path = std::env::var_os("BROTYPIST_NATIVE_SMOKE_MODEL")
+            .context("Set BROTYPIST_NATIVE_SMOKE_MODEL to an existing GGUF model")?;
+        let acceleration =
+            std::env::var("BROTYPIST_NATIVE_SMOKE_ACCELERATION").unwrap_or_else(|_| "cpu".into());
+        let mut session = DiagnosticSession::open(Path::new(&path), "writing", &acceleration)?;
+        let options = GenerationOptions::default();
+        let generate = |session: &mut DiagnosticSession| -> Result<u64> {
+            session.stream(
+                "The next step is ",
+                "",
+                &options,
+                8,
+                &AtomicBool::new(false),
+                &mut |_| Ok(()),
+            )?;
+            Ok(session.model.diagnostic_sampler_seed())
+        };
+
+        session.reset_case_seed(123);
+        let first = generate(&mut session)?;
+        let second = generate(&mut session)?;
+        assert_ne!(first, second, "local retries must advance the seed");
+        generate(&mut session)?;
+        session.reset_case_seed(123);
+        session.reset_observations();
+        assert_eq!(generate(&mut session)?, first);
+        assert_eq!(
+            session.observations()[0]["native_seed_state_before_call"],
+            123
+        );
+        assert_eq!(generate(&mut session)?, second);
+
+        // A later explicit case seed wins, including over a preceding reset.
+        session.reset_case_seed(456);
+        let other = generate(&mut session)?;
+        assert_ne!(other, first);
+        session.reset_case_seed(123);
+        session.reset_case_seed(456);
+        assert_eq!(generate(&mut session)?, other);
+
+        // A pre-cancelled case consumes no step; its eventual first request
+        // must still use that case's first seed, not a previous retry's state.
+        session.reset_case_seed(123);
+        session.stream(
+            "The next step is ",
+            "",
+            &options,
+            8,
+            &AtomicBool::new(true),
+            &mut |_| Ok(()),
+        )?;
+        assert_eq!(session.model.diagnostic_sampler_seed(), 123);
+        assert_eq!(generate(&mut session)?, first);
+        Ok(())
     }
 }

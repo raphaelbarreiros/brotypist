@@ -9,13 +9,12 @@
   "latest_suggestion": " from you soon.",
   "ready_observed_ms": 6170,
   "latest_final_observed_ms": 6830,
-  "timing_limit": "One functional cold-cancellation run, not a benchmark or a [redacted reference] comparison",
+  "timing_limit": "One functional cold-cancellation run, not a benchmark or an external-product comparison",
   "idle_release_seconds_used_by_smoke": 1,
   "shipped_default_idle_release_seconds": 60,
   "idle_process_exited": true,
   "release_during_new_initialization_exited": true,
   "model_module_absent_from_parent": true,
   "writing_is_synthetic": true,
-  "personal_documents_captured": false,
-  "repository_history_redaction": "Named third-party research references were removed during repository-history cleanup. This edited historical record is not an original authenticated receipt. Recorded build identifiers and measurements describe their original observations."
+  "personal_documents_captured": false
 }

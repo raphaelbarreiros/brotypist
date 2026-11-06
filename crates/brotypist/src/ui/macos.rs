@@ -27,6 +27,8 @@ mod macos_settings_contract;
 #[cfg(feature = "native-smoke")]
 #[path = "macos_smoke.rs"]
 mod macos_smoke;
+#[path = "macos_wake.rs"]
+mod macos_wake;
 #[path = "macos_welcome.rs"]
 mod macos_welcome;
 use super::{macos_overlay, macos_power};
@@ -176,6 +178,8 @@ struct DelegateIvars {
     suspend: RefCell<Option<Box<dyn Fn(bool)>>>,
     menu_notice: RefCell<Option<Box<dyn Fn(bool)>>>,
     diagnostic_requested: Cell<bool>,
+    #[cfg(feature = "native-smoke")]
+    native_stage_requested: Cell<bool>,
 }
 define_class!(
  #[unsafe(super=NSObject)] #[thread_kind=MainThreadOnly] #[ivars=DelegateIvars]
@@ -201,7 +205,18 @@ define_class!(
   #[unsafe(method(menuWillOpen:))] fn menu_open(&self,_menu:&AnyObject){let first={let mut queue=self.ivars().queue.borrow_mut();queue.tracking+=1;queue.tracking==1};if first{if let Some(suspend)=self.ivars().suspend.borrow().as_ref(){suspend(true);}if let Some(notice)=self.ivars().menu_notice.borrow().as_ref(){notice(true);}}}
   #[unsafe(method(menuDidClose:))] fn menu_close(&self,_menu:&AnyObject){let remaining={let mut q=self.ivars().queue.borrow_mut();q.tracking=q.tracking.saturating_sub(1);if q.tracking==0{q.resume_shortcuts=true;}q.tracking};if remaining==0{if let Some(notice)=self.ivars().menu_notice.borrow().as_ref(){notice(false);}}}
   #[unsafe(method(windowDidResize:))] fn resized(&self,_notification:&AnyObject){self.ivars().queue.borrow_mut().pending.push_back(UiAction::Resized);}
-  #[unsafe(method(exportWhatsAppDiagnostic:))] fn export_diagnostic(&self,_notification:&AnyObject){self.ivars().diagnostic_requested.set(true);}
+  #[unsafe(method(exportWhatsAppDiagnostic:))]
+  fn export_diagnostic(&self,_notification:&AnyObject){
+   #[cfg(feature = "native-smoke")]
+   unsafe {
+    let name:*mut NSString=msg_send![_notification,name];
+    if !name.is_null() && (&*name).to_string()=="BroTypistExportNativeStages" {
+     self.ivars().native_stage_requested.set(true);
+     return;
+    }
+   }
+   self.ivars().diagnostic_requested.set(true);
+  }
   #[unsafe(method(windowDidResignKey:))] fn resigned(&self,notification:&AnyObject){unsafe{let window:*mut AnyObject=msg_send![notification,object];let id:*mut NSString=msg_send![window,identifier];if !id.is_null(){self.ivars().queue.borrow_mut().pending.push_back(UiAction::Deactivated((&*id).to_string()));}}}
   #[unsafe(method(windowWillClose:))] fn closed(&self,notification:&AnyObject){unsafe{let window:*mut AnyObject=msg_send![notification,object];let id:*mut NSString=msg_send![window,identifier];if !id.is_null(){self.ivars().queue.borrow_mut().pending.push_back(UiAction::Closed((&*id).to_string()));}}}
   #[unsafe(method(windowShouldClose:))] fn should_close(&self,_window:&AnyObject)->bool{if self.ivars().no_tray.get(){self.ivars().queue.borrow_mut().pending.push_back(UiAction::Quit);false}else{true}}
@@ -228,6 +243,8 @@ impl Kit {
             suspend: RefCell::new(None),
             menu_notice: RefCell::new(None),
             diagnostic_requested: Cell::new(false),
+            #[cfg(feature = "native-smoke")]
+            native_stage_requested: Cell::new(false),
         });
         let target = unsafe { msg_send![super(this), init] };
         Self { target, queue }
@@ -994,6 +1011,7 @@ fn bundle_id(path: &str) -> Result<String> {
 }
 
 struct Shell {
+    wake: macos_wake::AppKitWake,
     kit: Kit,
     app: Obj,
     controller: Rc<RefCell<Controller>>,
@@ -1033,6 +1051,11 @@ impl Drop for Shell {
                 removeObserver: &*self.kit.target,
                 name: &*NSString::from_str("BroTypistExportWhatsAppDiagnostic"),
                 object: std::ptr::null::<AnyObject>()];
+            #[cfg(feature = "native-smoke")]
+            let _: () = msg_send![center,
+                removeObserver: &*self.kit.target,
+                name: &*NSString::from_str("BroTypistExportNativeStages"),
+                object: std::ptr::null::<AnyObject>()];
         }
     }
 }
@@ -1052,7 +1075,11 @@ impl Shell {
         let kit = Kit::new(mtm, options.no_tray);
         let clipboard = crate::system::ClipboardService::install()?;
         let sampler = crate::power::PowerSampler::start()?;
-        let controller = Rc::new(RefCell::new(Controller::start(config.clone())?));
+        let wake = macos_wake::AppKitWake::new(mtm)?;
+        let controller = Rc::new(RefCell::new(Controller::start_with_wake(
+            config.clone(),
+            wake.notifier.clone(),
+        )?));
         let weak = Rc::downgrade(&controller);
         kit.target
             .ivars()
@@ -1120,6 +1147,7 @@ impl Shell {
                 }
             })));
         let mut this = Self {
+            wake,
             kit,
             app,
             controller,
@@ -1177,6 +1205,12 @@ impl Shell {
                 selector: sel!(exportWhatsAppDiagnostic:),
                 name: &*NSString::from_str("BroTypistExportWhatsAppDiagnostic"),
                 object: std::ptr::null::<AnyObject>()];
+            #[cfg(feature = "native-smoke")]
+            let _: () = msg_send![center,
+                addObserver: &*this.kit.target,
+                selector: sel!(exportWhatsAppDiagnostic:),
+                name: &*NSString::from_str("BroTypistExportNativeStages"),
+                object: std::ptr::null::<AnyObject>()];
         }
         Ok(this)
     }
@@ -1198,6 +1232,27 @@ impl Shell {
             self.event(event)?;
         }
         Ok(())
+    }
+    fn finish_rendering(&mut self) -> Result<()> {
+        let commands = self.overlay.tick()?;
+        self.commands(commands)?;
+        // Exactly one command-only pass. A fresh native capture fences each
+        // presentation receipt; no recursive controller tick or drain loop.
+        let events = self.controller.borrow().flush_commands();
+        for event in events {
+            self.event(event)?;
+        }
+        Ok(())
+    }
+    fn ready(&mut self) -> Result<()> {
+        if self.kit.queue.borrow().tracking > 0 || self.quitting || self.shutdown_started {
+            return Ok(());
+        }
+        let events = self.controller.borrow().poll_ready();
+        for event in events {
+            self.event(event)?;
+        }
+        self.finish_rendering()
     }
     fn event(&mut self, event: Value) -> Result<()> {
         match event["type"].as_str().unwrap_or("") {
@@ -2122,8 +2177,20 @@ impl Shell {
         }
         if !self.shutdown_started {
             self.poll_controller()?;
-            let commands = self.overlay.tick()?;
-            self.commands(commands)?;
+            self.finish_rendering()?;
+        }
+        #[cfg(feature = "native-smoke")]
+        if self
+            .kit
+            .target
+            .ivars()
+            .native_stage_requested
+            .replace(false)
+            && !self.shutdown_started
+        {
+            if crate::runtime::stage_diagnostics::export().is_err() {
+                eprintln!("BroTypist: native stage diagnostic export refused or failed.");
+            }
         }
         if self.kit.target.ivars().diagnostic_requested.replace(false) && !self.shutdown_started {
             if let Err(error) = self.controller.borrow().export_whatsapp_diagnostic() {
@@ -2410,12 +2477,19 @@ fn record_event(event: &AnyObject) -> Result<Option<String>> {
 pub fn launch(config: Config, options: LaunchOptions) -> Result<i32> {
     let mut shell = objc2::rc::autoreleasepool(|_| Shell::new(config, &options))?;
     let mut failure = None;
+    let mut next_tick = Instant::now();
     while !shell.complete {
         let step = objc2::rc::autoreleasepool(|_| -> Result<()> {
+            let mut native_event = false;
             unsafe {
-                let date: *mut AnyObject = msg_send![AnyClass::get(c"NSDate").unwrap(),dateWithTimeIntervalSinceNow:0.025f64];
+                let wait = next_tick
+                    .saturating_duration_since(Instant::now())
+                    .as_secs_f64();
+                let date: *mut AnyObject =
+                    msg_send![AnyClass::get(c"NSDate").unwrap(),dateWithTimeIntervalSinceNow:wait];
                 let event: *mut AnyObject = msg_send![&*shell.app,nextEventMatchingMask:usize::MAX,untilDate:date,inMode:&*NSString::from_str("kCFRunLoopDefaultMode"),dequeue:true];
-                if !event.is_null() {
+                if !event.is_null() && !shell.wake.consume(&*event) {
+                    native_event = true;
                     let kind: usize = msg_send![event, type];
                     let recording = shell.kit.queue.borrow().recording.clone();
                     let mut consume = false;
@@ -2446,7 +2520,15 @@ pub fn launch(config: Config, options: LaunchOptions) -> Result<i32> {
                 }
                 let _: () = msg_send![&*shell.app, updateWindows];
             }
-            shell.tick()
+            if native_event || Instant::now() >= next_tick {
+                shell.tick()?;
+                next_tick = Instant::now() + Duration::from_millis(25);
+                Ok(())
+            } else {
+                // Publications do not advance routine capture, debounce or
+                // housekeeping, nor reset their existing periodic deadline.
+                shell.ready()
+            }
         });
         if let Err(error) = step {
             if failure.is_none() {

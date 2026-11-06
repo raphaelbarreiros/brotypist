@@ -562,7 +562,13 @@ where
                 provider.reconfigure(request.config.clone())?;
                 if request.config.backend == "gguf" && !provider_ready {
                     output.send(WorkerEvent::new("loading", id))?;
-                    provider.prepare()?;
+                    #[cfg(feature = "native-smoke")]
+                    let preparation =
+                        crate::runtime::stage_diagnostics::PreparationTrace::start(id);
+                    let prepared = provider.prepare();
+                    #[cfg(feature = "native-smoke")]
+                    preparation.finish(prepared.is_ok());
+                    prepared?;
                     provider_ready = true;
                 }
                 if request.writing.is_none() {

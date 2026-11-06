@@ -1,0 +1,577 @@
+{
+  "publication_note": "Redacted historical receipt: third-party identities, measurements and artifact references removed from the desktop baseline. Retained BroTypist measurements, failures and source digests describe the original run, not current source. This is a limited-scope summary, not the original authenticated bundle.",
+  "schema": 1,
+  "status": "local_implementation_verified_not_promotable",
+  "created_at": "2026-11-05T23:22:10.238635+00:00",
+  "repository": {
+    "path": "/Users/renanrocha/tmp/brotypist",
+    "observed_head": "a77cf69e6f8908b3f9c014c47f10c17d9f63923f",
+    "branch": "main",
+    "source_state": "Uncommitted local implementation; HEAD is not a substitute for the source hashes."
+  },
+  "acceptance_target": {
+    "hardware": "Apple M1 Pro",
+    "memory_gib": 16,
+    "m5_required": false,
+    "useful_visible_target_ms": {
+      "median": 300,
+      "p95": 600
+    },
+    "target_proven": false,
+    "platform_report": "macos"
+  },
+  "model": {
+    "preset": "gemma4-e2b",
+    "existing_file": "/Users/renanrocha/Library/Application Support/inklow/models/gemma-4-E2B-it-Q4_0.gguf",
+    "sha256": "8e30dff3ac4c8434c49a7036fa15564bdbb6044e42bf04550bf1a096ad7e6a52",
+    "bytes": 2841481184,
+    "downloaded": false,
+    "changed": false
+  },
+  "engine_revision": "0c1e57098bba43ac29e6e3b677cdceebdd22334f",
+  "archive": {
+    "directory": "/Users/renanrocha/tmp/brotypist-m1-incremental-prefill-20261106-001818",
+    "manifest": "artifact-manifest.json",
+    "manifest_sha256": "7c9b216a01fc72913483b0692146a16c4814bf6330c8c0ef9e124260e94255dd",
+    "files": 781,
+    "aggregate_file_bytes_including_aliases": 214461796,
+    "scratch_documents_and_disposable_profiles_copied": false,
+    "original_scratch_root_preserved": "/private/var/folders/2h/7z2f0bh908b86yf16trkkp0r0000gn/T/brotypist-m1-writing-bq3icvtf"
+  },
+  "source_sha256": {
+    "crates/brotypist/build.rs": "8827db65e57b73f7ed7b2ad2fcc8b2c190884b111508bc33b15358c6319699b2",
+    "crates/brotypist/examples/benchmark_writing.rs": "29256c958b284ec2099e090d5534ea7fb3ec1bf9ca5b446877a3b684087ad6ff",
+    "crates/brotypist/examples/benchmark_writing/contextual_quality.json": "aaa04b4afaeedd9726faad12dc697610b8042c21bf66a499e9474e25e6494512",
+    "crates/brotypist/examples/benchmark_writing/corpus.rs": "b8917dc7c72f394a372579f289f2859f338875945f53bc8a03849d1d6c23f20d",
+    "crates/brotypist/examples/benchmark_writing/direct.rs": "43f4cad718155819dc4ddfef4fa77ff564a404d7fe8ba8e3e8ebbdf0ce9ddf45",
+    "crates/brotypist/examples/benchmark_writing/direct_checks.rs": "5c13f755ea03b02460435f120291bf0526507da589c55f89e169ea4dc51ee313",
+    "crates/brotypist/examples/benchmark_writing/direct_process.rs": "a3e0d12701220adf8e41162863eca473b720710853de5cb266cb868eb946415e",
+    "crates/brotypist/examples/benchmark_writing/evaluation.rs": "ed2268533cd4c64d99be7cba869602e5f16fb962b34fadcbc170dc6d65c443cc",
+    "crates/brotypist/examples/benchmark_writing/native_details.rs": "2c4598a1f5d34682d3bfbaf7d42c12d15c291ebc435fc36b9f37a7a607661f83",
+    "crates/brotypist/examples/benchmark_writing/runner.rs": "d0b878d05f6a88e81b1faafc3832e33746e4a850bb139e461fe4b61f6e9c37e7",
+    "crates/brotypist/examples/benchmark_writing/writing_quality.json": "384defd052ec86a38cb934fdfd1eb083c8f43e5b5538496117d058a55c1efbf9",
+    "crates/brotypist/native/grammar_sampler.h": "b021a2348ea0ac1d474f3dda8b0f8686aee4ce73fc8796c46263e4b66bd7b137",
+    "crates/brotypist/native/llama_bridge.c": "1a9475134c1fae4467f023c97e286c526a697b09f3d43d0116949d61ff9835f9",
+    "crates/brotypist/src/features.rs": "0395a33719eb42fceaaa4f68143f3b481d4c8fbc662714b7a0e29a81d7c65817",
+    "crates/brotypist/src/inference_native.rs": "eb5ed0b02bce0035a8f6050820f573ddd1e6cffd3d6f8e8f933d0d61988612d3",
+    "crates/brotypist/src/process_client.rs": "a103416dd8f6eaa24dde84cf4359075c79c7359b7013ff90f2ceda20f655f680",
+    "crates/brotypist/src/providers.rs": "7b09588464e5f899dc683106abc4746074dc490eb68df6c0eea481e53d87cb15",
+    "crates/brotypist/src/providers_diagnostics.rs": "2a66cc1524451ed43aba9319a7b60c314781da8fac5de66ffde4550658c35197",
+    "crates/brotypist/src/worker.rs": "e57f81186b3f02e05a5aee7a8084c430e463e75e4d9862e661cf25b7648f65eb",
+    "crates/brotypist/src/writing.rs": "d4c094a43afc80754d570d6526de2301cd172525db268f848443963ef727e608"
+  },
+  "additional_source_sha256": {
+    "crates/brotypist/examples/benchmark_desktop.py": "4d033c9edc13ebe5952780416315a4cba9c6c839acda01ac1539cee46b89e87e",
+    "crates/brotypist/examples/worker_smoke.rs": "09ba9acbf879c9bae76673ffa02e49b8ef5f5d08fb7531e613adc721e718f060",
+    "CHANGELOG.md": "ac9267cbb5476ac8726959fbb4b5c769594068aad93afdaa07233d896db59e6b",
+    "docs/rust-migration/README.md": "0232f54d5c17040ba8e40502a9f5c37898ea2fa901db9a672eab13f3c21bd7e0",
+    "docs/rust-migration/prediction-performance-plan.md": "e3d3434a94ddfda772c8689f5477c8fa3c079dbdb9814d8b872cfb28a9cf5070"
+  },
+  "binaries": {
+    "incremental-prefill-benchmark": {
+      "sha256": "f89014978c19dea72a17e6e515bf9607a6397ef0e9302d549b0a577a54051e43",
+      "bytes": 4330896
+    },
+    "incremental-prefill-trace": {
+      "sha256": "9fff540ff9800abca7e601c796b9fdd909a36ff96209e770f7476ad30dc27d6e",
+      "bytes": 2655440
+    },
+    "incremental-prefill-cli": {
+      "sha256": "4ff98c55be09f92ce9f2cfd8d84b61bd036dec3b359f9adf90afd7909be23988",
+      "bytes": 11931040
+    },
+    "canonical-worker-probe": {
+      "sha256": "63b4b2033e43b0d5c72c7937b03f2751f8f8b377facfa364a6b82536bf062e53",
+      "bytes": 1330544
+    },
+    "normal-BroTypist-cli": {
+      "sha256": "be2555e2c2a63e435321409fa29d860c8dd361d0000098e27e49d79251c7a49e",
+      "bytes": 11892528
+    },
+    "normal-BroTypist": {
+      "sha256": "42ec7605a8633a97d38f5ec97098e1186a469dce4eaaaeba0c3bc91c02b4a8cc",
+      "bytes": 11892496
+    },
+    "normal-worker-smoke": {
+      "sha256": "3549cd417608cf7812b691b3199cce5a56b059bc1a1188eeda4fe91431e97e1b",
+      "bytes": 2026816
+    },
+    "seed-isolated-baseline-benchmark": {
+      "sha256": "2013c1c03e7c5ac20469c96ca5f77657a7c85b47e5e89e18927d6070ef015bdc",
+      "bytes": 4330912
+    },
+    "seed-isolated-baseline-trace": {
+      "sha256": "75df73700722fd230554d55f4c8bc412cc971d651d81a5746bbd4ef4089d684d",
+      "bytes": 2655568
+    }
+  },
+  "retained_changes": [
+    "Diagnostic-only FNV-1a case seeds derived from base, zero-based round and full case ID; reset only RNG, preserving KV/model/framing. Production seed policy unchanged.",
+    "Inline-only cache layout: complete earlier draft as untrusted JSON precedes changing replay metadata; at least 256 recent Unicode scalars remain in model prefill; safe boundaries and no context reduction.",
+    "Batch alternatives preserve full-draft prefill and original request provenance through internal stream_one sampling. Utilities unchanged.",
+    "Uncertain same-clause language evidence may retry completed words through the unchanged native confidence gate. No threshold or per-language exception.",
+    "Desktop harness separates timing/acceptance capture scope and can retain guarded active-field evidence for coarse stale-panel alerts. Final added focus-capture branch lacks live exercise."
+  ],
+  "desktop_baseline": {
+    "candidate_under_test": "Pre-cache-change owner-wake/native-sampling build, not the final retained cache candidate",
+    "order": "BroTypist followed a separate external-product run, plus a separate BroTypist acceptance follow-up; not ABBA",
+    "synthetic_edit_interval_ms": 5,
+    "timing_boundary": "First OCR-recognized readable owned-field capture interval, not exact paint; offline OCR, caret/punctuation-only results censored",
+    "recognized_phase_counts": {
+      "brotypist_aborted_initial_run": [
+        14,
+        15
+      ]
+    },
+    "selected_capture_ms": {
+      "partial-en": {
+        "brotypist": 404.1
+      },
+      "thanks-pt": {
+        "brotypist": 446.2
+      },
+      "long-en": {
+        "brotypist": 824.8
+      },
+      "long-pt": {
+        "brotypist": 961.5
+      }
+    },
+    "acceptance": {
+      "brotypist_initial_word": "Measurement aborted: OCR caret was read as |time; actual owned-field insertion was time",
+      "brotypist_followup_word": "time",
+      "brotypist_followup_full": "confirmação."
+    },
+    "focus_limit": "Coarse window presence did not establish stale visible glyphs beyond 300 ms; BroTypist first absent observation was 333 ms and a late window capture was unavailable.",
+    "stop_boundary": "Unexpected foreground refused reset before input. Both owned predictors stopped; no focus reclamation or subsequent GUI mutations.",
+    "raw_reports": [
+      "bro-a/report.json",
+      "bro-a/readable-review-v2.json",
+      "bro-a/native-stages.json",
+      "bro-acceptance-followup/report.json"
+    ]
+  },
+  "native_corpus": {
+    "cases": 64,
+    "rounds": 3,
+    "samples": 192,
+    "initial_seed_schedule_matched_all_samples": true,
+    "baseline_mechanical_passes": 183,
+    "retained_mechanical_passes": 184,
+    "mechanical_is_not_semantic_acceptance": true,
+    "outputs_byte_identical_to_reviewed_complete_words_candidate": 192,
+    "remaining_no_offer_cases": [
+      {
+        "round": 1,
+        "case": "language-en-locale-preference"
+      },
+      {
+        "round": 1,
+        "case": "grammar-fr-agreement"
+      },
+      {
+        "round": 1,
+        "case": "suffix-ja-unspaced"
+      },
+      {
+        "round": 2,
+        "case": "language-en-locale-preference"
+      },
+      {
+        "round": 2,
+        "case": "grammar-fr-agreement"
+      },
+      {
+        "round": 2,
+        "case": "suffix-ja-unspaced"
+      },
+      {
+        "round": 3,
+        "case": "grammar-fr-agreement"
+      },
+      {
+        "round": 3,
+        "case": "suffix-ja-unspaced"
+      }
+    ],
+    "literal_fact_checks": {
+      "contradiction_observed": 0,
+      "not_observed": 0,
+      "supported_literal_observed": 12
+    },
+    "raw_reports": [
+      "seed-isolated-baseline.json",
+      "incremental-prefill-corpus.json"
+    ]
+  },
+  "sustained": {
+    "steps_per_round": 43,
+    "rounds": 3,
+    "requests": 129,
+    "baseline_nonempty": 114,
+    "retained_nonempty": 116,
+    "continued_excludes_step": "0",
+    "timing_boundary": "First nonempty canonical callback after hidden replay; not useful-word, transport, UI or paint latency",
+    "percentile_method": "Nearest rank over nonempty callbacks; all requests and absences retained separately",
+    "baseline_continued": {
+      "long-en": {
+        "continued_requests": 21,
+        "displayable": 18,
+        "median_first_ms": 530.8913335,
+        "p95_first_ms": 605.6385829999999,
+        "median_prefill_tokens": 321,
+        "median_prefill_ms": 459.191708
+      },
+      "long-pt": {
+        "continued_requests": 21,
+        "displayable": 18,
+        "median_first_ms": 634.228104,
+        "p95_first_ms": 730.373166,
+        "median_prefill_tokens": 401,
+        "median_prefill_ms": 566.941208
+      },
+      "partial-en": {
+        "continued_requests": 18,
+        "displayable": 15,
+        "median_first_ms": 105.932834,
+        "p95_first_ms": 191.868209,
+        "median_prefill_tokens": 11.0,
+        "median_prefill_ms": 59.264812500000005
+      },
+      "japanese": {
+        "continued_requests": 15,
+        "displayable": 15,
+        "median_first_ms": 169.711209,
+        "p95_first_ms": 223.082292,
+        "median_prefill_tokens": 14,
+        "median_prefill_ms": 58.170167
+      },
+      "chinese": {
+        "continued_requests": 15,
+        "displayable": 9,
+        "median_first_ms": 95.981417,
+        "p95_first_ms": 101.64895899999999,
+        "median_prefill_tokens": 12,
+        "median_prefill_ms": 61.140625
+      },
+      "suffix-change": {
+        "continued_requests": 9,
+        "displayable": 9,
+        "median_first_ms": 108.730166,
+        "p95_first_ms": 127.885042,
+        "median_prefill_tokens": 27,
+        "median_prefill_ms": 57.559583999999994
+      },
+      "reference-refresh": {
+        "continued_requests": 9,
+        "displayable": 9,
+        "median_first_ms": 124.164417,
+        "p95_first_ms": 207.890333,
+        "median_prefill_tokens": 1,
+        "median_prefill_ms": 18.294833
+      }
+    },
+    "retained_continued": {
+      "long-en": {
+        "continued_requests": 21,
+        "displayable": 20,
+        "median_first_ms": 161.5728755,
+        "p95_first_ms": 234.993042,
+        "median_prefill_tokens": 54,
+        "median_prefill_ms": 102.229917
+      },
+      "long-pt": {
+        "continued_requests": 21,
+        "displayable": 18,
+        "median_first_ms": 207.475833,
+        "p95_first_ms": 266.161167,
+        "median_prefill_tokens": 70,
+        "median_prefill_ms": 144.788333
+      },
+      "partial-en": {
+        "continued_requests": 18,
+        "displayable": 15,
+        "median_first_ms": 113.081833,
+        "p95_first_ms": 183.857292,
+        "median_prefill_tokens": 11.0,
+        "median_prefill_ms": 61.664604499999996
+      },
+      "japanese": {
+        "continued_requests": 15,
+        "displayable": 15,
+        "median_first_ms": 179.601292,
+        "p95_first_ms": 214.643709,
+        "median_prefill_tokens": 14,
+        "median_prefill_ms": 62.707834000000005
+      },
+      "chinese": {
+        "continued_requests": 15,
+        "displayable": 9,
+        "median_first_ms": 95.808792,
+        "p95_first_ms": 100.032125,
+        "median_prefill_tokens": 12,
+        "median_prefill_ms": 61.878542
+      },
+      "suffix-change": {
+        "continued_requests": 9,
+        "displayable": 9,
+        "median_first_ms": 113.44787500000001,
+        "p95_first_ms": 123.99658299999999,
+        "median_prefill_tokens": 27,
+        "median_prefill_ms": 62.457833
+      },
+      "reference-refresh": {
+        "continued_requests": 9,
+        "displayable": 9,
+        "median_first_ms": 121.07083300000001,
+        "p95_first_ms": 197.9535,
+        "median_prefill_tokens": 1,
+        "median_prefill_ms": 18.946333
+      }
+    },
+    "first_long_requests": {
+      "long-en": {
+        "baseline": {
+          "requests": 3,
+          "nonempty": 3,
+          "first_nonempty_ms": [
+            524.467833,
+            581.507083,
+            617.010125
+          ],
+          "total_ms": [
+            568.4712079999999,
+            635.7698330000001,
+            668.9798340000001
+          ]
+        },
+        "retained": {
+          "requests": 3,
+          "nonempty": 3,
+          "first_nonempty_ms": [
+            633.3037919999999,
+            652.64325,
+            649.240375
+          ],
+          "total_ms": [
+            633.309125,
+            702.816333,
+            649.2473749999999
+          ]
+        }
+      },
+      "long-pt": {
+        "baseline": {
+          "requests": 3,
+          "nonempty": 3,
+          "first_nonempty_ms": [
+            642.38175,
+            644.1005829999999,
+            698.275958
+          ],
+          "total_ms": [
+            686.547417,
+            688.094333,
+            749.2292080000001
+          ]
+        },
+        "retained": {
+          "requests": 3,
+          "nonempty": 3,
+          "first_nonempty_ms": [
+            726.6475409999999,
+            725.195292,
+            716.9845
+          ],
+          "total_ms": [
+            774.106583,
+            776.631417,
+            766.520667
+          ]
+        }
+      }
+    },
+    "extra_nonempty_offers": "Two English endpoint dangling additions, not established usefulness gains",
+    "raw_reports": [
+      "sustained-baseline.json",
+      "sustained-incremental-prefill.json"
+    ]
+  },
+  "canonical_worker": {
+    "fresh_workers_per_build": 12,
+    "withheld_proceed_ms": 100,
+    "retained_native_smoke_errors": 0,
+    "retained_native_smoke_final_and_shutdown_acknowledged": 12,
+    "normal_errors": 0,
+    "normal_final_and_shutdown_acknowledged": 12,
+    "normal_outputs_identical": 12,
+    "batch_alternative_outputs_identical_to_baseline": 4,
+    "normal_diagnostic_exports_with_optins": 0,
+    "raw_reports": [
+      "worker-long-baseline.json",
+      "worker-long-complete-words.json",
+      "worker-long-incremental-prefill.json",
+      "worker-long-normal.json"
+    ],
+    "scope": "Actual canonical child/owner path, not GUI; fresh-worker elapsed times are not sustained prediction latency"
+  },
+  "quality_review": {
+    "paired_samples": 333,
+    "english_portuguese": 263,
+    "other_languages": 70,
+    "method": "Independent machine-assisted blinded A/B review; identity varied per sample",
+    "human_calibrated": false,
+    "coverage": "192 corpus and 129 trace outputs match final byte-for-byte; final worker outputs were already represented in one reviewed side. No unreviewed final output introduced.",
+    "files": [
+      "independent-reviews.json",
+      "blinded-review-key.json",
+      "blinded-quality-english-portuguese.jsonl",
+      "blinded-quality-multilingual.jsonl"
+    ],
+    "unresolved": [
+      "Unsupported dates/rooms and fiscal-quarter/month-end alternatives",
+      "Generic or dangling contextual continuations and suffix failures",
+      "Portuguese synonym agreement",
+      "Eight required-offer failures"
+    ],
+    "not_a_semantic_pass_rate": true
+  },
+  "rejected_experiments": [
+    {
+      "name": "All draft in earlier JSON with empty model prefill",
+      "mechanical_passes": 163,
+      "samples": 192,
+      "reason": "Malformed joins, CJK/suffix/availability regressions",
+      "report": "stable-draft-candidate.json"
+    },
+    {
+      "name": "Explicit replay metadata replacement",
+      "mechanical_passes": 186,
+      "samples": 192,
+      "reason": "Chinese insertion 第的讨论。 corrupted the authored join",
+      "report": "explicit-replay-candidate.json"
+    },
+    {
+      "name": "Global hidden-replay system clarification",
+      "mechanical_passes": 186,
+      "samples": 192,
+      "reason": "Introduced an ungrounded usual spot and did not close quality gaps",
+      "report": "hidden-replay-candidate.json"
+    },
+    {
+      "name": "Recent-prefill split applied to batch alternatives",
+      "reason": "New Japanese Thursday/14:00 and Thursday/10:00 alternatives conflicted with authored Tuesday/10:00. Final batch outputs restored baseline.",
+      "report": "worker-long-complete-words.json"
+    }
+  ],
+  "verification": {
+    "all_target_native_smoke": {
+      "command": "cargo test --workspace --all-targets --features native-smoke",
+      "reported_passes": 570,
+      "default_ignored": 2,
+      "failures": 0,
+      "log": "all-target-tests-and-normal-build.txt"
+    },
+    "real_model_ignored_regressions": {
+      "tests": [
+        "native_cache_logits_and_cancelled_prefill_recovery",
+        "diagnostic_case_seed_overrides_prior_retries_without_reopening"
+      ],
+      "auto": {
+        "passed": 2,
+        "seconds": 7.27
+      },
+      "cpu": {
+        "passed": 2,
+        "seconds": 26.33
+      },
+      "execution": "bg_133; observed native test output retained in session"
+    },
+    "corpus_cancellation": {
+      "rounds": 3,
+      "pre_cancelled_passes": 3,
+      "first_native_chunk_passes": 3,
+      "post_cancel_output_count": 0,
+      "limitation": "Not desktop active-generation cancellation or interruption during prefill; separate real-model test covers interrupted prefill."
+    },
+    "normal_release_build": {
+      "passed": true,
+      "binaries": [
+        "BroTypist",
+        "BroTypist-cli",
+        "worker_smoke"
+      ],
+      "log": "all-target-tests-and-normal-build.txt"
+    },
+    "normal_worker_and_public_cli_smoke": {
+      "passed": true,
+      "checks": [
+        {
+          "check": "isolation_and_verified_cache",
+          "passed": true
+        },
+        {
+          "check": "explicit_proceed_barrier",
+          "passed": true
+        },
+        {
+          "check": "worker_writing",
+          "passed": true
+        },
+        {
+          "check": "explicit_proceed_barrier",
+          "passed": true
+        },
+        {
+          "check": "worker_partial_word_and_suffix",
+          "passed": true
+        },
+        {
+          "check": "cancellation_acknowledged",
+          "passed": true
+        },
+        {
+          "check": "release_acknowledged",
+          "passed": true
+        },
+        {
+          "check": "reload_before_shutdown",
+          "passed": true
+        },
+        {
+          "check": "worker_shutdown_acknowledged",
+          "passed": true
+        },
+        {
+          "check": "public_cli_complete",
+          "passed": true
+        }
+      ],
+      "report": "normal-worker-smoke-results/worker-smoke.json",
+      "scope": "CPU, verified existing model, isolated profile; canonical suggestion-state acceptance, no desktop"
+    },
+    "desktop_harness_self_check": {
+      "passed": true,
+      "scope": "Pure parser/corpus/key-map/text-boundary checks; no UI imported or exercised"
+    },
+    "process_lifetime_peak_rss_bytes": [
+      3174596608,
+      3269361664,
+      3271311360
+    ],
+    "throwaway_repo_probes_removed": true
+  },
+  "remaining_gates": [
+    "Fresh foreground authorization for the retained candidate on M1: realistic typing, readable useful-offer p50/p95, exact acceptance and focus/stale-result behavior",
+    "Semantic-quality failures including grounding, alternatives, contextual usefulness and no-offer cases",
+    "Startup/idle-reload variance and resident-resource behavior",
+    "No external-product parity or overall useful-visible latency target established"
+  ],
+  "unchanged_boundaries": [
+    "No installation, push or release of these performance changes",
+    "No normal saved preferences or TCC/permission changes",
+    "No model download, reduced context, smaller model or production seed-policy change",
+    "No remote gaming-host workload",
+    "No keyboard input after the foreground guard refused reset; open scratch documents preserved"
+  ]
+}
