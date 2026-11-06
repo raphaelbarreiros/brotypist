@@ -1,0 +1,160 @@
+{
+  "schema": 1,
+  "version": "0.5.4",
+  "source_commit": "cdf10e5b442e6ea1ac33043d504e2a3d1e4c72c2",
+  "publication": {
+    "release_id": 436391301,
+    "url": "https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.4",
+    "published_at": "2026-11-06T15:35:26Z",
+    "latest": true,
+    "draft": false,
+    "prerelease": false,
+    "target": "macos-arm64"
+  },
+  "public_downloads": {
+    "passed": true,
+    "all_six_files_match_sealed_bytes": true,
+    "sha256sums_verified": true,
+    "publisher_signature_verified": true,
+    "publisher_public_key": "pB0JKiHFFxEyLxxVCuxpB+A71/m42Mg98HC709zRsHI=",
+    "assets": [
+      {
+        "id": 717615346,
+        "name": "BroTypist-0.5.4-macos-arm64.dmg",
+        "size": 18852389,
+        "sha256": "d331788731beab3e952305fb01ac26083ee66e3d88af4737df55a6a8eb3773ce",
+        "url": "https://github.com/renan-brasilio/brotypist/releases/download/v0.5.4/BroTypist-0.5.4-macos-arm64.dmg"
+      },
+      {
+        "id": 717615934,
+        "name": "BroTypist-0.5.4-macos-arm64.zip",
+        "size": 18056505,
+        "sha256": "75be228a179c0c2852071d976c92667647044704769c119b88f77289dbcedccf",
+        "url": "https://github.com/renan-brasilio/brotypist/releases/download/v0.5.4/BroTypist-0.5.4-macos-arm64.zip"
+      },
+      {
+        "id": 717615991,
+        "name": "release-manifest.json",
+        "size": 20807,
+        "sha256": "d669c8c1690809fb5ee6ef8c0f1336ba2097e3bc2a53e6c70b1dc68360557923",
+        "url": "https://github.com/renan-brasilio/brotypist/releases/download/v0.5.4/release-manifest.json"
+      },
+      {
+        "id": 717615981,
+        "name": "SHA256SUMS",
+        "size": 457,
+        "sha256": "e9b648736add26c2e5d31bc09da7e85e0e89c581d0fef52df38816057313f5b5",
+        "url": "https://github.com/renan-brasilio/brotypist/releases/download/v0.5.4/SHA256SUMS"
+      },
+      {
+        "id": 717616008,
+        "name": "update-manifest.json",
+        "size": 481,
+        "sha256": "ae281d61ba5bbcbf8a2a62f6e13b1208bda6252158844ea2ab9d661f43c3ecba",
+        "url": "https://github.com/renan-brasilio/brotypist/releases/download/v0.5.4/update-manifest.json"
+      },
+      {
+        "id": 717616024,
+        "name": "update-manifest.sig",
+        "size": 89,
+        "sha256": "7c96809ec1315409b0c717ad3341a1c776895dc081040c665b013c0acb036b86",
+        "url": "https://github.com/renan-brasilio/brotypist/releases/download/v0.5.4/update-manifest.sig"
+      }
+    ]
+  },
+  "verification": {
+    "formatting_passed": true,
+    "workspace_all_targets_native_smoke_passed": true,
+    "prefetch_scheduling_checks": {
+      "passed": 50,
+      "runs": 50
+    },
+    "final_gemma_worker_and_public_cli": {
+      "passed": true,
+      "scope": "real native inference, worker authorization/cancellation/lifecycle, public complete CLI; no desktop permissions or installed application"
+    },
+    "final_installer": {
+      "passed": true,
+      "full_matrix": false,
+      "checks": {
+        "actual_bundled_cli_version_and_doctor": {
+          "global_enabled": false,
+          "passed": true,
+          "settings": "owned disposable profile",
+          "shell": "AppKit"
+        },
+        "disposable_drag_copy": true,
+        "dmg_detached": {
+          "owned_mountpoint_only": true,
+          "passed": true
+        },
+        "launchservices_gui_and_os_quit": {
+          "arguments": [
+            "--background",
+            "--paused"
+          ],
+          "exact_owned_bundle_pid": true,
+          "exit_status_source": "owned PID kqueue NOTE_EXIT | NOTE_EXITSTATUS",
+          "failure_cleanup_policy": "attempt normal Quit, then only exact disposable executable PID TERM/KILL; payload preserved on failure",
+          "launch": "NSWorkspace exact bundle URL, new instance, without activation",
+          "normal_quit": "NSRunningApplication.terminate (OS Quit AppleEvent)",
+          "normal_quit_elapsed_ms": 55,
+          "normal_quit_requested": true,
+          "observed_background_lifetime_ms": 3054,
+          "passed": true,
+          "physical_menu_or_key": "not exercised",
+          "raw_wait_status": 0,
+          "typing": "not exercised",
+          "visible_window": "not asserted for background launch"
+        },
+        "owned_assets_and_canonical_payload": true,
+        "read_only_dmg_layout_and_payload": true,
+        "real_tiny_worker": {
+          "app": "exact disposable DMG copy",
+          "canonical_receipt_sha256": "c75d8b0dc63af9f6a2d76b21d8114fbc5c70dfe8a92478f5fd2c8303264dab83",
+          "helper_sha256": "3371aa00c11ce2e49408c8fd562ddd79bf0d439a5ba843857826445405abc2f9",
+          "model_sha256": "e3131339bf4e8065265593d4fd8f7bb7ff2d3abff1edb5618aa1197b89cad9f5",
+          "passed": true
+        },
+        "uninstall_preserves_owned_and_unrelated_profile_fixture": true,
+        "zip_preflight_real_extraction_identity_and_traversal_refusal": true
+      },
+      "prior_version_upgrade": {
+        "reason": "no genuine prior-version native fixture supplied",
+        "status": "not_exercised"
+      }
+    },
+    "public_update_check": {
+      "state": "current",
+      "current_version": "0.5.4",
+      "release_url": "https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.4",
+      "installed_app_replaced": false,
+      "scope": "Isolated profile; metadata check only. QA bundle outside the owned profile is read-only to the updater."
+    }
+  },
+  "ci": {
+    "run": 42208505067,
+    "url": "https://github.com/renan-brasilio/brotypist/actions/runs/42208505067",
+    "macos": "passed",
+    "linux": "passed",
+    "windows": "tests, real worker and desktop passed; pre-existing MSI machine ARP-registration gate failed; publication held",
+    "native_preview": "English and Portuguese drawn offers and exact owned-widget acceptance passed. Earlier deadline failure did not recur; cause remains unproven."
+  },
+  "signing": {
+    "kind": "Apple Development identity-signed",
+    "notarized": false
+  },
+  "reference_cleanup": {
+    "final_zip_files_scanned": 1048,
+    "utf8_and_utf16_reference_matches": 0,
+    "public_release_notes_matches": 0,
+    "historical_cleanup": "Approved branch/tag rewrite and legacy asset withdrawal completed separately; original PR refs, cached content and old clones may retain prior history."
+  },
+  "limits": [
+    "No genuine previous-version upgrade or full OTA installation matrix for this build.",
+    "No new foreground typing or physical-menu acceptance claimed by the final installer probe.",
+    "First useful visible-offer latency targets and semantic-quality targets remain unresolved.",
+    "Windows and Linux remain ALPHA; only macOS arm64 assets are published.",
+    "Normal installed application, user preferences, permissions and selected model were not replaced."
+  ]
+}

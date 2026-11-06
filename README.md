@@ -20,12 +20,12 @@ use. Accept what fits, dismiss what doesn't, and keep writing—without moving
 your draft into a chatbot. It lives in the menu bar or system tray, with
 OS-native Settings and local model inference.
 
-**Native Rust, with macOS first.** **[0.5.3 is the Latest macOS-only stable
-release](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.3);
+**Native Rust, with macOS first.** **[0.5.4 is the Latest macOS-only stable
+release](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.4);
 Windows and Linux remain ALPHA.** It contains Apple Silicon DMG/ZIP assets only,
-bound to source `f7e80cf`.
-This patch polishes native Settings alignment, sidebar icons, grouped controls,
-text spacing, and responsive layouts while preserving unsaved instruction drafts.
+bound to source `cdf10e5`.
+This patch improves prediction responsiveness and TextEdit inline placement,
+and documents safe macOS unknown-developer launch troubleshooting.
 Model relevance and text-field compatibility still vary: stable does not mean
 every app is supported or establish three-platform parity. The
 [migration and acceptance record](docs/rust-migration/README.md) separates
