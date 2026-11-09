@@ -3,10 +3,10 @@
 //! UIA interfaces are created, used and released inside one balanced COM scope.
 use super::{
     ContextRead, DetachedContextRead, EditOutcome, Foreground, NativeBridge, Permission,
-    ShortcutHandler, policy::ObservationPolicy,
+    ShortcutHandler, policy::ObservationPolicy, windows_decisions as decisions,
 };
 use crate::{
-    config::Config,
+    config::{Config, ScopedPreference},
     core::{InlineRender, Rect, Snapshot, TextBuffer, Utf16Offset},
 };
 use anyhow::{Result, anyhow, ensure};
@@ -32,12 +32,96 @@ use windows::{
     },
     core::{BOOL, BSTR, Interface, PCWSTR, PWSTR},
 };
-#[path = "windows_decisions.rs"]
-mod decisions;
 #[path = "windows_hook.rs"]
 mod hook;
 use decisions::{MAX_TEXT, Readback, classify_readback, provider_selection, replacement_units};
 use hook::{HookOwner, HookShared};
+
+thread_local! {
+    // WinEvent callbacks are delivered on the registering UI thread. Weak
+    // references cannot keep a stopped bridge or a native callback owner alive.
+    static METADATA_HOOKS: std::cell::RefCell<Vec<(HWINEVENTHOOK, std::sync::Weak<HookShared>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+struct MetadataObservation {
+    hooks: Vec<HWINEVENTHOOK>,
+}
+impl MetadataObservation {
+    fn start(shared: &Arc<HookShared>) -> Self {
+        unsafe extern "system" fn changed(
+            hook: HWINEVENTHOOK,
+            event: u32,
+            _window: HWND,
+            _object: i32,
+            _child: i32,
+            _thread: u32,
+            _time: u32,
+        ) {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let shared = METADATA_HOOKS.with(|hooks| {
+                    hooks
+                        .borrow()
+                        .iter()
+                        .find(|(id, _)| *id == hook)
+                        .and_then(|(_, shared)| shared.upgrade())
+                });
+                if let Some(shared) = shared {
+                    // Invalidation only: no UIA/text read, PID-derived field
+                    // authority, or user-input timestamp for geometry changes.
+                    shared.note(matches!(
+                        event,
+                        EVENT_SYSTEM_FOREGROUND | EVENT_OBJECT_FOCUS
+                    ));
+                }
+            }));
+        }
+        let mut hooks = Vec::new();
+        for event in [
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_SYSTEM_MOVESIZESTART,
+            EVENT_SYSTEM_MOVESIZEEND,
+            EVENT_SYSTEM_SCROLLINGSTART,
+            EVENT_SYSTEM_SCROLLINGEND,
+            EVENT_OBJECT_FOCUS,
+            EVENT_OBJECT_DESTROY,
+            EVENT_OBJECT_HIDE,
+            EVENT_OBJECT_LOCATIONCHANGE,
+            EVENT_OBJECT_STATECHANGE,
+            EVENT_OBJECT_VALUECHANGE,
+            EVENT_OBJECT_TEXTSELECTIONCHANGED,
+        ] {
+            let hook = unsafe {
+                SetWinEventHook(
+                    event,
+                    event,
+                    None,
+                    Some(changed),
+                    0,
+                    0,
+                    WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+                )
+            };
+            if !hook.0.is_null() {
+                METADATA_HOOKS
+                    .with(|owners| owners.borrow_mut().push((hook, Arc::downgrade(shared))));
+                hooks.push(hook);
+            }
+        }
+        // Partial/unsupported providers retain ordinary defensive polling.
+        Self { hooks }
+    }
+}
+impl Drop for MetadataObservation {
+    fn drop(&mut self) {
+        for hook in self.hooks.drain(..) {
+            unsafe {
+                let _ = UnhookWinEvent(hook);
+            }
+            METADATA_HOOKS.with(|owners| owners.borrow_mut().retain(|(id, _)| *id != hook));
+        }
+    }
+}
 
 const EM_GETSEL_MESSAGE: u32 = 0x00b0;
 const EM_SETSEL_MESSAGE: u32 = 0x00b1;
@@ -332,6 +416,7 @@ pub struct WindowsBridge {
     policy: Arc<ObservationPolicy>,
     shared: Arc<HookShared>,
     hook: Option<HookOwner>,
+    metadata: Option<MetadataObservation>,
     stopped: bool,
     diagnostic: String,
     last: Option<Snapshot>,
@@ -349,6 +434,7 @@ impl WindowsBridge {
             shared: Arc::new(HookShared::new(policy.clone())),
             policy,
             hook: None,
+            metadata: None,
             stopped: false,
             diagnostic: READY.into(),
             last: None,
@@ -570,6 +656,10 @@ impl WindowsBridge {
                     selected: Some(selected),
                 }
             };
+            captured.snapshot.can_replace = decisions::replacement_capability(
+                captured.hwnd.is_some(),
+                captured.snapshot.selection_length,
+            );
             captured.snapshot.window_id = format!("{}:{}", focus.pid, focus.window.0 as usize);
             captured.snapshot.window_revision = format!("{}", focus.window.0 as usize);
             captured.snapshot.window_pid = focus.pid as i32;
@@ -608,7 +698,13 @@ impl WindowsBridge {
             let Some(current) = self.capture_raw(client)? else {
                 return Ok(EditOutcome::Rejected);
             };
-            if !current.snapshot.same_key(before) || !current.snapshot.same_authority(before) {
+            if !decisions::replacement_matches_capture(
+                before,
+                &current.snapshot,
+                current.hwnd.is_some(),
+                start,
+                length,
+            ) {
                 return Ok(EditOutcome::Rejected);
             }
             let synchronous = current.hwnd.is_some();
@@ -644,9 +740,6 @@ impl WindowsBridge {
                 attempted = true;
                 native_message(hwnd, EM_REPLACESEL_MESSAGE, 1, buffer.as_ptr() as isize)?;
             } else {
-                if (start, length) != (before.caret, before.selection_length) {
-                    return Ok(EditOutcome::Rejected); // provider Character units are not scalar/UTF-16 promises
-                }
                 if !identity_matches(client, before)? {
                     return Ok(EditOutcome::Rejected);
                 }
@@ -948,7 +1041,12 @@ impl NativeBridge for WindowsBridge {
     }
     fn set_input_callback(&mut self, callback: Option<Arc<dyn Fn() + Send + Sync>>) {
         if let Ok(mut published) = self.shared.published.lock() {
-            published.input_callback = callback;
+            published.input_callback = callback.clone();
+        }
+        if callback.is_some() && !self.stopped && self.metadata.is_none() {
+            self.metadata = Some(MetadataObservation::start(&self.shared));
+        } else if callback.is_none() {
+            self.metadata = None;
         }
     }
     fn finish_input(&mut self, accepted: bool) -> Result<()> {
@@ -1011,6 +1109,7 @@ impl NativeBridge for WindowsBridge {
     }
     fn stop(&mut self) -> Result<()> {
         self.stopped = true;
+        self.metadata = None;
         self.shared.enabled.store(false, Ordering::Release);
         self.shared.cancel_claim();
         self.shared.finish_claim(false); // closed owner cannot execute a queued claim after stop
@@ -1218,6 +1317,42 @@ fn inline_metrics(
 mod tests {
     use super::*;
     #[test]
+    fn metadata_invalidation_wakes_without_lock_or_synthetic_user_input() {
+        let shared = Arc::new(HookShared::new(Arc::new(
+            ObservationPolicy::new(&Config::default()).unwrap(),
+        )));
+        let calls = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let observed = calls.clone();
+        let weak = Arc::downgrade(&shared);
+        shared.published.lock().unwrap().input_callback = Some(Arc::new(move || {
+            assert!(weak.upgrade().unwrap().published.try_lock().is_ok());
+            observed.fetch_add(1, Ordering::Relaxed);
+        }));
+        shared.note(false);
+        shared.note(false);
+        assert_eq!(shared.revision.load(Ordering::Acquire), 2);
+        assert_eq!(shared.user_revision.load(Ordering::Acquire), 0);
+        assert!(shared.timestamp.lock().unwrap().is_none());
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn denied_screen_source_returns_before_native_accessibility_read() {
+        let snapshot = Snapshot {
+            app_id: "ordinary".into(),
+            ..Default::default()
+        };
+        let result = read_context(
+            &snapshot,
+            &ObservationPolicy::new(&Config::default()).unwrap(),
+            &|| true,
+            100,
+        )
+        .unwrap();
+        assert_eq!(result.status, "blocked");
+        assert!(result.text.is_empty());
+    }
+    #[test]
     fn unicode_sendinput_pairs_every_utf16_unit_without_virtual_shortcuts() {
         let events = unicode_events("a😀");
         assert_eq!(events.len(), 6);
@@ -1290,7 +1425,12 @@ fn read_context(
     max_chars: usize,
 ) -> Result<ContextRead> {
     let source = "accessibility";
-    if !authorized() || !policy.allowed(&snapshot.app_id, "", &[], false) {
+    if !authorized()
+        || !policy.allowed(&snapshot.app_id, "", &[], false)
+        || !policy
+            .preference(ScopedPreference::ScreenContext, &snapshot.app_id, "", &[])
+            .value
+    {
         return Ok(ContextRead::blocked(source));
     }
     let result = automation(|client| unsafe {

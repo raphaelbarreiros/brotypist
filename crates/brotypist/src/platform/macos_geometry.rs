@@ -7,7 +7,7 @@ use objc2::{AnyThread, rc::Retained, runtime::AnyObject};
 use objc2_app_kit::{NSFont, NSFontAttributeName, NSLayoutManager};
 use objc2_foundation::{NSAttributedString, NSDictionary, NSString};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     ffi::c_void,
     time::{Duration, Instant},
 };
@@ -31,6 +31,48 @@ pub struct AppearanceEvidence {
     pub ax_render: Option<InlineRender>,
     /// Independently observed terminal cell advance; zero for ordinary AX text.
     pub fixed_advance: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum GapFailure {
+    SampleEndUnavailable,
+    CaretUnavailable,
+    GapUnavailable,
+    RawEndpointRowMismatch,
+    RawEndpointHeightMismatch,
+    GapHeightMismatch,
+    CapturedCaretHeightMismatch,
+    CaretXMismatch,
+    CaretRowMismatch,
+    EndpointOrderInvalid,
+    NormalizedEndpointRowMismatch,
+    GapRowMismatch,
+    GapStartMismatch,
+    GapEndMismatch,
+    SampleEndClipped,
+    GapClipped,
+}
+
+/// Opt-in, pass-local observations only: no text, ranges, counts or identities.
+/// The bridge may retain a failure only after its final snapshot barriers pass.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
+pub(super) struct GapDiagnostic {
+    reason: Option<GapFailure>,
+    captured_caret: Rect,
+    clip: Rect,
+    raw_sample_end: Option<Rect>,
+    raw_caret: Option<Rect>,
+    raw_gap: Option<Rect>,
+    normalized_sample_end: Option<Rect>,
+    normalized_caret: Option<Rect>,
+}
+impl GapDiagnostic {
+    pub(super) fn retain_failure(self, retained: &mut Option<Self>) {
+        if self.reason.is_some() {
+            *retained = Some(self);
+        }
+    }
 }
 
 const MAX_NODES: usize = 128;
@@ -522,15 +564,22 @@ fn caret<B: Backend>(
         return None;
     };
     if let Some(glyph) = glyph {
-        if (glyph[3] - rect[3]).abs() <= 1.0
-            && (0.0..=rect[3] + 1.0).contains(&(glyph[1] - rect[1]))
-            && rect[0] <= glyph[0] + glyph[2] + 1.0
-        {
-            rect[1] = glyph[1];
-        }
+        rect = caret_glyph_row(rect, glyph);
     }
     rect[2] = rect[2].max(1.0);
     Some(rect)
+}
+
+/// AX zero-range rectangles can precede their glyph row vertically. Preserve
+/// native X and height; only a fresh, compatible glyph rectangle supplies Y.
+fn caret_glyph_row(mut rect: Rect, glyph: Rect) -> Rect {
+    if (glyph[3] - rect[3]).abs() <= 1.0
+        && (0.0..=rect[3] + 1.0).contains(&(glyph[1] - rect[1]))
+        && rect[0] <= glyph[0] + glyph[2] + 1.0
+    {
+        rect[1] = glyph[1];
+    }
+    rect
 }
 
 fn anchor_matches<B: Backend>(
@@ -698,6 +747,148 @@ fn fitted<B: Backend>(
     render.valid(Some(rect)).then_some(render)
 }
 
+/// Calibration may look past a bounded horizontal whitespace gap, but never
+/// treats that gap as font advance or as text to render before the suggestion.
+fn preceding_sample(before: &str) -> Option<(&str, &str)> {
+    const MAX_GAP_SCALARS: usize = 128;
+    let (last, character) = before
+        .char_indices()
+        .rev()
+        .take(MAX_GAP_SCALARS + 1)
+        .find(|(_, character)| !character.is_whitespace())?;
+    let end = last + character.len_utf8();
+    let gap = &before[end..];
+    if gap.is_empty()
+        || gap.chars().any(|character| {
+            (character.is_control() && character != '\t')
+                || matches!(character, '\u{2028}' | '\u{2029}')
+        })
+    {
+        return None;
+    }
+    let tail = before[..end].rsplit('\t').next()?;
+    let start = tail.char_indices().rev().nth(31).map_or(0, |(at, _)| at);
+    Some((&tail[start..], gap))
+}
+
+fn native_gap_anchor<B: Backend>(
+    backend: &B,
+    field: &B::Node,
+    sample_end: usize,
+    location: usize,
+    caret: Rect,
+    clip: Rect,
+    diagnostic: Option<&mut Option<GapDiagnostic>>,
+) -> Option<Rect> {
+    let mut observed = diagnostic.map(|slot| {
+        slot.insert(GapDiagnostic {
+            reason: Some(GapFailure::SampleEndUnavailable),
+            captured_caret: caret,
+            clip,
+            raw_sample_end: None,
+            raw_caret: None,
+            raw_gap: None,
+            normalized_sample_end: None,
+            normalized_caret: None,
+        })
+    });
+    // Preserve the original read order and early exits. Diagnostics never ask
+    // for a range that production would not otherwise have read.
+    // All three observations remain direct: no tree-derived or previous-glyph
+    // caret fallback can establish the tab's unknown horizontal advance.
+    let raw_anchor = backend.bounds(
+        field,
+        AxRange {
+            location: sample_end,
+            length: 0,
+        },
+    );
+    if let Some(observed) = observed.as_deref_mut() {
+        observed.raw_sample_end = raw_anchor;
+    }
+    let anchor = valid_rect(raw_anchor?, true)?;
+    if let Some(observed) = observed.as_deref_mut() {
+        observed.reason = Some(GapFailure::CaretUnavailable);
+    }
+    let raw_current = backend.bounds(
+        field,
+        AxRange {
+            location,
+            length: 0,
+        },
+    );
+    if let Some(observed) = observed.as_deref_mut() {
+        observed.raw_caret = raw_current;
+    }
+    let current = valid_rect(raw_current?, true)?;
+    if let Some(observed) = observed.as_deref_mut() {
+        observed.reason = Some(GapFailure::GapUnavailable);
+    }
+    let raw_gap = backend.bounds(
+        field,
+        AxRange {
+            location: sample_end,
+            length: location.checked_sub(sample_end)?,
+        },
+    );
+    if let Some(observed) = observed.as_deref_mut() {
+        observed.raw_gap = raw_gap;
+    }
+    let gap = valid_rect(raw_gap?, false)?;
+    // Establish raw row/height agreement BEFORE normalization, unchanged.
+    let reason = if (anchor[1] - current[1]).abs() > 1.0 {
+        Some(GapFailure::RawEndpointRowMismatch)
+    } else if (anchor[3] - current[3]).abs() > 1.0 {
+        Some(GapFailure::RawEndpointHeightMismatch)
+    } else if (gap[3] - current[3]).abs() > 1.0 {
+        Some(GapFailure::GapHeightMismatch)
+    } else if (current[3] - caret[3]).abs() > 1.0 {
+        Some(GapFailure::CapturedCaretHeightMismatch)
+    } else {
+        None
+    };
+    if let Some(observed) = observed.as_deref_mut() {
+        observed.reason = reason;
+    }
+    if reason.is_some() {
+        return None;
+    }
+    // Use the same measured-glyph convention as ordinary caret capture, not a
+    // guessed line offset. The gap must still join both actual native X values.
+    let anchor = caret_glyph_row(anchor, gap);
+    let current = caret_glyph_row(current, gap);
+    let reason = if (current[0] - caret[0]).abs() > 1.5 {
+        Some(GapFailure::CaretXMismatch)
+    } else if (current[1] - caret[1]).abs() > 1.0 {
+        Some(GapFailure::CaretRowMismatch)
+    } else if anchor[0] >= current[0] {
+        Some(GapFailure::EndpointOrderInvalid)
+    } else if (anchor[1] - current[1]).abs() > 1.0 {
+        Some(GapFailure::NormalizedEndpointRowMismatch)
+    } else if (gap[1] - current[1]).abs() > 1.0 {
+        Some(GapFailure::GapRowMismatch)
+    } else if (gap[0] - anchor[0]).abs() > 1.5 {
+        Some(GapFailure::GapStartMismatch)
+    } else if (gap[0] + gap[2] - current[0]).abs() > 1.5 {
+        Some(GapFailure::GapEndMismatch)
+    } else if !contains_rect(clip, anchor) {
+        Some(GapFailure::SampleEndClipped)
+    } else if !contains_rect(clip, gap) {
+        Some(GapFailure::GapClipped)
+    } else {
+        None
+    };
+    if let Some(observed) = observed {
+        observed.normalized_sample_end = Some(anchor);
+        observed.normalized_caret = Some(current);
+        observed.reason = reason;
+    }
+    if reason.is_some() {
+        return None;
+    }
+    Some(anchor)
+}
+
 fn inline<B: Backend>(
     backend: &B,
     field: &B::Node,
@@ -709,9 +900,20 @@ fn inline<B: Backend>(
     field_rect: Option<Rect>,
     browser: bool,
     diagnostic: &mut &'static str,
+    gap_diagnostic: Option<&mut Option<GapDiagnostic>>,
 ) -> (Option<InlineRender>, Option<AppearanceEvidence>) {
     inline_checked(
-        backend, field, secure, text, at, location, rect, field_rect, browser, diagnostic,
+        backend,
+        field,
+        secure,
+        text,
+        at,
+        location,
+        rect,
+        field_rect,
+        browser,
+        diagnostic,
+        gap_diagnostic,
     )
     .unwrap_or((None, None))
 }
@@ -726,6 +928,7 @@ fn inline_checked<B: Backend>(
     field_rect: Option<Rect>,
     browser: bool,
     diagnostic: &mut &'static str,
+    gap_diagnostic: Option<&mut Option<GapDiagnostic>>,
 ) -> Option<(Option<InlineRender>, Option<AppearanceEvidence>)> {
     *diagnostic = "caret_geometry_unverified";
     let rect = valid_rect(rect?, false)?;
@@ -741,18 +944,36 @@ fn inline_checked<B: Backend>(
         .slice(at, text.scalar_len().checked_sub(at)?)?
         .split(['\r', '\n'])
         .next()?;
-    if before.is_empty() || after.contains('\t') || rtl(before) || rtl(after) {
+    if before.is_empty() {
+        *diagnostic = "caret_row_prefix_empty";
+        return None;
+    }
+    if after.contains('\t') {
+        *diagnostic = "caret_row_suffix_tab";
+        return None;
+    }
+    if rtl(before) || rtl(after) {
+        *diagnostic = "caret_row_direction_unverified";
         return None;
     }
     let tail = before.rsplit('\t').next()?;
+    let mut gap = "";
     let count = tail.chars().count();
     let mut span = &tail[tail
         .char_indices()
         .nth(count.saturating_sub(32))
         .map_or(tail.len(), |(i, _)| i)..];
     if crate::core::trim(span).is_empty() {
-        return None;
+        *diagnostic = if tail.is_empty() {
+            "caret_row_sample_after_tab_empty"
+        } else {
+            "caret_row_sample_whitespace"
+        };
+        (span, gap) = preceding_sample(before)?;
     }
+    let separated = !gap.is_empty();
+    let gap_units = gap.encode_utf16().count();
+    let sample_end = location.checked_sub(gap_units)?;
     let suffix_units = after.encode_utf16().count();
     *diagnostic = "visible_range_unverified";
     if let Some(shown) = backend.visible(field) {
@@ -774,24 +995,38 @@ fn inline_checked<B: Backend>(
     {
         return None;
     }
+    let anchor = if separated {
+        *diagnostic = "caret_row_gap_geometry_unverified";
+        native_gap_anchor(
+            backend,
+            field,
+            sample_end,
+            location,
+            rect,
+            clip,
+            gap_diagnostic,
+        )?
+    } else {
+        rect
+    };
     *diagnostic = "same_line_glyph_bounds_unverified";
     let mut whole;
     loop {
-        let base = location.checked_sub(span.encode_utf16().count())?;
+        let base = sample_end.checked_sub(span.encode_utf16().count())?;
         whole = bounds(
             backend,
             field,
             secure,
             AxRange {
                 location: base,
-                length: location - base,
+                length: sample_end - base,
             },
         );
         if whole.is_some_and(|r| {
             r[2] > 0.0
-                && (r[1] - rect[1]).abs() <= 1.0
-                && r[3] <= rect[3] + 1.0
-                && (r[0] + r[2] - rect[0]).abs() <= 1.5
+                && (r[1] - anchor[1]).abs() <= 1.0
+                && r[3] <= anchor[3] + 1.0
+                && (r[0] + r[2] - anchor[0]).abs() <= 1.5
         }) {
             break;
         }
@@ -804,8 +1039,9 @@ fn inline_checked<B: Backend>(
     if crate::core::trim(span).is_empty() {
         return None;
     }
-    let caret_offset = span.encode_utf16().count();
-    let base = location.checked_sub(caret_offset)?;
+    let sample_units = span.encode_utf16().count();
+    let caret_offset = sample_units.checked_add(gap_units)?;
+    let base = sample_end.checked_sub(sample_units)?;
     let expected_units = caret_offset.checked_add(suffix_units)?;
     *diagnostic = "attributed_text_unverified";
     let attributed = backend.attributed(
@@ -816,10 +1052,12 @@ fn inline_checked<B: Backend>(
         },
     )?;
     let expected = attributed.text()?;
+    let prefix_bytes = span.len().checked_add(gap.len())?;
     if attributed.len() != expected_units
-        || expected.len() != span.len() + after.len()
+        || expected.len() != prefix_bytes + after.len()
         || !expected.starts_with(span)
-        || &expected[span.len()..] != after
+        || expected.get(span.len()..prefix_bytes) != Some(gap)
+        || expected.get(prefix_bytes..) != Some(after)
     {
         return None;
     }
@@ -855,9 +1093,10 @@ fn inline_checked<B: Backend>(
         }
     }
     if run_start > 0 {
-        let index = TextIndex::new(span);
-        let scalar = index.utf16_to_scalar(Utf16Offset(run_start))?;
-        span = &span[index.scalar_to_utf8(scalar)?.0..];
+        // `expected` was proved byte-exactly equal to span + gap + after above.
+        // Reuse only that immutable conversion, never native geometry/security.
+        let scalar = expected_index.utf16_to_scalar(Utf16Offset(run_start))?;
+        span = span.get(expected_index.scalar_to_utf8(scalar)?.0..)?;
     }
     if crate::core::trim(span).is_empty() {
         return None;
@@ -870,7 +1109,7 @@ fn inline_checked<B: Backend>(
             secure,
             AxRange {
                 location: span_location,
-                length: location - span_location,
+                length: sample_end - span_location,
             },
         );
     }
@@ -886,6 +1125,9 @@ fn inline_checked<B: Backend>(
         .unwrap_or_default();
     *diagnostic = "font_descriptor_unverified";
     if name.is_empty() && family.is_empty() {
+        if separated {
+            return None;
+        }
         return Some((
             if after.is_empty() {
                 fitted(backend, span, whole?, rect, clip)
@@ -917,7 +1159,7 @@ fn inline_checked<B: Backend>(
             secure,
             AxRange {
                 location: span_location + units,
-                length: location - span_location - units,
+                length: sample_end - span_location - units,
             },
         )
     } else {
@@ -928,37 +1170,43 @@ fn inline_checked<B: Backend>(
         || part[2] <= 0.0
         || (whole[1] - part[1]).abs() > 1.0
         || (whole[3] - part[3]).abs() > 1.0
-        || (whole[0] + whole[2] - rect[0]).abs() > 1.5
-        || (part[0] + part[2] - rect[0]).abs() > 1.5
-        || rect[1] < whole[1] - 1.0
-        || rect[1] > whole[1] + whole[3]
+        || (whole[0] + whole[2] - anchor[0]).abs() > 1.5
+        || (part[0] + part[2] - anchor[0]).abs() > 1.5
+        || anchor[1] < whole[1] - 1.0
+        || anchor[1] > whole[1] + whole[3]
+        || (separated && (!contains_rect(clip, whole) || !contains_rect(clip, part)))
     {
         return None;
     }
-    let mut samples = vec![AppearanceSample {
-        text: span.into(),
-        rect: whole,
-    }];
-    if half > 0 {
-        samples.push(AppearanceSample {
-            text: part_text.into(),
-            rect: part,
-        });
-    }
-    let mut evidence = AppearanceEvidence {
-        font_name: name.clone(),
-        font_family: family.clone(),
-        font_size: size,
-        samples,
-        caret_rect: rect,
-        clip_rect: clip,
-        suffix: None,
-        ax_render: None,
-        fixed_advance: 0.0,
-    };
-    let whole_advance = rect[0] - whole[0];
-    let part_advance = rect[0] - part[0];
-    let coordinate_tolerance = if [rect[0], whole[0], part[0]]
+    // Vision's existing contract requires samples ending at the real caret.
+    // Separated calibration proves only direct AX rendering; never fabricate
+    // a caret-adjacent sample or allocate evidence that Vision cannot validate.
+    let evidence = (!separated).then(|| {
+        let mut samples = vec![AppearanceSample {
+            text: span.into(),
+            rect: whole,
+        }];
+        if half > 0 {
+            samples.push(AppearanceSample {
+                text: part_text.into(),
+                rect: part,
+            });
+        }
+        AppearanceEvidence {
+            font_name: name.clone(),
+            font_family: family.clone(),
+            font_size: size,
+            samples,
+            caret_rect: rect,
+            clip_rect: clip,
+            suffix: None,
+            ax_render: None,
+            fixed_advance: 0.0,
+        }
+    });
+    let whole_advance = anchor[0] - whole[0];
+    let part_advance = anchor[0] - part[0];
+    let coordinate_tolerance = if [anchor[0], whole[0], part[0]]
         .iter()
         .all(|v| v.fract() == 0.0)
     {
@@ -968,7 +1216,7 @@ fn inline_checked<B: Backend>(
     };
     *diagnostic = "font_identity_unverified";
     let Some((mut font, system, weight)) = font_candidate(backend, &name, &family, size) else {
-        return Some((None, Some(evidence)));
+        return Some((None, evidence));
     };
     *diagnostic = "font_advances_unverified";
     let Some(scale) = calibrate(
@@ -981,7 +1229,7 @@ fn inline_checked<B: Backend>(
         browser,
         coordinate_tolerance,
     ) else {
-        return Some((None, Some(evidence)));
+        return Some((None, evidence));
     };
     *diagnostic = "scaled_font_unverified";
     let effective = size * scale;
@@ -993,21 +1241,21 @@ fn inline_checked<B: Backend>(
             backend.font(&original_name, effective)
         };
         let Some(scaled) = scaled else {
-            return Some((None, Some(evidence)));
+            return Some((None, evidence));
         };
         let scaled_width = backend.width(&scaled, span);
         if backend.font_name(&scaled) != original_name
             || !scaled_width.is_finite()
             || (scaled_width - whole_advance).abs() > tolerance(whole_advance)
         {
-            return Some((None, Some(evidence)));
+            return Some((None, evidence));
         }
         font = scaled;
     }
     *diagnostic = "font_baseline_unverified";
     let (ascent, descent) = backend.metrics(&font);
     if !ascent.is_finite() || ascent <= 0.0 || !descent.is_finite() || descent < 0.0 {
-        return Some((None, Some(evidence)));
+        return Some((None, evidence));
     }
     let (top, height) = (whole[1], whole[3]);
     let mut baselines = Vec::with_capacity(2);
@@ -1033,20 +1281,16 @@ fn inline_checked<B: Backend>(
             - baselines.iter().copied().fold(f64::INFINITY, f64::min)
             > 0.75
     {
-        return Some((None, Some(evidence)));
+        return Some((None, evidence));
     }
     let baseline = if browser {
         baselines[0]
     } else {
         *baselines.last()?
     };
-    // AppKit lays native text out in its line fragment, with a rounded baseline
-    // offset that can be smaller than the font's nominal ascender (Menlo 11:
-    // offset 10, ascender 10.210449). Use that verified fragment as the drawing
-    // envelope, preserving its baseline and the observed host clip. Mixing the
-    // native baseline with typographic extents falsely rejects the first row.
-    // Require the independently corroborated typographic model as well; other
-    // native rows and browsers retain their original font extents.
+    // Use the verified native fragment only when both row models agree.
+    // Preserve its baseline and the original host clip; do not grow the clip
+    // to hide the nominal ascender's rounding discrepancy on the first row.
     let (ascent, descent) = if !browser && native_line && typographic_line {
         (baseline_offset, line_height - baseline_offset)
     } else {
@@ -1066,7 +1310,7 @@ fn inline_checked<B: Backend>(
         ..InlineRender::default()
     };
     if !render.valid(Some(rect)) {
-        return Some((None, Some(evidence)));
+        return Some((None, evidence));
     }
     *diagnostic = "suffix_typography_unverified";
     if after.is_empty() {
@@ -1099,6 +1343,7 @@ fn inline_checked<B: Backend>(
         render.suffix_width = suffix_rect[2];
         return Some((render.valid(Some(rect)).then_some(render), None));
     }
+    let mut evidence = evidence?;
     evidence.suffix = Some(AppearanceSample {
         text: after.into(),
         rect: suffix_rect,
@@ -1141,13 +1386,147 @@ impl Attributed for AxAttributedString {
         self.attribute_longest(key, index, limit)
     }
 }
-struct Native {
-    start: Instant,
+/// Content-free acquisition counts; these are not latency or host-coverage proof.
+#[derive(Clone, Copy, Default, Debug, serde::Serialize)]
+pub(super) struct FrameReadCounts {
+    pub requests: u64,
+    pub hits: u64,
+    pub native_calls: u64,
+    pub failures: u64,
+    pub invalidations: u64,
 }
-impl Native {
+
+// Fixed storage, exact native equality, and no negative caching. A failed read
+// clears all prior evidence; a changed authorization permanently revokes a pass.
+pub(super) struct FrameReads<K, N> {
+    identity: K,
+    entries: [Option<(N, Rect)>; 16],
+    enabled: bool,
+    invalidated: bool,
+    counts: FrameReadCounts,
+}
+impl<K: PartialEq, N: Clone + PartialEq> FrameReads<K, N> {
+    pub(super) fn new(identity: K, enabled: bool) -> Self {
+        Self {
+            identity,
+            entries: std::array::from_fn(|_| None),
+            enabled,
+            invalidated: false,
+            counts: FrameReadCounts::default(),
+        }
+    }
+    fn revoke(&mut self) {
+        self.entries.fill_with(|| None);
+        if !self.invalidated {
+            self.counts.invalidations += 1;
+        }
+        self.invalidated = true;
+    }
+    pub(super) fn read(
+        &mut self,
+        identity: &K,
+        node: &N,
+        read: impl FnOnce() -> Option<Rect>,
+        still_valid: impl FnOnce() -> bool,
+    ) -> Option<Rect> {
+        self.counts.requests += 1;
+        if self.invalidated || &self.identity != identity {
+            self.revoke();
+            return None;
+        }
+        if self.enabled {
+            if let Some((_, rect)) = self.entries.iter().flatten().find(|(old, _)| old == node) {
+                let rect = *rect;
+                if !still_valid() {
+                    self.revoke();
+                    return None;
+                }
+                self.counts.hits += 1;
+                return Some(rect);
+            }
+        }
+        let result = read();
+        if !still_valid() {
+            self.revoke();
+            return None;
+        }
+        let Some(rect) = result else {
+            self.entries.fill_with(|| None);
+            self.counts.failures += 1;
+            return None;
+        };
+        if self.enabled {
+            if let Some(slot) = self.entries.iter_mut().find(|slot| slot.is_none()) {
+                *slot = Some((node.clone(), rect));
+            }
+        }
+        Some(rect)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct ReadIdentity<'a> {
+    field: &'a AxElement,
+    window: &'a AxElement,
+    document: &'a str,
+    pid: i32,
+    revision: u64,
+    epoch: u64,
+}
+
+/// Borrowed identity from the freshly authorized focus, never an authority
+/// replacement. The caller must end this pass before any fresh capture barrier.
+pub(super) struct CaptureReadScope<'a> {
+    pub field: &'a AxElement,
+    pub window: &'a AxElement,
+    pub document: &'a str,
+    pub pid: i32,
+    pub revision: u64,
+    pub epoch: u64,
+    pub current: &'a dyn Fn() -> (u64, u64, bool),
+    pub reuse: bool,
+}
+struct FramePass<'a> {
+    reads: RefCell<FrameReads<ReadIdentity<'a>, AxElement>>,
+    current: &'a dyn Fn() -> (u64, u64, bool),
+    native_calls: Cell<u64>,
+}
+impl FramePass<'_> {
+    fn valid(&self) -> bool {
+        let (revision, epoch, dirty) = (self.current)();
+        let reads = self.reads.borrow();
+        !reads.invalidated
+            && !dirty
+            && revision == reads.identity.revision
+            && epoch == reads.identity.epoch
+    }
+    fn frame(&self, node: &AxElement) -> Option<Rect> {
+        if !self.valid() {
+            self.reads.borrow_mut().revoke();
+            return None;
+        }
+        let identity = self.reads.borrow().identity;
+        self.reads.borrow_mut().read(
+            &identity,
+            node,
+            || node.frame_counted(&|| self.native_calls.set(self.native_calls.get() + 1)),
+            || {
+                let (revision, epoch, dirty) = (self.current)();
+                !dirty && revision == identity.revision && epoch == identity.epoch
+            },
+        )
+    }
+}
+
+struct Native<'a> {
+    start: Instant,
+    pass: Option<FramePass<'a>>,
+}
+impl Native<'_> {
     fn new() -> Self {
         Self {
             start: Instant::now(),
+            pass: None,
         }
     }
 }
@@ -1168,7 +1547,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     fn CFRelease(value: *const c_void);
 }
-impl Backend for Native {
+impl Backend for Native<'_> {
     type Node = AxElement;
     type Attributed = AxAttributedString;
     type Font = Retained<NSFont>;
@@ -1233,7 +1612,10 @@ impl Backend for Native {
             .unwrap_or_default())
     }
     fn frame(&self, node: &AxElement) -> Option<Rect> {
-        node.frame()
+        match &self.pass {
+            Some(pass) => pass.frame(node),
+            None => node.frame(),
+        }
     }
     fn bounds(&self, node: &AxElement, range: AxRange) -> Option<Rect> {
         node.bounds_for_range(range)
@@ -1307,22 +1689,6 @@ pub fn field_ancestry(field: &AxElement, secure_description: &str) -> Option<Vec
 pub fn range_bounds(field: &AxElement, secure_description: &str, range: AxRange) -> Option<Rect> {
     bounds(&Native::new(), field, secure_description, range)
 }
-pub fn caret_bounds(
-    field: &AxElement,
-    secure_description: &str,
-    text: &TextBuffer,
-    caret_index: usize,
-    location: usize,
-) -> Option<Rect> {
-    caret(
-        &Native::new(),
-        field,
-        secure_description,
-        text,
-        caret_index,
-        location,
-    )
-}
 pub fn capture_anchor_matches(
     field: &AxElement,
     secure_description: &str,
@@ -1337,29 +1703,88 @@ pub fn capture_anchor_matches(
         selection,
     )
 }
-pub fn inline_metrics(
-    field: &AxElement,
-    secure_description: &str,
+
+pub(super) struct CaptureGeometry {
+    pub caret_rect: Option<Rect>,
+    pub field_rect: Option<Rect>,
+    pub window_rect: Option<Rect>,
+    pub render: Option<InlineRender>,
+    pub evidence: Option<AppearanceEvidence>,
+    pub counts: FrameReadCounts,
+}
+
+pub(super) fn capture_geometry(
+    scope: CaptureReadScope<'_>,
+    secure: &str,
     text: &TextBuffer,
-    caret: usize,
-    location: usize,
-    caret_rect: Option<Rect>,
-    field_rect: Option<Rect>,
+    caret_index: usize,
+    selection: AxRange,
     browser: bool,
     diagnostic: &mut &'static str,
-) -> (Option<InlineRender>, Option<AppearanceEvidence>) {
-    inline(
-        &Native::new(),
-        field,
-        secure_description,
+    gap_diagnostic: Option<&mut Option<GapDiagnostic>>,
+) -> Option<CaptureGeometry> {
+    let backend = Native {
+        start: Instant::now(),
+        pass: Some(FramePass {
+            reads: RefCell::new(FrameReads::new(
+                ReadIdentity {
+                    field: scope.field,
+                    window: scope.window,
+                    document: scope.document,
+                    pid: scope.pid,
+                    revision: scope.revision,
+                    epoch: scope.epoch,
+                },
+                scope.reuse,
+            )),
+            current: scope.current,
+            native_calls: Cell::new(0),
+        }),
+    };
+    let caret_rect = caret(
+        &backend,
+        scope.field,
+        secure,
         text,
-        caret,
-        location,
+        caret_index,
+        selection.location,
+    );
+    let field_rect = backend.frame(scope.field);
+    let (render, evidence) = if selection.length == 0 {
+        inline(
+            &backend,
+            scope.field,
+            secure,
+            text,
+            caret_index,
+            selection.location,
+            caret_rect,
+            field_rect,
+            browser,
+            diagnostic,
+            gap_diagnostic,
+        )
+    } else {
+        (None, None)
+    };
+    // visible_clip may already have read this exact window while clipping the
+    // inline run. Reuse only within this pass, not at the later anchor barrier.
+    let window_rect = backend.frame(scope.window);
+    let pass = backend.pass.as_ref()?;
+    if !pass.valid() {
+        return None;
+    }
+    let mut counts = pass.reads.borrow().counts;
+    counts.native_calls = pass.native_calls.get();
+    Some(CaptureGeometry {
         caret_rect,
         field_rect,
-        browser,
-        diagnostic,
-    )
+        window_rect,
+        render,
+        evidence,
+        counts,
+    })
+    // Dropping backend releases every retained entry before the caller resumes.
 }
 
 #[cfg(test)]
@@ -1369,6 +1794,85 @@ mod tests {
         cell::Cell,
         collections::{HashMap, HashSet},
     };
+
+    #[test]
+    fn pass_frames_reuse_only_exact_authorized_identity_and_end_at_barriers() {
+        let identity = (1, 2, "document", 42, 7, 9);
+        let rect = [1., 2., 30., 40.];
+        let calls = Cell::new(0);
+        let read = || {
+            calls.set(calls.get() + 1);
+            Some(rect)
+        };
+        let mut pass = FrameReads::new(identity, true);
+        assert_eq!(pass.read(&identity, &1, read, || true), Some(rect));
+        assert_eq!(pass.read(&identity, &1, read, || true), Some(rect));
+        assert_eq!(calls.get(), 1);
+        assert_eq!(pass.counts.hits, 1);
+        // A distinct native element is a miss, even in the same authorized pass.
+        assert_eq!(pass.read(&identity, &3, read, || true), Some(rect));
+        assert_eq!(calls.get(), 2);
+        drop(pass);
+        let mut fresh_barrier = FrameReads::new(identity, true);
+        assert_eq!(fresh_barrier.read(&identity, &1, read, || true), Some(rect));
+        assert_eq!(calls.get(), 3);
+        for changed in [
+            (3, 2, "document", 42, 7, 9),
+            (1, 3, "document", 42, 7, 9),
+            (1, 2, "other", 42, 7, 9),
+            (1, 2, "document", 43, 7, 9),
+            (1, 2, "document", 42, 8, 9),
+            (1, 2, "document", 42, 7, 10),
+        ] {
+            let mut pass = FrameReads::new(identity, true);
+            assert_eq!(pass.read(&identity, &1, read, || true), Some(rect));
+            assert_eq!(pass.read(&changed, &1, read, || true), None);
+            assert_eq!(pass.read(&identity, &1, read, || true), None);
+            assert!(pass.invalidated);
+        }
+    }
+
+    #[test]
+    fn pass_frame_failure_discards_entries_and_mid_read_revocation_rejects_result() {
+        let rect = [1., 2., 30., 40.];
+        let mut pass = FrameReads::new(1, true);
+        assert_eq!(pass.read(&1, &1, || Some(rect), || true), Some(rect));
+        assert_eq!(pass.read(&1, &2, || None, || true), None);
+        // A failed pair cannot preserve even an earlier successful entry.
+        assert_eq!(pass.read(&1, &1, || None, || true), None);
+        assert_eq!(pass.counts.hits, 0);
+        assert_eq!(pass.read(&1, &1, || Some(rect), || false), None);
+        assert_eq!(pass.read(&1, &1, || panic!("revoked pass"), || true), None);
+    }
+
+    #[test]
+    fn pass_frames_are_bounded_and_disabled_baseline_always_reads() {
+        let rect = [1., 2., 30., 40.];
+        let mut pass = FrameReads::new(1, true);
+        for node in 0..32 {
+            assert_eq!(pass.read(&1, &node, || Some(rect), || true), Some(rect));
+        }
+        assert_eq!(pass.entries.iter().flatten().count(), 16);
+        assert_eq!(pass.read(&1, &31, || None, || true), None);
+        let calls = Cell::new(0);
+        let mut baseline = FrameReads::new(1, false);
+        for _ in 0..2 {
+            assert_eq!(
+                baseline.read(
+                    &1,
+                    &1,
+                    || {
+                        calls.set(calls.get() + 1);
+                        Some(rect)
+                    },
+                    || true
+                ),
+                Some(rect)
+            );
+        }
+        assert_eq!(calls.get(), 2);
+        assert_eq!(baseline.counts.hits, 0);
+    }
 
     #[derive(Clone, Debug, PartialEq)]
     enum TestValue {
@@ -1479,6 +1983,7 @@ mod tests {
         nodes: Vec<Node>,
         rows: HashMap<(usize, usize, usize), Rect>,
         reads: RefCell<Vec<(usize, String)>>,
+        frame_reads: RefCell<Option<FrameReads<u64, usize>>>,
         requests: RefCell<Vec<(usize, usize, usize)>>,
         forbidden: HashSet<(usize, String)>,
         clock: Cell<Duration>,
@@ -1513,6 +2018,7 @@ mod tests {
                 nodes,
                 rows: HashMap::new(),
                 reads: RefCell::new(Vec::new()),
+                frame_reads: RefCell::new(None),
                 requests: RefCell::new(Vec::new()),
                 forbidden: HashSet::new(),
                 clock: Cell::new(Duration::ZERO),
@@ -1583,6 +2089,7 @@ mod tests {
                 Some([0.0, 0.0, 400.0, 200.0]),
                 browser,
                 &mut "not_observed",
+                None,
             )
         }
     }
@@ -1651,8 +2158,14 @@ mod tests {
             Ok(self.children(node).unwrap_or_default())
         }
         fn frame(&self, node: &usize) -> Option<Rect> {
-            self.read(*node, "frame");
-            self.nodes[*node].frame
+            let read = || {
+                self.read(*node, "frame");
+                self.nodes[*node].frame
+            };
+            match self.frame_reads.borrow_mut().as_mut() {
+                Some(pass) => pass.read(&1, node, read, || true),
+                None => read(),
+            }
         }
         fn selected_range(&self, node: &usize) -> Option<AxRange> {
             self.read(*node, "AXSelectedTextRange");
@@ -1737,6 +2250,69 @@ mod tests {
     }
     const RECT: Rect = [120.0, 240.0, 9.0, 21.0];
     const CARET: Rect = [100.0, 40.0, 1.0, 20.0];
+
+    #[test]
+    fn clipping_reuses_window_but_security_and_capture_anchor_stay_fresh() {
+        let mut host = Host::tree("synthetic", &[]);
+        let field_rect = [0., 0., 400., 200.];
+        let window_rect = [0., 0., 500., 300.];
+        host.nodes[0].frame = Some(field_rect);
+        host.nodes[0].elements.insert("AXParent".into(), 1);
+        host.nodes[0].elements.insert("AXWindow".into(), 1);
+        let mut window = Node::default();
+        window.strings.insert("AXRole".into(), "AXWindow".into());
+        window.frame = Some(window_rect);
+        host.nodes.push(window);
+        host.selection.set(Some(r(9, 0)));
+        host.rows.insert((0, 9, 0), CARET);
+        host.rows.insert((0, 8, 1), [90., 40., 10., 20.]);
+        let snapshot = Snapshot {
+            text: "synthetic".into(),
+            caret: 9,
+            caret_rect: Some(CARET),
+            field_rect: Some(field_rect),
+            window_bounds: Some(window_rect),
+            ..Default::default()
+        };
+        *host.frame_reads.borrow_mut() = Some(FrameReads::new(1, true));
+        assert_eq!(
+            visible_clip(&host, &0, "secure", field_rect),
+            Some(field_rect)
+        );
+        assert_eq!(host.frame(&1), Some(window_rect));
+        assert_eq!(
+            host.reads
+                .borrow()
+                .iter()
+                .filter(|(node, name)| *node == 1 && name == "frame")
+                .count(),
+            1
+        );
+        // Reusing geometry never reuses the security metadata around it.
+        host.nodes[1].flags.insert("AXProtectedContent".into());
+        assert_eq!(visible_clip(&host, &0, "secure", field_rect), None);
+        host.nodes[1].flags.clear();
+        host.frame_reads.borrow_mut().take(); // End pass BEFORE the guard.
+        assert!(anchor_matches(&host, &0, "secure", &snapshot, r(9, 0)));
+        assert_eq!(
+            host.reads
+                .borrow()
+                .iter()
+                .filter(|(node, name)| *node == 1 && name == "frame")
+                .count(),
+            2
+        );
+        host.nodes[1].frame = Some([1., 0., 500., 300.]);
+        assert!(!anchor_matches(&host, &0, "secure", &snapshot, r(9, 0)));
+        assert!(
+            host.reads
+                .borrow()
+                .iter()
+                .filter(|(_, name)| name == "AXSelectedTextRange")
+                .count()
+                >= 3
+        );
+    }
 
     #[test]
     fn capture_anchor_fences_same_field_selection_and_geometry_races_without_content_reads() {
@@ -2089,6 +2665,7 @@ mod tests {
             Some(raw),
             false,
             &mut "not_observed",
+            None,
         );
         assert_eq!(render.unwrap().clip_rect, host.nodes[5].frame.unwrap());
         assert_eq!(host.nodes[0].frame, Some(raw));
@@ -2334,6 +2911,28 @@ mod tests {
         assert_eq!(host.metrics_result("😀abc", 4, CARET, false), (None, None));
     }
     #[test]
+    fn typography_run_reuses_exact_unicode_prefix_conversion() {
+        let text = "😀e\u{301}world";
+        let mut host = Host::metrics(text);
+        // The run starts after an astral scalar and a decomposed accent.
+        // Its local UTF-16 offset is not a scalar or UTF-8 byte offset.
+        host.attributed.as_mut().unwrap().runs = vec![
+            (r(0, 4), font_attributes("Other")),
+            (r(4, 5), font_attributes("Host-Regular")),
+        ];
+        host.rows.extend([
+            ((0, 0, 9), [40.0, 40.0, 60.0, 20.0]),
+            ((0, 4, 5), [70.0, 40.0, 30.0, 20.0]),
+            ((0, 6, 3), [82.0, 40.0, 18.0, 20.0]),
+        ]);
+        host.widths
+            .extend([("world".into(), 30.0), ("rld".into(), 18.0)]);
+        let render = host.metrics_result(text, 8, CARET, false).0.unwrap();
+        assert_eq!(render.font_name, "Host-Regular");
+        assert!(host.requests.borrow().contains(&(0, 4, 5)));
+        assert!(host.requests.borrow().contains(&(0, 6, 3)));
+    }
+    #[test]
     fn two_span_calibration_uses_caret_advances_and_integer_rounding() {
         let mut host = Host::metrics("Hello world");
         host.attributed.as_mut().unwrap().runs = vec![
@@ -2407,6 +3006,377 @@ mod tests {
         );
     }
     #[test]
+    fn caret_row_refusals_distinguish_literal_tabs_from_blank_samples_and_direction() {
+        for (value, at, expected) in [
+            ("Hello\n", 6, "caret_row_prefix_empty"),
+            ("Hello\tworld", 5, "caret_row_suffix_tab"),
+            ("שלום", 4, "caret_row_direction_unverified"),
+            ("Hello שלום", 5, "caret_row_direction_unverified"),
+            ("Hello\t", 6, "caret_row_gap_geometry_unverified"),
+            ("Hello\t  ", 8, "caret_row_gap_geometry_unverified"),
+            (
+                "Hello                                ",
+                37,
+                "caret_row_gap_geometry_unverified",
+            ),
+        ] {
+            let host = Host::metrics(value);
+            let text = TextBuffer::from(value);
+            let mut diagnostic = "not_observed";
+            let result = inline(
+                &host,
+                &0,
+                "secure",
+                &text,
+                at,
+                text.index().scalar_to_utf16(ScalarIndex(at)).unwrap().0,
+                Some(CARET),
+                Some([0.0, 0.0, 400.0, 200.0]),
+                false,
+                &mut diagnostic,
+                None,
+            );
+            assert_eq!(result, (None, None), "{expected}");
+            assert_eq!(diagnostic, expected);
+            if expected == "caret_row_gap_geometry_unverified" {
+                // Eligible text is insufficient: the native sample-end
+                // anchor is absent, so no direct render or vision fallback.
+                assert!(!host.requests.borrow().is_empty());
+            } else {
+                assert!(host.requests.borrow().is_empty());
+            }
+        }
+    }
+    fn trailing_tab_host(gap: &str, width: f64) -> (Host, String, usize, Rect) {
+        let text = format!("Hello world{gap}");
+        let location = text.encode_utf16().count();
+        let mut host = Host::metrics(&text);
+        let caret = [100.0 + width, 40.0, 1.0, 20.0];
+        host.rows.extend([
+            ((0, 11, 0), [100.0, 40.0, 0.0, 20.0]),
+            ((0, location, 0), caret),
+            ((0, 11, location - 11), [100.0, 40.0, width, 20.0]),
+        ]);
+        (host, text, location, caret)
+    }
+    #[test]
+    fn gap_diagnostics_preserve_refusals_and_native_read_order_without_content() {
+        for (defect, expected) in [
+            ("sample_missing", GapFailure::SampleEndUnavailable),
+            ("caret_missing", GapFailure::CaretUnavailable),
+            ("gap_missing", GapFailure::GapUnavailable),
+            ("raw_row", GapFailure::RawEndpointRowMismatch),
+            ("endpoint_order", GapFailure::EndpointOrderInvalid),
+            ("gap_end", GapFailure::GapEndMismatch),
+            ("sample_clipped", GapFailure::SampleEndClipped),
+        ] {
+            let (mut host, _, location, caret) = trailing_tab_host("\t", 43.0);
+            let mut clip = [0.0, 0.0, 400.0, 200.0];
+            match defect {
+                "sample_missing" => {
+                    host.rows.remove(&(0, 11, 0));
+                }
+                "caret_missing" => {
+                    host.rows.remove(&(0, location, 0));
+                }
+                "gap_missing" => {
+                    host.rows.remove(&(0, 11, 1));
+                }
+                "raw_row" => host.rows.get_mut(&(0, 11, 0)).unwrap()[1] = 20.0,
+                "endpoint_order" => host.rows.get_mut(&(0, 11, 0)).unwrap()[0] = caret[0],
+                "gap_end" => host.rows.get_mut(&(0, 11, 1)).unwrap()[2] = 33.0,
+                "sample_clipped" => clip = [101.0, 0.0, 299.0, 200.0],
+                _ => unreachable!(),
+            }
+            let baseline = native_gap_anchor(&host, &0, 11, location, caret, clip, None);
+            let reads = host.requests.borrow().clone();
+            host.requests.borrow_mut().clear();
+            let mut diagnostic = None;
+            let observed =
+                native_gap_anchor(&host, &0, 11, location, caret, clip, Some(&mut diagnostic));
+            assert_eq!(observed, baseline);
+            assert!(observed.is_none());
+            assert_eq!(*host.requests.borrow(), reads);
+            let diagnostic = diagnostic.unwrap();
+            assert_eq!(diagnostic.reason, Some(expected));
+            assert_eq!(diagnostic.captured_caret, caret);
+            assert_eq!(diagnostic.clip, clip);
+            if defect == "sample_missing" {
+                assert_eq!(reads.len(), 1);
+                assert!(diagnostic.raw_sample_end.is_none());
+                assert!(diagnostic.raw_caret.is_none());
+                assert!(diagnostic.raw_gap.is_none());
+            }
+            let exported = serde_json::to_value(diagnostic).unwrap();
+            for (key, value) in exported.as_object().unwrap() {
+                if key == "reason" {
+                    assert!(value.is_string());
+                } else if !value.is_null() {
+                    let rect = value
+                        .as_array()
+                        .expect("only numeric rectangles may be exported");
+                    assert_eq!(rect.len(), 4);
+                    assert!(rect.iter().all(serde_json::Value::is_number));
+                }
+            }
+            let serialized = serde_json::to_string(&exported).unwrap();
+            for private in ["Hello", "world", "location", "length", "field_id", "pid"] {
+                assert!(!serialized.contains(private));
+            }
+        }
+    }
+    #[test]
+    fn gap_diagnostics_keep_raw_coordinates_and_do_not_replace_failure_with_success() {
+        let (mut host, _, location, caret) = trailing_tab_host("\t", 43.0);
+        host.rows.get_mut(&(0, 11, 0)).unwrap()[1] = 20.0;
+        host.rows.get_mut(&(0, location, 0)).unwrap()[1] = 20.0;
+        host.rows.get_mut(&(0, 11, 1)).unwrap()[2] = 33.0;
+        let clip = [0.0, 0.0, 400.0, 200.0];
+        let mut diagnostic = None;
+        assert!(
+            native_gap_anchor(&host, &0, 11, location, caret, clip, Some(&mut diagnostic),)
+                .is_none()
+        );
+        let failure = diagnostic.unwrap();
+        // The narrow gap does not reach the current endpoint, so normalization
+        // cannot relabel that endpoint as if a compatible glyph were observed.
+        assert_eq!(failure.raw_sample_end.unwrap()[1], 20.0);
+        assert_eq!(failure.normalized_sample_end.unwrap()[1], 40.0);
+        assert_eq!(failure.raw_caret.unwrap()[1], 20.0);
+        assert_eq!(failure.normalized_caret.unwrap()[1], 20.0);
+        let mut retained = None;
+        failure.retain_failure(&mut retained);
+        assert_eq!(retained, Some(failure));
+
+        host.rows.get_mut(&(0, 11, 1)).unwrap()[2] = 43.0;
+        let mut ready = None;
+        assert!(
+            native_gap_anchor(&host, &0, 11, location, caret, clip, Some(&mut ready),).is_some()
+        );
+        let ready = ready.unwrap();
+        assert!(ready.reason.is_none());
+        ready.retain_failure(&mut retained);
+        assert_eq!(retained, Some(failure));
+    }
+    #[test]
+    fn trailing_tab_uses_independent_native_sample_and_caret_anchors() {
+        for gap in ["\t", "\t  ", "\t\t"] {
+            for width in [17.0, 43.0, 89.0] {
+                let (host, text, location, caret) = trailing_tab_host(gap, width);
+                let (render, evidence) =
+                    host.metrics_result(&text, text.chars().count(), caret, false);
+                let render = render.expect("same-row native tab gap has a verified font sample");
+                assert_eq!(render.font_name, "Host-Regular");
+                assert_eq!(render.font_size, 13.0);
+                assert_eq!(render.baseline, 56.0);
+                assert!(render.valid(Some(caret)));
+                assert!(render.suffix.is_empty());
+                assert_eq!(render.fixed_advance, 0.0);
+                assert!(evidence.is_none());
+                for range in [(0, 11, 0), (0, location, 0), (0, 11, location - 11)] {
+                    assert!(host.requests.borrow().contains(&range));
+                }
+                // This backend has no tab/gap font width. Success must come
+                // from native anchors, not an estimated or measured tab width.
+                assert!(!host.widths.contains_key(gap));
+            }
+        }
+    }
+    fn trailing_tab_offset_row_host() -> (Host, String, usize, Rect) {
+        let (mut host, text, location, mut caret) = trailing_tab_host("\t", 43.0);
+        // Owned AppKit evidence: raw AX zero ranges y=207/h=19, glyph row
+        // y=226/h=19. Translate that same convention to y=21/40 here.
+        for rect in host.rows.values_mut() {
+            rect[3] = 19.0;
+        }
+        host.rows.get_mut(&(0, 11, 0)).unwrap()[1] = 21.0;
+        host.rows.get_mut(&(0, location, 0)).unwrap()[1] = 21.0;
+        host.rows.insert((0, 10, 1), [94.0, 40.0, 6.0, 19.0]);
+        host.ascent = 15.0;
+        host.descent = 4.0;
+        host.line_height = 19.0;
+        host.baseline = 15.0;
+        caret[3] = 19.0;
+        (host, text, location, caret)
+    }
+    #[test]
+    fn trailing_tab_uses_glyph_row_with_observed_offset_zero_range_convention() {
+        let (host, value, location, expected_caret) = trailing_tab_offset_row_host();
+        let text = TextBuffer::from(value.as_str());
+        let observed = caret(&host, &0, "secure", &text, text.scalar_len(), location);
+        assert_eq!(observed, Some(expected_caret));
+        let (render, evidence) =
+            host.metrics_result(&value, text.scalar_len(), observed.unwrap(), false);
+        let render = render.expect("native glyph row resolves the offset zero-range convention");
+        assert_eq!(render.baseline, 55.0);
+        assert_eq!(render.source, "macos-ax-attributed-run");
+        assert!(render.valid(Some(expected_caret)));
+        assert!(evidence.is_none());
+        // Neither font calibration nor row normalization changes raw AX X.
+        assert_eq!(host.rows[&(0, 11, 0)][0], 100.0);
+        assert_eq!(host.rows[&(0, location, 0)][0], expected_caret[0]);
+    }
+    #[test]
+    fn trailing_tab_offset_row_proof_rejects_changed_zero_and_glyph_rows() {
+        for defect in [
+            "zero_rows_disagree",
+            "zero_rows_outside_glyph",
+            "sample_zero_height_changed",
+            "both_zero_heights_changed",
+            "gap_height_changed",
+            "captured_caret_height_changed",
+            "gap_glyph_row_changed",
+            "sample_glyph_row_changed",
+            "zero_range_missing",
+        ] {
+            let (mut host, value, location, mut caret) = trailing_tab_offset_row_host();
+            match defect {
+                "zero_rows_disagree" => host.rows.get_mut(&(0, 11, 0)).unwrap()[1] = 40.0,
+                "zero_rows_outside_glyph" => {
+                    host.rows.get_mut(&(0, 11, 0)).unwrap()[1] = 0.0;
+                    host.rows.get_mut(&(0, location, 0)).unwrap()[1] = 0.0;
+                }
+                "sample_zero_height_changed" => {
+                    host.rows.get_mut(&(0, 11, 0)).unwrap()[3] = 21.0;
+                }
+                "both_zero_heights_changed" => {
+                    host.rows.get_mut(&(0, 11, 0)).unwrap()[3] = 21.0;
+                    host.rows.get_mut(&(0, location, 0)).unwrap()[3] = 21.0;
+                }
+                "gap_height_changed" => host.rows.get_mut(&(0, 11, 1)).unwrap()[3] = 21.0,
+                "captured_caret_height_changed" => caret[3] = 21.0,
+                "gap_glyph_row_changed" => host.rows.get_mut(&(0, 11, 1)).unwrap()[1] = 60.0,
+                "sample_glyph_row_changed" => {
+                    host.rows.get_mut(&(0, 0, 11)).unwrap()[1] = 60.0;
+                    host.rows.get_mut(&(0, 5, 6)).unwrap()[1] = 60.0;
+                }
+                "zero_range_missing" => {
+                    host.rows.remove(&(0, location, 0));
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                host.metrics_result(&value, value.chars().count(), caret, false),
+                (None, None),
+                "{defect}"
+            );
+        }
+    }
+    #[test]
+    fn trailing_tab_sample_ranges_preserve_utf16_offsets_after_non_bmp_text() {
+        let text = "😀\nHello world\t";
+        let mut host = Host::metrics(text);
+        host.rows.clear();
+        host.rows.extend([
+            ((0, 3, 11), [40.0, 40.0, 60.0, 20.0]),
+            ((0, 8, 6), [70.0, 40.0, 30.0, 20.0]),
+            ((0, 14, 0), [100.0, 40.0, 0.0, 20.0]),
+            ((0, 15, 0), [143.0, 40.0, 1.0, 20.0]),
+            ((0, 14, 1), [100.0, 40.0, 43.0, 20.0]),
+        ]);
+        let (render, evidence) =
+            host.metrics_result(text, text.chars().count(), [143.0, 40.0, 1.0, 20.0], false);
+        assert_eq!(render.unwrap().baseline, 56.0);
+        assert!(evidence.is_none());
+        for range in [(0, 3, 11), (0, 8, 6), (0, 14, 0), (0, 15, 0), (0, 14, 1)] {
+            assert!(host.requests.borrow().contains(&range));
+        }
+    }
+    #[test]
+    fn trailing_tab_refuses_missing_changed_or_wrapped_native_gap_geometry() {
+        for defect in [
+            "sample_anchor_missing",
+            "caret_anchor_missing",
+            "gap_missing",
+            "sample_other_row",
+            "caret_changed",
+            "gap_other_row",
+            "gap_multiline",
+            "gap_start_changed",
+            "gap_end_changed",
+        ] {
+            let (mut host, text, location, caret) = trailing_tab_host("\t", 43.0);
+            match defect {
+                "sample_anchor_missing" => {
+                    host.rows.remove(&(0, 11, 0));
+                }
+                "caret_anchor_missing" => {
+                    host.rows.remove(&(0, location, 0));
+                }
+                "gap_missing" => {
+                    host.rows.remove(&(0, 11, 1));
+                }
+                "sample_other_row" => host.rows.get_mut(&(0, 11, 0)).unwrap()[1] = 20.0,
+                "caret_changed" => host.rows.get_mut(&(0, location, 0)).unwrap()[0] = 153.0,
+                "gap_other_row" => host.rows.get_mut(&(0, 11, 1)).unwrap()[1] = 60.0,
+                "gap_multiline" => host.rows.get_mut(&(0, 11, 1)).unwrap()[3] = 40.0,
+                "gap_start_changed" => host.rows.get_mut(&(0, 11, 1)).unwrap()[0] = 90.0,
+                "gap_end_changed" => host.rows.get_mut(&(0, 11, 1)).unwrap()[2] = 53.0,
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                host.metrics_result(&text, text.chars().count(), caret, false),
+                (None, None),
+                "{defect}"
+            );
+        }
+    }
+    #[test]
+    fn trailing_tab_requires_current_typography_and_direct_ax_font_proof() {
+        for defect in [
+            "gap_font_changed",
+            "gap_baseline_changed",
+            "gap_text_changed",
+            "gap_marked_text",
+            "missing_font",
+            "unavailable_font",
+            "uncalibrated_font",
+        ] {
+            let (mut host, text, _, caret) = trailing_tab_host("\t", 43.0);
+            match defect {
+                "gap_font_changed" | "gap_baseline_changed" => {
+                    let mut gap = font_attributes("Host-Regular");
+                    if defect == "gap_font_changed" {
+                        gap = font_attributes("Other");
+                    } else {
+                        gap.insert("NSBaselineOffset".into(), TestValue::Number(2.0));
+                    }
+                    host.attributed.as_mut().unwrap().runs =
+                        vec![(r(0, 11), font_attributes("Host-Regular")), (r(11, 1), gap)];
+                }
+                "gap_text_changed" => {
+                    host.attributed.as_mut().unwrap().text = "Hello world ".into();
+                }
+                "gap_marked_text" => {
+                    host.attributed.as_mut().unwrap().runs[0]
+                        .1
+                        .insert("AXMarkedText".into(), TestValue::Bool(true));
+                }
+                "missing_font" => host.attributed.as_mut().unwrap().runs[0].1.clear(),
+                "unavailable_font" => host.reject_font = true,
+                "uncalibrated_font" => {
+                    host.widths.insert("Hello world".into(), 100.0);
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                host.metrics_result(&text, text.chars().count(), caret, false),
+                (None, None),
+                "{defect}"
+            );
+        }
+    }
+    #[test]
+    fn trailing_tab_does_not_search_unbounded_whitespace_for_a_sample() {
+        let gap = "\t".repeat(129);
+        let (host, text, _, caret) = trailing_tab_host(&gap, 43.0);
+        assert_eq!(
+            host.metrics_result(&text, text.chars().count(), caret, false),
+            (None, None)
+        );
+        assert!(host.requests.borrow().is_empty());
+    }
+    #[test]
     fn soft_wrap_samples_shrink_to_observed_row() {
         let text = "previous row. Hello world";
         let mut host = Host::metrics(text);
@@ -2464,8 +3434,8 @@ mod tests {
             }
         }
     }
-    // Captured from the owned synthetic TextEdit document, with independent
-    // NSLayoutManager layout proving a baseline of 10 in a 13-point fragment.
+    // Released 0.5.4 synthetic TextEdit fixture: independent NSLayoutManager
+    // layout places the baseline at 10 in a 13-point first-row fragment.
     const TEXTEDIT_TEXT: &str = "I would appreciate your feedb";
     const TEXTEDIT_CARET: Rect = [416.05419921875, 947.0, 1.0, 13.0];
 
@@ -2514,6 +3484,7 @@ mod tests {
             host.nodes[0].frame,
             browser,
             &mut "not_observed",
+            None,
         )
     }
 

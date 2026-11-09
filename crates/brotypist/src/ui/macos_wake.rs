@@ -1,5 +1,4 @@
 //! Wake AppKit's event wait without calling UI/controller code on a publisher.
-use crate::runtime::owner_wake::OwnerWake;
 use anyhow::{Context, Result};
 use objc2::{msg_send, rc::Retained, runtime::AnyObject};
 use objc2_app_kit::{NSApplication, NSEvent, NSEventModifierFlags, NSEventType};
@@ -37,6 +36,7 @@ impl Signal {
 struct Event {
     event: Retained<NSEvent>,
     cookie: isize,
+    // Transport queue state only; Controller's WakeSignal owns logical coalescing.
     queued: Cell<bool>,
     #[cfg(feature = "native-smoke")]
     delivered: Cell<u64>,
@@ -47,7 +47,6 @@ struct Event {
 pub(super) struct AppKitWake {
     signal: Arc<Signal>,
     context: Box<Event>,
-    pub(super) notifier: OwnerWake,
     _main_thread: MainThreadMarker,
 }
 impl AppKitWake {
@@ -93,14 +92,17 @@ impl AppKitWake {
         // consume worker results, rearm shortcuts or invoke controller ticks.
         run_loop.add_source(Some(&source), unsafe { kCFRunLoopDefaultMode });
         let signal = Arc::new(Signal { source, run_loop });
-        let publisher = signal.clone();
-        let notifier = OwnerWake::new(move || publisher.notify());
         Ok(Self {
             signal,
             context,
-            notifier,
             _main_thread: mtm,
         })
+    }
+
+    pub(super) fn callback(&self) -> Arc<dyn Fn() + Send + Sync> {
+        // Publishers retain only thread-safe CF handles, never the event context.
+        let signal = self.signal.clone();
+        Arc::new(move || signal.notify())
     }
 
     pub(super) fn consume(&self, event: &AnyObject) -> bool {
@@ -118,11 +120,6 @@ impl AppKitWake {
             self.context
                 .delivered
                 .set(self.context.delivered.get().saturating_add(1));
-            #[cfg(feature = "native-smoke")]
-            crate::runtime::stage_diagnostics::mark(
-                crate::runtime::stage_diagnostics::Stage::AppKitWakeDelivered,
-                None,
-            );
             true
         } else {
             false
@@ -136,7 +133,6 @@ impl AppKitWake {
 }
 impl Drop for AppKitWake {
     fn drop(&mut self) {
-        self.notifier.close();
         self.signal.source.invalidate();
     }
 }

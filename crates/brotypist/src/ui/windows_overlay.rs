@@ -2,11 +2,12 @@
 use super::wide;
 use crate::{
     core::{Authority, InlineRender, Rect, SnapshotKey},
-    runtime::Command,
+    runtime::{Command, PaintObservation, PaintReporter, PresentationLane},
 };
 use anyhow::{Result, ensure};
 use serde::Deserialize;
 use serde_json::Value;
+use std::{cell::Cell, time::Instant};
 use windows::{
     Win32::{
         Foundation::*,
@@ -39,6 +40,75 @@ impl Presentation {
         }
     }
 }
+struct PaintRegion(HRGN);
+impl PaintRegion {
+    fn new(rect: RECT) -> Option<Self> {
+        let region = unsafe { CreateRectRgn(rect.left, rect.top, rect.right, rect.bottom) };
+        if region.0.is_null() {
+            None
+        } else {
+            Some(Self(region))
+        }
+    }
+}
+impl Drop for PaintRegion {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = DeleteObject(self.0.into());
+        }
+    }
+}
+/// Proves complete coverage in our untransformed common BeginPaint DCs, which
+/// never select application or meta clipping. Call only while an observation is
+/// pending and before EndPaint. At most two temporary GDI regions are owned.
+///
+/// SYSRGN is the actual update-region / visible-area intersection, in screen
+/// coordinates, and is current inside BeginPaint/EndPaint:
+/// https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-getrandomrgn
+/// GetClipRgn alone does NOT retrieve BeginPaint's clipping region:
+/// https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-getcliprgn
+/// RGN_DIFF preserves holes; only NULLREGION proves containment, not ERROR:
+/// https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-combinergn
+/// Common DCs reset to client-origin defaults on acquisition; neither caller
+/// changes their mapping, layout, world transform, or meta region:
+/// https://learn.microsoft.com/en-us/windows/win32/gdi/common-display-device-contexts
+/// GetDCOrgEx supplies the physical-screen offset for those client coordinates:
+/// https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-getdcorgex
+pub(super) fn paint_covers(dc: HDC, rect: RECT) -> bool {
+    if dc.0.is_null() || rect.left >= rect.right || rect.top >= rect.bottom {
+        return false;
+    }
+    unsafe {
+        let mut origin = POINT::default();
+        if !GetDCOrgEx(dc, &mut origin).as_bool() {
+            return false;
+        }
+        let (Some(left), Some(top), Some(right), Some(bottom)) = (
+            rect.left.checked_add(origin.x),
+            rect.top.checked_add(origin.y),
+            rect.right.checked_add(origin.x),
+            rect.bottom.checked_add(origin.y),
+        ) else {
+            return false;
+        };
+        let Some(required) = PaintRegion::new(RECT {
+            left,
+            top,
+            right,
+            bottom,
+        }) else {
+            return false;
+        };
+        let Some(clip) = PaintRegion::new(RECT::default()) else {
+            return false;
+        };
+        // An unexpected application clip (or query failure) is unprovable under
+        // this common-DC contract. It must not turn into a diagnostic receipt.
+        GetClipRgn(dc, clip.0) == 0
+            && GetRandomRgn(dc, clip.0, SYSRGN as i32) == 1
+            && CombineRgn(required.0, required.0, clip.0, RGN_DIFF) == NULLREGION
+    }
+}
 struct Paint {
     text: Vec<u16>,
     font: HFONT,
@@ -47,7 +117,10 @@ struct Paint {
     transparent: bool,
     width: i32,
     height: i32,
-    painted: std::cell::Cell<bool>,
+    foreground: HWND,
+    painted: Cell<bool>,
+    diagnostic: Cell<Option<(u64, u64)>>,
+    reporter: Option<PaintReporter>,
 }
 pub struct Overlay {
     window: HWND,
@@ -90,6 +163,36 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
                 SetBkMode(dc, TRANSPARENT);
                 SetTextColor(dc, p.color);
                 p.painted.set(TextOutW(dc, 0, p.y, &p.text).as_bool());
+                // WM_PAINT may be queued across replacement or hiding. Its
+                // identity lives beside the text being drawn, never in a
+                // presentation receipt or a later lookup of the current view.
+                if p.painted.get()
+                    && !p.text.is_empty()
+                    && p.diagnostic.get().is_some()
+                    && p.reporter.is_some()
+                    && IsWindowVisible(hwnd).as_bool()
+                    && GetForegroundWindow() == p.foreground
+                    && paint_covers(
+                        dc,
+                        RECT {
+                            left: 0,
+                            top: 0,
+                            right: p.width,
+                            bottom: p.height,
+                        },
+                    )
+                {
+                    if let Some(reporter) = &p.reporter {
+                        if let Some((trace_id, view_serial)) = p.diagnostic.take() {
+                            reporter(PaintObservation {
+                                trace_id,
+                                lane: PresentationLane::Inline,
+                                view_serial,
+                                painted_at: Instant::now(),
+                            });
+                        }
+                    }
+                }
                 let _ = SelectObject(dc, old);
             }
             let _ = EndPaint(hwnd, &ps);
@@ -134,7 +237,10 @@ impl Overlay {
                 transparent: true,
                 width: 1,
                 height: 1,
-                painted: std::cell::Cell::new(false),
+                foreground: HWND::default(),
+                painted: Cell::new(false),
+                diagnostic: Cell::new(None),
+                reporter: None,
             });
             SetWindowLongPtrW(window, GWLP_USERDATA, (&mut *paint as *mut Paint) as isize);
             Ok(Self {
@@ -147,7 +253,17 @@ impl Overlay {
             })
         }
     }
+    #[cfg(feature = "native-smoke")]
+    pub(super) fn smoke_window(&self) -> HWND {
+        self.window
+    }
+    pub fn set_paint_reporter(&mut self, reporter: Option<PaintReporter>) {
+        // Installing a reporter cannot retroactively observe an older view.
+        self.paint.diagnostic.set(None);
+        self.paint.reporter = reporter;
+    }
     pub fn hide(&mut self) -> Option<Command> {
+        self.paint.diagnostic.set(None);
         unsafe {
             let _ = ShowWindow(self.window, SW_HIDE);
         }
@@ -168,13 +284,23 @@ impl Overlay {
         let p: Presentation = serde_json::from_value(event.clone())?;
         let _ = self.hide();
         self.current = Some(p.clone());
-        let result = self.present(&p);
+        let diagnostic = &event["diagnostic"];
+        let identity = (diagnostic["lane"] == "inline")
+            .then(|| {
+                Some((
+                    diagnostic["trace_id"].as_u64().filter(|id| *id != 0)?,
+                    diagnostic["view_serial"].as_u64().filter(|id| *id != 0)?,
+                ))
+            })
+            .flatten();
+        let result = self.present(&p, identity);
         match result {
             Ok(text) => {
                 self.visible = text.clone();
                 Ok(p.ack(text))
             }
             Err(_) => {
+                self.paint.diagnostic.set(None);
                 unsafe {
                     let _ = ShowWindow(self.window, SW_HIDE);
                 }
@@ -182,7 +308,7 @@ impl Overlay {
             }
         }
     }
-    fn present(&mut self, p: &Presentation) -> Result<String> {
+    fn present(&mut self, p: &Presentation, diagnostic: Option<(u64, u64)>) -> Result<String> {
         unsafe {
             ensure!(
                 p.mode == "completion" || p.mode == "correction",
@@ -261,7 +387,9 @@ impl Overlay {
             self.paint.color = COLORREF(0x888888);
             self.paint.width = size.cx.max(1);
             self.paint.height = tm.tmHeight;
+            self.paint.foreground = self.foreground;
             self.paint.painted.set(false);
+            self.paint.diagnostic.set(diagnostic);
             SetWindowPos(
                 self.window,
                 Some(HWND_TOPMOST),
@@ -285,6 +413,7 @@ impl Overlay {
 }
 impl Drop for Overlay {
     fn drop(&mut self) {
+        self.paint.diagnostic.set(None);
         unsafe {
             let _ = ShowWindow(self.window, SW_HIDE);
             SetWindowLongPtrW(self.window, GWLP_USERDATA, 0);
@@ -385,5 +514,53 @@ mod tests {
             }
             _ => unreachable!(),
         }
+    }
+
+    #[test]
+    fn refused_inline_and_correction_views_never_report_a_paint() {
+        use std::sync::{Arc, Mutex};
+
+        let observations = Arc::new(Mutex::new(Vec::new()));
+        let recorded = observations.clone();
+        let instance = unsafe {
+            windows::Win32::System::LibraryLoader::GetModuleHandleW(None)
+                .unwrap()
+                .into()
+        };
+        let mut overlay = Overlay::new(instance).unwrap();
+        overlay.set_paint_reporter(Some(Arc::new(move |observation| {
+            recorded.lock().unwrap().push(observation);
+        })));
+        let snapshot = crate::core::Snapshot::default();
+        for (index, mode) in ["completion", "correction"].iter().enumerate() {
+            let event = serde_json::json!({
+                "key": snapshot.key(),
+                "authority": snapshot.authority(),
+                "revision": 42,
+                "text": "a😀b",
+                "mode": mode,
+                "rect": null,
+                "render": null,
+                "diagnostic": {
+                    "trace_id": index as u64 + 1,
+                    "lane": "inline",
+                    "view_serial": index as u64 + 10,
+                },
+            });
+            assert!(matches!(
+                overlay.show(&event).unwrap(),
+                Command::PresentationResult { visible_text, .. } if visible_text.is_empty()
+            ));
+            // A queued native repaint must not turn a refusal or a hidden view
+            // into an observation, even though WM_PAINT is actually dispatched.
+            unsafe {
+                SendMessageW(overlay.window, WM_PAINT, WPARAM(0), LPARAM(0));
+            }
+            let _ = overlay.hide();
+            unsafe {
+                SendMessageW(overlay.window, WM_PAINT, WPARAM(0), LPARAM(0));
+            }
+        }
+        assert!(observations.lock().unwrap().is_empty());
     }
 }

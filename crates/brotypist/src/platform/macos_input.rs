@@ -5,9 +5,10 @@ use super::ax::ffi::{
     CFMachPortCreateRunLoopSource, CFMachPortInvalidate, CFRelease, CFRetain, CFRunLoopAddSource,
     CFRunLoopGetCurrent, CFRunLoopRemoveSource, CFRunLoopRunInMode, CGEventCreateCopy,
     CGEventCreateKeyboardEvent, CGEventGetFlags, CGEventGetIntegerValueField, CGEventGetLocation,
-    CGEventKeyboardGetUnicodeString, CGEventKeyboardSetUnicodeString, CGEventPost, CGEventSetFlags,
-    CGEventSetIntegerValueField, CGEventSourceFlagsState, CGEventTapCreate, CGEventTapEnable,
-    CGPreflightPostEventAccess, Native, kCFRunLoopCommonModes, kCFRunLoopDefaultMode,
+    CGEventKeyboardGetUnicodeString, CGEventKeyboardSetUnicodeString, CGEventPost,
+    CGEventPostToPid, CGEventSetFlags, CGEventSetIntegerValueField, CGEventSourceFlagsState,
+    CGEventTapCreate, CGEventTapEnable, CGPreflightPostEventAccess, Native, kCFRunLoopCommonModes,
+    kCFRunLoopDefaultMode,
 };
 use crate::{
     core::Rect,
@@ -959,6 +960,26 @@ impl Input {
     /// surrogate splitting nor allocation failures after the first post.
     /// The bridge must call commit() once immediately before this operation.
     pub fn post_unicode(&self, text: &str) -> Result<()> {
+        self.post_unicode_events(text, None, || true)
+    }
+    /// The emoji transaction binds dispatch to its freshly revalidated process.
+    pub fn post_unicode_to_pid(
+        &self,
+        text: &str,
+        pid: i32,
+        authorized: impl Fn() -> bool,
+    ) -> Result<()> {
+        if pid <= 0 {
+            bail!("Unicode insertion requires a valid target process");
+        }
+        self.post_unicode_events(text, Some(pid), authorized)
+    }
+    fn post_unicode_events(
+        &self,
+        text: &str,
+        pid: Option<i32>,
+        authorized: impl Fn() -> bool,
+    ) -> Result<()> {
         if text.is_empty() || text.contains('\0') {
             bail!("Unicode insertion requires nonempty, NUL-free text");
         }
@@ -985,9 +1006,17 @@ impl Input {
         }
         // Recheck after allocation and before the first irreversible post.
         self.preflight_unicode()?;
+        if !authorized() {
+            bail!("Unicode insertion authority changed before dispatch");
+        }
         for event in events {
             // SAFETY: all events are owned, tagged and fully initialized above.
-            unsafe { CGEventPost(1, event.0) }
+            unsafe {
+                match pid {
+                    Some(pid) => CGEventPostToPid(pid, event.0),
+                    None => CGEventPost(1, event.0),
+                }
+            }
         }
         Ok(())
     }
@@ -1046,6 +1075,38 @@ impl Input {
             "input_revision": state.revision, "user_input_revision": state.user_revision,
             "pending_input": state.holding(), "stopping": state.stopping,
             "thread_owned": self.worker.is_some() })
+    }
+    /// Opt-in content-free hook diagnostics, never polled for normal UI status.
+    /// `tap_needed` is owner intent, not a native health acknowledgment. A
+    /// released gate can block shortcuts without holding input.
+    pub fn diagnostic_snapshot(&self) -> Value {
+        let state = self.shared.lock();
+        let now = Instant::now();
+        let gate = state.gate.as_ref().map(|gate| {
+            json!({
+                "dispatching": gate.dispatching, "issued": gate.issued,
+                "committing": gate.committing, "ready": gate.ready,
+                "consumed": gate.consumed, "aborted": gate.aborted,
+                "released": gate.released, "overrun": gate.overrun,
+                "queued_input": gate.events.len(), "deadline_elapsed": now >= gate.deadline
+            })
+        });
+        let timeouts = state
+            .timeouts
+            .iter()
+            .filter(|time| now.saturating_duration_since(**time) < Duration::from_secs(60))
+            .count();
+        // Explicit fields only: never serialize State, Gate, retained events,
+        // layout strings, foreground identity or any user-written content.
+        json!({ "keyboard": state.message, "shortcuts_enabled": state.intercepting(),
+            "interception_enabled": state.enabled, "tap_needed": state.tap_needed(),
+            "tap_timeouts_last_minute": timeouts,
+            "shortcut_dispatch_count": state.next_gate,
+            "input_source": state.source.label(), "dead_key": state.dead_key,
+            "input_revision": state.revision, "user_input_revision": state.user_revision,
+            "pending_input": state.holding(), "shortcut_gate": gate,
+            "replaying": state.driving, "replay_queue_length": state.replay.len(),
+            "stopping": state.stopping, "thread_owned": self.worker.is_some() })
     }
 }
 impl Drop for Input {
@@ -1717,6 +1778,197 @@ mod tests {
         assert_eq!(serials, [2, 3, 4]);
         input.finish(false).unwrap();
         assert_eq!(input.shared.posted.lock().unwrap().len(), 3);
+    }
+    #[test]
+    fn rejected_tab_replay_advances_user_revision_after_repeated_consumed_tabs() {
+        for claimed in [false, true] {
+            let input = Input::new();
+            for serial in 0..4 {
+                let id = {
+                    let mut state = input.shared.lock();
+                    let now = Instant::now();
+                    let id = state.open(&Action::Word, event(KEY_DOWN, 48, serial * 2), now);
+                    state.enqueue(event(KEY_UP, 48, serial * 2 + 1), now);
+                    id
+                };
+                input
+                    .shared
+                    .dispatch(id, Action::Word, Some(Arc::new(|_| true)));
+                assert!(input.commit());
+                input.mutation_finished();
+                input.finish(true).unwrap();
+                assert_eq!(input.revision(), 0);
+                assert_eq!(input.user_revision(), 0);
+                assert!(input.shared.posted.lock().unwrap().is_empty());
+            }
+            let id = {
+                let mut state = input.shared.lock();
+                let now = Instant::now();
+                let id = state.open(&Action::Word, event(KEY_DOWN, 48, 8), now);
+                state.enqueue(event(KEY_UP, 48, 9), now);
+                id
+            };
+            input
+                .shared
+                .dispatch(id, Action::Word, Some(Arc::new(move |_| claimed)));
+            // Cover both immediate missing-claim rejection and owner-thread
+            // rejection of a queued transaction before any mutation is issued.
+            input.finish(false).unwrap();
+            assert_eq!(input.revision(), 1);
+            assert_eq!(input.user_revision(), 1);
+            assert_eq!(
+                *input.shared.posted.lock().unwrap(),
+                [(KEY_DOWN, 48, 0, 8), (KEY_UP, 48, 0, 9)]
+            );
+            input.shared.pump();
+            input.finish(false).unwrap();
+            assert_eq!(input.user_revision(), 1);
+            assert_eq!(input.shared.posted.lock().unwrap().len(), 2);
+        }
+    }
+    #[test]
+    fn ordinary_tab_advances_user_revision_once_per_press() {
+        let input = Input::new();
+        for expected in 1..=4 {
+            {
+                let mut state = input.shared.lock();
+                let now = Instant::now();
+                assert!(state.ordinary(KEY_DOWN, 48, 0, true, now));
+                assert!(state.ordinary(KEY_UP, 48, 0, true, now));
+            }
+            assert_eq!(input.revision(), expected);
+            assert_eq!(input.user_revision(), expected);
+        }
+    }
+    #[test]
+    fn diagnostic_wake_preserves_held_gate_and_revision_authority() {
+        let input = Input::new();
+        let lease_revision = input.revision_reader();
+        let held_revision = lease_revision();
+        let gate_id = open(&mut input.shared.lock(), Instant::now());
+        let invalidations = Arc::new(AtomicU64::new(0));
+        let observed = invalidations.clone();
+        input.set_callback(Some(Arc::new(move || {
+            observed.fetch_add(1, Ordering::AcqRel);
+        })));
+        let context = super::super::NativeNotificationContext {
+            note: input.notifier(),
+            dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            layout_dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            diagnostic: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        let mut wakes = 0;
+        context.request_diagnostic(|| wakes += 1);
+        assert_eq!(wakes, 1);
+        assert!(context.diagnostic.load(Ordering::Acquire));
+        assert!(!context.dirty.load(Ordering::Acquire));
+        assert!(!context.layout_dirty.load(Ordering::Acquire));
+        assert_eq!(invalidations.load(Ordering::Acquire), 0);
+        assert_eq!(lease_revision(), held_revision);
+        assert_eq!(input.user_revision(), 0);
+        {
+            let state = input.shared.lock();
+            let gate = state.gate.as_ref().unwrap();
+            assert_eq!(gate.id, gate_id);
+            assert!(!gate.aborted);
+            assert!(!gate.released);
+            assert!(state.holding());
+        }
+        // The diagnostic wake did not revoke an otherwise authorized edit.
+        assert!(input.commit());
+        input.mutation_finished();
+        input.finish(true).unwrap();
+        assert!(input.shared.posted.lock().unwrap().is_empty());
+        assert_eq!(lease_revision(), held_revision);
+
+        // Real native/focus and layout notifications retain their invalidation
+        // behavior; only the explicit diagnostic route is passive.
+        context.invalidate(false);
+        assert!(context.dirty.load(Ordering::Acquire));
+        assert!(!context.layout_dirty.load(Ordering::Acquire));
+        assert_eq!(lease_revision(), held_revision + 1);
+        assert_eq!(input.user_revision(), 1);
+        assert_eq!(invalidations.load(Ordering::Acquire), 1);
+        context.invalidate(true);
+        assert!(context.layout_dirty.load(Ordering::Acquire));
+        assert_eq!(lease_revision(), held_revision + 2);
+        assert_eq!(input.user_revision(), 2);
+        assert_eq!(invalidations.load(Ordering::Acquire), 2);
+    }
+    #[test]
+    fn diagnostic_snapshot_distinguishes_released_gate_from_idle_interception() {
+        let input = Input::new();
+        {
+            let mut state = input.shared.lock();
+            state.enabled = true;
+            let now = Instant::now();
+            open(&mut state, now);
+            state.gate.as_mut().unwrap().deadline = now + Duration::from_secs(3600);
+            state.abort(now);
+        }
+        let status = input.diagnostic_snapshot();
+        assert_eq!(status["interception_enabled"], true);
+        assert_eq!(status["shortcuts_enabled"], false);
+        assert_eq!(status["pending_input"], false);
+        assert_eq!(status["replay_queue_length"], 1);
+        assert_eq!(status["shortcut_dispatch_count"], 1);
+        assert_eq!(status["shortcut_gate"]["released"], true);
+        assert_eq!(status["shortcut_gate"]["aborted"], true);
+        assert_eq!(status["shortcut_gate"]["issued"], false);
+        assert_eq!(status["shortcut_gate"]["queued_input"], 0);
+        input.finish(false).unwrap();
+        let status = input.diagnostic_snapshot();
+        assert!(status["shortcut_gate"].is_null());
+        assert_eq!(status["shortcuts_enabled"], true);
+        assert_eq!(status["replay_queue_length"], 0);
+    }
+    #[test]
+    fn diagnostic_snapshot_reports_timeout_latch_without_exporting_input_contents() {
+        let input = Input::new();
+        {
+            let mut state = input.shared.lock();
+            state.enabled = true;
+            state.layout.insert(48, "private-layout-sentinel".into());
+            state.foreground.app_id = "private-app-sentinel".into();
+            state.foreground.domain = "private-domain-sentinel".into();
+            let now = Instant::now();
+            for _ in 0..4 {
+                state.timeout(now);
+            }
+        }
+        let status = input.diagnostic_snapshot();
+        assert_eq!(status["interception_enabled"], false);
+        assert_eq!(status["tap_needed"], false);
+        assert_eq!(status["tap_timeouts_last_minute"], 4);
+        // Retained layout, foreground and events are not diagnostic payloads.
+        for private in [
+            "layout",
+            "foreground",
+            "events",
+            "original",
+            "code",
+            "flags",
+        ] {
+            assert!(status.get(private).is_none());
+        }
+        for (key, value) in status.as_object().unwrap() {
+            if value.is_string() {
+                assert!(matches!(key.as_str(), "keyboard" | "input_source"));
+            } else {
+                assert!(value.is_boolean() || value.is_number() || value.is_null());
+            }
+        }
+        assert!(!serde_json::to_string(&status).unwrap().contains("sentinel"));
+        {
+            let mut state = input.shared.lock();
+            state.timeouts.clear();
+            state
+                .timeouts
+                .push_back(Instant::now() - Duration::from_secs(61));
+        }
+        let status = input.diagnostic_snapshot();
+        assert_eq!(status["tap_timeouts_last_minute"], 0);
+        assert_eq!(status["interception_enabled"], false);
     }
     #[test]
     fn rolling_timeout_window_recovers_three_then_disables() {

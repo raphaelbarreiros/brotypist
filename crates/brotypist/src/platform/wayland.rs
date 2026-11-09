@@ -7,8 +7,8 @@ mod protocol;
 #[path = "wayland_wire.rs"]
 mod wire;
 use super::{
-    ContextRead, EditOutcome, Foreground, NativeBridge, NativeChoices, NativePreedit, Permission,
-    ShortcutHandler, linux::LinuxBridge, policy::ObservationPolicy,
+    ContextRead, EditOutcome, Foreground, NativeBridge, NativeChoices, Permission, ShortcutHandler,
+    linux::LinuxBridge, policy::ObservationPolicy,
 };
 use crate::{
     config::Config,
@@ -221,7 +221,7 @@ impl WaylandBridge {
             self.bootstrap.push(Bootstrap { task });
         }
     }
-    fn capture_native(&mut self) -> Result<Option<Snapshot>> {
+    fn capture_native(&mut self, require_inactive_composition: bool) -> Result<Option<Snapshot>> {
         self.owner()?;
         if self.wire.failed || self.wire.stopped {
             return Ok(None);
@@ -273,12 +273,15 @@ impl WaylandBridge {
         {
             return Ok(None);
         }
-        // Native preedit needs positive no-composition evidence; a missing glyph rectangle
-        // or unsupported accessibility attribute can never establish this capability.
-        let composition_inactive = self.wire.owns_preedit()
-            || self
+        // Manual choices and insertion need positive no-composition evidence.
+        // Accessory controls do not confer any completion or edit capability.
+        if require_inactive_composition
+            && !self
                 .accessibility
-                .accessibility_composition_inactive(&snapshot)?;
+                .accessibility_composition_inactive(&snapshot)?
+        {
+            return Ok(None);
+        }
         self.wire.pump()?;
         if context_id != self.wire.state.context_id
             || !self.wire.state.matches(before, &snapshot.text, cursor)
@@ -292,7 +295,7 @@ impl WaylandBridge {
         snapshot.caret_rect = None;
         snapshot.field_rect = None;
         snapshot.inline_render = None;
-        snapshot.native_inline = composition_inactive;
+        snapshot.native_inline = false;
         // KWin v1 currently forwards deletion and commit in separate application
         // transactions; never advertise atomic shortcode/selection replacement.
         snapshot.can_replace = false;
@@ -361,14 +364,13 @@ impl WaylandBridge {
         {
             return Ok(EditOutcome::Rejected);
         }
-        let Some(current) = self.capture_native()? else {
+        let Some(current) = self.capture_native(true)? else {
             self.wire.hide();
             return Ok(EditOutcome::Rejected);
         };
         if !current.same_key(snapshot)
             || !current.same_authority(snapshot)
             || current.native_anchor != snapshot.native_anchor
-            || !current.native_inline
         {
             self.wire.hide();
             return Ok(EditOutcome::Rejected);
@@ -444,7 +446,7 @@ impl NativeBridge for WaylandBridge {
         Ok(())
     }
     fn capture(&mut self) -> Result<Option<Snapshot>> {
-        let result = self.capture_native();
+        let result = self.capture_native(false);
         if !result.as_ref().is_ok_and(|snapshot| snapshot.is_some()) {
             // AT-SPI-only privacy/focus changes need not generate a compositor event.
             self.wire.hide();
@@ -543,7 +545,7 @@ impl NativeBridge for WaylandBridge {
         })
     }
     fn status(&self) -> serde_json::Value {
-        serde_json::json!({"platform":"wayland","available":!self.wire.failed&&!self.wire.stopped,"accessibility":self.accessibility.status(),"native_overlay":true,"native_preedit_protocol":true,"native_preedit_pixel_ack":false,"native_inline":self.wire.owns_preedit(),"range_replacement":false,"range_replacement_reason":"KWin v1 delete-surrounding and commit-string produce separate application transactions; atomic replacement and selected surrounding authority required for emoji/synonyms","domain_observable":false,"ready":self.wire.state.ready,"purpose_known":self.wire.state.known,"purpose_safe":self.wire.state.safe,"message":self.wire.diagnostic})
+        serde_json::json!({"platform":"wayland","available":!self.wire.failed&&!self.wire.stopped,"accessibility":self.accessibility.status(),"native_overlay":true,"native_inline":false,"range_replacement":false,"range_replacement_reason":"KWin v1 delete-surrounding and commit-string produce separate application transactions; atomic replacement and selected surrounding authority required for emoji/synonyms","domain_observable":false,"ready":self.wire.state.ready,"purpose_known":self.wire.state.known,"purpose_safe":self.wire.state.safe,"message":self.wire.diagnostic})
     }
     fn pump_events(&mut self) -> Result<()> {
         self.owner()?;
@@ -567,7 +569,7 @@ impl NativeBridge for WaylandBridge {
         let Some(offered) = self.wire.panel.snapshot.clone() else {
             return Ok(false);
         };
-        let Some(current) = self.capture_native()? else {
+        let Some(current) = self.capture_native(false)? else {
             self.wire.hide();
             return Ok(false);
         };
@@ -595,7 +597,7 @@ impl NativeBridge for WaylandBridge {
             self.wire.hide();
             return Ok(false);
         }
-        let Some(current) = self.capture_native()? else {
+        let Some(current) = self.capture_native(false)? else {
             self.wire.hide();
             return Ok(false);
         };
@@ -613,42 +615,17 @@ impl NativeBridge for WaylandBridge {
             }
         }
     }
-    fn present_preedit(&mut self, anchor: &str, text: &str) -> Result<Option<NativePreedit>> {
-        self.owner()?;
-        if self.wire.panel.menu.is_some() && !self.wire.panel.choice_mode {
-            return Ok(None);
-        }
-        let Some(current) = self.capture_native()? else {
-            self.wire.hide();
-            return Ok(None);
-        };
-        if current.native_anchor != anchor || !current.inline_safe() {
-            self.wire.hide();
-            return Ok(None);
-        }
-        let Some(state) = self.wire.state.state() else {
-            self.wire.hide();
-            return Ok(None);
-        };
-        self.wire.present_preedit(state, text)
-    }
-    fn native_preedit_valid(&self, receipt: &NativePreedit) -> bool {
-        self.owner().is_ok() && self.wire.preedit_valid(receipt)
-    }
     fn present_choices(
         &mut self,
         anchor: &str,
         values: &[String],
     ) -> Result<Option<NativeChoices>> {
         self.owner()?;
-        let Some(current) = self.capture_native()? else {
+        let Some(current) = self.capture_native(true)? else {
             self.wire.hide();
             return Ok(None);
         };
-        if current.native_anchor != anchor
-            || !current.native_inline
-            || !self.wire.panel.bounds_known
-        {
+        if current.native_anchor != anchor || !self.wire.panel.bounds_known {
             self.wire.hide();
             return Ok(None);
         }

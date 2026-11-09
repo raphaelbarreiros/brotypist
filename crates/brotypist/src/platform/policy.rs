@@ -1,7 +1,7 @@
 //! Immutable pre-read policy. Build on configuration changes; keyboard dispatch allocates no chords.
 use super::Action;
 use crate::{
-    config::Config,
+    config::{Config, ResolvedPreference, ScopedPreference},
     shortcuts::{Chord, parse_shortcut},
     unicode_compat::UnicodeCaseFold,
 };
@@ -133,6 +133,7 @@ pub struct ObservationPolicy {
     domains: BTreeMap<String, Rule>,
     bindings: Vec<(Chord, Action)>,
     denied_domains: bool,
+    config: std::sync::Arc<Config>,
 }
 impl ObservationPolicy {
     pub fn new(config: &Config) -> anyhow::Result<Self> {
@@ -179,6 +180,7 @@ impl ObservationPolicy {
             domains,
             bindings,
             denied_domains,
+            config: std::sync::Arc::new(config.clone()),
         })
     }
     pub fn rule_bool(&self, app: &str, domain: &str, name: &str, default: bool) -> bool {
@@ -193,6 +195,22 @@ impl ObservationPolicy {
             .and_then(|r| r.get(name))
             .and_then(Value::as_bool)
             .unwrap_or(app_value)
+    }
+    /// Resolve source/use consent before any optional read. Native adapters that
+    /// cannot observe a browser host must not bypass an exact-domain denial.
+    pub fn preference(
+        &self,
+        preference: ScopedPreference,
+        app: &str,
+        domain: &str,
+        names: &[&str],
+    ) -> ResolvedPreference {
+        self.config.resolve_preference(
+            preference,
+            app,
+            domain,
+            self.config.has_domain_denial(preference) && (is_browser(&[app]) || is_browser(names)),
+        )
     }
     pub fn excluded(&self, identifiers: &[&str]) -> bool {
         identifiers.iter().any(|value| {
@@ -261,6 +279,73 @@ impl ObservationPolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn optional_sources_never_override_global_denial() {
+        for preference in [
+            ScopedPreference::ClipboardContext,
+            ScopedPreference::ScreenContext,
+            ScopedPreference::ScreenshotContext,
+            ScopedPreference::ScreenshotAppearance,
+        ] {
+            let mut config = Config::default();
+            config.clipboard_context = false;
+            config.screen_context = false;
+            config.screenshot_context = false;
+            config.screenshot_appearance = false;
+            for scope in ["app:editor", "domain:example.com"] {
+                config.app_rules.insert(
+                    scope.into(),
+                    BTreeMap::from([(preference.field().into(), Value::Bool(true))]),
+                );
+            }
+            let result = ObservationPolicy::new(&config).unwrap().preference(
+                preference,
+                "editor",
+                "example.com",
+                &[],
+            );
+            assert!(!result.value);
+            assert_eq!(
+                result.origin,
+                crate::config::PreferenceOrigin::GlobalConsentDenied
+            );
+        }
+    }
+
+    #[test]
+    fn source_rules_use_canonical_exact_domain_and_fail_closed_browser_identity() {
+        let mut config = Config::default();
+        config.screen_context = true;
+        config.app_rules.insert(
+            "app:editor".into(),
+            BTreeMap::from([("screen_context".into(), Value::Bool(false))]),
+        );
+        config.app_rules.insert(
+            "domain:example.com".into(),
+            BTreeMap::from([("screen_context".into(), Value::Bool(true))]),
+        );
+        config.app_rules.insert(
+            "domain:private.example".into(),
+            BTreeMap::from([("screen_context".into(), Value::Bool(false))]),
+        );
+        let policy = ObservationPolicy::new(&config).unwrap();
+        let resolve = |app, host, names: &[&str]| {
+            policy.preference(ScopedPreference::ScreenContext, app, host, names)
+        };
+        assert!(resolve("editor", "EXAMPLE.COM", &[]).value);
+        assert!(!resolve("editor", "sub.example.com", &[]).value);
+        assert!(!resolve("com.google.Chrome", "private.example", &[]).value);
+        assert!(resolve("com.google.Chrome", "sub.private.example", &[]).value);
+        for host in ["", "https://private.example"] {
+            let result = resolve("unknown", host, &["chrome.exe"]);
+            assert!(!result.value);
+            assert_eq!(
+                result.origin,
+                crate::config::PreferenceOrigin::DomainUnavailable
+            );
+        }
+        assert!(resolve("ordinary", "", &[]).value);
+    }
     #[test]
     fn unknown_browser_domain_blocks_before_read_when_site_denied() {
         let mut config = Config::default();

@@ -82,7 +82,7 @@
 +                c->brotypist_remote_preedit = FALSE;
 +                c->brotypist_remote_ui = FALSE;
 +            }
-+            bt_gtk_revoke(c->brotypist);
++            bt_gtk_revoke(c->brotypist, BtGtkRevoke::Availability);
 +            bt_gtk_state(c->brotypist, c->xkbComposeState,
 +                c->brotypist_remote_preedit || c->brotypist_remote_ui,
 +                available && fcitx_g_client_is_valid(c->client), c->use_preedit,
@@ -95,7 +95,7 @@
 +            BrotypistContextHold native_frame(c);
 +            c->brotypist_remote_preedit = FALSE;
 +            c->brotypist_remote_ui = FALSE;
-+            bt_gtk_revoke(c->brotypist);
++            bt_gtk_revoke(c->brotypist, BtGtkRevoke::Disconnected);
 +            bt_gtk_state(c->brotypist, c->xkbComposeState, false, false,
 +                c->use_preedit, false,
 +                c->preedit_string != nullptr || c->commit_preedit_string != nullptr);
@@ -110,7 +110,7 @@
 +            c->brotypist_remote_ui = brotypist_formatted_active(preedit) ||
 +                brotypist_formatted_active(aux_up) || brotypist_formatted_active(aux_down) ||
 +                (candidates && candidates->len);
-+            bt_gtk_revoke(c->brotypist);
++            bt_gtk_revoke(c->brotypist, BtGtkRevoke::ClientUi);
 +            bt_gtk_state(c->brotypist, c->xkbComposeState,
 +                c->brotypist_remote_preedit || c->brotypist_remote_ui,
 +                fcitx_g_client_is_valid(c->client), c->use_preedit,
@@ -121,7 +121,7 @@
 +        G_CALLBACK(+[](FcitxGClient *, const char *, const char *, const char *, gpointer data) {
 +            auto *c = static_cast<FcitxIMContext *>(data);
 +            BrotypistContextHold native_frame(c);
-+            bt_gtk_revoke(c->brotypist);
++            bt_gtk_revoke(c->brotypist, BtGtkRevoke::CurrentIm);
 +        }), context);
 +    }
  }
@@ -232,7 +232,7 @@
 -
 +    BrotypistContextHold native_frame(context);
 +
-+    bt_gtk_revoke(context->brotypist);
++    bt_gtk_revoke(context->brotypist, BtGtkRevoke::RemotePreedit);
 +    context->brotypist_remote_preedit = context->brotypist && brotypist_formatted_active(array);
      gboolean visible = false;
  
@@ -302,7 +302,7 @@
 -
 +    BrotypistContextHold native_frame(fcitxcontext);
 +
-+    bt_gtk_revoke(fcitxcontext->brotypist);
++    bt_gtk_revoke(fcitxcontext->brotypist, BtGtkRevoke::UsePreedit);
      fcitxcontext->use_preedit = _use_preedit && use_preedit;
 +    bt_gtk_state(fcitxcontext->brotypist, fcitxcontext->xkbComposeState,
 +        fcitxcontext->brotypist_remote_preedit || fcitxcontext->brotypist_remote_ui,
@@ -333,7 +333,7 @@
  static void fcitx_im_context_reset(GtkIMContext *context) {
      FcitxIMContext *fcitxcontext = FCITX_IM_CONTEXT(context);
 +    BrotypistContextHold native_frame(fcitxcontext);
-+    bt_gtk_revoke(fcitxcontext->brotypist);
++    bt_gtk_revoke(fcitxcontext->brotypist, BtGtkRevoke::Reset);
  
      fcitx_im_context_commit_preedit(fcitxcontext);
  
@@ -366,7 +366,7 @@
      g_signal_emit(context, _signal_commit_id, 0, string);
  }
  static void _slave_preedit_changed_cb(GtkIMContext *, FcitxIMContext *context) {
-+    bt_gtk_revoke(context->brotypist);
++    bt_gtk_revoke(context->brotypist, BtGtkRevoke::SlavePreedit);
      if (context->client) {
          return;
      }
@@ -392,7 +392,7 @@
                                          void *user_data) {
      FcitxIMContext *context = FCITX_IM_CONTEXT(user_data);
 +    BrotypistContextHold native_frame(context);
-+    bt_gtk_revoke(context->brotypist);
++    bt_gtk_revoke(context->brotypist, BtGtkRevoke::RemoteCommit);
      fcitx_im_context_commit_string(context, str);
  }
  
@@ -424,7 +424,7 @@
      FcitxIMContext *context = FCITX_IM_CONTEXT(user_data);
 +    BrotypistContextHold native_frame(context);
      gboolean return_value;
-+    bt_gtk_revoke(context->brotypist);
++    bt_gtk_revoke(context->brotypist, BtGtkRevoke::DeleteSurrounding);
      g_signal_emit(context, _signal_delete_surrounding_id, 0, offset_from_cursor,
                    nchars, &return_value);
  }
@@ -440,7 +440,7 @@
      }
  #endif
  
-+    bt_gtk_revoke(context->brotypist);
++    bt_gtk_revoke(context->brotypist, BtGtkRevoke::Connected);
 +    bt_gtk_state(context->brotypist, context->xkbComposeState,
 +        context->brotypist_remote_preedit || context->brotypist_remote_ui,
 +        fcitx_g_client_is_valid(context->client), context->use_preedit,
@@ -488,7 +488,7 @@
 +    BrotypistContextHold native_frame(fcitxcontext);
  
      GtkInputPurpose purpose;
-+    bt_gtk_revoke(fcitxcontext->brotypist);
++    bt_gtk_revoke(fcitxcontext->brotypist, BtGtkRevoke::Purpose);
      g_object_get(gobject, "input-purpose", &purpose, NULL);
  
      fcitxcontext->capability_from_toolkit &= ~purpose_related_capability;
@@ -499,7 +499,7 @@
 +    BrotypistContextHold native_frame(fcitxcontext);
  
      GtkInputHints hints;
-+    bt_gtk_revoke(fcitxcontext->brotypist);
++    bt_gtk_revoke(fcitxcontext->brotypist, BtGtkRevoke::Hints);
      g_object_get(gobject, "input-hints", &hints, NULL);
  
      fcitxcontext->capability_from_toolkit &= ~hints_related_capability;

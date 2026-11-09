@@ -12,6 +12,10 @@ namespace {
 using Dict = GVariantBuilder;
 constexpr guint64 lease = 2000000000ULL;
 guint64 now() { return guint64(g_get_monotonic_time()) * 1000; }
+guint remaining_ms(guint64 deadline) {
+    const guint64 current = now();
+    return deadline > current ? guint((deadline-current+999999)/1000000) : 1;
+}
 void init(Dict &d) { g_variant_builder_init(&d, G_VARIANT_TYPE_VARDICT); }
 void str(Dict &d, const char *k, const std::string &v) { g_variant_builder_add(&d, "{sv}", k, g_variant_new_string(v.c_str())); }
 void num(Dict &d, const char *k, guint64 v) { g_variant_builder_add(&d, "{sv}", k, g_variant_new_uint64(v)); }
@@ -82,15 +86,27 @@ struct BtGtkPresentation {
     gint ghost_cursor = 0;
     GtkWidget *popover = nullptr;
     std::vector<std::string> values;
-    std::vector<GtkWidget *> buttons; // owned by popover, original prefix indices
+    std::vector<GtkWidget *> buttons; // owned by popover, compact displayed ordinals
     guint choice_cursor = 0, expiry_source = 0;
+    GDBusMethodInvocation *pending_call = nullptr;
+    GVariant *candidates = nullptr;
+    gsize next_candidate = 0;
+    GdkFrameClock *layout_clock = nullptr;
+    gulong layout_handler = 0;
+    guint64 pending_generation = 0, pending_client = 0;
+    bool allocation_ready = false, candidate_pending = false, selection_pending = false;
+    GtkAllocation target_allocation = {}, host_allocation = {};
     explicit BtGtkPresentation(BtGtkClient &c) : owner(c) {}
-    void clear();
-    bool ghost_visible();
+    void clear(const char *cause = "presentation-clear");
+    bool ghost_visible(const char **reason = nullptr);
     bool textview_ghost_visible();
     bool choice_visible(guint index);
     void choose(guint index);
-    GVariant *present(GVariant *o);
+    GVariant *present(GVariant *o, GDBusMethodInvocation *call);
+    void layout_ready();
+    void next_choice();
+    GVariant *receipt();
+    void finish_pending(GVariant *result);
     bool arm(GVariant *authorization);
     bool accept(const char *action, guint index = 0);
 };
@@ -114,15 +130,15 @@ struct BtGtkClient {
     BtGtkPresentation inline_offer, chooser_offer;
     explicit BtGtkClient(GtkIMContext *c) : context(c), inline_offer(*this), chooser_offer(*this) {}
     ~BtGtkClient();
-    void clear(guint64 capability = 0);
+    void clear(guint64 capability = 0, const char *cause = "client-clear");
     void unbind();
     void bind(GdkWindow *window);
     Snapshot metadata();
     bool capture(Snapshot &out, const char *&reason, bool owned_readback = false);
-    void changed(bool user = false);
+    void changed(bool user = false, const char *cause = "changed");
     void notify();
     bool witness(GVariant *o, Snapshot &s, const char *&reason);
-    GVariant *present(GVariant *o);
+    GVariant *present(GVariant *o, GDBusMethodInvocation *call);
     bool arm(GVariant *authorization);
     void select(guint caret, guint anchor);
 };
@@ -146,16 +162,16 @@ struct Bridge {
     std::string pending_owner;
     bool live() const { return id && policy && nget(policy,"policy_epoch") && nget(policy,"expires_ns") > now(); }
     bool enabled() const { return live() && bget(policy,"enabled"); }
-    void expire_policy() {
+    void expire_policy(const char *cause = "policy-expired") {
         if (policy) { g_variant_unref(policy); policy = nullptr; }
-        if (active) { Keep lifetime(active->context); active->clear(); }
+        if (active) { Keep lifetime(active->context); active->clear(0,cause); }
     }
     bool observe_scope(const Snapshot &s) {
         if (scope_known && scope_field == s.field && scope_window == s.window &&
             scope_document == s.document && scope_focus == s.focus) return false;
         scope_known = true; scope_field = s.field; scope_window = s.window;
         scope_document = s.document; scope_focus = s.focus;
-        ++focus_generation; expire_policy(); return true;
+        ++focus_generation; expire_policy("scope"); return true;
     }
     bool configure(GVariant *p) {
         Keep context_lifetime(active ? active->context : nullptr);
@@ -183,12 +199,12 @@ struct Bridge {
                 }
             }
         }
-        if (!same && active) active->clear();
+        if (!same && active) active->clear(0,"policy-change");
         if (policy) g_variant_unref(policy);
         policy = g_variant_ref(p); // never extend an existing offer's own deadline
         return true;
     }
-    void revoke() { ++generation; registering = false; id = 0; owner.clear(); if (active) active->clear(); if (policy) { g_variant_unref(policy); policy = nullptr; } }
+    void revoke() { ++generation; registering = false; id = 0; owner.clear(); if (active) active->clear(0,"bridge-revoke"); if (policy) { g_variant_unref(policy); policy = nullptr; } }
     void event(GVariant *event) {
         if (!id || !bus || owner.empty() || outstanding >= 32) { g_variant_ref_sink(event); g_variant_unref(event); if (outstanding >= 32) revoke(); return; }
         ++outstanding;
@@ -275,7 +291,7 @@ void method(GDBusConnection *, const gchar *sender, const gchar *, const gchar *
         else g_dbus_method_invocation_return_dbus_error(call,"org.brotypist.Client1.Scope","scope");
         return;
     }
-    if (!std::strcmp(name,"Clear")) { guint64 c; g_variant_get(args,"(t)",&c); if (b.active) b.active->clear(c); g_dbus_method_invocation_return_value(call,g_variant_new("()")); return; }
+    if (!std::strcmp(name,"Clear")) { guint64 c; g_variant_get(args,"(t)",&c); if (b.active) b.active->clear(c,"clear-request"); g_dbus_method_invocation_return_value(call,g_variant_new("()")); return; }
     if (!std::strcmp(name,"Arm")) {
         GVariant *authorization; g_variant_get(args,"(@a{sv})",&authorization);
         bool armed = b.active && b.active->arm(authorization); g_variant_unref(authorization);
@@ -294,7 +310,11 @@ void method(GDBusConnection *, const gchar *sender, const gchar *, const gchar *
         result = g_variant_builder_end(&d);
     }
     else if (!std::strcmp(name,"Capture")) { guint64 epoch; g_variant_get(args,"(t)",&epoch); Snapshot s; const char *reason = "target"; if (epoch == nget(b.policy,"policy_epoch") && b.active && b.active->capture(s,reason)) result = s.dict(true); else { Dict d; init(d); str(d,"reason",epoch == nget(b.policy,"policy_epoch") ? reason : "policy"); result = g_variant_builder_end(&d); } }
-    else if (!std::strcmp(name,"Present")) { GVariant *o; g_variant_get(args,"(@a{sv})",&o); result = b.active ? b.active->present(o) : refusal("target"); g_variant_unref(o); }
+    else if (!std::strcmp(name,"Present")) {
+        GVariant *o; g_variant_get(args,"(@a{sv})",&o);
+        result = b.active ? b.active->present(o,call) : refusal("target"); g_variant_unref(o);
+        if (!result) return; // authenticated invocation retained until real native allocation
+    }
     else { g_dbus_method_invocation_return_dbus_error(call,"org.brotypist.Client1.Method","method"); return; }
     g_dbus_method_invocation_return_value(call,g_variant_new("(@a{sv})",result));
 }
@@ -332,7 +352,7 @@ void Bridge::start() {
             } if (b.object) b.registration(); },
         [](GDBusConnection *,const gchar *,gpointer data) { static_cast<Bridge *>(data)->revoke(); },this,nullptr);
 }
-void on_changed(GObject *, gpointer data) { static_cast<BtGtkClient *>(data)->changed(); }
+void on_changed(GObject *, gpointer data) { static_cast<BtGtkClient *>(data)->changed(false,"text-changed"); }
 void on_notify(GObject *, GParamSpec *pspec, gpointer data) {
     auto *c = static_cast<BtGtkClient *>(data);
     if (c->destroying) return;
@@ -343,17 +363,17 @@ void on_notify(GObject *, GParamSpec *pspec, gpointer data) {
         if (w) { g_object_ref(w); c->bind(w); g_object_unref(w); return; }
     }
     for (const char *p : {"cursor-position","selection-bound","visibility","input-purpose","input-hints","editable","sensitive","has-focus","buffer","overwrite-mode","max-length"})
-        if (!std::strcmp(name,p)) { c->metadata(); c->changed(); return; }
+        if (!std::strcmp(name,p)) { c->metadata(); c->changed(false,p); return; }
 }
 void on_hierarchy(GtkWidget *,GtkWidget *,gpointer data) {
     auto *c = static_cast<BtGtkClient *>(data); if (c->destroying) return;
-    Keep lifetime(c->context); c->metadata(); c->changed();
+    Keep lifetime(c->context); c->metadata(); c->changed(false,"hierarchy");
 }
-void on_mark(GtkTextBuffer *, GtkTextIter *, GtkTextMark *, gpointer data) { static_cast<BtGtkClient *>(data)->changed(); }
-gboolean on_button(GtkWidget *,GdkEventButton *,gpointer data) { static_cast<BtGtkClient *>(data)->changed(true); return FALSE; }
+void on_mark(GtkTextBuffer *, GtkTextIter *, GtkTextMark *, gpointer data) { static_cast<BtGtkClient *>(data)->changed(false,"mark"); }
+gboolean on_button(GtkWidget *,GdkEventButton *,gpointer data) { static_cast<BtGtkClient *>(data)->changed(true,"button"); return FALSE; }
 void on_destroy(GtkWidget *,gpointer data) {
     auto *c = static_cast<BtGtkClient *>(data); if (c->destroying) return;
-    Keep lifetime(c->context); c->focused = false; c->metadata(); c->changed();
+    Keep lifetime(c->context); c->focused = false; c->metadata(); c->changed(false,"destroy");
 }
 }
 
@@ -378,13 +398,13 @@ void BtGtkClient::bind(GdkWindow *window) {
     if (destroying) return;
     Keep context_lifetime(context);
     if (native_window != window && bridge().active == this) {
-        bridge().scope_known = false; bridge().expire_policy();
+        bridge().scope_known = false; bridge().expire_policy("rebind");
     }
     if (window) g_object_ref(window);
     GtkWidget *w = nullptr; if (window) gdk_window_get_user_data(window,reinterpret_cast<gpointer *>(&w));
     bool supported = w && (GTK_IS_ENTRY(w) || GTK_IS_TEXT_VIEW(w));
     if (supported) g_object_ref(w); // keep the new target across unbinding the old one
-    clear(); unbind();
+    clear(0,"rebind"); unbind();
     native_window = window; // strong native identity, including field-window recreation
     if (!supported) { metadata(); changed(); return; }
     widget = w; // public Entry/TextView capabilities include ordinary subclasses
@@ -455,10 +475,10 @@ bool BtGtkClient::capture(Snapshot &s,const char *&reason,bool owned_readback) {
     }
     if (!bounded(s.text)) { reason = "size"; return false; }
     std::string sig = s.field + s.window + s.document + s.purpose + s.composing + sha(s.text) + ":" + std::to_string(s.caret) + ":" + std::to_string(s.anchor);
-    if (!editing && !signature.empty() && signature != sig) { ++revision; clear(); }
+    if (!editing && !signature.empty() && signature != sig) { ++revision; clear(0,"signature"); }
     signature = sig; s.revision = revision; return true;
 }
-void BtGtkClient::changed(bool user) {
+void BtGtkClient::changed(bool user,const char *cause) {
     if (destroying) return;
     if (editing || clearing) {
         // A real reentrant key remains ordinary input, even while native owned
@@ -467,7 +487,7 @@ void BtGtkClient::changed(bool user) {
         return;
     }
     Keep lifetime(context);
-    clear(); ++revision; ++notification_revision; if (user) ++user_revision; signature.clear();
+    clear(0,cause); ++revision; ++notification_revision; if (user) ++user_revision; signature.clear();
     if (!changed_source) changed_source = g_idle_add_full(G_PRIORITY_DEFAULT_IDLE,[](gpointer p)->gboolean {
         auto *c = static_cast<BtGtkClient *>(p); c->changed_source = 0; c->notify(); return G_SOURCE_REMOVE;
     },this,nullptr);
@@ -482,20 +502,46 @@ void BtGtkClient::notify() {
     flag(d,"focus",s.focus); flag(d,"protected",s.protected_); str(d,"composing",s.composing);
     bridge().event(g_variant_builder_end(&d));
 }
-void BtGtkClient::clear(guint64 cap) {
+void BtGtkClient::clear(guint64 cap,const char *cause) {
     if (clearing) return;
     clearing = true;
-    if (!cap || inline_offer.capability == cap) inline_offer.clear();
-    if (!cap || chooser_offer.capability == cap) chooser_offer.clear();
+    if (!cap || inline_offer.capability == cap) inline_offer.clear(cause);
+    if (!cap || chooser_offer.capability == cap) chooser_offer.clear(cause);
     clearing = false;
 }
-void BtGtkPresentation::clear() {
+void BtGtkPresentation::clear(const char *cause) {
     auto *context = owner.context;
     bool prior = owner.clearing; owner.clearing = true;
     if (clearing) { owner.clearing = prior; return; }
-    clearing = true; capability = 0; deadline = 0; ghost_cursor = 0;
+    clearing = true;
+    if (pending_call && !g_strcmp0(g_getenv("BROTYPIST_OWNED_CLIENT_SMOKE"),"1")) {
+        // Fixed local causes and booleans only; snapshot before teardown resets
+        // allocation state. Never include writing, tokens or peer-supplied text.
+        Dict d; init(d); flag(d,"presented",false); str(d,"reason","withdrawn");
+        str(d,"diag_withdraw_cause",cause);
+        flag(d,"diag_allocation_ready",allocation_ready);
+        flag(d,"diag_candidate_pending",candidate_pending);
+        flag(d,"diag_selection_pending",selection_pending);
+        flag(d,"diag_popover_mapped",popover && gtk_widget_get_mapped(popover));
+        flag(d,"diag_focus",owner.focused && owner.widget && gtk_widget_has_focus(owner.widget));
+        // State immediately before the hook's invalidation, not a renewed proof.
+        flag(d,"diag_remote",owner.remote);
+        flag(d,"diag_remote_ordered",owner.remote_ordered);
+        flag(d,"diag_remote_preedit",owner.remote_preedit);
+        flag(d,"diag_cached_preedit",owner.cached_preedit);
+        flag(d,"diag_use_preedit",owner.use_preedit);
+        flag(d,"diag_simple_idle",owner.simple_state == BtGtkClient::Idle);
+        flag(d,"diag_pending",owner.pending != 0);
+        finish_pending(g_variant_builder_end(&d));
+    }
+    capability = 0; deadline = 0; ghost_cursor = 0;
     armed = false; armed_word.clear(); armed_all.clear();
     if (expiry_source) { g_source_remove(expiry_source); expiry_source = 0; }
+    if (layout_handler) { g_signal_handler_disconnect(layout_clock,layout_handler); layout_handler = 0; }
+    g_clear_object(&layout_clock);
+    if (candidates) { g_variant_unref(candidates); candidates = nullptr; }
+    next_candidate = 0; allocation_ready = candidate_pending = selection_pending = false;
+    finish_pending(refusal("withdrawn"));
     if (offer) { g_variant_unref(offer); offer = nullptr; }
     values.clear(); buttons.clear(); choice_cursor = 0;
     if (popover) { GtkWidget *p = popover; popover = nullptr; gtk_widget_destroy(p); }
@@ -511,22 +557,32 @@ bool BtGtkClient::witness(GVariant *o,Snapshot &s,const char *&reason) {
     guint size = g_utf8_strlen(s.text.c_str(),-1), start = uget(o,"start"), length = uget(o,"length");
     if (start > size || length > size - start) { reason = "range"; return false; } return true;
 }
-bool BtGtkPresentation::ghost_visible() {
+bool BtGtkPresentation::ghost_visible(const char **reason) {
     auto *widget = owner.widget;
     Snapshot state = owner.metadata();
+    auto reject = [reason](const char *value) { if (reason) *reason = value; return false; };
     if (ghost.empty() || !widget || !bridge().enabled() ||
-        !state.focus || state.protected_ || !state.editable || state.composing != "idle") return false;
-    if (GTK_IS_TEXT_VIEW(widget)) return textview_ghost_visible();
+        !state.focus || state.protected_ || !state.editable || state.composing != "idle") return reject("ghost-state");
+    if (GTK_IS_TEXT_VIEW(widget)) return textview_ghost_visible() || reject("textview-layout");
     const char *committed = gtk_entry_get_text(GTK_ENTRY(widget));
     int begin = int(g_utf8_offset_to_pointer(committed,gtk_editable_get_position(GTK_EDITABLE(widget)))-committed);
     std::string expected(committed,begin); expected += ghost; expected += committed+begin;
     PangoLayout *layout = gtk_entry_get_layout(GTK_ENTRY(widget));
     const char *text = pango_layout_get_text(layout);
-    if (expected != text) return false; // actual native layout, not substring coincidence
+    if (expected != text) return reject("ghost-layout"); // actual native layout, not substring coincidence
     int bytes = int(ghost.size());
     int x,y; gtk_entry_get_layout_offsets(GTK_ENTRY(widget),&x,&y); GdkRectangle area; gtk_entry_get_text_area(GTK_ENTRY(widget),&area);
     int ax = area.x, ay = area.y, width = area.width, height = area.height;
-    for (int i = begin; i < begin+bytes; i = int(g_utf8_next_char(text+i)-text)) { PangoRectangle r; pango_layout_index_to_pos(layout,i,&r); int left = x+PANGO_PIXELS(std::min(r.x,r.x+r.width))-ax, right = x+PANGO_PIXELS(std::max(r.x,r.x+r.width))-ax; int top = y+PANGO_PIXELS(r.y)-ay; if (left < 0 || right > width || top < 0 || top+PANGO_PIXELS_CEIL(r.height) > height) return false; }
+    for (int i = begin; i < begin+bytes; i = int(g_utf8_next_char(text+i)-text)) {
+        PangoRectangle r; pango_layout_index_to_pos(layout,i,&r);
+        int left = x+PANGO_PIXELS(std::min(r.x,r.x+r.width))-ax;
+        int right = x+PANGO_PIXELS(std::max(r.x,r.x+r.width))-ax;
+        int top = y+PANGO_PIXELS(r.y)-ay;
+        if (left < 0) return reject("ghost-bounds-left");
+        if (right > width) return reject("ghost-bounds-right");
+        if (top < 0) return reject("ghost-bounds-top");
+        if (top+PANGO_PIXELS_CEIL(r.height) > height) return reject("ghost-bounds-bottom");
+    }
     return true;
 }
 bool BtGtkPresentation::textview_ghost_visible() {
@@ -566,9 +622,104 @@ bool BtGtkPresentation::choice_visible(guint index) {
     gtk_widget_get_preferred_size(button,&min,&natural);
     gtk_widget_get_allocation(button,&a); gtk_widget_get_allocation(box,&outer);
     // GtkBox and its windowless children share the parent's allocation basis.
-    return a.width >= natural.width && a.height >= natural.height &&
-        a.x >= outer.x && a.y >= outer.y &&
-        a.x+a.width <= outer.x+outer.width && a.y+a.height <= outer.y+outer.height;
+    if (a.width < natural.width || a.height < natural.height ||
+        a.x < outer.x || a.y < outer.y ||
+        a.x+a.width > outer.x+outer.width || a.y+a.height > outer.y+outer.height) return false;
+    // A child's requisition can force a popover beyond its containing window.
+    // Translate widget origins rather than comparing allocations from different
+    // GdkWindow coordinate systems, and prove every actual ancestor clip.
+    for (GtkWidget *parent = box; parent; parent = gtk_widget_get_parent(parent)) {
+        gint x = 0,y = 0;
+        if (!gtk_widget_get_mapped(parent) ||
+            !gtk_widget_translate_coordinates(button,parent,0,0,&x,&y) ||
+            x < 0 || y < 0 || x+a.width > gtk_widget_get_allocated_width(parent) ||
+            y+a.height > gtk_widget_get_allocated_height(parent)) return false;
+    }
+    return true;
+}
+void BtGtkPresentation::finish_pending(GVariant *result) {
+    if (pending_call) {
+        auto *call = pending_call; pending_call = nullptr;
+        g_dbus_method_invocation_return_value(call,g_variant_new("(@a{sv})",result));
+        g_object_unref(call);
+    } else { g_variant_ref_sink(result); g_variant_unref(result); }
+}
+GVariant *BtGtkPresentation::receipt() {
+    Dict d; init(d); flag(d,"presented",true); num(d,"capability_id",capability);
+    num(d,"offer_id",nget(offer,"offer_id")); num(d,"expires_ns",deadline); str(d,"shown_text",ghost);
+    Dict array; g_variant_builder_init(&array,G_VARIANT_TYPE_STRING_ARRAY);
+    for (const auto &v : values) g_variant_builder_add(&array,"s",v.c_str());
+    g_variant_builder_add(&d,"{sv}","shown_values",g_variant_builder_end(&array));
+    return g_variant_builder_end(&d);
+}
+void BtGtkPresentation::next_choice() {
+    while (values.size() < 8 && next_candidate < g_variant_n_children(candidates)) {
+        GVariant *item = g_variant_get_child_value(candidates,next_candidate++);
+        std::string val(g_variant_get_string(item,nullptr)); g_variant_unref(item);
+        if (val.empty() || !bounded(val) || val.find('\n') != std::string::npos || val.find('\r') != std::string::npos) continue;
+        const guint index = values.size();
+        const std::string label = std::to_string(index+1)+"  "+val;
+        GtkWidget *button = gtk_button_new_with_label(label.c_str());
+        gtk_widget_set_can_focus(button,FALSE);
+        g_object_set_data(G_OBJECT(button),"brotypist-index",GUINT_TO_POINTER(index));
+        g_signal_connect(button,"clicked",G_CALLBACK(+[](GtkButton *b,gpointer data) {
+            static_cast<BtGtkPresentation *>(data)->accept("choice",GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(b),"brotypist-index")));
+        }),this);
+        gtk_box_pack_start(GTK_BOX(gtk_bin_get_child(GTK_BIN(popover))),button,FALSE,FALSE,0);
+        values.push_back(std::move(val)); buttons.push_back(button);
+        candidate_pending = true; allocation_ready = false;
+        gtk_widget_show_all(popover);
+        if (pending_call && popover) gtk_widget_queue_resize(popover);
+        return;
+    }
+    if (values.empty()) { finish_pending(refusal("choice-empty")); clear(); return; }
+    // Selection changes CSS state. Prove its final allocation as well.
+    selection_pending = true; allocation_ready = false;
+    choose(0);
+    if (pending_call && popover) gtk_widget_queue_resize(popover);
+}
+void BtGtkPresentation::layout_ready() {
+    if (!pending_call || !allocation_ready) return;
+    Keep lifetime(owner.context);
+    auto *call = pending_call;
+    Keep invocation_lifetime(call);
+    GVariant *original = g_variant_ref(offer);
+    Snapshot state; const char *reason = "witness";
+    bool valid = bridge().active == &owner && bridge().generation == pending_generation &&
+        bridge().id == pending_client &&
+        !g_dbus_connection_is_closed(g_dbus_method_invocation_get_connection(pending_call)) &&
+        now() < deadline && owner.witness(original,state,reason);
+    g_variant_unref(original);
+    if (pending_call != call) return; // witness may synchronously revoke or replace it
+    GtkAllocation target,host;
+    gtk_widget_get_allocation(owner.widget,&target);
+    gtk_widget_get_allocation(gtk_widget_get_toplevel(owner.widget),&host);
+    auto same = [](const GtkAllocation &a,const GtkAllocation &b) {
+        return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
+    };
+    if (!valid || !same(target,target_allocation) || !same(host,host_allocation)) {
+        finish_pending(refusal(valid ? "target-layout" : reason)); clear(); return;
+    }
+    bool visible = true;
+    for (guint i = 0; i < values.size(); ++i) if (!choice_visible(i)) { visible = false; break; }
+    allocation_ready = false;
+    if (selection_pending) {
+        if (!visible) { finish_pending(refusal("choice-layout")); clear(); return; }
+        g_signal_handler_disconnect(layout_clock,layout_handler); layout_handler = 0;
+        g_clear_object(&layout_clock);
+        g_variant_unref(candidates); candidates = nullptr;
+        capability = ++bridge().serial;
+        finish_pending(receipt()); return;
+    }
+    if (candidate_pending) {
+        candidate_pending = false;
+        if (!visible) {
+            GtkWidget *button = buttons.back(); buttons.pop_back(); values.pop_back();
+            gtk_widget_destroy(button);
+            if (pending_call != call) return;
+        }
+    }
+    next_choice();
 }
 void BtGtkPresentation::choose(guint index) {
     if (index >= values.size()) return;
@@ -578,10 +729,10 @@ void BtGtkPresentation::choose(guint index) {
     }
     choice_cursor = index;
 }
-GVariant *BtGtkClient::present(GVariant *o) {
+GVariant *BtGtkClient::present(GVariant *o,GDBusMethodInvocation *call) {
     const std::string mode = sget(o,"mode");
-    if (mode == "completion" || mode == "correction") return inline_offer.present(o);
-    if (mode == "emoji" || mode == "synonyms" || mode == "alternatives") return chooser_offer.present(o);
+    if (mode == "completion" || mode == "correction") return inline_offer.present(o,call);
+    if (mode == "emoji" || mode == "synonyms" || mode == "alternatives") return chooser_offer.present(o,call);
     return refusal("feature");
 }
 bool BtGtkClient::arm(GVariant *authorization) {
@@ -590,46 +741,88 @@ bool BtGtkClient::arm(GVariant *authorization) {
     if (cap && cap == chooser_offer.capability) return chooser_offer.arm(authorization);
     return false;
 }
-GVariant *BtGtkPresentation::present(GVariant *o) {
+GVariant *BtGtkPresentation::present(GVariant *o,GDBusMethodInvocation *call) {
     auto *widget = owner.widget; auto *context = owner.context;
-    clear(); Snapshot s; const char *reason = "offer"; if (!owner.witness(o,s,reason)) return refusal(reason);
+    clear(); Snapshot s; bool witness_valid = false;
+    auto refused = [&](const char *reason) {
+        // Only the explicitly owned smoke process receives content-free native
+        // preconditions; no writing, peer errors or production log is emitted.
+        if (g_strcmp0(g_getenv("BROTYPIST_OWNED_CLIENT_SMOKE"),"1")) return refusal(reason);
+        Dict d; init(d); flag(d,"presented",false); str(d,"reason",reason);
+        flag(d,"diag_focus",s.focus); flag(d,"diag_editable",s.editable);
+        flag(d,"diag_protected",s.protected_); flag(d,"diag_idle",s.composing == "idle");
+        flag(d,"diag_use_preedit",owner.use_preedit); flag(d,"diag_witness_valid",witness_valid);
+        if (witness_valid) flag(d,"diag_collapsed",s.caret == s.anchor);
+        flag(d,"diag_mapped",widget && gtk_widget_get_mapped(widget));
+        flag(d,"diag_overwrite",GTK_IS_ENTRY(widget) ? gtk_entry_get_overwrite_mode(GTK_ENTRY(widget)) :
+            GTK_IS_TEXT_VIEW(widget) && gtk_text_view_get_overwrite(GTK_TEXT_VIEW(widget)));
+        flag(d,"diag_remote",owner.remote); flag(d,"diag_remote_ordered",owner.remote_ordered);
+        flag(d,"diag_cached_preedit",owner.cached_preedit); flag(d,"diag_remote_preedit",owner.remote_preedit);
+        flag(d,"diag_simple_idle",owner.simple_state == BtGtkClient::Idle);
+        flag(d,"diag_pending",owner.pending != 0);
+        return g_variant_builder_end(&d);
+    };
+    const char *reason = "offer"; witness_valid = owner.witness(o,s,reason);
+    if (!witness_valid) return refused(reason);
     std::string mode = sget(o,"mode"), text = sget(o,"text"); bool preedit = mode == "completion" || mode == "correction";
     const char *feature = mode == "completion" ? "predictions" : mode == "correction" ? "correction" : mode == "emoji" ? "emoji" : mode == "synonyms" ? "synonyms" : mode == "alternatives" ? "alternatives" : nullptr;
-    if (!feature || !bget(bridge().policy,feature)) return refusal("feature");
+    if (!feature || !bget(bridge().policy,feature)) return refused("feature");
     if (preedit) {
         bool overwrite = GTK_IS_ENTRY(widget) ? gtk_entry_get_overwrite_mode(GTK_ENTRY(widget)) : gtk_text_view_get_overwrite(GTK_TEXT_VIEW(widget));
-        if (!owner.use_preedit || s.caret != s.anchor || !bounded(text) || text.empty() ||
-            text.find('\n') != std::string::npos || text.find('\r') != std::string::npos || overwrite)
-            return refusal("preedit");
+        if (!owner.use_preedit) return refused("preedit-disabled");
+        if (s.caret != s.anchor) return refused("selection");
+        if (!bounded(text) || text.empty() || text.find('\n') != std::string::npos ||
+            text.find('\r') != std::string::npos) return refused("preedit-text");
+        if (overwrite) return refused("overwrite");
         ghost = text; g_signal_emit_by_name(context,"preedit-start"); g_signal_emit_by_name(context,"preedit-changed");
-        if (!ghost_visible()) { clear(); return refusal("layout"); }
+        if (!ghost_visible(&reason)) { auto *result = refused(reason); clear(); return result; }
     } else {
-        GVariant *v = g_variant_lookup_value(o,"values",G_VARIANT_TYPE_STRING_ARRAY); if (!v) return refusal("values");
-        popover = gtk_popover_new(widget); g_object_set(popover,"modal",FALSE,nullptr); GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL,0); gtk_container_add(GTK_CONTAINER(popover),box);
-        GVariantIter it; g_variant_iter_init(&it,v); const char *value; guint index = 0;
-        while (index < 8 && g_variant_iter_next(&it,"&s",&value)) { std::string val(value); if (val.empty() || !bounded(val) || val.find('\n') != std::string::npos || val.find('\r') != std::string::npos) break;
-            GtkWidget *button = gtk_button_new_with_label(value); gtk_widget_set_can_focus(button,FALSE); g_object_set_data(G_OBJECT(button),"brotypist-index",GUINT_TO_POINTER(index));
-            g_signal_connect(button,"clicked",G_CALLBACK(+[](GtkButton *b,gpointer data) { static_cast<BtGtkPresentation *>(data)->accept("choice",GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(b),"brotypist-index"))); }),this);
-            gtk_box_pack_start(GTK_BOX(box),button,FALSE,FALSE,0); values.push_back(val); buttons.push_back(button); ++index;
-        } g_variant_unref(v);
-        if (values.empty()) { clear(); return refusal("values"); }
-        gtk_widget_show_all(popover); gtk_container_check_resize(GTK_CONTAINER(popover));
-        if (!gtk_widget_get_mapped(popover)) { clear(); return refusal("layout"); }
-        guint visible = 0;
-        while (visible < values.size() && choice_visible(visible)) ++visible;
-        for (guint i = visible; i < buttons.size(); ++i) gtk_widget_hide(buttons[i]);
-        values.resize(visible); buttons.resize(visible);
-        if (values.empty()) { clear(); return refusal("layout"); }
-        choose(0);
+        candidates = g_variant_lookup_value(o,"values",G_VARIANT_TYPE_STRING_ARRAY);
+        if (!candidates) return refused("values");
+        layout_clock = gtk_widget_get_frame_clock(widget);
+        if (!layout_clock) { clear(); return refused("choice-clock"); }
+        g_object_ref(layout_clock);
+        pending_call = G_DBUS_METHOD_INVOCATION(g_object_ref(call));
+        pending_generation = bridge().generation; pending_client = bridge().id;
+        offer = g_variant_ref(o);
+        deadline = std::min({nget(o,"expires_ns"),nget(bridge().policy,"expires_ns"),now()+lease});
+        gtk_widget_get_allocation(widget,&target_allocation);
+        gtk_widget_get_allocation(gtk_widget_get_toplevel(widget),&host_allocation);
+        popover = gtk_popover_new(widget);
+        g_object_set(popover,"modal",FALSE,nullptr);
+        GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL,0);
+        gtk_container_add(GTK_CONTAINER(popover),box);
+        g_signal_connect(popover,"unmap",G_CALLBACK(+[](GtkWidget *,gpointer data) {
+            auto *presentation = static_cast<BtGtkPresentation *>(data);
+            if (presentation->clearing) return;
+            Keep lifetime(presentation->owner.context); presentation->clear("popover-unmap");
+        }),this);
+        // GtkPopover is allocated by its GtkWindow, not check_resize() on the
+        // GtkBin. Observe allocation, then inspect after the frame's layout and
+        // paint phases; never measure a newly packed row's default allocation.
+        g_signal_connect_after(popover,"size-allocate",G_CALLBACK(+[](GtkWidget *,GtkAllocation *,gpointer data) {
+            static_cast<BtGtkPresentation *>(data)->allocation_ready = true;
+        }),this);
+        layout_handler = g_signal_connect_after(layout_clock,"after-paint",G_CALLBACK(+[](GdkFrameClock *,gpointer data) {
+            static_cast<BtGtkPresentation *>(data)->layout_ready();
+        }),this);
+        expiry_source = g_timeout_add(remaining_ms(deadline),[](gpointer p)->gboolean {
+            auto *presentation = static_cast<BtGtkPresentation *>(p);
+            Keep lifetime(presentation->owner.context); presentation->expiry_source = 0;
+            presentation->finish_pending(refusal("lease")); presentation->clear(); return G_SOURCE_REMOVE;
+        },this);
+        next_choice();
+        return nullptr;
     }
     // Signals/layout can reenter the host. Revalidate after native delivery.
-    if (!owner.witness(o,s,reason)) { clear(); return refusal(reason); }
+    witness_valid = owner.witness(o,s,reason);
+    if (!witness_valid) { auto *result = refused(reason); clear(); return result; }
     offer = g_variant_ref(o); capability = ++bridge().serial; deadline = std::min({nget(o,"expires_ns"),nget(bridge().policy,"expires_ns"),now()+lease});
-    expiry_source = g_timeout_add(guint(std::max<guint64>(1,(deadline-now()+999999)/1000000)),[](gpointer p)->gboolean {
+    expiry_source = g_timeout_add(remaining_ms(deadline),[](gpointer p)->gboolean {
         auto *offer = static_cast<BtGtkPresentation *>(p);
         Keep lifetime(offer->owner.context); offer->expiry_source = 0; offer->clear(); return G_SOURCE_REMOVE;
     },this);
-    Dict d; init(d); flag(d,"presented",true); num(d,"capability_id",capability); num(d,"offer_id",nget(o,"offer_id")); num(d,"expires_ns",deadline); str(d,"shown_text",ghost); Dict array; g_variant_builder_init(&array,G_VARIANT_TYPE_STRING_ARRAY); for (const auto &v : values) g_variant_builder_add(&array,"s",v.c_str()); g_variant_builder_add(&d,"{sv}","shown_values",g_variant_builder_end(&array)); return g_variant_builder_end(&d);
+    return receipt();
 }
 bool BtGtkPresentation::arm(GVariant *authorization) {
     if (!offer || !capability || now() >= deadline) return false;
@@ -760,9 +953,29 @@ void bt_gtk_focus(BtGtkClient *c,bool focus) {
         if (b.active) b.active->changed();
         b.active = c;
     }
-    c->focused = focus; c->metadata(); c->changed();
+    c->focused = focus; c->metadata(); c->changed(false,"focus");
 }
-void bt_gtk_revoke(BtGtkClient *c) { if(c) c->changed(); }
+void bt_gtk_revoke(BtGtkClient *c,BtGtkRevoke cause) {
+    if (!c) return;
+    const char *name = "ime-revoke";
+    switch (cause) {
+    case BtGtkRevoke::Availability: name = "ime-availability"; break;
+    case BtGtkRevoke::Disconnected: name = "ime-disconnected"; break;
+    case BtGtkRevoke::ClientUi: name = "ime-client-ui"; break;
+    case BtGtkRevoke::CurrentIm: name = "ime-current-im"; break;
+    case BtGtkRevoke::RemotePreedit: name = "ime-remote-preedit"; break;
+    case BtGtkRevoke::UsePreedit: name = "ime-use-preedit"; break;
+    case BtGtkRevoke::Reset: name = "ime-reset"; break;
+    case BtGtkRevoke::SlavePreedit: name = "ime-slave-preedit"; break;
+    case BtGtkRevoke::RemoteCommit: name = "ime-remote-commit"; break;
+    case BtGtkRevoke::DeleteSurrounding: name = "ime-delete-surrounding"; break;
+    case BtGtkRevoke::Connected: name = "ime-connected"; break;
+    case BtGtkRevoke::Purpose: name = "ime-purpose"; break;
+    case BtGtkRevoke::Hints: name = "ime-hints"; break;
+    case BtGtkRevoke::SimpleCommit: name = "ime-simple-commit"; break;
+    }
+    c->changed(false,name);
+}
 void bt_gtk_state(BtGtkClient *c,xkb_compose_state *compose,bool preedit,bool remote,bool use,
                   bool ordered,bool cached) {
     if (!c) return;
@@ -771,9 +984,9 @@ void bt_gtk_state(BtGtkClient *c,xkb_compose_state *compose,bool preedit,bool re
         c->use_preedit != use || c->remote_ordered != ordered || c->cached_preedit != cached;
     c->compose = compose; c->remote_preedit = preedit; c->remote = remote; c->use_preedit = use;
     c->remote_ordered = ordered; c->cached_preedit = cached;
-    if (change) c->changed(); // never reset local xkb/Simple or retained user preedit here
+    if (change) c->changed(false,"ime-state"); // never reset local xkb/Simple or retained user preedit here
 }
-void bt_gtk_pending(BtGtkClient *c,int delta) { if (!c) return; if (delta > 0) c->pending += delta; else c->pending -= std::min(c->pending,unsigned(-delta)); c->changed(); }
+void bt_gtk_pending(BtGtkClient *c,int delta) { if (!c) return; if (delta > 0) c->pending += delta; else c->pending -= std::min(c->pending,unsigned(-delta)); c->changed(false,"ime-pending"); }
 void bt_gtk_simple_begin(BtGtkClient *c,GdkEventKey *event) {
     if (!c) return;
     ++c->simple_depth;
@@ -792,7 +1005,7 @@ void bt_gtk_simple_begin(BtGtkClient *c,GdkEventKey *event) {
 void bt_gtk_simple_commit(BtGtkClient *c) {
     // Boolean lifecycle only. Never inspect or retain a user commit's text.
     if (c && c->simple_depth) c->simple_committed = true;
-    bt_gtk_revoke(c);
+    bt_gtk_revoke(c,BtGtkRevoke::SimpleCommit);
 }
 void bt_gtk_simple_end(BtGtkClient *c,bool consumed) {
     if (!c) return;
@@ -800,10 +1013,10 @@ void bt_gtk_simple_end(BtGtkClient *c,bool consumed) {
     if (consumed && !c->simple_resolved)
         c->simple_state = c->simple_empty_before && c->simple_ordinary &&
             c->simple_committed && !c->simple_started ? BtGtkClient::Idle : BtGtkClient::Unknown;
-    c->changed();
+    c->changed(false,"simple-end");
 }
-void bt_gtk_simple_idle(BtGtkClient *c) { if(c) { c->simple_resolved = true; c->simple_state = BtGtkClient::Idle; c->changed(); } }
-void bt_gtk_simple_active(BtGtkClient *c) { if(c) { c->simple_resolved = true; c->simple_started = true; c->simple_state = BtGtkClient::Active; c->changed(); } }
+void bt_gtk_simple_idle(BtGtkClient *c) { if(c) { c->simple_resolved = true; c->simple_state = BtGtkClient::Idle; c->changed(false,"simple-idle"); } }
+void bt_gtk_simple_active(BtGtkClient *c) { if(c) { c->simple_resolved = true; c->simple_started = true; c->simple_state = BtGtkClient::Active; c->changed(false,"simple-active"); } }
 void bt_gtk_reset_complete(BtGtkClient *c) { bt_gtk_simple_idle(c); }
 bool bt_gtk_preedit(BtGtkClient *c,gchar **text,PangoAttrList **attrs,gint *cursor) {
     if (!c || c->inline_offer.ghost.empty()) return false;

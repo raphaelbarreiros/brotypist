@@ -9,7 +9,7 @@ use super::{
     ShortcutHandler, policy::ObservationPolicy,
 };
 use crate::{
-    config::Config,
+    config::{Config, ScopedPreference},
     core::{InlineRender, Rect, Snapshot},
 };
 use anyhow::{Result, bail};
@@ -45,6 +45,89 @@ impl InputState {
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| callback()));
         }
     }
+}
+
+/// Optional AT-SPI invalidation provider. Register metadata-only signals; never
+/// subscribe to TextChanged or read/deserialise notification bodies.
+struct MetadataObservation {
+    connection: zbus::blocking::Connection,
+    reader: Option<std::thread::JoinHandle<()>>,
+}
+impl MetadataObservation {
+    fn start(input: Arc<InputState>) -> Result<Self> {
+        use zbus::blocking::{Proxy, connection::Builder};
+        let session = Builder::session()?
+            .method_timeout(Duration::from_millis(500))
+            .build()?;
+        let bus = Proxy::new(&session, "org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus")?;
+        let address: String = bus.call("GetAddress", &())?;
+        let connection = Builder::address(address.as_str())?
+            .method_timeout(Duration::from_millis(200))
+            .build()?;
+        let daemon = Proxy::new(
+            &connection,
+            "org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+        )?;
+        let registry = Proxy::new(
+            &connection,
+            "org.a11y.atspi.Registry",
+            "/org/a11y/atspi/registry",
+            "org.a11y.atspi.Registry",
+        )?;
+        let mut registered = 0;
+        for (member, event) in [
+            ("StateChanged", "object:state-changed"),
+            ("BoundsChanged", "object:bounds-changed"),
+            ("ChildrenChanged", "object:children-changed"),
+        ] {
+            let rule =
+                format!("type='signal',interface='org.a11y.atspi.Event.Object',member='{member}'");
+            let matched: std::result::Result<(), _> = daemon.call("AddMatch", &(rule.as_str(),));
+            if matched.is_ok() {
+                let subscribed: std::result::Result<(), _> =
+                    registry.call("RegisterEvent", &(event,));
+                registered += usize::from(subscribed.is_ok());
+            }
+        }
+        anyhow::ensure!(registered != 0, "AT-SPI metadata notifications unavailable");
+        drop(registry);
+        drop(daemon);
+        let mut messages = zbus::blocking::MessageIterator::from(&connection);
+        let reader = std::thread::spawn(move || {
+            for message in &mut messages {
+                let Ok(message) = message else { break };
+                let header = message.header();
+                if header
+                    .interface()
+                    .is_some_and(|name| name.as_str() == "org.a11y.atspi.Event.Object")
+                    && header
+                        .member()
+                        .is_some_and(|name| metadata_invalidation(name.as_str()))
+                {
+                    // These are revocations, never text-field authority or
+                    // evidence of a physical keystroke.
+                    input.note(false);
+                }
+            }
+        });
+        Ok(Self {
+            connection,
+            reader: Some(reader),
+        })
+    }
+}
+impl Drop for MetadataObservation {
+    fn drop(&mut self) {
+        let _ = self.connection.clone().close();
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+    }
+}
+fn metadata_invalidation(member: &str) -> bool {
+    matches!(member, "StateChanged" | "BoundsChanged" | "ChildrenChanged")
 }
 struct Focus {
     object: Object,
@@ -313,13 +396,26 @@ fn read_context(
     max_chars: usize,
 ) -> Result<ContextRead> {
     let blocked = || ContextRead::blocked("accessibility");
-    if !authorized() {
+    if !authorized()
+        || !policy
+            .preference(ScopedPreference::ScreenContext, &snapshot.app_id, "", &[])
+            .value
+    {
         return Ok(blocked());
     }
     let Some(focus) = focused(api, policy, false)? else {
         return Ok(blocked());
     };
-    if !identity_matches(&focus, snapshot) {
+    if !identity_matches(&focus, snapshot)
+        || !policy
+            .preference(
+                ScopedPreference::ScreenContext,
+                &focus.app,
+                "",
+                &[&focus.executable],
+            )
+            .value
+    {
         return Ok(blocked());
     }
     let Some(window) = focus.window else {
@@ -470,6 +566,7 @@ pub struct LinuxBridge {
     policy: ObservationPolicy,
     config: Config,
     hook: Option<x11::Hook>,
+    metadata: Option<MetadataObservation>,
     input: Arc<InputState>,
     accessibility_only: bool,
     stopped: bool,
@@ -509,6 +606,7 @@ impl LinuxBridge {
                 "AT-SPI accessibility ready; no keyboard interception or compositor authority"
                     .into(),
             observed: None,
+            metadata: None,
         })
     }
     pub fn capture_accessibility(
@@ -682,6 +780,19 @@ impl NativeBridge for LinuxBridge {
             .callback
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = if self.stopped { None } else { callback };
+        if self.stopped
+            || self
+                .input
+                .callback
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_none()
+        {
+            self.metadata = None;
+        } else if self.metadata.is_none() {
+            // Missing/incomplete notification providers retain periodic capture.
+            self.metadata = MetadataObservation::start(self.input.clone()).ok();
+        }
     }
     fn finish_input(&mut self, accepted: bool) -> Result<()> {
         if let Some(hook) = &self.hook {
@@ -718,6 +829,7 @@ impl NativeBridge for LinuxBridge {
             .callback
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
+        self.metadata = None;
         if let Some(hook) = &mut self.hook {
             hook.stop()?;
         }
@@ -734,3 +846,30 @@ impl Drop for LinuxBridge {
 #[cfg(test)]
 #[path = "linux_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+    #[test]
+    fn notifications_revoke_without_reading_text_or_fabricating_input_time() {
+        assert!(metadata_invalidation("StateChanged"));
+        assert!(metadata_invalidation("BoundsChanged"));
+        assert!(metadata_invalidation("ChildrenChanged"));
+        assert!(!metadata_invalidation("TextChanged"));
+        let state = Arc::new(InputState::default());
+        let calls = Arc::new(AtomicU64::new(0));
+        let weak = Arc::downgrade(&state);
+        let observed = calls.clone();
+        *state.callback.lock().unwrap() = Some(Arc::new(move || {
+            // Reentrant access proves invocation occurs outside the lock.
+            assert!(weak.upgrade().unwrap().callback.try_lock().is_ok());
+            observed.fetch_add(1, Ordering::Relaxed);
+        }));
+        state.note(false);
+        state.note(false);
+        assert_eq!(state.revision.load(Ordering::Acquire), 2);
+        assert_eq!(state.user_revision.load(Ordering::Acquire), 0);
+        assert!(state.time.lock().unwrap().is_none());
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+    }
+}

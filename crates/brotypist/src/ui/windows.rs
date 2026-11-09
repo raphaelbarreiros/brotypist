@@ -19,13 +19,24 @@ use crate::{
     config::Config,
     platform::Action,
     preview::PreviewSession,
-    runtime::{Command, Controller},
+    runtime::{
+        Command, ConfigApplyReceipt, Controller, PaintObservation, PaintReporter,
+        PendingConfigApply, PresentationLane,
+    },
     ui::{LaunchOptions, settings::SettingsDraft},
 };
 use anyhow::{Result, ensure};
 use serde_json::{Value, json};
 use settings::{FIELDS, Kind, PANES, RULE_FLAGS, WelcomeState};
-use std::{cell::RefCell, collections::VecDeque};
+use std::{
+    cell::RefCell,
+    collections::VecDeque,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Instant,
+};
 use windows::Win32::System::SystemServices::SS_NOTIFY;
 use windows::{
     Win32::{
@@ -40,6 +51,7 @@ use windows::{
     core::{PCWSTR, w},
 };
 const TRAY: u32 = WM_APP + 14;
+const CONTROLLER_WAKE: u32 = WM_APP + 15;
 const ROOT_PANE: usize = 10;
 const SAVE: usize = 11;
 const REVERT: usize = 12;
@@ -79,6 +91,9 @@ const UPDATE_STATUS: usize = 74;
 const PERMISSIONS: usize = 75;
 const DIAGNOSTICS: usize = 76;
 const SOURCE: usize = 77;
+const EXPORT_DIAGNOSTICS: usize = 89;
+const CANCEL_APPLY: usize = 90;
+const EFFECTIVE_SCOPE: usize = 91;
 const W_BACK: usize = 80;
 const W_NEXT: usize = 81;
 const W_TEXT: usize = 82;
@@ -105,6 +120,7 @@ enum Event {
     Command(usize, u16),
     Close,
     Tick,
+    Wake,
     Resize,
     Scroll(i32),
     ScrollTo(i32),
@@ -129,6 +145,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
             return LRESULT(0);
         }
         WM_TIMER => queue(Event::Tick),
+        CONTROLLER_WAKE => queue(Event::Wake),
         WM_SIZE => queue(Event::Resize),
         WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE => queue(Event::Display),
         WM_MOUSEWHEEL => queue(Event::Scroll(-((wp.0 >> 16) as u16 as i16 as i32) / 3)),
@@ -166,11 +183,29 @@ struct Control {
     x: i32,
     width: i32,
 }
+struct ConfigOperation {
+    pending: PendingConfigApply,
+    draft_generation: Option<u64>,
+    login_before: Option<bool>,
+    resume: bool,
+    welcome_model: Option<String>,
+}
+#[derive(Clone, Copy)]
+enum AfterSave {
+    Close,
+    Quit,
+    Welcome,
+    OpenWelcome,
+}
 struct Shell {
     window: HWND,
     instance: HINSTANCE,
     controller: Controller,
     draft: SettingsDraft,
+    operations: Vec<ConfigOperation>,
+    draft_generation: u64,
+    after_save: Option<AfterSave>,
+    wake_pending: Arc<AtomicBool>,
     controls: Vec<Control>,
     pane: usize,
     scroll: i32,
@@ -193,6 +228,7 @@ struct Shell {
     preview: Option<PreviewSession>,
     preview_closing: bool,
     ime: bool,
+    refresh_pending: bool,
     preview_navigation: Option<bool>,
     close_pending: bool,
     preview_ghost: Option<owned_preview::PreviewGhost>,
@@ -242,12 +278,32 @@ impl Shell {
             let draft = SettingsDraft::new(&config)?;
             let last_config = config.clone();
             let controller = Controller::start(config)?;
+            let wake_pending = Arc::new(AtomicBool::new(false));
+            let wake_flag = wake_pending.clone();
+            let owner = window.0 as usize;
+            controller.set_wakeup(Some(Arc::new(move || {
+                if !wake_flag.swap(true, Ordering::AcqRel) {
+                    let posted = PostMessageW(
+                        Some(HWND(owner as *mut _)),
+                        CONTROLLER_WAKE,
+                        WPARAM(0),
+                        LPARAM(0),
+                    );
+                    if posted.is_err() {
+                        wake_flag.store(false, Ordering::Release);
+                    }
+                }
+            })));
             let mut s = Self {
                 window,
                 instance,
                 controller,
                 draft,
                 last_config,
+                operations: Vec::new(),
+                draft_generation: 0,
+                after_save: None,
+                wake_pending,
                 acknowledged: false,
                 controls: vec![],
                 pane: options
@@ -279,6 +335,7 @@ impl Shell {
                 preview_ghost: None,
                 preview_closing: false,
                 ime: false,
+                refresh_pending: false,
                 preview_navigation: None,
                 close_pending: false,
                 closing: false,
@@ -287,6 +344,10 @@ impl Shell {
                 status: Value::Null,
                 power: Default::default(),
             };
+            s.overlay
+                .set_paint_reporter(Some(s.controller.paint_reporter()));
+            s.chooser
+                .set_paint_reporter(Some(s.controller.paint_reporter()));
             s.build()?;
             s.preview_ghost = Some(owned_preview::PreviewGhost::new(s.h(W_EDIT))?);
             s.new_rule();
@@ -508,15 +569,19 @@ impl Shell {
             }
         }
         let mut yy = y[2] + 12;
-        self.label(2,"Shortcuts: select a button, then press a chord. Escape cancels; Backspace clears. Above-Tab uses the physical key. System-reserved shortcuts remain system-owned.",yy,48)?;
-        yy += 56;
+        self.label(2,"Emoji lookup must be enabled for emoticon suggestions. Replacements require a supported native Edit control with revalidated text and selection; generic UIA providers do not guarantee arbitrary range replacement. Selected-text synonyms are unavailable with GGUF continuation mode; GGUF writing mode still needs replacement support.",yy,80)?;
+        yy += 88;
+        self.label(2,"Shortcuts: select a button, then press a chord. Escape cancels; Backspace clears. Above-Tab uses the physical key. Alt-Tab is reserved for Windows and is never intercepted. BroTypist cannot detect every shortcut conflict in other apps.",yy,64)?;
+        yy += 72;
         for (i, (_, label)) in ACTIONS.iter().enumerate() {
             self.label(2, label, yy, 22)?;
             self.button(SHORTCUT_BASE + i, 2, "Record shortcut", yy + 24)?;
             yy += 64;
         }
         let mut yy = y[1] + 12;
-        self.label(1,"Catalog models retain their licenses. Capacity is advisory; imports reference user-owned files. Selecting or downloading never predicts in Welcome until the selected model is actually ready.",yy,48)?;
+        self.label(1,"Catalog minimum RAM is a minimum physical-memory requirement, not measured consumption or a capacity guarantee. Unknown memory uses the default recommendation, not a measured fit. Licenses remain model-specific; imports reference user-owned files. Selecting or downloading never predicts in Welcome until the selected model is ready.",yy,80)?;
+        yy += 88;
+        self.label(1,"Battery mode can use any selected installed model, not only a smaller model, and never downloads one automatically. Unknown power status is not inferred. Idle release at zero keeps the model resident.",yy,48)?;
         yy += 56;
         self.combo(MODEL_LIST, 1, "Local model catalog", &[], yy)?;
         yy += 68;
@@ -524,9 +589,11 @@ impl Shell {
         self.control(
             DIAGNOSTICS,
             1,
-            "STATIC",
+            "EDIT",
             "",
-            WINDOW_STYLE(0),
+            WS_BORDER
+                | WS_VSCROLL
+                | WINDOW_STYLE((ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY) as u32),
             32,
             yy,
             790,
@@ -548,7 +615,7 @@ impl Shell {
         for (id, title) in [
             (MODEL_SELECT, "Use selected installed model"),
             (MODEL_DOWNLOAD, "Download selected model…"),
-            (MODEL_CANCEL, "Cancel download"),
+            (MODEL_CANCEL, "Cancel download / settings operation"),
             (MODEL_IMPORT, "Import GGUF file…"),
             (MODEL_LICENSE, "Read selected model license…"),
             (MODEL_REVEAL, "Reveal model files"),
@@ -557,8 +624,10 @@ impl Shell {
             yy += 38;
         }
         let mut yy = y[4] + 12;
-        self.label(4,"Website URLs are unavailable on Windows. Website exclusions fail closed for recognized browsers. Exact app IDs and inherited rules stay separate. History is OS-encrypted; there is no plaintext fallback.",yy,52)?;
-        yy += 60;
+        self.label(4,"Website URLs are unavailable on Windows. Website exclusions fail closed for recognized browsers. Hard exclusions match app identifier/name substrings, not exact IDs; app rules and exact-host website rules are separate. OCR and terminal completion are unavailable; saved preferences do not enable those capabilities.",yy,80)?;
+        yy += 88;
+        self.label(4,"Learning strength selects aggregate style and vocabulary evidence, not training progress or a quality percentage. Zero suppresses that evidence without changing recording/use consent or deleting history. Recording and use remain separate. History is OS-encrypted with no plaintext fallback.",yy,64)?;
+        yy += 72;
         self.control(
             RULE_LIST,
             4,
@@ -597,10 +666,22 @@ impl Shell {
             yy += 64;
         }
         self.control(
+            EFFECTIVE_SCOPE,
+            4,
+            "STATIC",
+            "",
+            WINDOW_STYLE(0),
+            32,
+            yy,
+            750,
+            220,
+        )?;
+        yy += 230;
+        self.control(
             RULE_USE_INSTRUCTIONS,
             4,
             "BUTTON",
-            "Override instructions (unchecked inherits; empty override is meaningful)",
+            "Append scoped instructions (unchecked or empty adds nothing; inherited text remains)",
             WS_TABSTOP | WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
             32,
             yy,
@@ -654,16 +735,38 @@ impl Shell {
             PERIOD,
             0,
             "Statistics period",
-            &["day", "week", "month", "all"],
+            &["day", "week", "month", "year", "all"],
             yy,
         )?;
         yy += 64;
         set_selection(self.h(PERIOD), 1);
-        self.combo(GROUP, 0, "Statistics grouping", &["day", "app"], yy)?;
+        self.combo(
+            GROUP,
+            0,
+            "Statistics grouping",
+            &["day", "month", "app"],
+            yy,
+        )?;
         yy += 64;
+        self.label(0,"Time saved is an estimate: accepted characters divided by 5 characters/second, not measured time. Daily averages use active days, not all calendar days. Statistics and encrypted writing history are deleted separately.",yy,48)?;
+        yy += 56;
         self.button(STATS, 0, "Refresh aggregate statistics", yy)?;
         yy += 38;
         self.button(CLEAR_STATS, 0, "Clear aggregate statistics only…", yy)?;
+        yy += 38;
+        self.button(
+            EXPORT_DIAGNOSTICS,
+            0,
+            "Export content-free request diagnostics…",
+            yy,
+        )?;
+        yy += 38;
+        self.button(
+            CANCEL_APPLY,
+            0,
+            "Cancel pending settings / model operation",
+            yy,
+        )?;
         yy += 38;
         self.control(
             RESULTS,
@@ -717,7 +820,7 @@ impl Shell {
             self.button(id, 5, title, yy)?;
             yy += 38;
         }
-        self.label(3,"Language quality comes from the selected local model. Instructions can request English, Portuguese or another supported language; there is no separate quality selector. Native Windows correction depends on an available dictionary and replaceable control.",y[3]+10,80)?;
+        self.label(3,"Language quality depends on the selected model; there is no separate quality selector. Instructions append in order: language defaults, nonempty global text, app text, then exact-host text. Empty scoped text does not erase inherited instructions. Native spelling corrections are unavailable on Windows.",y[3]+10,80)?;
         self.label(6, "", 100, 180)?;
         self.control(W_TEXT, 6, "STATIC", "", WINDOW_STYLE(0), 32, 100, 790, 180)?;
         self.combo(
@@ -903,6 +1006,11 @@ impl Shell {
         }
     }
     fn refresh_controls(&mut self) -> Result<()> {
+        if self.ime {
+            self.refresh_pending = true;
+            return Ok(());
+        }
+        self.refresh_pending = false;
         self.loading = true;
         for (i, f) in FIELDS.iter().enumerate() {
             let Some(v) = self.draft.value(f.key) else {
@@ -939,6 +1047,14 @@ impl Shell {
                     }
                 }
             }
+            unsafe {
+                let _ = EnableWindow(h, !settings::unavailable(f.key) && !self.save_pending());
+            }
+            if matches!(f.kind, Kind::Number) {
+                unsafe {
+                    let _ = EnableWindow(self.h(3000 + i), !self.save_pending());
+                }
+            }
         }
         for (i, (action, label)) in ACTIONS.iter().enumerate() {
             let chord = self
@@ -959,6 +1075,41 @@ impl Shell {
                 ),
             );
         }
+        for i in 0..ACTIONS.len() {
+            unsafe {
+                let _ = EnableWindow(self.h(SHORTCUT_BASE + i), !self.save_pending());
+            }
+        }
+        for (i, (key, _)) in RULE_FLAGS.iter().enumerate() {
+            unsafe {
+                let _ = EnableWindow(
+                    self.h(RULE_FLAG_BASE + i),
+                    !settings::unavailable(key) && !self.save_pending(),
+                );
+            }
+        }
+        for id in [
+            SAVE,
+            RULE_LIST,
+            RULE_KIND,
+            RULE_ID,
+            RULE_INSTRUCTIONS,
+            RULE_USE_INSTRUCTIONS,
+            RULE_APPLY,
+            RULE_REMOVE,
+            RULE_NEW,
+        ] {
+            let enabled = !self.save_pending()
+                && (id != SAVE
+                    || !self
+                        .operations
+                        .iter()
+                        .any(|op| op.draft_generation.is_some()));
+            unsafe {
+                let _ = EnableWindow(self.h(id), enabled);
+            }
+        }
+        self.refresh_effective_scope();
         self.refresh_rules();
         set_selection(self.h(ROOT_PANE), self.pane);
         self.loading = false;
@@ -977,13 +1128,17 @@ impl Shell {
             list_add(self.h(RULE_LIST), key);
         }
     }
-    fn changed(&mut self, index: usize) -> Result<()> {
-        if self.loading {
+    fn changed(&mut self, index: usize, explicit_intent: bool) -> Result<()> {
+        if self.loading || self.save_pending() || settings::unavailable(FIELDS[index].key) {
             return Ok(());
         }
         let f = FIELDS[index];
         let h = self.h(FIELD_BASE + index);
         let v = settings::control_value(f, &text(h), is_checked(h), selection(h))?;
+        // Save-time synchronization is not a user action on every field.
+        if !explicit_intent && self.draft.value(f.key) == Some(&v) {
+            return Ok(());
+        }
         if matches!(
             f.key,
             "clipboard_context"
@@ -991,6 +1146,7 @@ impl Shell {
                 | "screenshot_context"
                 | "screenshot_appearance"
                 | "record_history"
+                | "use_history"
                 | "terminal_completion"
         ) && v == true
             && self.draft.value(f.key) != Some(&v)
@@ -1000,42 +1156,187 @@ impl Shell {
         self.draft.set(f.key, v)?;
         Ok(())
     }
+    fn save_pending(&self) -> bool {
+        self.operations
+            .iter()
+            .any(|op| op.draft_generation == Some(self.draft_generation))
+    }
+    fn cancel_operations(&mut self) -> Result<()> {
+        self.draft_generation = self.draft_generation.wrapping_add(1);
+        self.after_save = None;
+        for op in &mut self.operations {
+            op.welcome_model = None;
+            op.resume = false;
+            self.controller
+                .cancel_config_apply(op.pending.operation_id())?;
+        }
+        self.refresh_controls()
+    }
     fn save(&mut self) -> Result<()> {
+        ensure!(
+            !self
+                .operations
+                .iter()
+                .any(|op| op.draft_generation.is_some()),
+            "Wait for the previous settings operation to finish."
+        );
+        ensure!(
+            !self.ime && self.recording.is_none(),
+            "Finish text composition or shortcut recording before saving."
+        );
         for i in 0..FIELDS.len() {
-            self.changed(i)?;
+            self.changed(i, false)?;
         }
         if self.rule_dirty() {
             self.apply_rule()?;
         }
         let current = self.controller.config();
         let c = self.draft.apply_to(&current)?;
-        let login_changed = c.launch_at_login != current.launch_at_login;
-        if login_changed {
+        if c.history_retention_days > 0
+            && c.history_retention_days != current.history_retention_days
+        {
+            ensure!(self.confirm("Encrypted history retention", &format!("Automatically forget authenticated dated writing older than {} days? Deletion also removes derived learning; locked or unknown-date records are not silently decrypted or guessed.", c.history_retention_days)), "Retention change was not confirmed.");
+        }
+        let login_before =
+            (c.launch_at_login != current.launch_at_login).then_some(current.launch_at_login);
+        if login_before.is_some() {
             crate::system::set_launch_at_login(c.launch_at_login)?;
         }
-        let result = (|| -> Result<()> {
-            self.controller.send(Command::ApplyConfig {
-                config: c.clone(),
-                persist: true,
-            })?;
-            for event in self.controller.poll() {
-                self.runtime_event(event)?;
+        let pending = match self.controller.apply_settings(self.draft.clone(), true) {
+            Ok(pending) => pending,
+            Err(error) => {
+                if let Some(before) = login_before {
+                    let _ = crate::system::set_launch_at_login(before);
+                }
+                return Err(error);
             }
-            ensure!(
-                self.controller.config() == c,
-                "Settings could not be saved; your draft remains available."
-            );
-            Ok(())
-        })();
-        if result.is_err() && login_changed {
-            let _ = crate::system::set_launch_at_login(current.launch_at_login);
-        }
-        result?;
-        self.last_config = c.clone();
-        self.draft.reset(&c)?;
+        };
+        self.operations.push(ConfigOperation {
+            pending,
+            draft_generation: Some(self.draft_generation),
+            login_before,
+            welcome_model: None,
+            resume: false,
+        });
         self.refresh_controls()
     }
+    fn poll_operations(&mut self) -> Result<()> {
+        let mut i = 0;
+        while i < self.operations.len() {
+            let Some(receipt) = self.operations[i].pending.try_recv()? else {
+                i += 1;
+                continue;
+            };
+            let op = self.operations.remove(i);
+            let matching = op.draft_generation == Some(self.draft_generation);
+            match receipt {
+                ConfigApplyReceipt::Saved { config: saved } => {
+                    set_text(
+                        self.h(RESULTS),
+                        if saved.backend == "gguf" {
+                            "Settings saved. New GGUF selections are validated before saving; language quality and speed are not measured."
+                        } else {
+                            "Local server configuration saved. Server availability is unverified; generation quality has not been checked."
+                        },
+                    );
+                    let config = self.controller.config();
+                    if op.resume && config.global_enabled {
+                        self.controller.send(Command::Resume)?;
+                    }
+                    settings::saved_draft(
+                        &mut self.draft,
+                        &config,
+                        op.draft_generation,
+                        self.draft_generation,
+                    )?;
+                    if let (Some(id), Some(w)) = (op.welcome_model, &mut self.welcome) {
+                        if w.selected == id
+                            && !self
+                                .operations
+                                .iter()
+                                .any(|pending| pending.welcome_model.is_some())
+                        {
+                            w.ready = id;
+                        }
+                    }
+                    self.last_config = config;
+                    self.refresh_controls()?;
+                    self.welcome_text();
+                    if matching {
+                        match self.after_save.take() {
+                            Some(AfterSave::Close) => queue(Event::Close),
+                            Some(AfterSave::Quit) => self.quit()?,
+                            Some(AfterSave::Welcome) => {
+                                self.welcome = None;
+                                self.controller.send(Command::ResumeFromPreview)?;
+                                self.layout();
+                            }
+                            Some(AfterSave::OpenWelcome) => self.show_welcome()?,
+                            None => {}
+                        }
+                    }
+                }
+                ConfigApplyReceipt::Applied { .. } => {
+                    self.draft.refresh(&self.controller.config())?;
+                    self.refresh_controls()?;
+                }
+                outcome => {
+                    if let Some(before) = op.login_before {
+                        crate::system::set_launch_at_login(before)?;
+                    }
+                    if matching {
+                        self.after_save = None;
+                    }
+                    self.refresh_controls()?;
+                    let message = match outcome {
+                        ConfigApplyReceipt::Failed { stage, message } => format!(
+                            "Settings/model operation failed at {stage:?}: {message}. Your edits remain available."
+                        ),
+                        ConfigApplyReceipt::Cancelled => {
+                            "Operation cancelled. Your edits remain available.".into()
+                        }
+                        ConfigApplyReceipt::Superseded => {
+                            "Operation superseded. Your edits remain available.".into()
+                        }
+                        _ => "Operation stopped. Your edits remain available.".into(),
+                    };
+                    set_text(self.h(DIAGNOSTICS), &message);
+                    if self.welcome.is_some() {
+                        set_text(self.h(W_TEXT), &message);
+                    }
+                    set_text(self.h(RESULTS), &message);
+                    if matching {
+                        self.error(message);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    fn refresh_effective_scope(&self) {
+        if let Ok(config) = self.draft.apply_to(&self.controller.config()) {
+            let identity = text(self.h(RULE_ID));
+            let domain = selection(self.h(RULE_KIND)) == 1;
+            set_text(
+                self.h(EFFECTIVE_SCOPE),
+                &settings::effective_preferences(
+                    &config,
+                    if domain { "" } else { &identity },
+                    None,
+                    domain,
+                ),
+            );
+        } else {
+            set_text(
+                self.h(EFFECTIVE_SCOPE),
+                "Fix the invalid settings draft to resolve effective values and origins.",
+            );
+        }
+    }
     fn dirty_close(&mut self) -> Result<bool> {
+        if self.save_pending() {
+            return Ok(false);
+        }
         let pending_number = FIELDS.iter().enumerate().any(|(i, f)| {
             matches!(f.kind, Kind::Number)
                 && text(self.h(FIELD_BASE + i)).trim().parse::<u32>().is_err()
@@ -1056,9 +1357,10 @@ impl Shell {
         match answer {
             IDYES => {
                 self.save()?;
-                Ok(true)
+                Ok(false)
             }
             IDNO => {
+                self.cancel_operations()?;
                 self.draft.reset(&self.controller.config())?;
                 self.new_rule();
                 self.refresh_controls()?;
@@ -1227,16 +1529,18 @@ impl Shell {
             }
             107 => self.quit()?,
             108 => {
-                let mut c = self.controller.config();
-                c.global_enabled = !c.global_enabled;
-                let enabled = c.global_enabled;
-                self.controller.send(Command::ApplyConfig {
-                    config: c,
-                    persist: true,
-                })?;
-                if enabled {
-                    self.controller.send(Command::Resume)?;
-                }
+                let baseline = self.controller.config();
+                let enabled = !baseline.global_enabled;
+                let mut draft = SettingsDraft::new(&baseline)?;
+                draft.set("global_enabled", json!(enabled))?;
+                let pending = self.controller.apply_settings(draft, true)?;
+                self.operations.push(ConfigOperation {
+                    pending,
+                    draft_generation: None,
+                    login_before: None,
+                    welcome_model: None,
+                    resume: enabled,
+                });
             }
             109 => self.controller.send(Command::Resume)?,
             110 => self.controller.send(Command::Pause { minutes: 5 })?,
@@ -1344,6 +1648,9 @@ impl Shell {
     }
     fn quit(&mut self) -> Result<()> {
         if !self.dirty_close()? {
+            if self.save_pending() {
+                self.after_save = Some(AfterSave::Quit);
+            }
             return Ok(());
         }
         self.closing = true;
@@ -1369,27 +1676,26 @@ impl Shell {
     fn use_model(&mut self) -> Result<()> {
         let m = self.selected_model()?;
         ensure!(m["installed"] == true, "Download the selected model first.");
-        let c = self.controller.config();
-        let mut pending = self.draft.apply_to(&c)?;
-        pending.backend = "gguf".into();
-        pending.model_path = m["path"].as_str().unwrap_or("").into();
-        pending.model_id = m["id"].as_str().unwrap_or("").into();
-        pending.prompt_style = m["prompt_style"].as_str().unwrap_or("continuation").into();
+        let path = m["path"].as_str().unwrap_or("").to_owned();
+        let id = m["id"].as_str().unwrap_or("").to_owned();
+        let prompt_style = m["prompt_style"]
+            .as_str()
+            .unwrap_or("continuation")
+            .to_owned();
         if let Some(w) = &mut self.welcome {
-            w.select(pending.model_id.clone());
-            w.ready = pending.model_id.clone();
-            self.draft.set("backend", json!("gguf"))?;
-            self.draft.set("model_path", json!(pending.model_path))?;
-            self.draft.set("model_id", json!(pending.model_id))?;
-            self.draft
-                .set("prompt_style", json!(pending.prompt_style))?;
-        } else {
-            self.controller.send(Command::SetModel {
-                path: pending.model_path,
-                prompt_style: pending.prompt_style,
-                model_id: Some(pending.model_id),
-            })?;
+            w.select(id.clone());
+            w.ready.clear();
         }
+        let pending = self
+            .controller
+            .select_model(path, prompt_style, Some(id.clone()))?;
+        self.operations.push(ConfigOperation {
+            pending,
+            draft_generation: None,
+            login_before: None,
+            welcome_model: self.welcome.as_ref().map(|_| id),
+            resume: false,
+        });
         self.refresh_controls()?;
         self.welcome_text();
         Ok(())
@@ -1422,22 +1728,19 @@ impl Shell {
         );
         if let Some(w) = &mut self.welcome {
             w.select(path.clone());
-            w.ready = path.clone();
-            self.draft.set("model_path", json!(path))?;
-            self.draft.set("backend", json!("gguf"))?;
-            self.draft.set("model_id", json!(""))?;
-        } else {
-            self.controller.send(Command::SetModel {
-                path,
-                prompt_style: self
-                    .draft
-                    .value("prompt_style")
-                    .and_then(Value::as_str)
-                    .unwrap_or("continuation")
-                    .into(),
-                model_id: None,
-            })?;
+            w.ready.clear();
         }
+        let prompt_style = self.controller.config().prompt_style;
+        let pending = self
+            .controller
+            .select_model(path.clone(), prompt_style, None)?;
+        self.operations.push(ConfigOperation {
+            pending,
+            draft_generation: None,
+            login_before: None,
+            welcome_model: self.welcome.as_ref().map(|_| path),
+            resume: false,
+        });
         self.refresh_controls()?;
         self.welcome_text();
         Ok(())
@@ -1447,7 +1750,7 @@ impl Shell {
             set_text(
                 self.h(DIAGNOSTICS),
                 &format!(
-                    "{}\r\n{}\r\n{} bytes · {}\r\nLicense: {}\r\n{}",
+                    "{}\r\n{}\r\n{} bytes · {}\r\nLicense: {}\r\n{}\r\n{}\r\nPhysical RAM: {} · Catalog minimum physical RAM: {} (not measured consumption or a fit guarantee)\r\nFormat: GGUF · template: {}. Selection is validated before its Saved receipt; installed alone is not verification.",
                     m["label"].as_str().unwrap_or(""),
                     m["description"].as_str().unwrap_or(""),
                     m["size_bytes"],
@@ -1457,7 +1760,19 @@ impl Shell {
                         "Not installed"
                     },
                     m["license_name"].as_str().unwrap_or(""),
-                    human_report(&m["availability"])
+                    m["license_url"].as_str().unwrap_or(""),
+                    human_report(&m["availability"]),
+                    crate::models::ram_label(
+                        crate::models::physical_memory_bytes(),
+                        "Unavailable — default recommendation, fit not measured",
+                    ),
+                    crate::models::ram_label(
+                        m["minimum_memory_bytes"]
+                            .as_u64()
+                            .filter(|bytes| *bytes > 0),
+                        "Unavailable",
+                    ),
+                    m["prompt_style"].as_str().unwrap_or("Unavailable"),
                 ),
             );
         }
@@ -1530,6 +1845,7 @@ impl Shell {
             );
         }
         self.rule_original = self.rule_snapshot();
+        self.refresh_effective_scope();
         Ok(())
     }
     fn new_rule(&mut self) {
@@ -1541,6 +1857,7 @@ impl Shell {
             set_selection(self.h(RULE_FLAG_BASE + i), 0);
         }
         self.rule_original = self.rule_snapshot();
+        self.refresh_effective_scope();
     }
     fn apply_rule(&mut self) -> Result<()> {
         let values = (0..RULE_FLAGS.len())
@@ -1554,6 +1871,31 @@ impl Shell {
         };
         let identity = text(self.h(RULE_ID));
         let override_instructions = is_checked(self.h(RULE_USE_INSTRUCTIONS));
+        let grants_consent = RULE_FLAGS.iter().zip(&values).any(|((key, _), value)| {
+            *value == 1
+                && matches!(
+                    *key,
+                    "record_history"
+                        | "use_history"
+                        | "clipboard_context"
+                        | "screen_context"
+                        | "screenshot_context"
+                )
+                && self
+                    .editing_rule
+                    .as_ref()
+                    .and_then(|rule| {
+                        self.draft
+                            .value("app_rules")
+                            .and_then(|rules| rules.get(rule))
+                    })
+                    .and_then(|rule| rule.get(*key))
+                    .and_then(Value::as_bool)
+                    != Some(true)
+        });
+        if grants_consent {
+            ensure!(self.confirm("Optional scoped data access", "Enable the selected independent sources for this scope? Context still requires global consent; recording and use are separate. Encrypted history can be forgotten independently."), "Scoped consent not granted.");
+        }
         let key = settings::put_rule(
             &mut self.draft,
             self.editing_rule.as_deref(),
@@ -1565,10 +1907,14 @@ impl Shell {
         self.editing_rule = Some(key);
         self.rule_original = self.rule_snapshot();
         self.refresh_rules();
+        self.refresh_effective_scope();
         Ok(())
     }
     fn show_welcome(&mut self) -> Result<()> {
         if !self.dirty_close()? {
+            if self.save_pending() {
+                self.after_save = Some(AfterSave::OpenWelcome);
+            }
             return Ok(());
         }
         self.disarm();
@@ -1672,9 +2018,7 @@ impl Shell {
             self.draft.set("setup_completed", json!(true))?;
             self.refresh_controls()?;
             self.save()?;
-            self.welcome = None;
-            self.controller.send(Command::ResumeFromPreview)?;
-            self.layout();
+            self.after_save = Some(AfterSave::Welcome);
             return Ok(());
         }
         self.welcome.as_mut().unwrap().step = if back {
@@ -1809,7 +2153,7 @@ impl Shell {
                 {
                     return Ok(());
                 }
-                if let Err(e) = self.changed(index) {
+                if let Err(e) = self.changed(index, true) {
                     self.refresh_controls()?;
                     return Err(e);
                 }
@@ -1817,6 +2161,9 @@ impl Shell {
             return Ok(());
         }
         if (SHORTCUT_BASE..SHORTCUT_BASE + ACTIONS.len()).contains(&id) {
+            if self.save_pending() {
+                return Ok(());
+            }
             self.recording = Some(id - SHORTCUT_BASE);
             self.controller.suspend_shortcuts(true)?;
             set_text(
@@ -1827,7 +2174,7 @@ impl Shell {
         }
         match id{
             ROOT_PANE if notification==CBN_SELCHANGE as u16=>{self.pane=selection(self.h(ROOT_PANE));self.scroll=0;self.layout();},
-            SAVE=>self.save()?,REVERT=>{self.draft.reset(&self.controller.config())?;self.new_rule();self.refresh_controls()?;},
+            SAVE=>self.save()?,REVERT=>{self.cancel_operations()?;self.draft.reset(&self.controller.config())?;self.new_rule();self.refresh_controls()?;},
             QUIT=>self.quit()?,WELCOME=>self.show_welcome()?,
             MODEL_LIST if notification==CBN_SELCHANGE as u16=>{
                 let selected=self.models.get(selection(self.h(MODEL_LIST))).and_then(|m|m["id"].as_str()).map(str::to_owned);
@@ -1835,10 +2182,11 @@ impl Shell {
                 self.model_details();self.welcome_text();
             },
             88=>{let reviewed=is_checked(self.h(88));if let Some(w)=&mut self.welcome{w.access_reviewed=reviewed;}self.welcome_text();},
-            MODEL_SELECT=>self.use_model()?,MODEL_DOWNLOAD=>self.download()?,MODEL_CANCEL=>self.controller.send(Command::CancelDownload)?,MODEL_IMPORT=>self.import()?,MODEL_REVEAL=>crate::system::reveal_models()?,MODEL_LICENSE=>{let m=self.selected_model()?;open_url(m["license_url"].as_str().unwrap_or(""))?;},
+            MODEL_SELECT=>self.use_model()?,MODEL_DOWNLOAD=>self.download()?,MODEL_CANCEL=>{self.cancel_operations()?;self.controller.send(Command::CancelDownload)?;},MODEL_IMPORT=>self.import()?,MODEL_REVEAL=>crate::system::reveal_models()?,MODEL_LICENSE=>{let m=self.selected_model()?;open_url(m["license_url"].as_str().unwrap_or(""))?;},
             RULE_LIST if notification==LBN_SELCHANGE as u16=>self.load_rule()?,
             RULE_NEW=>{if self.resolve_rule_editor()?{self.new_rule();}},
             RULE_APPLY=>self.apply_rule()?,
+            RULE_ID|RULE_KIND=>self.refresh_effective_scope(),
             RULE_REMOVE=>{if let Some(key)=self.editing_rule.take(){settings::remove_rule(&mut self.draft,&key)?;self.refresh_rules();self.new_rule();}},
             COUNT=>{if self.confirm("Unlock encrypted history","Use your OS-backed encryption key to count local records? No writing text will be shown."){self.controller.send(Command::HistoryCounts{unlock:true})?;}},
             DELETE_ALL=>{if self.confirm("Forget learned writing","Permanently delete all encrypted writing and derived learning? Aggregate statistics are separate and will remain."){self.controller.send(Command::DeleteHistory{app:None,domain:None})?;}},
@@ -1846,6 +2194,8 @@ impl Shell {
             STATS|PERIOD|GROUP=>self.controller.send(Command::Statistics{period:combo_text(self.h(PERIOD)),group_by:combo_text(self.h(GROUP))})?,CLEAR_STATS=>{if self.confirm("Clear aggregate statistics","Delete aggregate counts only? Encrypted writing history is separate and will remain."){self.controller.send(Command::ClearStatistics)?;}},
             PERMISSIONS=>crate::system::open_permissions("accessibility")?,SOURCE=>open_url("https://github.com/renan-brasilio/brotypist")?,
             SETTINGS_FOLDER=>open_settings_folder()?,
+            CANCEL_APPLY=>self.cancel_operations()?,
+            EXPORT_DIAGNOSTICS=>{let path=self.controller.export_diagnostics()?;set_text(self.h(RESULTS),&format!("Content-free request diagnostics exported to {}",path.display()));},
             UPDATE_CHECK=>self.updates.start_check()?,UPDATE_DOWNLOAD=>{let now=self.updates.snapshot();ensure!(now==self.update_intent,"Update identity changed. Review its status before requesting Download again.");self.updates.start_download()?;},UPDATE_INSTALL=>{let now=self.updates.snapshot();ensure!(now==self.update_intent,"Update identity changed.");anyhow::bail!("Windows OTA installation is held. No package is installed or launched. Use a separately verified Windows release when publication is approved.");},UPDATE_CANCEL=>self.updates.cancel(),
             W_BACK=>self.next_welcome(true)?,W_NEXT=>self.next_welcome(false)?,
             // Combo focus/dropdown notifications must not replace owned writing.
@@ -1869,6 +2219,7 @@ impl Shell {
                     if event["choices_mode"] == "alternatives" {
                         let mut choices = event.clone();
                         choices["mode"] = json!("alternatives");
+                        choices["diagnostic"] = event["choices_diagnostic"].clone();
                         self.controller.send(self.chooser.show(&choices)?)?;
                     }
                 } else {
@@ -1993,9 +2344,13 @@ impl Shell {
         if !self.overlay.valid() || !self.chooser.valid() {
             self.disarm();
         }
+        if self.refresh_pending && !self.ime {
+            self.refresh_controls()?;
+        }
         for event in self.controller.poll() {
             self.runtime_event(event)?;
         }
+        self.poll_operations()?;
         self.accessory.revalidate();
         if self.welcome.is_some() || self.closing || !self.last_config.show_accessory {
             self.accessory.hide();
@@ -2061,6 +2416,11 @@ impl Shell {
                     }
                 )
             };
+            let title = if let Some(stage) = status["config_operation"]["stage"].as_str() {
+                format!("{title} · Settings/model: {stage}")
+            } else {
+                title
+            };
             set_text(self.window, &title);
             let power = if !self.power.available {
                 "Power unavailable — battery limits are not inferred.".into()
@@ -2084,15 +2444,25 @@ impl Shell {
                     }
                 )
             };
+            let diagnostics = self.controller.diagnostics();
             set_text(
                 self.h(78),
                 &format!(
-                    "Current application: {}\r\n{}\r\nContext: {}\r\nPower: {}\r\nNative diagnostics:\r\n{}",
+                    "Current application: {}\r\n{}\r\nContext: {}\r\nPower: {}\r\nEffective current values and origins (saved policy; native capability limits still apply):\r\n{}\r\nNative diagnostics:\r\n{}\r\nGuarded writing trace buffer: {} retained · {} evicted · {} lost terminal reports · {} unmatched · {} rejected draws. Retained counts and work are not session totals.\r\nWriting stages are offsets from capture start; terminal stages are offsets from submission. Missing values (null) mean unavailable, not zero. Native client receipts do not prove compositor paint.\r\n{}\r\n{}",
                     status["current_app"].as_str().unwrap_or("Unavailable"),
                     status["inline_message"].as_str().unwrap_or(""),
                     status["context_message"].as_str().unwrap_or(""),
                     power,
-                    human_report(&status["native_status"])
+                    human_report(&status["current_preferences"]),
+                    human_report(&status["native_status"]),
+                    diagnostics.traces.len(),
+                    diagnostics.evicted_traces,
+                    diagnostics.lost_reports,
+                    diagnostics.unmatched_reports,
+                    diagnostics.rejected_draws,
+                    human_report(&serde_json::to_value(&diagnostics.traces)?),
+                    crate::ui::settings::preparation_diagnostics(&diagnostics)
+                        .replace('\n', "\r\n")
                 ),
             );
         }
@@ -2219,6 +2589,7 @@ impl Shell {
 }
 impl Drop for Shell {
     fn drop(&mut self) {
+        self.controller.set_wakeup(None);
         unsafe {
             if self.tray {
                 let n = NOTIFYICONDATAW {
@@ -2306,6 +2677,10 @@ fn dispatch_message(shell: &mut Shell, msg: &MSG) -> Result<()> {
 fn dispatch_event(shell: &mut Shell, event: Event) -> Result<bool> {
     match event {
         Event::Tick => return shell.tick(),
+        Event::Wake => {
+            shell.wake_pending.store(false, Ordering::Release);
+            return shell.tick();
+        }
         Event::Command(id, n) => shell.command(id, n)?,
         Event::Resize => shell.layout(),
         Event::ScrollTo(position) => {
@@ -2333,6 +2708,8 @@ fn dispatch_event(shell: &mut Shell, event: Event) -> Result<bool> {
             if shell.dirty_close()? {
                 if shell.tray{shell.close_pending=true;shell.preview_navigation=None;shell.stop_preview()?;}
                 else if shell.confirm("No system tray","Quit BroTypist and stop typing assistance? Cancel keeps this recovery window available."){shell.quit()?;}
+            } else if shell.save_pending() {
+                shell.after_save = Some(AfterSave::Close);
             }
         }
     }
@@ -2592,21 +2969,97 @@ fn number_bounds(key: &str) -> (u32, u32) {
         "max_tokens" => (1, 128),
         "context_chars" => (64, 8000),
         "idle_release_seconds" => (0, 3600),
+        "history_retention_days" => (0, i32::MAX as u32),
         "escape_pause_seconds" => (1, 3600),
         "personalization_strength" => (0, 100),
         "emoji_skin_tone" => (0, 5),
         "alternatives_delay_ms" | "synonyms_delay_ms" => (100, 10000),
-        _ => unreachable!("Every native numeric field has an explicit Config bound"),
+        _ => unreachable!("Every native numeric field has an explicit spinner bound"),
     }
 }
 
 // Explicit alternatives/emoji chooser; it is never used for ordinary completion.
+struct ChoicePaint {
+    text: Vec<Vec<u16>>,
+    diagnostic: std::cell::Cell<Option<(u64, u64)>>,
+    painted: std::cell::Cell<u8>,
+    observed_rows: std::cell::Cell<u8>,
+    required: u8,
+    foreground: HWND,
+    reporter: Option<PaintReporter>,
+}
+unsafe extern "system" fn choice_row_proc(
+    hwnd: HWND,
+    msg: u32,
+    wp: WPARAM,
+    lp: LPARAM,
+    id: usize,
+    data: usize,
+) -> LRESULT {
+    unsafe {
+        if msg != WM_PAINT {
+            return DefSubclassProc(hwnd, msg, wp, lp);
+        }
+        let Some(paint) = (data as *const ChoicePaint).as_ref() else {
+            return DefSubclassProc(hwnd, msg, wp, lp);
+        };
+        let mut ps = PAINTSTRUCT::default();
+        let dc = BeginPaint(hwnd, &mut ps);
+        let mut rect = RECT::default();
+        let _ = GetClientRect(hwnd, &mut rect);
+        FillRect(dc, &rect, GetSysColorBrush(COLOR_WINDOW));
+        let old = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, COLORREF(GetSysColor(COLOR_WINDOWTEXT)));
+        if let Some(units) = paint.text.get(id) {
+            if TextOutW(dc, 0, 0, units).as_bool()
+                && !units.is_empty()
+                && IsWindowVisible(hwnd).as_bool()
+                && GetForegroundWindow() == paint.foreground
+                && ps.rcPaint.right > 0
+                && ps.rcPaint.bottom > 0
+                && ps.rcPaint.left < rect.right
+                && ps.rcPaint.top < rect.bottom
+            {
+                paint.painted.set(paint.painted.get() | (1 << id));
+                // Acceptance still follows the existing successful-draw contract.
+                // Diagnostics independently require every row's complete native
+                // clipping region; partial paints never accumulate into coverage.
+                if paint.diagnostic.get().is_some()
+                    && paint.reporter.is_some()
+                    && paint.observed_rows.get() & (1 << id) == 0
+                    && overlay::paint_covers(dc, rect)
+                {
+                    paint
+                        .observed_rows
+                        .set(paint.observed_rows.get() | (1 << id));
+                    if paint.observed_rows.get() == paint.required {
+                        if let Some(reporter) = &paint.reporter {
+                            if let Some((trace_id, view_serial)) = paint.diagnostic.take() {
+                                reporter(PaintObservation {
+                                    trace_id,
+                                    lane: PresentationLane::Chooser,
+                                    view_serial,
+                                    painted_at: Instant::now(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let _ = SelectObject(dc, old);
+        let _ = EndPaint(hwnd, &ps);
+        LRESULT(0)
+    }
+}
 struct ChoiceWindow {
     window: HWND,
     current: Option<overlay::Presentation>,
     foreground: HWND,
     rows: usize,
     labels: Vec<HWND>,
+    paint: Box<ChoicePaint>,
 }
 thread_local! {static CHOICES:RefCell<Vec<usize>>=const{RefCell::new(Vec::new())};}
 unsafe extern "system" fn choice_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
@@ -2614,8 +3067,17 @@ unsafe extern "system" fn choice_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
         return LRESULT(MA_NOACTIVATE as isize);
     }
     if msg == WM_COMMAND && ((wp.0 >> 16) & 0xffff) == STN_CLICKED as usize {
-        let row = (wp.0 & 0xffff).saturating_sub(1);
-        CHOICES.with(|q| q.borrow_mut().push(row));
+        let id = wp.0 & 0xffff;
+        let label = HWND(lp.0 as *mut _);
+        if (1..=5).contains(&id)
+            && unsafe {
+                IsWindowVisible(hwnd).as_bool()
+                    && IsWindowVisible(label).as_bool()
+                    && GetDlgItem(Some(hwnd), id as i32).is_ok_and(|child| child == label)
+            }
+        {
+            CHOICES.with(|q| q.borrow_mut().push(id - 1));
+        }
         return LRESULT(0);
     }
     unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
@@ -2644,13 +3106,29 @@ impl ChoiceWindow {
                 Some(instance),
                 None,
             )?;
-            let mut labels = Vec::new();
+            let paint = Box::new(ChoicePaint {
+                text: Vec::new(),
+                diagnostic: std::cell::Cell::new(None),
+                painted: std::cell::Cell::new(0),
+                observed_rows: std::cell::Cell::new(0),
+                required: 0,
+                foreground: HWND::default(),
+                reporter: None,
+            });
+            let mut result = Self {
+                window,
+                current: None,
+                foreground: HWND::default(),
+                rows: 0,
+                labels: Vec::new(),
+                paint,
+            };
             for i in 0..5 {
                 let label = CreateWindowExW(
                     WINDOW_EX_STYLE(0),
                     w!("STATIC"),
                     w!(""),
-                    WS_CHILD | WINDOW_STYLE(SS_NOTIFY.0),
+                    WS_CHILD | WINDOW_STYLE(SS_NOTIFY.0 | SS_NOPREFIX.0),
                     8,
                     i * 32 + 6,
                     424,
@@ -2666,18 +3144,30 @@ impl ChoiceWindow {
                     Some(WPARAM(GetStockObject(DEFAULT_GUI_FONT).0 as usize)),
                     None,
                 );
-                labels.push(label);
+                ensure!(
+                    SetWindowSubclass(
+                        label,
+                        Some(choice_row_proc),
+                        i as usize,
+                        (&*result.paint as *const ChoicePaint) as usize
+                    )
+                    .as_bool(),
+                    "Chooser paint observer could not attach."
+                );
+                result.labels.push(label);
             }
-            Ok(Self {
-                window,
-                current: None,
-                foreground: HWND::default(),
-                rows: 0,
-                labels,
-            })
+            Ok(result)
         }
     }
+    fn set_paint_reporter(&mut self, reporter: Option<PaintReporter>) {
+        self.paint.diagnostic.set(None);
+        self.paint.reporter = reporter;
+    }
     fn hide(&mut self) -> Option<Command> {
+        self.paint.diagnostic.set(None);
+        self.paint.painted.set(0);
+        self.paint.observed_rows.set(0);
+        self.paint.required = 0;
         unsafe {
             let _ = ShowWindow(self.window, SW_HIDE);
         }
@@ -2688,12 +3178,21 @@ impl ChoiceWindow {
     fn show(&mut self, event: &Value) -> Result<Command> {
         let _ = self.hide();
         let p: overlay::Presentation = serde_json::from_value(event.clone())?;
+        let diagnostic = &event["diagnostic"];
+        self.paint
+            .diagnostic
+            .set(if diagnostic["lane"] == "chooser" {
+                diagnostic["trace_id"]
+                    .as_u64()
+                    .zip(diagnostic["view_serial"].as_u64())
+                    .filter(|(trace, view)| *trace != 0 && *view != 0)
+            } else {
+                None
+            });
         let ack = match self.draw(&p) {
             Ok(text) => text,
             Err(_) => {
-                unsafe {
-                    let _ = ShowWindow(self.window, SW_HIDE);
-                }
+                let _ = self.hide();
                 String::new()
             }
         };
@@ -2712,6 +3211,8 @@ impl ChoiceWindow {
                 "No choices"
             );
             self.foreground = GetForegroundWindow();
+            self.paint.foreground = self.foreground;
+            self.paint.text.clear();
             let x = rect[0].round() as i32;
             let y = (rect[1] + rect[3] + 4.0).round() as i32;
             let mut work = RECT::default();
@@ -2730,14 +3231,18 @@ impl ChoiceWindow {
                 .choices
                 .len()
                 .min(5)
-                .min(((work.bottom - y) / 32).max(0) as usize);
+                .min(((work.bottom - y - 2) / 32).max(0) as usize);
             let dc = GetDC(Some(self.window));
             let old = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
             let mut visible = Vec::new();
-            for (i, row) in p.choices.iter().take(count).enumerate() {
-                if row.chars().any(char::is_control) {
+            for row in &p.choices {
+                if visible.len() == count {
                     break;
                 }
+                if row.is_empty() || row.chars().any(char::is_control) {
+                    continue;
+                }
+                let i = visible.len();
                 let title = format!("{}. {}", i + 1, row);
                 let units: Vec<_> = title.encode_utf16().collect();
                 let mut size = SIZE::default();
@@ -2745,14 +3250,16 @@ impl ChoiceWindow {
                     || size.cx > width - 16
                     || size.cy > 26
                 {
-                    break;
+                    continue;
                 }
                 set_text(self.labels[i], &title);
+                self.paint.text.push(units);
                 visible.push(row.clone());
             }
             let _ = SelectObject(dc, old);
             ReleaseDC(Some(self.window), dc);
             self.rows = visible.len();
+            self.paint.required = (1u8 << self.rows) - 1;
             ensure!(
                 self.rows > 0 && GetForegroundWindow() == self.foreground,
                 "No complete visible choice row"
@@ -2771,10 +3278,16 @@ impl ChoiceWindow {
             )?;
             let _ = UpdateWindow(self.window);
             for label in self.labels.iter().take(self.rows) {
-                let _ = UpdateWindow(*label);
+                let _ = InvalidateRect(Some(*label), None, false);
+                ensure!(
+                    IsWindowVisible(*label).as_bool() && UpdateWindow(*label).as_bool(),
+                    "Chooser row was not painted."
+                );
             }
             ensure!(
-                IsWindowVisible(self.window).as_bool() && GetForegroundWindow() == self.foreground,
+                IsWindowVisible(self.window).as_bool()
+                    && GetForegroundWindow() == self.foreground
+                    && self.paint.painted.get() == self.paint.required,
                 "Chooser refused"
             );
             Ok(visible.join("\n"))
@@ -2791,7 +3304,7 @@ impl ChoiceWindow {
         CHOICES.with(|q| {
             q.borrow_mut()
                 .drain(..)
-                .filter(|i| *i < self.rows)
+                .filter(|i| self.current.is_some() && self.valid() && *i < self.rows)
                 .collect()
         })
     }
@@ -2799,6 +3312,10 @@ impl ChoiceWindow {
 impl Drop for ChoiceWindow {
     fn drop(&mut self) {
         unsafe {
+            self.paint.diagnostic.set(None);
+            for (id, label) in self.labels.iter().enumerate() {
+                let _ = RemoveWindowSubclass(*label, Some(choice_row_proc), id);
+            }
             let _ = DestroyWindow(self.window);
         }
     }

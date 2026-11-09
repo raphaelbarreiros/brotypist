@@ -23,7 +23,7 @@ use super::{
     policy::{ObservationPolicy, is_browser, native_domain},
 };
 use crate::{
-    config::Config,
+    config::{Config, ScopedPreference},
     core::{InlineRender, Rect, ScalarIndex, Snapshot, TextBuffer},
 };
 use anyhow::{Result, anyhow, bail, ensure};
@@ -157,6 +157,34 @@ impl CaptureServices<'_> {
     pub fn context_matches(&mut self, snapshot: &Snapshot) -> Result<bool> {
         self.bridge.context_matches(snapshot)
     }
+    /// Optional-source consent plus independent native snapshot authority.
+    pub fn preference_allowed(
+        &mut self,
+        snapshot: &Snapshot,
+        preference: ScopedPreference,
+    ) -> Result<bool> {
+        Ok(self.preference_consent(snapshot, preference)?
+            && self.bridge.context_matches(snapshot)?)
+    }
+    /// Metadata-only source admission. Special adapters must also validate their
+    /// own signed primary-target authority; calling back through the bridge
+    /// would lose that authority while the adapter is borrowed out of it.
+    pub fn preference_consent(
+        &mut self,
+        snapshot: &Snapshot,
+        preference: ScopedPreference,
+    ) -> Result<bool> {
+        let Some(session) = self.bridge.session()? else {
+            return Ok(false);
+        };
+        Ok(source_preference_allowed(
+            &self.bridge.policy,
+            &session.foreground,
+            &session.name,
+            snapshot,
+            preference,
+        ))
+    }
     pub fn commit_input(&self) -> bool {
         self.bridge.input.commit()
     }
@@ -173,6 +201,25 @@ impl CaptureServices<'_> {
     pub fn detached_lease(&self, session: &MacSession, snapshot: &Snapshot) -> NativeReadLease {
         self.bridge.detached_lease(session, snapshot)
     }
+}
+
+fn source_preference_allowed(
+    policy: &ObservationPolicy,
+    front: &Foreground,
+    name: &str,
+    snapshot: &Snapshot,
+    preference: ScopedPreference,
+) -> bool {
+    front.app_id == snapshot.app_id
+        && front.domain == snapshot.domain
+        && policy
+            .preference(
+                preference,
+                &front.app_id,
+                &front.domain,
+                &[&front.executable, name],
+            )
+            .value
 }
 
 struct Focused {
@@ -215,12 +262,27 @@ impl NativeReadLease {
     pub fn secure_description(&self) -> &str {
         &self.secure_description
     }
+    pub fn preference_allowed(&self, preference: ScopedPreference) -> bool {
+        self.valid()
+            && self
+                .policy
+                .preference(
+                    preference,
+                    &self.foreground.app_id,
+                    &self.foreground.domain,
+                    &[&self.foreground.executable, &self.name],
+                )
+                .value
+    }
     pub fn valid(&self) -> bool {
+        self.metadata_valid() && secure_event_input_enabled() == Some(false) && ax::trusted()
+    }
+    /// Primary-target policy and revision authority, independent of optional
+    /// source admission. Native secure-input and AX checks remain mandatory.
+    fn metadata_valid(&self) -> bool {
         self.epoch.load(Ordering::Acquire) == self.issued_epoch
             && (self.revision)() == self.issued_revision
             && !self.dirty.load(Ordering::Acquire)
-            && secure_event_input_enabled() == Some(false)
-            && ax::trusted()
             && self.policy.allowed(
                 &self.foreground.app_id,
                 &self.foreground.domain,
@@ -329,7 +391,11 @@ impl MacContextTicket {
         Ok(self.resolve()?.is_some())
     }
     pub fn read(&self, authorized: &dyn Fn() -> bool, max_chars: usize) -> Result<ContextRead> {
-        if !authorized() {
+        if !authorized()
+            || !self
+                .lease
+                .preference_allowed(ScopedPreference::ScreenContext)
+        {
             return Ok(ContextRead::blocked("accessibility"));
         }
         let Some((field, window)) = self.resolve()? else {
@@ -428,6 +494,69 @@ impl super::DetachedContextRead for MacContextTicket {
     }
 }
 
+/// Diagnostic-only, immutable enrollment. Never available to normal builds.
+#[cfg(feature = "native-smoke")]
+struct OwnedAxTarget {
+    pid: i32,
+    started: (u64, u64),
+    window: AxElement,
+    nonce: String,
+    emoji_field: Option<AxElement>,
+}
+#[cfg(feature = "native-smoke")]
+impl OwnedAxTarget {
+    fn matches(&self, pid: i32) -> bool {
+        pid == self.pid
+            && terminal::process_started(pid) == Some(self.started)
+            && self.window.pid() == Some(pid)
+            && self.window.string("AXTitle").as_deref() == Some(self.nonce.as_str())
+            && AxElement::application(pid)
+                .and_then(|app| app.element("AXFocusedWindow"))
+                .as_ref()
+                == Some(&self.window)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum InsertionReason {
+    NotIssued,
+    PostError,
+    SetterError,
+    CaptureUnavailable,
+    CaptureError,
+    ExpectedMutationUnavailable,
+    AuthorityChange,
+    TextOrCaretOrSelectionMismatch,
+    Unchanged,
+    Exact,
+}
+
+/// Retained only by WhatsApp ordinary completion insertion, never by later
+/// captures, other applications, replacements or emoji. No host/error content.
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+struct InsertionDiagnostic {
+    reason: InsertionReason,
+    capture_stage: &'static str,
+    readback: Option<InsertionReadback>,
+    user_revision_unchanged: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+struct InsertionReadback {
+    authority_match: bool,
+    text_match: bool,
+    caret_match: bool,
+    selection_empty: bool,
+    unchanged_readback: bool,
+    same_app: bool,
+    same_process: bool,
+    same_window: bool,
+    same_field: bool,
+    same_document: bool,
+    same_domain: bool,
+}
+
 pub struct MacBridge {
     owner: ThreadId,
     policy: Arc<ObservationPolicy>,
@@ -449,12 +578,217 @@ pub struct MacBridge {
     appearance: Option<Box<dyn AppearanceIntegration>>,
     docs: Option<docs::DocsHelper>,
     capture_diagnostic: &'static str,
+    last_ordinary_completion_insert: Option<InsertionDiagnostic>,
+    pending_unicode_post: Option<UnicodePostLease>,
+    pending_capture_transient: bool,
     capture_front: Option<(i32, String, String, String)>,
     whatsapp_capture: Option<WhatsAppCapture>,
     diagnostic_requested: Arc<AtomicBool>,
+    #[cfg(feature = "native-smoke")]
+    owned_target: Option<OwnedAxTarget>,
+    #[cfg(feature = "native-smoke")]
+    owned_notifications: Arc<[AtomicU64; 4]>,
     not_send: PhantomData<Rc<()>>,
 }
 impl MacBridge {
+    /// Enroll only an authenticated, separately spawned diagnostic editor.
+    /// Enrollment reads metadata from that PID alone, never the foreground draft.
+    #[cfg(feature = "native-smoke")]
+    pub fn new_owned(pid: i32, started: (u64, u64), nonce: String) -> Result<Self> {
+        ensure!(
+            pid != std::process::id() as i32 && nonce.len() == 64,
+            "Invalid owned AX enrollment"
+        );
+        ensure!(
+            terminal::process_started(pid) == Some(started),
+            "Owned process changed"
+        );
+        let app = AxElement::application(pid).ok_or_else(|| anyhow!("Owned AX app unavailable"))?;
+        let window = app
+            .element("AXFocusedWindow")
+            .ok_or_else(|| anyhow!("Owned AX window unavailable"))?;
+        let target = OwnedAxTarget {
+            pid,
+            started,
+            window,
+            nonce,
+            emoji_field: None,
+        };
+        ensure!(
+            target.matches(pid),
+            "Owned AX window nonce/identity mismatch"
+        );
+        let mut bridge = Self::new()?;
+        bridge.owned_target = Some(target);
+        Ok(bridge)
+    }
+    /// Explicit opt-in for one authenticated owned editor's emoji transaction.
+    /// Ordinary owned AX enrollment continues to forbid all keyboard posting.
+    #[cfg(feature = "native-smoke")]
+    pub fn new_owned_emoji(pid: i32, started: (u64, u64), nonce: String) -> Result<Self> {
+        let mut bridge = Self::new_owned(pid, started, nonce)?;
+        let field = AxElement::application(pid)
+            .and_then(|app| app.element("AXFocusedUIElement"))
+            .ok_or_else(|| anyhow!("Owned emoji field unavailable"))?;
+        let target = bridge.owned_target.as_mut().expect("owned enrollment");
+        ensure!(
+            field.pid() == Some(pid)
+                && field.element("AXWindow").as_ref() == Some(&target.window)
+                && field_is_ordinary_writable(&field, &bridge.secure_description),
+            "Owned emoji field identity or safety mismatch"
+        );
+        target.emoji_field = Some(field.clone());
+        ensure!(
+            bridge.emoji_replacement_supported(&field, ""),
+            "Owned emoji field lacks native replacement capabilities or foreground ownership"
+        );
+        Ok(bridge)
+    }
+    #[cfg(feature = "native-smoke")]
+    pub fn owned_process_started(pid: i32) -> Option<(u64, u64)> {
+        terminal::process_started(pid)
+    }
+    #[cfg(feature = "native-smoke")]
+    pub fn owned_notification_counts(&self) -> [u64; 4] {
+        std::array::from_fn(|i| self.owned_notifications[i].load(Ordering::Relaxed))
+    }
+    /// Paired owned captures differ only in pass-local frame reuse. Both execute
+    /// every ordinary security/focus/selection/anchor barrier independently.
+    #[cfg(feature = "native-smoke")]
+    pub fn owned_frame_read_comparison(&mut self) -> Result<serde_json::Value> {
+        ensure!(self.owned_target.is_some(), "Owned AX target required");
+        let mut baseline_counts = geometry::FrameReadCounts::default();
+        let baseline = self.capture_ordinary_with_reads(false, &mut baseline_counts)?;
+        let mut reused_counts = geometry::FrameReadCounts::default();
+        let reused = self.capture_ordinary_with_reads(true, &mut reused_counts)?;
+        let identical = match (&baseline, &reused) {
+            (Some((left, left_field)), Some((right, right_field))) => {
+                left == right && left_field == right_field
+            }
+            _ => false,
+        };
+        Ok(serde_json::json!({
+            "baseline": baseline_counts,
+            "reused": reused_counts,
+            "both_captured": baseline.is_some() && reused.is_some(),
+            "identical_capture": identical,
+            "fewer_native_frame_calls": reused_counts.native_calls < baseline_counts.native_calls,
+            "pass_local_hit_observed": reused_counts.hits > 0,
+            "fresh_barriers": "independent ordinary captures; reuse ends before appearance/focus/anchor",
+            "scope": "owned AX child only; no latency or external-host authority claim",
+        }))
+    }
+    /// Read-only raw-range diagnostics for an authenticated owned editor.
+    /// Unlike the public correction-range API, zero-length ranges are allowed.
+    /// Coordinates are not normalized, and no renderer evidence is manufactured.
+    #[cfg(feature = "native-smoke")]
+    pub fn owned_tab_row_bounds(
+        &mut self,
+        snapshot: &Snapshot,
+        sample_end: usize,
+    ) -> Result<serde_json::Value> {
+        self.owner()?;
+        ensure!(
+            self.owned_target
+                .as_ref()
+                .is_some_and(|target| target.matches(snapshot.window_pid))
+                && self.owned_current(),
+            "Authenticated owned AX target required"
+        );
+        ensure!(
+            !snapshot.protected
+                && snapshot.selection_length == 0
+                && sample_end > 0
+                && sample_end <= snapshot.caret
+                && snapshot.caret <= snapshot.text.scalar_len(),
+            "Invalid owned tab-row scalar range"
+        );
+        let (live, field) = self
+            .checked_current(snapshot)?
+            .ok_or_else(|| anyhow!("Owned tab-row snapshot authority changed"))?;
+        let revision = self.input.revision();
+        let epoch = self.policy_epoch.load(Ordering::Acquire);
+        let index = live.text.index();
+        let read_range = |start: usize, end: usize| -> Result<serde_json::Value> {
+            let location = index
+                .scalar_to_utf16(ScalarIndex(start))
+                .ok_or_else(|| anyhow!("Invalid owned range start"))?
+                .0;
+            let finish = index
+                .scalar_to_utf16(ScalarIndex(end))
+                .ok_or_else(|| anyhow!("Invalid owned range end"))?
+                .0;
+            let length = finish
+                .checked_sub(location)
+                .ok_or_else(|| anyhow!("Reversed owned range"))?;
+            Ok(serde_json::json!({
+                "scalar_start": start,
+                "scalar_length": end - start,
+                "utf16_location": location,
+                "utf16_length": length,
+                "rect": field.bounds_for_range(AxRange { location, length }),
+            }))
+        };
+        let output = serde_json::json!({
+            "sample": read_range(sample_end.saturating_sub(32), sample_end)?,
+            "sample_end": read_range(sample_end, sample_end)?,
+            "caret": read_range(live.caret, live.caret)?,
+            "gap": read_range(sample_end, live.caret)?,
+            "last_sample_glyph": read_range(sample_end - 1, sample_end)?,
+            "last_caret_glyph": read_range(live.caret - 1, live.caret)?,
+        });
+        let (_, after_field) = self
+            .checked_current(&live)?
+            .ok_or_else(|| anyhow!("Owned tab-row authority changed during range reads"))?;
+        ensure!(
+            after_field == field
+                && self.input.revision() == revision
+                && self.policy_epoch.load(Ordering::Acquire) == epoch
+                && !self.native_dirty.load(Ordering::Acquire)
+                && self
+                    .owned_target
+                    .as_ref()
+                    .is_some_and(|target| target.matches(live.window_pid))
+                && self.owned_current(),
+            "Owned tab-row range observations lost their authority"
+        );
+        Ok(output)
+    }
+    #[cfg(feature = "native-smoke")]
+    fn owned_current(&self) -> bool {
+        self.owned_target.as_ref().is_none_or(|target| {
+            frontmost_application().is_some_and(|(pid, _, _, _)| target.matches(pid))
+        })
+    }
+    #[cfg(feature = "native-smoke")]
+    fn owned_emoji_current(&self, field: &AxElement) -> bool {
+        self.owned_target.as_ref().is_some_and(|target| {
+            target.emoji_field.as_ref() == Some(field)
+                && field.pid() == Some(target.pid)
+                && field.element("AXWindow").as_ref() == Some(&target.window)
+                && frontmost_application().is_some_and(|(pid, _, _, _)| {
+                    target.matches(pid)
+                        && AxElement::application(pid)
+                            .and_then(|app| app.element("AXFocusedUIElement"))
+                            .as_ref()
+                            == Some(field)
+                })
+        })
+    }
+    fn emoji_replacement_supported(&self, field: &AxElement, app_id: &str) -> bool {
+        let supported_host = app_id == "net.whatsapp.WhatsApp";
+        #[cfg(feature = "native-smoke")]
+        let supported_host = if self.owned_target.is_some() {
+            self.owned_emoji_current(field)
+        } else {
+            supported_host
+        };
+        supported_host
+            && matches!(field.attribute("ChromeAXNodeId"), Ok(None))
+            && !field.settable("AXSelectedText")
+            && field.settable("AXSelectedTextRange")
+            && field.settable("AXValue")
+    }
     pub fn new() -> Result<Self> {
         ensure!(
             is_main_thread(),
@@ -498,9 +832,16 @@ impl MacBridge {
             appearance: None,
             docs: Some(docs::DocsHelper::new()),
             capture_diagnostic: "not_observed",
+            last_ordinary_completion_insert: None,
+            pending_unicode_post: None,
+            pending_capture_transient: false,
             capture_front: None,
             whatsapp_capture: None,
             diagnostic_requested,
+            #[cfg(feature = "native-smoke")]
+            owned_target: None,
+            #[cfg(feature = "native-smoke")]
+            owned_notifications: Arc::new(std::array::from_fn(|_| AtomicU64::new(0))),
             not_send: PhantomData,
         };
         bridge.refresh_main_state()?;
@@ -617,6 +958,7 @@ impl MacBridge {
     }
     fn refresh_main_state(&mut self) -> Result<()> {
         self.owner()?;
+        self.expire_pending_unicode();
         if self.layout_dirty.swap(false, Ordering::AcqRel) {
             let (keys, kind) = keyboard_state();
             self.input.set_layout(keys, kind);
@@ -642,6 +984,17 @@ impl MacBridge {
             self.capture_diagnostic = "foreground_unavailable";
             return Ok(None);
         };
+        // Fence BEFORE compatibility negotiation, window/document reads or any
+        // field access. Every capture and mutation recapture re-enters here.
+        #[cfg(feature = "native-smoke")]
+        if self
+            .owned_target
+            .as_ref()
+            .is_some_and(|target| !target.matches(pid))
+        {
+            self.capture_diagnostic = "owned_target_refused";
+            return Ok(None);
+        }
         if [&app_id, &executable, &name]
             .iter()
             .any(|value| value.to_ascii_lowercase().contains("whatsapp"))
@@ -687,6 +1040,15 @@ impl MacBridge {
             self.capture_diagnostic = "focused_window_unavailable";
             return Ok(None);
         };
+        #[cfg(feature = "native-smoke")]
+        if self
+            .owned_target
+            .as_ref()
+            .is_some_and(|target| window_ref != &target.window || !target.matches(pid))
+        {
+            self.capture_diagnostic = "owned_window_changed";
+            return Ok(None);
+        }
         let document = window_ref.string("AXDocument");
         let browser = is_browser(&[&app_id, &executable]);
         let identity = session_document_identity(
@@ -737,30 +1099,35 @@ impl MacBridge {
         self.observer_pid = 0;
         let note = self.input.notifier();
         let focused = self.focused_hash.clone();
-        let last = std::cell::Cell::new(None::<Instant>);
+        // Never throttle authority revocation: a second notification can arrive
+        // after a fresh lease was issued within the same coalescing interval.
         let dirty = self.native_dirty.clone();
+        #[cfg(feature = "native-smoke")]
+        let counts = self.owned_notifications.clone();
         let observer = AxObservation::new(
             pid,
             Box::new(move |name, element| {
-                let user = matches!(
-                    name,
-                    "AXFocusedUIElementChanged" | "AXFocusedWindowChanged" | "AXMainWindowChanged"
-                );
-                if matches!(name, "AXValueChanged" | "AXSelectedTextChanged") {
-                    if element != focused.load(Ordering::Relaxed) {
-                        return;
+                #[cfg(feature = "native-smoke")]
+                {
+                    let index = match name {
+                        "AXValueChanged" => Some(0),
+                        "AXSelectedTextChanged" => Some(1),
+                        "AXMoved" | "AXResized" | "AXWindowMoved" | "AXWindowResized" => Some(2),
+                        "AXFocusedUIElementChanged" | "AXFocusedWindowChanged" => Some(3),
+                        _ => None,
+                    };
+                    if let Some(index) = index {
+                        counts[index].fetch_add(1, Ordering::Relaxed);
                     }
-                    let now = Instant::now();
-                    if last
-                        .get()
-                        .is_some_and(|time| now.duration_since(time) < Duration::from_millis(50))
-                    {
-                        return;
-                    }
-                    last.set(Some(now));
                 }
+                let Some(user) = ax_invalidation(name, element, focused.load(Ordering::Relaxed))
+                else {
+                    return;
+                };
+                // Only focus invalidation resets composition. Geometry/text
+                // still revoke every lease through the input revision below.
                 if user {
-                    dirty.store(true, Ordering::Release)
+                    dirty.store(true, Ordering::Release);
                 }
                 note(user)
             }),
@@ -888,6 +1255,13 @@ impl MacBridge {
         composition_clear_with_source(field, self.input.source_kind())
     }
     fn capture_ordinary(&mut self) -> Result<Option<(Snapshot, AxElement)>> {
+        self.capture_ordinary_with_reads(true, &mut geometry::FrameReadCounts::default())
+    }
+    fn capture_ordinary_with_reads(
+        &mut self,
+        reuse: bool,
+        read_counts: &mut geometry::FrameReadCounts,
+    ) -> Result<Option<(Snapshot, AxElement)>> {
         if self.stopped || !ax::trusted() {
             return Ok(None);
         }
@@ -915,6 +1289,8 @@ impl MacBridge {
             self.capture_diagnostic = "focus_changed_before_value";
             return Ok(None);
         }
+        let read_revision = self.input.revision();
+        let read_epoch = self.policy_epoch.load(Ordering::Acquire);
         // Value is deliberately the last capability/privacy-gated read.
         self.capture_diagnostic = "field_value_unavailable";
         let Some(text) = field.string("AXValue") else {
@@ -932,30 +1308,55 @@ impl MacBridge {
         else {
             return Ok(None);
         };
-        let caret_rect = geometry::caret_bounds(
-            field,
+        let Some(window) = focus.session.window.as_ref() else {
+            return Ok(None);
+        };
+        let current_reads = || {
+            (
+                self.input.revision(),
+                self.policy_epoch.load(Ordering::Acquire),
+                self.native_dirty.load(Ordering::Acquire),
+            )
+        };
+        let mut geometry_diagnostic = "selection_active";
+        let mut gap_diagnostic = None;
+        let Some(geometry::CaptureGeometry {
+            caret_rect,
+            field_rect,
+            window_rect,
+            render,
+            evidence,
+            counts,
+        }) = geometry::capture_geometry(
+            geometry::CaptureReadScope {
+                field,
+                window,
+                document: &focus.session.document_id,
+                pid: focus.session.foreground.window_pid,
+                revision: read_revision,
+                epoch: read_epoch,
+                current: &current_reads,
+                reuse,
+            },
             &self.secure_description,
             &text,
             caret,
-            native.location,
-        );
-        let field_rect = field.frame();
-        let mut geometry_diagnostic = "selection_active";
-        let (render, evidence) = if native.length == 0 {
-            geometry::inline_metrics(
-                field,
-                &self.secure_description,
-                &text,
-                caret,
-                native.location,
-                caret_rect,
-                field_rect,
-                is_browser(&[&focus.session.foreground.app_id]),
-                &mut geometry_diagnostic,
-            )
-        } else {
-            (None, None)
+            native,
+            is_browser(&[&focus.session.foreground.app_id]),
+            &mut geometry_diagnostic,
+            if focus.session.foreground.app_id == "net.whatsapp.WhatsApp" {
+                Some(&mut gap_diagnostic)
+            } else {
+                None
+            },
+        )
+        else {
+            self.capture_diagnostic = "geometry_read_scope_revoked";
+            return Ok(None);
         };
+        *read_counts = counts;
+        // The pass and its retained frames have already been dropped. Appearance,
+        // focus, anchor, publication and edit/readback checks never see its store.
         let front = &focus.session.foreground;
         let mut snapshot = Snapshot {
             app_id: front.app_id.clone(),
@@ -970,9 +1371,10 @@ impl MacBridge {
             window_id: front.window_id.clone(),
             window_revision: focus.session.document_id.clone(),
             window_pid: front.window_pid,
-            window_bounds: focus.session.window.as_ref().and_then(AxElement::frame),
+            window_bounds: window_rect,
             can_replace: !uses_unicode_insertion(field, &front.app_id)
                 && field.settable("AXSelectedText"),
+            can_replace_emoji: self.emoji_replacement_supported(field, &front.app_id),
             inline_render: render,
             ..Default::default()
         };
@@ -987,7 +1389,17 @@ impl MacBridge {
         } else {
             geometry_diagnostic
         };
-        if snapshot.inline_render.is_none() && self.config.screenshot_appearance {
+        if snapshot.inline_render.is_none()
+            && self
+                .policy
+                .preference(
+                    ScopedPreference::ScreenshotAppearance,
+                    &snapshot.app_id,
+                    &snapshot.domain,
+                    &[&front.executable, &focus.session.name],
+                )
+                .value
+        {
             if let Some(evidence) = evidence {
                 if let Some(mut adapter) = self.appearance.take() {
                     let styled = adapter.style(&mut self.capture_services(), &snapshot, &evidence);
@@ -1018,7 +1430,19 @@ impl MacBridge {
             self.capture_diagnostic = "selection_or_geometry_changed_after_capture";
             return Ok(None);
         }
+        if self.input.revision() != read_revision
+            || self.policy_epoch.load(Ordering::Acquire) != read_epoch
+            || self.native_dirty.load(Ordering::Acquire)
+        {
+            self.capture_diagnostic = "geometry_read_scope_changed_after_capture";
+            return Ok(None);
+        }
         self.focused_hash.store(field.identity(), Ordering::Relaxed);
+        if let Some(observer) = self.observer.as_mut() {
+            observer.update_targets(field, focus.session.window.as_ref());
+        }
+        // No diagnostic candidate escapes a revoked or incomplete capture.
+        self.retain_validated_whatsapp_gap(&snapshot, gap_diagnostic);
         Ok(Some((snapshot, focus.field)))
     }
     fn checked_current(&mut self, snapshot: &Snapshot) -> Result<Option<(Snapshot, AxElement)>> {
@@ -1026,21 +1450,23 @@ impl MacBridge {
             .capture_ordinary()?
             .filter(|(live, _)| live.same_key(snapshot) && live.same_authority(snapshot)))
     }
-    fn confirm_edit(
+    fn record_insertion(
         &mut self,
         before: &Snapshot,
-        start: usize,
-        length: usize,
-        text: &str,
-        dispatched: bool,
-    ) -> Result<EditOutcome> {
-        let Ok(Some((after, _))) = self.capture_ordinary() else {
-            return Ok(EditOutcome::Indeterminate);
-        };
-        let Some(expected) = expected_mutation(before, start, length, text) else {
-            return Ok(EditOutcome::Indeterminate);
-        };
-        Ok(classify_readback(before, &after, &expected, dispatched))
+        reason: InsertionReason,
+        readback: Option<InsertionReadback>,
+        user_revision: Option<u64>,
+    ) {
+        if before.app_id != "net.whatsapp.WhatsApp" {
+            return;
+        }
+        self.last_ordinary_completion_insert = Some(InsertionDiagnostic {
+            reason,
+            capture_stage: self.capture_diagnostic,
+            readback,
+            user_revision_unchanged: user_revision
+                .map(|revision| self.input.user_revision() == revision),
+        });
     }
     fn capture_native(&mut self) -> Result<Option<Snapshot>> {
         if let Some(session) = self.session()? {
@@ -1058,25 +1484,51 @@ impl MacBridge {
         }
         Ok(self.capture_ordinary()?.map(|(snapshot, _)| snapshot))
     }
-    /// Retains only stage codes for WhatsApp captures; nothing is written until requested.
-    fn record_whatsapp_stage(&mut self) {
-        let Some((pid, app_id, executable, name)) = self.capture_front.clone() else {
-            return;
+    fn ensure_whatsapp_capture(&mut self) -> bool {
+        let Some((pid, app_id, executable, name)) = self.capture_front.as_ref() else {
+            return false;
         };
         if !self
             .whatsapp_capture
             .as_ref()
-            .is_some_and(|capture| capture.pid == pid && capture.app_id == app_id)
+            .is_some_and(|capture| capture.pid == *pid && capture.app_id == *app_id)
         {
             self.whatsapp_capture = Some(WhatsAppCapture {
-                pid,
-                app_id,
-                executable,
-                name,
+                pid: *pid,
+                app_id: app_id.clone(),
+                executable: executable.clone(),
+                name: name.clone(),
                 last_stage: "not_observed",
                 stages: BTreeMap::new(),
                 compatibility: serde_json::Value::Null,
+                last_validated_gap_failure: None,
             });
+        }
+        true
+    }
+    /// Retains only content-free observations from a completed, validated
+    /// WhatsApp snapshot. Later successful/background captures do not erase it.
+    fn retain_validated_whatsapp_gap(
+        &mut self,
+        snapshot: &Snapshot,
+        diagnostic: Option<geometry::GapDiagnostic>,
+    ) {
+        let Some(diagnostic) = diagnostic else {
+            return;
+        };
+        if snapshot.app_id != "net.whatsapp.WhatsApp" || !self.ensure_whatsapp_capture() {
+            return;
+        }
+        if let Some(capture) = self.whatsapp_capture.as_mut() {
+            if capture.pid == snapshot.window_pid && capture.app_id == snapshot.app_id {
+                diagnostic.retain_failure(&mut capture.last_validated_gap_failure);
+            }
+        }
+    }
+    /// Retains only stage codes for WhatsApp captures; nothing is written until requested.
+    fn record_whatsapp_stage(&mut self) {
+        if !self.ensure_whatsapp_capture() {
+            return;
         }
         let Some(capture) = self.whatsapp_capture.as_mut() else {
             return;
@@ -1087,7 +1539,7 @@ impl MacBridge {
         if self
             .compatibility
             .as_ref()
-            .is_some_and(|(owner, id, _)| *owner == pid && *id == capture.app_id)
+            .is_some_and(|(owner, id, _)| *owner == capture.pid && *id == capture.app_id)
         {
             capture.compatibility = self.compatibility_outcome.clone();
         }
@@ -1101,6 +1553,7 @@ impl MacBridge {
                 "last_stage": capture.last_stage,
                 "stage_counts": capture.stages,
                 "compatibility": capture.compatibility,
+                "last_validated_gap_failure": capture.last_validated_gap_failure,
                 "policy": {
                     "excluded": self.policy.excluded(&[&capture.app_id, &capture.executable, &capture.name]),
                     "allowed": self.policy.allowed(&capture.app_id, "", &[&capture.executable, &capture.name], false),
@@ -1116,6 +1569,8 @@ impl MacBridge {
             "secure_input": secure_event_input_enabled(),
             "global_enabled": self.policy.global_enabled,
             "last_capture_stage": self.capture_diagnostic,
+            "input": self.input.diagnostic_snapshot(),
+            "last_ordinary_completion_insert": self.last_ordinary_completion_insert,
             "whatsapp": whatsapp,
         });
         let directory = crate::paths::config_dir()?.join("diagnostics");
@@ -1147,6 +1602,7 @@ struct WhatsAppCapture {
     last_stage: &'static str,
     stages: BTreeMap<&'static str, u32>,
     compatibility: serde_json::Value,
+    last_validated_gap_failure: Option<geometry::GapDiagnostic>,
 }
 
 /// Describes an AX attribute by type/count only; strings are exposed only for role constants.
@@ -1256,6 +1712,10 @@ impl NativeBridge for MacBridge {
         let effective = effective_config(config);
         let policy = Arc::new(ObservationPolicy::new(&effective)?);
         self.policy_epoch.fetch_add(1, Ordering::AcqRel);
+        self.clear_pending_unicode();
+        if let Some(capture) = self.whatsapp_capture.as_mut() {
+            capture.last_validated_gap_failure = None;
+        }
         if let Some(docs) = self.docs.as_mut() {
             docs.reset()
         }
@@ -1273,17 +1733,50 @@ impl NativeBridge for MacBridge {
     }
     fn capture(&mut self) -> Result<Option<Snapshot>> {
         self.owner()?;
+        self.expire_pending_unicode();
+        self.pending_capture_transient = false;
         if self.stopped {
+            self.clear_pending_unicode();
             return Ok(None);
         }
+        // A previous failure stage must never authorize this capture's None.
+        self.capture_diagnostic = "capture_started";
         let result = self.capture_native();
+        self.expire_pending_unicode();
         self.record_whatsapp_stage();
+        match &result {
+            Ok(Some(snapshot)) => {
+                if self.pending_unicode_post.as_ref().is_some_and(|lease| {
+                    !lease.matches(snapshot, self.input.user_revision())
+                        || lease.policy_epoch != self.policy_epoch.load(Ordering::Acquire)
+                }) {
+                    self.clear_pending_unicode();
+                }
+            }
+            Ok(None) if transient_insert_capture(self.capture_diagnostic) => {
+                self.pending_capture_transient = self.pending_unicode_post.is_some();
+            }
+            _ => self.clear_pending_unicode(),
+        }
         result
+    }
+    fn pending_edit_capture_is_transient(&mut self, before: &Snapshot, user_revision: u64) -> bool {
+        // Only the immediately preceding real capture can supply this proof.
+        // Runtime owns the original pending deadline; this does not accept text.
+        if !std::mem::take(&mut self.pending_capture_transient) {
+            return false;
+        }
+        self.pending_unicode_scope_matches(before, user_revision)
+            .unwrap_or(false)
     }
     fn foreground(&mut self) -> Result<Option<Foreground>> {
         self.owner()?;
         if let Some(session) = self.session()? {
             return Ok(Some(session.foreground));
+        }
+        #[cfg(feature = "native-smoke")]
+        if self.owned_target.is_some() {
+            return Ok(None);
         }
         // Excluded/secure fields still expose application identity to App Settings,
         // but no AX element/value is requested to obtain that metadata.
@@ -1298,10 +1791,15 @@ impl NativeBridge for MacBridge {
     }
     fn insert(&mut self, snapshot: &Snapshot, text: &str) -> Result<EditOutcome> {
         self.owner()?;
+        self.clear_pending_unicode();
+        let terminal = exact_member(&snapshot.app_id, TERMINALS);
+        if !terminal {
+            self.record_insertion(snapshot, InsertionReason::NotIssued, None, None);
+        }
         if !valid_insert(snapshot, text) {
             return Ok(EditOutcome::Rejected);
         }
-        if exact_member(&snapshot.app_id, TERMINALS) {
+        if terminal {
             if !self.config.terminal_completion || !snapshot.field_id.starts_with("terminal:") {
                 return Ok(EditOutcome::Rejected);
             }
@@ -1319,12 +1817,13 @@ impl NativeBridge for MacBridge {
         if field.set_timeout(0.25).is_err() {
             return Ok(EditOutcome::Rejected);
         }
+        let user_revision = self.input.user_revision();
         let unicode = uses_unicode_insertion(&field, &live.app_id);
         if field.settable("AXSelectedText") && !unicode {
             if !self.input.commit() {
                 return Ok(EditOutcome::Rejected);
             }
-            return Ok(apply_selected_text(
+            let (outcome, reason, readback) = apply_selected_text(
                 &mut NativeSelectedText {
                     bridge: self,
                     field,
@@ -1333,20 +1832,48 @@ impl NativeBridge for MacBridge {
                 snapshot.caret,
                 0,
                 text,
-            ));
+            );
+            self.record_insertion(snapshot, reason, readback, Some(user_revision));
+            return Ok(outcome);
+        }
+        #[cfg(feature = "native-smoke")]
+        if self.owned_target.is_some() {
+            // This lane never falls back to keyboard posting.
+            return Ok(EditOutcome::Rejected);
         }
         if !(field.settable("AXValue") || unicode) || self.input.preflight_unicode().is_err() {
             return Ok(EditOutcome::Rejected);
         }
+        let policy_epoch = self.policy_epoch.load(Ordering::Acquire);
+        let lease = UnicodePostLease {
+            field,
+            before: snapshot.key(),
+            window_id: snapshot.window_id.clone(),
+            window_revision: snapshot.window_revision.clone(),
+            window_pid: snapshot.window_pid,
+            user_revision,
+            policy_epoch,
+            // Fixed before commit/post; failed reads and proofs never renew it.
+            expires_at: Instant::now() + Duration::from_secs(2),
+        };
         if !self.input.commit() {
             return Ok(EditOutcome::Rejected);
         }
-        let result = self.input.post_unicode(text);
-        self.input.mutation_finished();
-        if result.is_err() {
-            return Ok(EditOutcome::Indeterminate);
+        let (outcome, reason, readback) = apply_unicode_text(
+            &mut NativeUnicodeText {
+                bridge: self,
+                lease: Some(lease),
+                user_revision,
+            },
+            snapshot,
+            text,
+        );
+        self.expire_pending_unicode();
+        self.record_insertion(snapshot, reason, readback, Some(user_revision));
+        if !matches!(&outcome, EditOutcome::Dispatched) {
+            self.clear_pending_unicode();
         }
-        self.confirm_edit(snapshot, snapshot.caret, 0, text, true)
+        Ok(outcome)
     }
     fn replace_range(
         &mut self,
@@ -1356,6 +1883,7 @@ impl NativeBridge for MacBridge {
         text: &str,
     ) -> Result<EditOutcome> {
         self.owner()?;
+        self.clear_pending_unicode();
         if !valid_replacement(snapshot, start, length, text) {
             return Ok(EditOutcome::Rejected);
         }
@@ -1376,6 +1904,10 @@ impl NativeBridge for MacBridge {
             let Some(range) = scalar_native_range(snapshot, start, length) else {
                 return Ok(EditOutcome::Rejected);
             };
+            #[cfg(feature = "native-smoke")]
+            if !self.owned_current() {
+                return Ok(EditOutcome::Rejected);
+            }
             if !self.input.commit() {
                 return Ok(EditOutcome::Rejected);
             }
@@ -1403,6 +1935,114 @@ impl NativeBridge for MacBridge {
             start,
             length,
             text,
+        )
+        .0)
+    }
+    fn replace_emoji_range(
+        &mut self,
+        snapshot: &Snapshot,
+        start: usize,
+        length: usize,
+        text: &str,
+    ) -> Result<EditOutcome> {
+        if snapshot.can_replace {
+            return self.replace_range(snapshot, start, length, text);
+        }
+        self.owner()?;
+        self.clear_pending_unicode();
+        if !snapshot.can_replace_emoji
+            || snapshot.protected
+            || !snapshot.valid_range()
+            || snapshot.selection_length != 0
+            || length == 0
+            || start.checked_add(length) != Some(snapshot.caret)
+            || text.is_empty()
+            || text.contains('\0')
+        {
+            return Ok(EditOutcome::Rejected);
+        }
+        // Prepare both the native range and exact readback before any mutation.
+        let Some(range) = scalar_native_range(snapshot, start, length) else {
+            return Ok(EditOutcome::Rejected);
+        };
+        let Some(expected) = expected_mutation(snapshot, start, length, text) else {
+            return Ok(EditOutcome::Rejected);
+        };
+        let revision = self.input.user_revision();
+        let Some((live, field)) = self.checked_current(snapshot)? else {
+            return Ok(EditOutcome::Rejected);
+        };
+        #[cfg(feature = "native-smoke")]
+        if self.owned_target.is_some() && !self.owned_emoji_current(&field) {
+            // Only the separate exact-field emoji enrollment may post to its PID.
+            return Ok(EditOutcome::Rejected);
+        }
+        let Some(started) = terminal::process_started(live.window_pid) else {
+            return Ok(EditOutcome::Rejected);
+        };
+        let Some(window) = field.element("AXWindow") else {
+            return Ok(EditOutcome::Rejected);
+        };
+        if !live.can_replace_emoji
+            || !self.emoji_replacement_supported(&field, &live.app_id)
+            || field.set_timeout(0.25).is_err()
+            || self.input.preflight_unicode().is_err()
+            || self.input.user_revision() != revision
+            || !self.input.commit()
+        {
+            return Ok(EditOutcome::Rejected);
+        }
+        let selected = field.set_range("AXSelectedTextRange", range);
+        self.input.mutation_finished();
+        // From this point even a failed setter may have changed selection.
+        // Never replay the initiating key or retry either native mutation.
+        if selected.is_err() {
+            return Ok(EditOutcome::Indeterminate);
+        }
+        let Ok(Some((selected, selected_field))) = self.capture_ordinary() else {
+            return Ok(EditOutcome::Indeterminate);
+        };
+        if selected_field != field
+            || !selected.matches_pending_emoji_selection(snapshot, start, length)
+            || !self.emoji_replacement_supported(&selected_field, &selected.app_id)
+            || self.input.user_revision() != revision
+            || self.input.preflight_unicode().is_err()
+            || !self.input.commit()
+        {
+            return Ok(EditOutcome::Indeterminate);
+        }
+        let posted = self
+            .input
+            .post_unicode_to_pid(text, selected.window_pid, || {
+                !self.stopped
+                    && ax::trusted()
+                    && secure_event_input_enabled() == Some(false)
+                    && self.input.user_revision() == revision
+                    && self.composition_clear(&selected_field)
+                    && terminal::process_started(selected.window_pid) == Some(started)
+                    && selected_field.pid() == Some(selected.window_pid)
+                    && selected_field.element("AXWindow").as_ref() == Some(&window)
+                    && frontmost_application().is_some_and(|(pid, app_id, _, _)| {
+                        pid == selected.window_pid && app_id == selected.app_id
+                    })
+                    && AxElement::application(selected.window_pid)
+                        .and_then(|app| app.element("AXFocusedUIElement"))
+                        .as_ref()
+                        == Some(&selected_field)
+                    && self.emoji_replacement_supported(&selected_field, &selected.app_id)
+            });
+        self.input.mutation_finished();
+        if posted.is_err() || self.input.user_revision() != revision {
+            return Ok(EditOutcome::Indeterminate);
+        }
+        let Ok(Some((after, _))) = self.capture_ordinary() else {
+            return Ok(EditOutcome::Indeterminate);
+        };
+        if self.input.user_revision() != revision {
+            return Ok(EditOutcome::Indeterminate);
+        }
+        Ok(classify_emoji_readback(
+            snapshot, &after, &expected, true, start, length,
         ))
     }
     fn range_rect(
@@ -1630,6 +2270,10 @@ impl NativeBridge for MacBridge {
         self.owner()?;
         self.stopped = true;
         self.policy_epoch.fetch_add(1, Ordering::AcqRel);
+        self.clear_pending_unicode();
+        if let Some(capture) = self.whatsapp_capture.as_mut() {
+            capture.last_validated_gap_failure = None;
+        }
         self.input.set_enabled(false);
         let mut failures = Vec::new();
         if let Err(error) = self.input.stop() {
@@ -1674,6 +2318,96 @@ impl MacBridge {
             && front.window_id == snapshot.window_id
             && focus.field_id == snapshot.field_id
             && focus.session.document_id == snapshot.window_revision
+    }
+    fn clear_pending_unicode(&mut self) {
+        self.pending_unicode_post = None;
+        self.pending_capture_transient = false;
+    }
+    fn expire_pending_unicode(&mut self) {
+        // Normal owner pumping must not read the clock when no lease is held.
+        if self
+            .pending_unicode_post
+            .as_ref()
+            .is_some_and(|lease| Instant::now() >= lease.expires_at)
+        {
+            self.clear_pending_unicode();
+        }
+    }
+    fn pending_unicode_scope_matches(
+        &mut self,
+        before: &Snapshot,
+        user_revision: u64,
+    ) -> Result<bool> {
+        let Some(lease) = self.pending_unicode_post.take() else {
+            return Ok(false);
+        };
+        let stage = self.capture_diagnostic;
+        let result = self.fresh_unicode_scope_matches(&lease, before, user_revision);
+        let result = finish_unicode_scope_proof(result, lease.expires_at, Instant::now);
+        // Metadata probes must not relabel the actual failed capture.
+        self.capture_diagnostic = stage;
+        if matches!(&result, Ok(true)) {
+            self.pending_unicode_post = Some(lease);
+        }
+        result
+    }
+    fn fresh_unicode_scope_matches(
+        &mut self,
+        lease: &UnicodePostLease,
+        before: &Snapshot,
+        user_revision: u64,
+    ) -> Result<bool> {
+        self.owner()?;
+        if Instant::now() >= lease.expires_at {
+            return Ok(false);
+        }
+        let policy_epoch = self.policy_epoch.load(Ordering::Acquire);
+        if self.stopped
+            || !lease.matches(before, user_revision)
+            || self.input.user_revision() != user_revision
+            || policy_epoch != lease.policy_epoch
+            || self.input.preflight_unicode().is_err()
+        {
+            return Ok(false);
+        }
+        // This fence starts AFTER the failed capture. Own AX value/layout
+        // notifications preceding this fresh proof do not revoke it.
+        let revision = self.input.revision();
+        let Some(focus) = self.focused()? else {
+            return Ok(false);
+        };
+        if focus.field != lease.field || !self.unicode_focus_matches(&focus, before) {
+            return Ok(false);
+        }
+        // focused() independently rechecks foreground/process/document,
+        // policy, AX trust, secure input, writability and protection.
+        let Some(after) = self.focused()? else {
+            return Ok(false);
+        };
+        Ok(focus.same(&after)
+            && self.unicode_focus_matches(&after, before)
+            && self.input.preflight_unicode().is_ok()
+            && self.input.user_revision() == user_revision
+            && self.policy_epoch.load(Ordering::Acquire) == policy_epoch
+            && self.input.revision() == revision
+            && !self.native_dirty.load(Ordering::Acquire))
+    }
+    fn unicode_focus_matches(&self, focus: &Focused, before: &Snapshot) -> bool {
+        let field = &focus.field;
+        let app_id = &focus.session.foreground.app_id;
+        let unicode = uses_unicode_insertion(field, app_id);
+        self.focus_matches_snapshot(focus, before)
+            && !before.protected
+            && !before.on_demand_only
+            && self.composition_clear(field)
+            && field.frame().is_some()
+            && field
+                .range("AXSelectedTextRange")
+                .is_some_and(|range| range.length == 0)
+            && (field.settable("AXValue") || unicode)
+            && before.can_replace == (!unicode && field.settable("AXSelectedText"))
+            && before.can_replace_emoji == self.emoji_replacement_supported(field, app_id)
+            && before.multiline == (field.string("AXRole").as_deref() == Some("AXTextArea"))
     }
 }
 impl Drop for MacBridge {
@@ -1816,6 +2550,129 @@ fn expected_mutation(
     expected.push_str(&snapshot.text[bytes.end..]);
     Some((expected, start.checked_add(text.chars().count())?))
 }
+/// Ordinary Unicode delivery and its immediate readback. A successful post is
+/// delivery evidence only; native target proof cannot manufacture a Snapshot.
+trait UnicodeTextHost {
+    fn post(&mut self, text: &str) -> Result<()>;
+    fn observe(&mut self) -> Result<Option<Snapshot>>;
+    fn capture_stage(&self) -> &'static str;
+    fn pending_authority_matches(&mut self, before: &Snapshot) -> Result<bool>;
+}
+/// Successful ordinary Unicode-post identity, retained only while a readback
+/// can still be pending. This private lease is never diagnostic payload.
+struct UnicodePostLease {
+    field: AxElement,
+    before: crate::core::SnapshotKey,
+    window_id: String,
+    window_revision: String,
+    window_pid: i32,
+    user_revision: u64,
+    policy_epoch: u64,
+    expires_at: Instant,
+}
+impl UnicodePostLease {
+    fn matches(&self, before: &Snapshot, user_revision: u64) -> bool {
+        self.before.matches(before)
+            && self.window_id == before.window_id
+            && self.window_revision == before.window_revision
+            && self.window_pid == before.window_pid
+            && self.user_revision == user_revision
+    }
+}
+
+/// A proof that began within the lease may finish too late. Check its original
+/// deadline after native I/O, before restoring ownership or claiming deferral.
+fn finish_unicode_scope_proof(
+    proof: Result<bool>,
+    expires_at: Instant,
+    now: impl FnOnce() -> Instant,
+) -> Result<bool> {
+    proof.map(|verified| verified && now() < expires_at)
+}
+
+fn transient_insert_capture(stage: &str) -> bool {
+    // Only the observed final-anchor race is eligible. In particular,
+    // field_value_unavailable conflates absent, erroneous and malformed AX
+    // values, so aggregate counts cannot make it safe to defer.
+    stage == "selection_or_geometry_changed_after_capture"
+}
+
+struct NativeUnicodeText<'a> {
+    bridge: &'a mut MacBridge,
+    lease: Option<UnicodePostLease>,
+    user_revision: u64,
+}
+impl UnicodeTextHost for NativeUnicodeText<'_> {
+    fn post(&mut self, text: &str) -> Result<()> {
+        let lease = self
+            .lease
+            .take()
+            .ok_or_else(|| anyhow!("Unicode post scope has already been consumed"))?;
+        let result = self.bridge.input.post_unicode(text);
+        self.bridge.input.mutation_finished();
+        if result.is_ok() {
+            self.bridge.pending_unicode_post = Some(lease);
+        }
+        result
+    }
+    fn observe(&mut self) -> Result<Option<Snapshot>> {
+        self.bridge.capture_diagnostic = "edit_readback_started";
+        Ok(self
+            .bridge
+            .capture_ordinary()?
+            .map(|(snapshot, _)| snapshot))
+    }
+    fn capture_stage(&self) -> &'static str {
+        self.bridge.capture_diagnostic
+    }
+    fn pending_authority_matches(&mut self, before: &Snapshot) -> Result<bool> {
+        self.bridge
+            .pending_unicode_scope_matches(before, self.user_revision)
+    }
+}
+fn apply_unicode_text(
+    host: &mut impl UnicodeTextHost,
+    before: &Snapshot,
+    text: &str,
+) -> (EditOutcome, InsertionReason, Option<InsertionReadback>) {
+    if host.post(text).is_err() {
+        return (EditOutcome::Indeterminate, InsertionReason::PostError, None);
+    }
+    let after = match host.observe() {
+        Ok(Some(after)) => after,
+        Ok(None) => {
+            let pending = transient_insert_capture(host.capture_stage())
+                && valid_insert(before, text)
+                && host.pending_authority_matches(before).unwrap_or(false);
+            return (
+                if pending {
+                    EditOutcome::Dispatched
+                } else {
+                    EditOutcome::Indeterminate
+                },
+                InsertionReason::CaptureUnavailable,
+                None,
+            );
+        }
+        Err(_) => {
+            return (
+                EditOutcome::Indeterminate,
+                InsertionReason::CaptureError,
+                None,
+            );
+        }
+    };
+    let Some(expected) = expected_mutation(before, before.caret, 0, text) else {
+        return (
+            EditOutcome::Indeterminate,
+            InsertionReason::ExpectedMutationUnavailable,
+            None,
+        );
+    };
+    let (outcome, reason, readback) = classify_readback(before, &after, &expected, true);
+    (outcome, reason, Some(readback))
+}
+
 trait SelectedTextHost {
     fn write_selected(&mut self, text: &str) -> std::result::Result<(), ax::AxError>;
     fn observe(&mut self) -> Result<Option<Snapshot>>;
@@ -1826,11 +2683,21 @@ struct NativeSelectedText<'a> {
 }
 impl SelectedTextHost for NativeSelectedText<'_> {
     fn write_selected(&mut self, text: &str) -> std::result::Result<(), ax::AxError> {
+        #[cfg(feature = "native-smoke")]
+        if !self.bridge.owned_current()
+            || self.bridge.owned_target.as_ref().is_some_and(|target| {
+                self.field.pid() != Some(target.pid)
+                    || self.field.element("AXWindow").as_ref() != Some(&target.window)
+            })
+        {
+            return Err(ax::AxError(-25202));
+        }
         let result = self.field.set_string("AXSelectedText", text);
         self.bridge.input.mutation_finished();
         result
     }
     fn observe(&mut self) -> Result<Option<Snapshot>> {
+        self.bridge.capture_diagnostic = "edit_readback_started";
         Ok(self
             .bridge
             .capture_ordinary()?
@@ -1843,44 +2710,124 @@ fn apply_selected_text(
     start: usize,
     length: usize,
     text: &str,
-) -> EditOutcome {
+) -> (EditOutcome, InsertionReason, Option<InsertionReadback>) {
     if let Err(error) = host.write_selected(text) {
-        return if mutation_may_have_applied(error) {
+        let outcome = if mutation_may_have_applied(error) {
             EditOutcome::Indeterminate
         } else {
             EditOutcome::Rejected
         };
+        return (outcome, InsertionReason::SetterError, None);
     }
-    let Ok(Some(after)) = host.observe() else {
-        return EditOutcome::Indeterminate;
+    let after = match host.observe() {
+        Ok(Some(after)) => after,
+        Ok(None) => {
+            return (
+                EditOutcome::Indeterminate,
+                InsertionReason::CaptureUnavailable,
+                None,
+            );
+        }
+        Err(_) => {
+            return (
+                EditOutcome::Indeterminate,
+                InsertionReason::CaptureError,
+                None,
+            );
+        }
     };
     let Some(expected) = expected_mutation(before, start, length, text) else {
-        return EditOutcome::Indeterminate;
+        return (
+            EditOutcome::Indeterminate,
+            InsertionReason::ExpectedMutationUnavailable,
+            None,
+        );
     };
-    classify_readback(before, &after, &expected, false)
+    let (outcome, reason, readback) = classify_readback(before, &after, &expected, false);
+    (outcome, reason, Some(readback))
 }
 fn classify_readback(
     before: &Snapshot,
     after: &Snapshot,
     expected: &(String, usize),
     dispatched: bool,
+) -> (EditOutcome, InsertionReason, InsertionReadback) {
+    let same_app = before.app_id == after.app_id;
+    let same_process = before.window_pid == after.window_pid;
+    let same_window = before.window_id == after.window_id;
+    let same_field = before.field_id == after.field_id;
+    let same_document = before.window_revision == after.window_revision;
+    let same_domain = before.domain == after.domain;
+    let readback = InsertionReadback {
+        authority_match: same_app
+            && same_process
+            && same_window
+            && same_field
+            && same_document
+            && same_domain,
+        text_match: after.text.as_ref() == expected.0,
+        caret_match: after.caret == expected.1,
+        selection_empty: after.selection_length == 0,
+        unchanged_readback: before.same_key(after),
+        same_app,
+        same_process,
+        same_window,
+        same_field,
+        same_document,
+        same_domain,
+    };
+    // Preserve the existing classification precedence; diagnostics never grant
+    // authority, claim dispatch, or retry a mutation.
+    let (outcome, reason) = if !readback.authority_match {
+        (EditOutcome::Indeterminate, InsertionReason::AuthorityChange)
+    } else if readback.text_match && readback.caret_match && readback.selection_empty {
+        (EditOutcome::Applied(after.clone()), InsertionReason::Exact)
+    } else if readback.unchanged_readback {
+        (
+            if dispatched {
+                EditOutcome::Dispatched
+            } else {
+                EditOutcome::Rejected
+            },
+            InsertionReason::Unchanged,
+        )
+    } else {
+        (
+            EditOutcome::Indeterminate,
+            InsertionReason::TextOrCaretOrSelectionMismatch,
+        )
+    };
+    (outcome, reason, readback)
+}
+fn classify_emoji_readback(
+    before: &Snapshot,
+    after: &Snapshot,
+    expected: &(String, usize),
+    dispatched: bool,
+    start: usize,
+    length: usize,
 ) -> EditOutcome {
-    if !before.same_authority(after) {
+    if !dispatched
+        || !before.can_replace_emoji
+        || before.protected
+        || after.protected
+        || !before.valid_range()
+        || !after.valid_range()
+        || before.can_replace != after.can_replace
+        || before.can_replace_emoji != after.can_replace_emoji
+        || before.multiline != after.multiline
+        || before.on_demand_only != after.on_demand_only
+        || length == 0
+        || start
+            .checked_add(length)
+            .is_none_or(|end| end > before.text.scalar_len())
+    {
         return EditOutcome::Indeterminate;
     }
-    if after.text.as_ref() == expected.0 && after.caret == expected.1 && after.selection_length == 0
-    {
-        return EditOutcome::Applied(after.clone());
+    if after.matches_pending_emoji_selection(before, start, length) {
+        return EditOutcome::Dispatched;
     }
-    if before.same_key(after) {
-        if dispatched {
-            EditOutcome::Dispatched
-        } else {
-            EditOutcome::Rejected
-        }
-    } else {
-        EditOutcome::Indeterminate
-    }
+    classify_readback(before, after, expected, true).0
 }
 fn mutation_may_have_applied(error: ax::AxError) -> bool {
     !matches!(
@@ -1969,6 +2916,7 @@ fn snapshot_binding(salt: &[u8; 32], snapshot: &Snapshot) -> [u8; 16] {
             snapshot.multiline as u8,
             snapshot.on_demand_only as u8,
             snapshot.can_replace as u8,
+            snapshot.can_replace_emoji as u8,
         ],
     );
     digest.finalize().into_bytes().into()
@@ -2234,12 +3182,58 @@ fn keyboard_state() -> (BTreeMap<u16, String>, InputSourceKind) {
     (keys, kind)
 }
 
+/// Notification callbacks revoke evidence using metadata only. A matching PID
+/// never promotes a notification's element to focused-field authority.
+fn ax_invalidation(name: &str, element: u64, focused: u64) -> Option<bool> {
+    match name {
+        "AXFocusedUIElementChanged" | "AXFocusedWindowChanged" | "AXMainWindowChanged" => {
+            Some(true)
+        }
+        "AXValueChanged" | "AXSelectedTextChanged" if focused != 0 && element == focused => {
+            Some(false)
+        }
+        "AXWindowMoved"
+        | "AXWindowResized"
+        | "AXUIElementDestroyed"
+        | "AXLayoutChanged"
+        | "AXMoved"
+        | "AXResized" => Some(false),
+        _ => None,
+    }
+}
+
+#[link(name = "CoreFoundation", kind = "framework")]
+unsafe extern "C" {
+    fn CFRunLoopGetMain() -> ax::ffi::RunLoopRef;
+    fn CFRunLoopWakeUp(runloop: ax::ffi::RunLoopRef);
+}
+
+fn wake_diagnostic_owner() {
+    // SAFETY: CoreFoundation owns the process main run loop for its lifetime.
+    // Waking it posts no input and does not invoke the authority invalidator.
+    unsafe { CFRunLoopWakeUp(CFRunLoopGetMain()) };
+}
+
 struct NativeNotificationContext {
     note: Arc<dyn Fn(bool) + Send + Sync>,
     dirty: Arc<AtomicBool>,
     layout_dirty: Arc<AtomicBool>,
     diagnostic: Arc<AtomicBool>,
 }
+impl NativeNotificationContext {
+    fn request_diagnostic(&self, wake_owner: impl FnOnce()) {
+        self.diagnostic.store(true, Ordering::Release);
+        wake_owner();
+    }
+    fn invalidate(&self, layout_changed: bool) {
+        if layout_changed {
+            self.layout_dirty.store(true, Ordering::Release);
+        }
+        self.dirty.store(true, Ordering::Release);
+        (self.note)(true);
+    }
+}
+
 struct AppNotifications {
     observer: ObjcRef,
     centers: Vec<ObjcRef>,
@@ -2262,15 +3256,12 @@ impl AppNotifications {
                 }
                 let context = unsafe { &*(raw as *const NativeNotificationContext) };
                 if selector == unsafe { sel_registerName(c"diagnosticRequested:".as_ptr()) } {
-                    context.diagnostic.store(true, Ordering::Release);
-                    (context.note)(true);
+                    context.request_diagnostic(wake_diagnostic_owner);
                     return;
                 }
-                if selector == unsafe { sel_registerName(c"layoutChanged:".as_ptr()) } {
-                    context.layout_dirty.store(true, Ordering::Release)
-                }
-                context.dirty.store(true, Ordering::Release);
-                (context.note)(true)
+                context.invalidate(
+                    selector == unsafe { sel_registerName(c"layoutChanged:".as_ptr()) },
+                );
             }));
         }
         static OBSERVER_CLASS: LazyLock<usize> = LazyLock::new(|| unsafe {
@@ -2395,6 +3386,28 @@ impl Drop for AppNotifications {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn metadata_notifications_revoke_layout_destroyed_and_exact_field_evidence() {
+        assert_eq!(
+            ax_invalidation("AXFocusedUIElementChanged", 9, 7),
+            Some(true)
+        );
+        for name in [
+            "AXWindowMoved",
+            "AXWindowResized",
+            "AXUIElementDestroyed",
+            "AXLayoutChanged",
+            "AXMoved",
+            "AXResized",
+        ] {
+            assert_eq!(ax_invalidation(name, 9, 7), Some(false));
+        }
+        assert_eq!(ax_invalidation("AXValueChanged", 7, 7), Some(false));
+        assert_eq!(ax_invalidation("AXSelectedTextChanged", 7, 7), Some(false));
+        assert_eq!(ax_invalidation("AXValueChanged", 9, 7), None);
+        assert_eq!(ax_invalidation("AXValueChanged", 0, 0), None);
+        assert_eq!(ax_invalidation("AXUnknown", 7, 7), None);
+    }
     struct CompatibilityHost {
         writable: bool,
         state: Option<bool>,
@@ -2557,27 +3570,94 @@ mod tests {
         assert_eq!(expected_mutation(&before, usize::MAX, 1, "x"), None)
     }
     #[test]
+    fn insertion_readback_reasons_preserve_outcomes_and_expose_only_match_booleans() {
+        let before = snapshot();
+        let expected = expected_mutation(&before, before.caret, 0, "!").unwrap();
+        let (outcome, reason, unchanged) = classify_readback(&before, &before, &expected, true);
+        assert!(matches!(outcome, EditOutcome::Dispatched));
+        assert_eq!(reason, InsertionReason::Unchanged);
+        assert!(unchanged.authority_match && unchanged.unchanged_readback);
+        assert!(!unchanged.text_match && !unchanged.caret_match);
+
+        let mut exact = before.clone();
+        exact.text = expected.0.clone().into();
+        exact.caret = expected.1;
+        exact.selection_length = 0;
+        let (outcome, reason, matches) = classify_readback(&before, &exact, &expected, true);
+        assert!(matches!(outcome, EditOutcome::Applied(_)));
+        assert_eq!(reason, InsertionReason::Exact);
+        assert!(matches.text_match && matches.caret_match && matches.selection_empty);
+        assert!(!matches.unchanged_readback);
+
+        for component in 0..6 {
+            let mut changed = exact.clone();
+            match component {
+                0 => changed.app_id.push_str("-changed"),
+                1 => changed.window_pid += 1,
+                2 => changed.window_id.push_str("-changed"),
+                3 => changed.field_id.push_str("-changed"),
+                4 => changed.window_revision.push_str("-changed"),
+                5 => changed.domain.push_str("-changed"),
+                _ => unreachable!(),
+            }
+            let (outcome, reason, matches) = classify_readback(&before, &changed, &expected, true);
+            assert!(matches!(outcome, EditOutcome::Indeterminate));
+            assert_eq!(reason, InsertionReason::AuthorityChange);
+            assert!(!matches.authority_match);
+            assert!(matches.text_match && matches.caret_match && matches.selection_empty);
+            for (index, same) in [
+                matches.same_app,
+                matches.same_process,
+                matches.same_window,
+                matches.same_field,
+                matches.same_document,
+                matches.same_domain,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                assert_eq!(same, index != component);
+            }
+        }
+        for component in 0..3 {
+            let mut changed = exact.clone();
+            match component {
+                0 => changed.text = "different synthetic text".into(),
+                1 => changed.caret = before.caret,
+                2 => changed.selection_length = 1,
+                _ => unreachable!(),
+            }
+            let (outcome, reason, matches) = classify_readback(&before, &changed, &expected, true);
+            assert!(matches!(outcome, EditOutcome::Indeterminate));
+            assert_eq!(reason, InsertionReason::TextOrCaretOrSelectionMismatch);
+            assert!(matches.authority_match);
+            assert_eq!(matches.text_match, component != 0);
+            assert_eq!(matches.caret_match, component != 1);
+            assert_eq!(matches.selection_empty, component != 2);
+        }
+    }
+    #[test]
     fn noop_setter_is_not_applied_and_never_retried() {
         let before = snapshot();
         let expected = expected_mutation(&before, 13, 0, "!").unwrap();
         assert!(matches!(
-            classify_readback(&before, &before, &expected, false),
+            classify_readback(&before, &before, &expected, false).0,
             EditOutcome::Rejected
         ));
         assert!(matches!(
-            classify_readback(&before, &before, &expected, true),
+            classify_readback(&before, &before, &expected, true).0,
             EditOutcome::Dispatched
         ));
         let mut after = before.clone();
         after.text = expected.0.clone().into();
         after.caret = expected.1;
         assert!(matches!(
-            classify_readback(&before, &after, &expected, false),
+            classify_readback(&before, &after, &expected, false).0,
             EditOutcome::Applied(_)
         ));
         after.window_id = "other".into();
         assert!(matches!(
-            classify_readback(&before, &after, &expected, false),
+            classify_readback(&before, &after, &expected, false).0,
             EditOutcome::Indeterminate
         ));
     }
@@ -2589,11 +3669,57 @@ mod tests {
         after.caret = 6;
         after.selection_length = 1;
         assert!(matches!(
-            classify_readback(&before, &after, &expected, false),
+            classify_readback(&before, &after, &expected, false).0,
             EditOutcome::Indeterminate
         ));
         assert!(mutation_may_have_applied(ax::AxError(-25204)));
         assert!(!mutation_may_have_applied(ax::AxError(-25202)));
+    }
+    #[test]
+    fn dispatched_emoji_selection_waits_for_exact_native_readback() {
+        let mut before = snapshot();
+        before.text = "Olá 😀 :sorriso tail".into();
+        before.caret = 14;
+        before.can_replace = false;
+        before.can_replace_emoji = true;
+        let expected = expected_mutation(&before, 6, 8, "😄").unwrap();
+        let mut selected = before.clone();
+        selected.caret = 6;
+        selected.selection_length = 8;
+        assert!(matches!(
+            classify_emoji_readback(&before, &selected, &expected, true, 6, 8),
+            EditOutcome::Dispatched
+        ));
+        assert!(matches!(
+            classify_emoji_readback(&before, &selected, &expected, false, 6, 8),
+            EditOutcome::Indeterminate
+        ));
+        assert!(matches!(
+            classify_readback(&before, &selected, &expected, true).0,
+            EditOutcome::Indeterminate
+        ));
+        let mut after = selected.clone();
+        after.text = "Olá 😀 😄 tail".into();
+        after.caret = 7;
+        after.selection_length = 0;
+        assert!(matches!(
+            classify_emoji_readback(&before, &after, &expected, true, 6, 8),
+            EditOutcome::Applied(_)
+        ));
+        for changed in 0..5 {
+            let mut unrelated = selected.clone();
+            match changed {
+                0 => unrelated.caret = 5,
+                1 => unrelated.selection_length = 7,
+                2 => unrelated.text = "Olá 😀 :sorriso edit".into(),
+                3 => unrelated.window_id = "other".into(),
+                _ => unrelated.can_replace_emoji = false,
+            }
+            assert!(matches!(
+                classify_emoji_readback(&before, &unrelated, &expected, true, 6, 8),
+                EditOutcome::Indeterminate
+            ));
+        }
     }
     #[test]
     fn protected_append_only_and_invalid_ranges_refuse_before_native_calls() {
@@ -2615,6 +3741,7 @@ mod tests {
         Ignore,
         Reject,
         ReadError,
+        ReadUnavailable,
         ChangeOwner,
     }
     struct MutationHost {
@@ -2660,18 +3787,234 @@ mod tests {
             if matches!(self.mode, HostMode::ReadError) {
                 bail!("synthetic native transport failure")
             }
+            if matches!(self.mode, HostMode::ReadUnavailable) {
+                return Ok(None);
+            }
             Ok(Some(self.observed.clone()))
+        }
+    }
+    struct UnicodeHost {
+        after: Option<Snapshot>,
+        stage: &'static str,
+        post_error: bool,
+        capture_error: bool,
+        scope: Option<bool>,
+        scope_timing: Option<(Instant, Instant)>,
+        posts: usize,
+        observations: usize,
+        scope_reads: usize,
+    }
+    impl UnicodeHost {
+        fn transient() -> Self {
+            Self {
+                after: None,
+                stage: "selection_or_geometry_changed_after_capture",
+                post_error: false,
+                capture_error: false,
+                scope: Some(true),
+                scope_timing: None,
+                posts: 0,
+                observations: 0,
+                scope_reads: 0,
+            }
+        }
+    }
+    impl UnicodeTextHost for UnicodeHost {
+        fn post(&mut self, _: &str) -> Result<()> {
+            self.posts += 1;
+            ensure!(!self.post_error, "synthetic post failure");
+            Ok(())
+        }
+        fn observe(&mut self) -> Result<Option<Snapshot>> {
+            self.observations += 1;
+            ensure!(!self.capture_error, "synthetic capture failure");
+            Ok(self.after.clone())
+        }
+        fn capture_stage(&self) -> &'static str {
+            self.stage
+        }
+        fn pending_authority_matches(&mut self, _: &Snapshot) -> Result<bool> {
+            self.scope_reads += 1;
+            let proof = self
+                .scope
+                .ok_or_else(|| anyhow!("synthetic scope read failure"));
+            match self.scope_timing {
+                Some((expires_at, completed_at)) => {
+                    finish_unicode_scope_proof(proof, expires_at, || completed_at)
+                }
+                None => proof,
+            }
+        }
+    }
+    #[test]
+    fn unicode_post_scope_expiry_cannot_restart_the_original_readback_window() {
+        let posted_at = Instant::now();
+        let expires_at = posted_at + Duration::from_secs(2);
+        // A previous successful proof does not renew the original deadline.
+        assert!(
+            finish_unicode_scope_proof(
+                Ok(true),
+                expires_at,
+                || posted_at + Duration::from_secs(1),
+            )
+            .unwrap()
+        );
+        let before = snapshot();
+        for (completed_at, dispatched) in [
+            (expires_at - Duration::from_nanos(1), true),
+            (expires_at, false),
+            (expires_at + Duration::from_nanos(1), false),
+            (expires_at + Duration::from_secs(2), false),
+        ] {
+            let mut host = UnicodeHost::transient();
+            host.scope_timing = Some((expires_at, completed_at));
+            let (outcome, reason, readback) = apply_unicode_text(&mut host, &before, "!");
+            assert_eq!(matches!(outcome, EditOutcome::Dispatched), dispatched);
+            if !dispatched {
+                assert!(matches!(outcome, EditOutcome::Indeterminate));
+            }
+            assert_eq!(reason, InsertionReason::CaptureUnavailable);
+            assert!(readback.is_none());
+            assert_eq!((host.posts, host.observations, host.scope_reads), (1, 1, 1));
+        }
+    }
+    #[test]
+    fn unicode_post_transient_capture_requires_readback_without_reposting() {
+        let before = snapshot();
+        let mut host = UnicodeHost::transient();
+        let (outcome, reason, readback) = apply_unicode_text(&mut host, &before, "!");
+        assert!(matches!(outcome, EditOutcome::Dispatched));
+        assert_eq!(reason, InsertionReason::CaptureUnavailable);
+        assert!(readback.is_none()); // No fabricated applied Snapshot.
+        assert_eq!((host.posts, host.observations, host.scope_reads), (1, 1, 1));
+    }
+    #[test]
+    fn unicode_post_transient_capture_refuses_revoked_or_unreadable_scope() {
+        let before = snapshot();
+        // Fresh-scope refusal/error is the native boundary for target, policy,
+        // permission, authored-revision, protected-field and IME revocation.
+        // This tests classification, not an imitation of those native reads.
+        for scope in [Some(false), None] {
+            let mut host = UnicodeHost::transient();
+            host.scope = scope;
+            let (outcome, reason, readback) = apply_unicode_text(&mut host, &before, "!");
+            assert!(matches!(outcome, EditOutcome::Indeterminate));
+            assert_eq!(reason, InsertionReason::CaptureUnavailable);
+            assert!(readback.is_none());
+            assert_eq!((host.posts, host.observations, host.scope_reads), (1, 1, 1));
+        }
+    }
+    #[test]
+    fn unicode_post_transient_capture_cannot_rehabilitate_invalid_original_input() {
+        for invalid in 0..3 {
+            let mut before = snapshot();
+            match invalid {
+                0 => before.protected = true,
+                1 => before.selection_length = 1,
+                2 => before.caret = before.text.scalar_len() + 1,
+                _ => unreachable!(),
+            }
+            let mut host = UnicodeHost::transient();
+            let (outcome, _, readback) = apply_unicode_text(&mut host, &before, "!");
+            assert!(matches!(outcome, EditOutcome::Indeterminate));
+            assert!(readback.is_none());
+            assert_eq!((host.posts, host.observations, host.scope_reads), (1, 1, 0));
+        }
+    }
+    #[test]
+    fn unicode_post_never_converts_errors_or_unproven_capture_absence_to_dispatch() {
+        let before = snapshot();
+        for stage in [
+            // AX string extraction collapses errors/malformed values to None.
+            "field_value_unavailable",
+            "geometry_read_scope_revoked",
+            "selection_utf16_invalid",
+            "marked_text_or_input_source_unverified",
+            "focus_changed_after_capture",
+            "field_not_ordinary_writable",
+            "not_observed",
+        ] {
+            let mut host = UnicodeHost::transient();
+            host.stage = stage;
+            let (outcome, _, readback) = apply_unicode_text(&mut host, &before, "!");
+            assert!(matches!(outcome, EditOutcome::Indeterminate));
+            assert!(readback.is_none());
+            assert_eq!((host.posts, host.observations, host.scope_reads), (1, 1, 0));
+        }
+        for post_error in [false, true] {
+            let mut host = UnicodeHost::transient();
+            host.post_error = post_error;
+            host.capture_error = !post_error;
+            let (outcome, reason, readback) = apply_unicode_text(&mut host, &before, "!");
+            assert!(matches!(outcome, EditOutcome::Indeterminate));
+            assert_eq!(
+                reason,
+                if post_error {
+                    InsertionReason::PostError
+                } else {
+                    InsertionReason::CaptureError
+                }
+            );
+            assert!(readback.is_none());
+            assert_eq!(host.posts, 1);
+            assert_eq!(host.observations, usize::from(!post_error));
+            assert_eq!(host.scope_reads, 0);
+        }
+    }
+    #[test]
+    fn unicode_post_full_readback_keeps_exact_and_negative_classifications() {
+        let before = snapshot();
+        let expected = expected_mutation(&before, before.caret, 0, "!").unwrap();
+        for change in 0..6 {
+            let mut after = before.clone();
+            after.text = expected.0.clone().into();
+            after.caret = expected.1;
+            match change {
+                0 => {}
+                1 => after = before.clone(),
+                2 => after.field_id.push_str("-other"),
+                3 => after.text = "different synthetic text".into(),
+                4 => after.caret = before.caret,
+                5 => after.selection_length = 1,
+                _ => unreachable!(),
+            }
+            let mut host = UnicodeHost::transient();
+            host.after = Some(after);
+            let (outcome, _, readback) = apply_unicode_text(&mut host, &before, "!");
+            match change {
+                0 => assert!(matches!(outcome, EditOutcome::Applied(_))),
+                1 => assert!(matches!(outcome, EditOutcome::Dispatched)),
+                _ => assert!(matches!(outcome, EditOutcome::Indeterminate)),
+            }
+            assert!(readback.is_some());
+            assert_eq!((host.posts, host.observations, host.scope_reads), (1, 1, 0));
         }
     }
     #[test]
     fn native_setter_readback_cannot_echo_requested_success() {
         let before = snapshot();
-        for (mode, applied, rejected) in [
-            (HostMode::Apply, true, false),
-            (HostMode::Ignore, false, true),
-            (HostMode::Reject, false, true),
-            (HostMode::ReadError, false, false),
-            (HostMode::ChangeOwner, false, false),
+        for (mode, applied, rejected, expected_reason) in [
+            (HostMode::Apply, true, false, InsertionReason::Exact),
+            (HostMode::Ignore, false, true, InsertionReason::Unchanged),
+            (HostMode::Reject, false, true, InsertionReason::SetterError),
+            (
+                HostMode::ReadError,
+                false,
+                false,
+                InsertionReason::CaptureError,
+            ),
+            (
+                HostMode::ReadUnavailable,
+                false,
+                false,
+                InsertionReason::CaptureUnavailable,
+            ),
+            (
+                HostMode::ChangeOwner,
+                false,
+                false,
+                InsertionReason::AuthorityChange,
+            ),
         ] {
             let mut host = MutationHost {
                 observed: before.clone(),
@@ -2682,7 +4025,36 @@ mod tests {
                 mode,
                 writes: 0,
             };
-            let result = apply_selected_text(&mut host, &before, 13, 0, " 😀e\u{301}");
+            let (result, reason, readback) =
+                apply_selected_text(&mut host, &before, 13, 0, " 😀e\u{301}");
+            assert_eq!(reason, expected_reason);
+            assert_eq!(
+                readback.is_some(),
+                matches!(
+                    mode,
+                    HostMode::Apply | HostMode::Ignore | HostMode::ChangeOwner
+                )
+            );
+            let diagnostic = InsertionDiagnostic {
+                reason,
+                capture_stage: "edit_readback_started",
+                readback,
+                user_revision_unchanged: Some(true),
+            };
+            let serialized = serde_json::to_string(&diagnostic).unwrap();
+            assert!(!serialized.contains(before.text.as_ref()));
+            assert!(!serialized.contains("synthetic native transport failure"));
+            assert!(!serialized.contains("different-window"));
+            if let Some(readback) = readback {
+                assert!(
+                    serde_json::to_value(readback)
+                        .unwrap()
+                        .as_object()
+                        .unwrap()
+                        .values()
+                        .all(serde_json::Value::is_boolean)
+                );
+            }
             assert_eq!(matches!(result, EditOutcome::Applied(_)), applied);
             assert_eq!(matches!(result, EditOutcome::Rejected), rejected);
             if !applied && !rejected {
@@ -2703,13 +4075,109 @@ mod tests {
             mode: HostMode::Apply,
             writes: 0,
         };
-        let outcome = apply_selected_text(&mut host, &before, 6, 1, "e\u{301}");
+        let (outcome, _, _) = apply_selected_text(&mut host, &before, 6, 1, "e\u{301}");
         let EditOutcome::Applied(after) = outcome else {
             panic!("native host readback not confirmed")
         };
         assert_eq!(after.text.as_ref(), "hello e\u{301} world");
         assert_eq!(after.caret, 8);
         assert_eq!(host.writes, 1);
+    }
+    #[test]
+    fn native_source_consent_resolves_defaults_global_app_domain_and_independence() {
+        let mut snapshot = Snapshot {
+            app_id: "com.apple.Terminal".into(),
+            ..Default::default()
+        };
+        for (settings, domain, expected) in [
+            (serde_json::json!({}), "", false),
+            (serde_json::json!({"screenshot_appearance": true}), "", true),
+            (
+                serde_json::json!({"screenshot_appearance": false,
+                "app_rules": {"app:com.apple.Terminal": {"screenshot_appearance": true}}}),
+                "",
+                false,
+            ),
+            (
+                serde_json::json!({"screenshot_appearance": true,
+                "app_rules": {"app:com.apple.Terminal": {"screenshot_appearance": false}}}),
+                "",
+                false,
+            ),
+            (
+                serde_json::json!({"screenshot_appearance": true,
+                "app_rules": {"domain:example.test": {"screenshot_appearance": false}}}),
+                "example.test",
+                false,
+            ),
+            (
+                serde_json::json!({"screenshot_appearance": false,
+                "app_rules": {"domain:example.test": {"screenshot_appearance": true}}}),
+                "example.test",
+                false,
+            ),
+            (
+                serde_json::json!({"screenshot_appearance": true,
+                "app_rules": {
+                    "app:com.apple.Terminal": {"screenshot_appearance": false},
+                    "domain:example.test": {"screenshot_appearance": true}
+                }}),
+                "example.test",
+                true,
+            ),
+            (
+                serde_json::json!({"screenshot_appearance": false,
+                "screen_context": true, "screenshot_context": true,
+                "clipboard_context": true, "use_history": true}),
+                "",
+                false,
+            ),
+            (
+                serde_json::json!({"screenshot_appearance": true,
+                "screen_context": false, "screenshot_context": false,
+                "clipboard_context": false, "use_history": false}),
+                "",
+                true,
+            ),
+        ] {
+            let mut config: Config = serde_json::from_value(settings).unwrap();
+            config.terminal_completion = true;
+            let policy = ObservationPolicy::new(&effective_config(&config)).unwrap();
+            snapshot.domain = domain.into();
+            let front = Foreground {
+                app_id: snapshot.app_id.clone(),
+                domain: domain.into(),
+                ..Default::default()
+            };
+            assert_eq!(
+                source_preference_allowed(
+                    &policy,
+                    &front,
+                    "Terminal",
+                    &snapshot,
+                    ScopedPreference::ScreenshotAppearance
+                ),
+                expected
+            );
+            let mut wrong_target = snapshot.clone();
+            wrong_target.app_id = "other.app".into();
+            assert!(!source_preference_allowed(
+                &policy,
+                &front,
+                "Terminal",
+                &wrong_target,
+                ScopedPreference::ScreenshotAppearance
+            ));
+            wrong_target = snapshot.clone();
+            wrong_target.domain = "other.test".into();
+            assert!(!source_preference_allowed(
+                &policy,
+                &front,
+                "Terminal",
+                &wrong_target,
+                ScopedPreference::ScreenshotAppearance
+            ));
+        }
     }
     #[test]
     fn terminal_opt_in_never_overrides_customized_exclusions() {
@@ -2756,6 +4224,65 @@ mod tests {
             field_id: snapshot.field_id.clone(),
             field_hash: 1,
             window_hash: 2,
+        }
+    }
+    #[test]
+    fn detached_primary_freshness_is_source_independent_and_revoked_before_native_reads() {
+        let snapshot = Snapshot {
+            app_id: "com.apple.Terminal".into(),
+            field_id: "terminal:unsent-input".into(),
+            ..Default::default()
+        };
+        for settings in [
+            serde_json::json!({"screen_context": false}),
+            serde_json::json!({"screen_context": true,
+                "app_rules": {"app:com.apple.Terminal": {"screen_context": false}}}),
+            serde_json::json!({"screen_context": true,
+                "app_rules": {"domain:example.test": {"screen_context": false}}}),
+        ] {
+            let mut config: Config = serde_json::from_value(settings).unwrap();
+            config.terminal_completion = true;
+            config.clipboard_context = true;
+            config.use_history = true;
+            let mut lease = revoked_ticket(&snapshot).lease;
+            lease.foreground.domain = "example.test".into();
+            lease.policy = Arc::new(ObservationPolicy::new(&effective_config(&config)).unwrap());
+            lease.epoch.store(lease.issued_epoch, Ordering::Release);
+            assert!(lease.metadata_valid());
+            assert!(
+                !lease
+                    .policy
+                    .preference(
+                        ScopedPreference::ScreenContext,
+                        &snapshot.app_id,
+                        "example.test",
+                        &["Terminal"]
+                    )
+                    .value
+            );
+            for source in [
+                ScopedPreference::ClipboardContext,
+                ScopedPreference::UseHistory,
+            ] {
+                assert!(
+                    lease
+                        .policy
+                        .preference(source, &snapshot.app_id, "example.test", &["Terminal"])
+                        .value
+                );
+            }
+            lease.dirty.store(true, Ordering::Release);
+            assert!(!lease.valid());
+            lease.dirty.store(false, Ordering::Release);
+            lease.issued_revision = 1;
+            assert!(!lease.valid());
+            lease.issued_revision = 0;
+            lease.epoch.fetch_add(1, Ordering::AcqRel);
+            assert!(!lease.valid());
+            lease.epoch.store(lease.issued_epoch, Ordering::Release);
+            config.global_enabled = false;
+            lease.policy = Arc::new(ObservationPolicy::new(&effective_config(&config)).unwrap());
+            assert!(!lease.valid());
         }
     }
     #[test]

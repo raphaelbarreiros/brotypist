@@ -1,18 +1,18 @@
 //! Latest-only supervisor for an owned native inference child.
 //! Pipe I/O and process waits never hold the public state lock.
 use crate::config::Config;
-use crate::providers::GenerationOptions;
-use crate::runtime::owner_wake::OwnerWake;
-#[cfg(feature = "native-smoke")]
-use crate::runtime::stage_diagnostics::{self, Span as DiagnosticSpan, Stage as TraceStage};
+use crate::diagnostics::{TERMINAL_REPORT_CAPACITY, TerminalReason, TerminalReport};
+use crate::providers::{GenerationOptions, RequestMetrics};
 use crate::worker;
 #[cfg(test)]
 use crate::worker::MAX_MESSAGE_BYTES;
 pub use crate::worker::WorkerEvent;
 use anyhow::{Context, Result, ensure};
+use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::VecDeque;
 use std::io::{BufReader, Read, Write};
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -27,14 +27,62 @@ const TERMINATE_GRACE: Duration = Duration::from_millis(150);
 const STOP_WAIT: Duration = Duration::from_secs(1);
 const EXIT_ERROR: &str = "The inference worker exited. Check local model installation.";
 const START_ERROR: &str = "Cannot start the private inference worker. Check the installation.";
+static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
+
+/// One client's exact release boundary. Only a completed, unused ticket may
+/// admit validation; it is not evidence of model integrity or preparation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReleaseTicket {
+    owner: NonZeroU64,
+    generation: u64,
+    through: u64,
+}
 
 struct Pending {
     id: u64,
     identity: Vec<String>,
     frame: Vec<u8>,
     preparing: bool,
+    submitted: Instant,
 }
 
+/// Session-only counters. Missing final reports (including killed workers) are
+/// explicit, never converted into zero token work. No writing/target data lives here.
+#[derive(Default, Serialize)]
+struct InferenceDiagnostics {
+    submitted_requests: u64,
+    finished_requests: u64,
+    unreported_requests: u64,
+    cancelled_requests: u64,
+    measured_requests: u64,
+    no_offer_requests: u64,
+    failed_requests: u64,
+    alternatives_requests: u64,
+    work: crate::inference_native::NativeWork,
+    cancelled_work: crate::inference_native::NativeWork,
+    last_request: Option<RequestMetrics>,
+}
+impl InferenceDiagnostics {
+    fn finish(&mut self, report: Option<RequestMetrics>, cancelled: bool, failed: bool) {
+        let cancelled = cancelled || report.is_some_and(|metrics| metrics.cancelled);
+        let failed = failed || report.is_some_and(|metrics| metrics.failed);
+        self.finished_requests += 1;
+        self.cancelled_requests += u64::from(cancelled);
+        self.failed_requests += u64::from(failed);
+        self.last_request = report.map(|mut metrics| {
+            metrics.cancelled = cancelled;
+            metrics.failed = failed;
+            self.measured_requests += 1;
+            self.no_offer_requests += u64::from(metrics.no_offer);
+            self.alternatives_requests += u64::from(metrics.alternatives);
+            self.work += metrics.native;
+            if cancelled {
+                self.cancelled_work += metrics.native;
+            }
+            metrics
+        });
+    }
+}
 struct State {
     serial: u64,
     pending: Option<Pending>,
@@ -42,6 +90,9 @@ struct State {
     release_generation: u64,
     released_generation: u64,
     released_through: u64,
+    validation_release: Option<u64>,
+    validation_id: Option<u64>,
+    notification_pending: bool,
     proceed: Option<(u64, u64)>,
     events: VecDeque<WorkerEvent>,
     active: Option<u64>,
@@ -56,14 +107,62 @@ struct State {
     state: &'static str,
     message: &'static str,
     finished: bool,
+    inference: InferenceDiagnostics,
+    terminal_reports: VecDeque<TerminalReport>,
+    lost_terminal_reports: u64,
 }
 struct Shared {
+    owner: NonZeroU64,
     state: Mutex<State>,
     changed: Condvar,
     cancel: AtomicBool,
     stopped: AtomicBool,
     epoch: AtomicU64,
-    owner_wake: OwnerWake,
+    wakeup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    notification_sent: AtomicBool,
+}
+
+impl Shared {
+    /// Call only after releasing state and callback locks. Notifications are
+    /// level-coalesced until the consumer drains events or terminal reports.
+    fn notify_consumer(&self) {
+        if self.notification_sent.load(Ordering::Acquire) {
+            return;
+        }
+        let callback = self
+            .wakeup
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let Some(callback) = callback else { return };
+        let notify = {
+            let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            (state.notification_pending
+                || !state.events.is_empty()
+                || !state.terminal_reports.is_empty())
+                && !self.notification_sent.swap(true, Ordering::AcqRel)
+        };
+        if notify {
+            callback();
+        }
+    }
+
+    fn release_complete(&self, state: &State, ticket: ReleaseTicket) -> bool {
+        ticket.owner == self.owner
+            && ticket.generation == state.release_generation
+            && ticket.generation == state.released_generation
+            && state.validation_release == Some(ticket.generation)
+            && state.released_through >= ticket.through
+            && state.release_through.is_none()
+            && state.pending.is_none()
+            && state.active.is_none()
+            && state.worker_pid.is_none()
+            && state.configured.is_none()
+            && !state.model_loaded
+            && !state.terminating
+            && !state.initializing
+            && !self.stopped.load(Ordering::Acquire)
+    }
 }
 
 /// An isolated worker is allocated lazily. A `ready` event is NOT permission to
@@ -116,9 +215,6 @@ impl WorkerClient {
     pub fn new() -> Result<Self> {
         Self::with_command(WorkerCommand::native()?)
     }
-    pub(crate) fn new_with_wake(owner_wake: OwnerWake) -> Result<Self> {
-        Self::with_command_and_wake(WorkerCommand::native()?, owner_wake)
-    }
     /// Explicit application binary for owned smoke/consumer tools. Resolve the
     /// supplied file, rather than allowing a bare filename to search PATH.
     pub fn for_executable(path: impl Into<PathBuf>) -> Result<Self> {
@@ -137,11 +233,12 @@ impl WorkerClient {
         })
     }
     fn with_command(command: WorkerCommand) -> Result<Self> {
-        Self::with_command_and_wake(command, OwnerWake::default())
-    }
-    fn with_command_and_wake(command: WorkerCommand, owner_wake: OwnerWake) -> Result<Self> {
+        let owner = NEXT_OWNER
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .map_err(|_| anyhow::anyhow!("Worker owner sequence exhausted"))?;
         Ok(Self {
             shared: Arc::new(Shared {
+                owner: NonZeroU64::new(owner).expect("worker owners start at one"),
                 state: Mutex::new(State {
                     serial: 0,
                     pending: None,
@@ -149,6 +246,9 @@ impl WorkerClient {
                     release_generation: 0,
                     released_generation: 0,
                     released_through: 0,
+                    validation_release: None,
+                    validation_id: None,
+                    notification_pending: false,
                     proceed: None,
                     events: VecDeque::with_capacity(256),
                     active: None,
@@ -163,12 +263,16 @@ impl WorkerClient {
                     state: "idle",
                     message: "",
                     finished: false,
+                    inference: InferenceDiagnostics::default(),
+                    terminal_reports: VecDeque::with_capacity(TERMINAL_REPORT_CAPACITY),
+                    lost_terminal_reports: 0,
                 }),
                 changed: Condvar::new(),
                 cancel: AtomicBool::new(false),
                 stopped: AtomicBool::new(false),
                 epoch: AtomicU64::new(0),
-                owner_wake,
+                wakeup: Mutex::new(None),
+                notification_sent: AtomicBool::new(false),
             }),
             thread: None,
             command,
@@ -208,6 +312,8 @@ impl WorkerClient {
         {
             return Ok(0);
         }
+        state.validation_release = None;
+        state.validation_id = None;
         let id = next_serial(state.serial)?;
         let frame = worker::encode_frame(
             &json!({"type":"prepare", "id":id, "config": provider_config(config)}),
@@ -218,10 +324,69 @@ impl WorkerClient {
             identity,
             frame,
             preparing: true,
+            submitted: Instant::now(),
         });
         state.idle_timeout = config.idle_release_seconds;
         self.shared.changed.notify_all();
         Ok(id)
+    }
+    /// Admit a fresh configuration-only preparation after this client's exact
+    /// release has acknowledged child and pipe teardown. No warm/busy shortcut.
+    /// An admitted attempt consumes the ticket even if configuration or spawn
+    /// validation fails; the caller must release again before retrying.
+    pub fn prepare_for_validation(
+        &mut self,
+        config: &Config,
+        ticket: ReleaseTicket,
+    ) -> Result<NonZeroU64> {
+        {
+            let mut state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
+            ensure!(
+                self.shared.release_complete(&state, ticket),
+                "Validation requires this worker's exact completed, unused release"
+            );
+            state.validation_release = None;
+        }
+        let mut checked = config.clone();
+        checked.validate()?;
+        ensure!(
+            config.backend == "gguf" && expanded_model_path(&config.model_path).is_file(),
+            "Validation requires an existing local model file"
+        );
+        self.start()?;
+        let mut state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        let id = next_serial(state.serial)?;
+        let frame = worker::encode_frame(
+            &json!({"type":"prepare", "id":id, "config":provider_config(config)}),
+        )?;
+        state.serial = id;
+        state.validation_id = Some(id);
+        state.pending = Some(Pending {
+            id,
+            identity: config.provider_identity(),
+            frame,
+            preparing: true,
+            submitted: Instant::now(),
+        });
+        state.idle_timeout = config.idle_release_seconds;
+        state.events.clear();
+        state.proceed = None;
+        self.shared.cancel.store(false, Ordering::Release);
+        self.shared.changed.notify_all();
+        Ok(NonZeroU64::new(id).expect("request serial starts at one"))
+    }
+
+    pub fn release_complete(&self, ticket: ReleaseTicket) -> bool {
+        let state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        self.shared.release_complete(&state, ticket)
+    }
+
+    pub fn set_wakeup(&mut self, wakeup: Option<Arc<dyn Fn() + Send + Sync>>) {
+        *self.shared.wakeup.lock().unwrap_or_else(|e| e.into_inner()) = wakeup;
+        self.shared
+            .notification_sent
+            .store(false, Ordering::Release);
+        self.shared.notify_consumer();
     }
     pub fn submit(
         &mut self,
@@ -248,22 +413,25 @@ impl WorkerClient {
             "instructions":options.instructions, "context":options.context, "personalization":options.personalization,
             "utility":options.utility, "anchor":options.anchor, "max_words":options.max_words, "alternatives":options.alternatives,
         }))?;
+        state.validation_release = None;
+        state.validation_id = None;
+        retire_pending(&mut state, TerminalReason::Superseded);
         state.serial = id;
         state.pending = Some(Pending {
             id,
             identity: config.provider_identity(),
             frame,
             preparing: false,
+            submitted: Instant::now(),
         });
         state.idle_timeout = config.idle_release_seconds;
         state.events.clear();
         state.proceed = None;
         self.shared.cancel.store(false, Ordering::Release);
-        #[cfg(feature = "native-smoke")]
-        stage_diagnostics::mark(TraceStage::WorkerSubmitted, Some(id));
         self.shared.changed.notify_all();
         drop(state);
         self.start()?;
+        self.shared.notify_consumer();
         Ok(id)
     }
     /// Confirm only a ready event from this exact current process/request. The
@@ -289,6 +457,10 @@ impl WorkerClient {
     }
     pub fn poll(&mut self) -> Vec<WorkerEvent> {
         let mut state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.notification_pending = false;
+        self.shared
+            .notification_sent
+            .store(false, Ordering::Release);
         if self.shared.cancel.load(Ordering::Acquire)
             || state.release_through.is_some()
             || self.shared.stopped.load(Ordering::Acquire)
@@ -303,18 +475,47 @@ impl WorkerClient {
             .filter(|event| event.id == serial)
             .collect()
     }
+    /// Terminal accounting is independent of latest-only UI event filtering.
+    /// Drain this even after cancellation/release and after `is_stopped`.
+    pub fn take_terminal_report(&mut self) -> Option<TerminalReport> {
+        let mut state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        self.shared
+            .notification_sent
+            .store(false, Ordering::Release);
+        state.terminal_reports.pop_front()
+    }
+
+    /// Cumulative terminal queue evictions. Reading/draining never resets it.
+    pub fn lost_terminal_reports(&self) -> u64 {
+        self.shared
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .lost_terminal_reports
+    }
     pub fn cancel(&mut self) -> Result<()> {
+        let state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.validation_id.is_some() {
+            return Ok(());
+        }
         self.shared.cancel.store(true, Ordering::Release);
         self.shared.changed.notify_all();
         Ok(())
     }
-    pub fn release(&mut self) -> Result<()> {
+    pub fn release(&mut self) -> Result<ReleaseTicket> {
         let mut state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
         let boundary = state.serial;
         state.release_generation = state
             .release_generation
             .checked_add(1)
             .context("Worker release sequence exhausted")?;
+        let ticket = ReleaseTicket {
+            owner: self.shared.owner,
+            generation: state.release_generation,
+            through: boundary,
+        };
+        state.validation_release = Some(ticket.generation);
+        state.validation_id = None;
         state.release_through = Some(
             state
                 .release_through
@@ -325,7 +526,7 @@ impl WorkerClient {
         // No supervisor has ever reserved/spawned work in this case. Honor the
         // release synchronously rather than leaving an unserviceable watermark.
         if self.thread.is_none() && state.active.is_none() && state.worker_pid.is_none() {
-            state.pending = None;
+            retire_pending(&mut state, TerminalReason::Released);
             state.configured = None;
             state.model_loaded = false;
             state.initializing = false;
@@ -334,9 +535,12 @@ impl WorkerClient {
             state.released_through = state.released_through.max(boundary);
             state.state = "idle";
             state.message = "Model released.";
+            state.notification_pending = true;
         }
         self.shared.changed.notify_all();
-        Ok(())
+        drop(state);
+        self.shared.notify_consumer();
+        Ok(ticket)
     }
     pub fn set_idle_timeout(&mut self, seconds: u32) {
         let mut state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -356,6 +560,8 @@ impl WorkerClient {
             "release_complete":state.release_generation > 0 && state.release_generation == state.released_generation && state.release_through.is_none() && state.pending.is_none() && state.active.is_none() && state.worker_pid.is_none() && !state.terminating && !state.initializing,
             "release_generation":state.release_generation, "released_generation":state.released_generation, "released_through":state.released_through,
             "active_id":state.active, "latest_id":state.serial, "epoch":self.shared.epoch.load(Ordering::Acquire),
+            "inference":state.inference,
+            "lost_terminal_reports":state.lost_terminal_reports,
         })
     }
     /// Signal-only shutdown for a GUI owner that retries independent cleanup.
@@ -363,7 +569,7 @@ impl WorkerClient {
         self.shared.stopped.store(true, Ordering::Release);
         self.shared.cancel.store(true, Ordering::Release);
         let mut state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
-        state.pending = None;
+        retire_pending(&mut state, TerminalReason::Stopped);
         state.proceed = None;
         state.events.clear();
         if self.thread.is_none() {
@@ -371,6 +577,9 @@ impl WorkerClient {
             state.state = "stopped";
         }
         self.shared.changed.notify_all();
+        state.notification_pending = true;
+        drop(state);
+        self.shared.notify_consumer();
         Ok(())
     }
     /// Join only an already-finished owner; never block the native event loop.
@@ -555,12 +764,13 @@ struct Supervisor {
     configured: Option<Vec<String>>,
     cancel_since: Option<Instant>,
     cancel_sent: bool,
+    active_failed: bool,
     initializing: bool,
     evaluating: bool,
     awaiting_proceed: bool,
     last_activity: Instant,
-    #[cfg(feature = "native-smoke")]
-    first_stream_observed: bool,
+    active_report: Option<TerminalReport>,
+    active_counted: bool,
 }
 impl Supervisor {
     fn new(shared: Arc<Shared>, command: WorkerCommand) -> Self {
@@ -578,17 +788,16 @@ impl Supervisor {
             configured: None,
             cancel_since: None,
             cancel_sent: false,
+            active_failed: false,
             initializing: false,
             evaluating: false,
             awaiting_proceed: false,
             last_activity: Instant::now(),
-            #[cfg(feature = "native-smoke")]
-            first_stream_observed: false,
+            active_report: None,
+            active_counted: false,
         }
     }
     fn spawn(&mut self) -> Result<()> {
-        #[cfg(feature = "native-smoke")]
-        let _stage = DiagnosticSpan::start(TraceStage::WorkerSpawn, None);
         ensure!(
             self.process.is_none() && self.terminating.is_none(),
             "Previous worker still owns native resources"
@@ -689,6 +898,32 @@ impl Supervisor {
         Ok(())
     }
     fn retire(&mut self) {
+        // A terminal report already delivered by the reader remains useful
+        // after revocation. Consume accounting only, never publish retired text.
+        let epoch = self.shared.epoch.load(Ordering::Acquire);
+        let mut terminal = None;
+        while let Ok(incoming) = self.incoming.try_recv() {
+            if incoming.epoch == epoch && self.active == Some(incoming.event.id) {
+                match incoming.event.kind.as_str() {
+                    "ready" => {
+                        if let Some(report) = self.active_report.as_mut() {
+                            report.ready.get_or_insert_with(Instant::now);
+                        }
+                    }
+                    "result" => {
+                        if let Some(report) = self.active_report.as_mut() {
+                            report.first_result.get_or_insert_with(Instant::now);
+                        }
+                    }
+                    "error" => self.active_failed = true,
+                    "done" => {
+                        terminal = Some(incoming.event);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
         self.shared.epoch.fetch_add(1, Ordering::AcqRel);
         if let Some(mut process) = self.process.take() {
             process.request_termination();
@@ -697,6 +932,14 @@ impl Supervisor {
         if let Some(process) = self.terminating.as_mut() {
             process.request_termination();
         }
+        let mut state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        let cancelled = self.cancel_sent
+            || self.cancel_since.is_some()
+            || self.active.is_some_and(|id| id != state.serial)
+            || state.release_through.is_some()
+            || self.release_ack.is_some()
+            || self.shared.cancel.load(Ordering::Acquire)
+            || self.shared.stopped.load(Ordering::Acquire);
         self.active = None;
         self.prepare_id = None;
         self.configured = None;
@@ -705,7 +948,25 @@ impl Supervisor {
         self.initializing = false;
         self.evaluating = false;
         self.awaiting_proceed = false;
-        let mut state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(mut report) = self.active_report.take() {
+            report.metrics = terminal.as_ref().and_then(|event| event.metrics);
+            report.cancelled = cancelled;
+            report.failed = self.active_failed;
+            // Retirement is observed after the drain and state-lock wait.
+            report.terminal = Instant::now();
+            report.reason = terminal_reason(
+                &state,
+                report.request_id,
+                cancelled,
+                self.active_failed,
+                self.release_ack.is_some(),
+                self.shared.stopped.load(Ordering::Acquire),
+                terminal.is_some(),
+            );
+            finish_request(&mut state, report, self.active_counted, terminal.is_some());
+        }
+        self.active_counted = false;
+        self.active_failed = false;
         state.active = None;
         state.configured = None;
         state.model_loaded = false;
@@ -721,6 +982,7 @@ impl Supervisor {
             let mut state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
             state.worker_pid = None;
             state.terminating = false;
+            state.notification_pending = true;
             self.shared.changed.notify_all();
         }
         self.acknowledge_release();
@@ -731,11 +993,13 @@ impl Supervisor {
                 let mut state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
                 state.released_generation = state.released_generation.max(generation);
                 state.released_through = state.released_through.max(through);
+                state.notification_pending = true;
                 self.shared.changed.notify_all();
             }
         }
     }
     fn fail(&mut self, message: &'static str) {
+        self.active_failed = true;
         let mut state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
         state.state = "error";
         state.message = message;
@@ -748,8 +1012,6 @@ impl Supervisor {
             event.message = message.into();
             push_event(&mut state, event);
         }
-        drop(state);
-        self.shared.owner_wake.notify();
     }
     fn run(mut self) {
         loop {
@@ -763,6 +1025,7 @@ impl Supervisor {
                     self.retire();
                 }
                 self.reap();
+                self.shared.notify_consumer();
                 if self.terminating.is_none() {
                     break;
                 }
@@ -770,9 +1033,11 @@ impl Supervisor {
                 continue;
             }
             if self.step().is_err() {
+                self.active_failed = true;
                 self.retire();
                 self.fail(START_ERROR);
             }
+            self.shared.notify_consumer();
             let state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
             drop(
                 self.shared
@@ -791,8 +1056,9 @@ impl Supervisor {
         state.released_generation = state.release_generation;
         state.released_through = state.released_through.max(state.serial);
         self.shared.changed.notify_all();
+        state.notification_pending = true;
         drop(state);
-        self.shared.owner_wake.notify();
+        self.shared.notify_consumer();
     }
     fn step(&mut self) -> Result<()> {
         let now = Instant::now();
@@ -811,7 +1077,7 @@ impl Supervisor {
                     .as_ref()
                     .is_some_and(|pending| pending.id <= boundary)
                 {
-                    state.pending = None;
+                    retire_pending(&mut state, TerminalReason::Released);
                 }
                 state.events.clear();
                 state.proceed = None;
@@ -837,7 +1103,7 @@ impl Supervisor {
                     .as_ref()
                     .is_some_and(|pending| !pending.preparing)
                 {
-                    state.pending = None;
+                    retire_pending(&mut state, TerminalReason::Cancelled);
                 }
                 state.events.clear();
                 state.proceed = None;
@@ -927,6 +1193,8 @@ impl Supervisor {
                 pending
             };
             if let Some(pending) = pending {
+                self.active_report = Some(pending_report(&pending, now));
+                self.active_counted = false;
                 if self.process.is_none() {
                     self.spawn()?;
                 }
@@ -944,26 +1212,39 @@ impl Supervisor {
                         && (pending.preparing || pending.id == state.serial)
                     {
                         state.pending = Some(pending);
+                        self.active_report = None;
+                    } else if let Some(mut report) = self.active_report.take() {
+                        report.cancelled = true;
+                        report.reason = terminal_reason(
+                            &state,
+                            report.request_id,
+                            true,
+                            false,
+                            false,
+                            self.shared.stopped.load(Ordering::Acquire),
+                            false,
+                        );
+                        report.terminal = Instant::now();
+                        finish_request(&mut state, report, false, false);
                     }
                     state.active = None;
                     return Ok(());
                 }
                 self.active = Some(pending.id);
-                #[cfg(feature = "native-smoke")]
-                {
-                    self.first_stream_observed = false;
-                }
                 self.prepare_id = pending.preparing.then_some(pending.id);
                 self.configured = Some(pending.identity);
                 self.cancel_sent = false;
+                self.active_failed = false;
                 self.cancel_since = None;
                 self.last_activity = now;
                 state.active = self.active;
                 state.configured = self.configured.clone();
                 state.awaiting_proceed = false;
+                if !pending.preparing {
+                    state.inference.submitted_requests += 1;
+                    self.active_counted = true;
+                }
                 drop(state);
-                #[cfg(feature = "native-smoke")]
-                stage_diagnostics::mark(TraceStage::WorkerDispatch, Some(pending.id));
                 self.process
                     .as_ref()
                     .context("Worker unavailable")?
@@ -1011,8 +1292,9 @@ impl Supervisor {
                 .as_ref()
                 .context("Worker unavailable")?
                 .send(worker::encode_frame(&json!({"type":"proceed", "id":id}))?)?;
-            #[cfg(feature = "native-smoke")]
-            stage_diagnostics::mark(TraceStage::WorkerProceed, Some(id));
+            if let Some(report) = self.active_report.as_mut() {
+                report.proceed = Some(Instant::now());
+            }
             self.awaiting_proceed = false;
             self.evaluating = true;
             let mut state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -1023,13 +1305,36 @@ impl Supervisor {
         }
         Ok(())
     }
-    fn handle(&mut self, event: WorkerEvent, now: Instant) -> Result<()> {
+    // Keep the step clock for operational grace/idle policy only. Diagnostic
+    // observations are sampled while handling the event, after the state lock.
+    fn handle(&mut self, event: WorkerEvent, step_now: Instant) -> Result<()> {
         if self.active != Some(event.id) {
             return Ok(());
         }
         let mut state = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
         match event.kind.as_str() {
             "done" => {
+                let cancelled = self.cancel_sent
+                    || self.cancel_since.is_some()
+                    || event.id != state.serial
+                    || self.shared.cancel.load(Ordering::Acquire);
+                if let Some(mut report) = self.active_report.take() {
+                    report.metrics = event.metrics;
+                    report.cancelled = cancelled;
+                    report.failed = self.active_failed;
+                    report.terminal = Instant::now();
+                    report.reason = terminal_reason(
+                        &state,
+                        event.id,
+                        cancelled,
+                        self.active_failed,
+                        false,
+                        self.shared.stopped.load(Ordering::Acquire),
+                        true,
+                    );
+                    finish_request(&mut state, report, self.active_counted, true);
+                }
+                self.active_counted = false;
                 self.initializing = false;
                 self.evaluating = false;
                 self.awaiting_proceed = false;
@@ -1037,7 +1342,8 @@ impl Supervisor {
                 self.active = None;
                 self.cancel_since = None;
                 self.cancel_sent = false;
-                self.last_activity = now;
+                self.active_failed = false;
+                self.last_activity = step_now;
                 if self.prepare_id == Some(event.id) {
                     self.prepare_id = None;
                 }
@@ -1049,31 +1355,32 @@ impl Supervisor {
                 }
             }
             "result" => {
+                if let Some(report) = self.active_report.as_mut() {
+                    report.first_result.get_or_insert_with(Instant::now);
+                }
                 self.evaluating = false;
             }
             "loading" => {
-                // Configuration-only preparation survives typing cancellation;
-                // observe its lifecycle even when its UI event is superseded.
-                #[cfg(feature = "native-smoke")]
-                stage_diagnostics::mark(TraceStage::WorkerLoading, Some(event.id));
                 self.initializing = true;
             }
             "prepared" => {
-                #[cfg(feature = "native-smoke")]
-                stage_diagnostics::mark(TraceStage::WorkerPrepared, Some(event.id));
                 self.initializing = false;
                 state.model_loaded = event.model_loaded;
                 state.state = "ready";
                 state.message = "Local model prepared; waiting for writing.";
             }
             "ready" => {
+                if let Some(report) = self.active_report.as_mut() {
+                    report.ready.get_or_insert_with(Instant::now);
+                }
                 self.initializing = false;
                 self.awaiting_proceed = true;
                 state.model_loaded = event.model_loaded;
                 if self.cancel_since.is_some() {
-                    self.cancel_since = Some(now);
+                    self.cancel_since = Some(step_now);
                 }
             }
+            "error" => self.active_failed = true,
             _ => {}
         }
         state.initializing = self.initializing;
@@ -1084,15 +1391,6 @@ impl Supervisor {
             || self.shared.cancel.load(Ordering::Acquire)
         {
             return Ok(());
-        }
-        #[cfg(feature = "native-smoke")]
-        match event.kind.as_str() {
-            "ready" => stage_diagnostics::mark(TraceStage::WorkerReady, Some(event.id)),
-            "result" if !self.first_stream_observed && !event.text.is_empty() => {
-                stage_diagnostics::mark(TraceStage::WorkerFirstNonemptyResult, Some(event.id));
-                self.first_stream_observed = true;
-            }
-            _ => {}
         }
         match event.kind.as_str() {
             "ready" => {
@@ -1111,8 +1409,6 @@ impl Supervisor {
         }
         push_event(&mut state, event);
         self.shared.changed.notify_all();
-        drop(state);
-        self.shared.owner_wake.notify();
         Ok(())
     }
 }
@@ -1121,6 +1417,106 @@ fn push_event(state: &mut State, event: WorkerEvent) {
         state.events.pop_front();
     }
     state.events.push_back(event);
+}
+
+fn pending_report(pending: &Pending, now: Instant) -> TerminalReport {
+    TerminalReport {
+        request_id: pending.id,
+        preparing: pending.preparing,
+        metrics: None,
+        cancelled: false,
+        failed: false,
+        reason: TerminalReason::Unknown,
+        submitted: pending.submitted,
+        ready: None,
+        proceed: None,
+        first_result: None,
+        terminal: now,
+    }
+}
+
+fn retire_pending(state: &mut State, reason: TerminalReason) {
+    if let Some(pending) = state.pending.take() {
+        // Callers own the state lock; never reuse a pre-lock step timestamp.
+        let mut report = pending_report(&pending, Instant::now());
+        report.cancelled = true;
+        report.reason = if reason != TerminalReason::Stopped
+            && state
+                .release_through
+                .is_some_and(|boundary| pending.id <= boundary)
+        {
+            TerminalReason::Released
+        } else {
+            reason
+        };
+        finish_request(state, report, false, false);
+    }
+}
+
+fn terminal_reason(
+    state: &State,
+    id: u64,
+    cancelled: bool,
+    failed: bool,
+    releasing: bool,
+    stopped: bool,
+    reported: bool,
+) -> TerminalReason {
+    if stopped {
+        TerminalReason::Stopped
+    } else if releasing || state.release_through.is_some() {
+        TerminalReason::Released
+    } else if state
+        .pending
+        .as_ref()
+        .is_some_and(|pending| pending.id != id)
+    {
+        TerminalReason::Superseded
+    } else if cancelled {
+        TerminalReason::Cancelled
+    } else if failed {
+        TerminalReason::Failed
+    } else if reported {
+        TerminalReason::Completed
+    } else {
+        TerminalReason::Unknown
+    }
+}
+
+/// Single accounting/retention path for normal completion and every retirement.
+/// `counted` preserves existing totals: preparation and never-dispatched requests
+/// have terminal diagnostics but are not counted as provider submissions.
+fn finish_request(state: &mut State, mut report: TerminalReport, counted: bool, reported: bool) {
+    report.cancelled |= report.metrics.is_some_and(|metrics| metrics.cancelled);
+    report.failed |= report.metrics.is_some_and(|metrics| metrics.failed);
+    if let Some(metrics) = report.metrics.as_mut() {
+        metrics.cancelled = report.cancelled;
+        metrics.failed = report.failed;
+    }
+    if report.reason == TerminalReason::Completed {
+        if report.failed {
+            report.reason = TerminalReason::Failed;
+        } else if report.cancelled {
+            report.reason = TerminalReason::Cancelled;
+        }
+    }
+    if counted {
+        if reported {
+            state
+                .inference
+                .finish(report.metrics, report.cancelled, report.failed);
+        } else {
+            state.inference.unreported_requests += 1;
+            state.inference.cancelled_requests += u64::from(report.cancelled);
+            state.inference.failed_requests += u64::from(report.failed);
+            state.inference.last_request = None;
+        }
+    }
+    if state.terminal_reports.len() == TERMINAL_REPORT_CAPACITY {
+        state.terminal_reports.pop_front();
+        state.lost_terminal_reports = state.lost_terminal_reports.saturating_add(1);
+    }
+    state.terminal_reports.push_back(report);
 }
 
 // Test children execute this very protocol/owner and supervisor. A dedicated
@@ -1200,7 +1596,7 @@ mod tests {
         let observed = target.clone();
         let calls = Arc::new(AtomicU64::new(0));
         let signals = calls.clone();
-        let wake = OwnerWake::new(move || {
+        let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
             let shared = observed
                 .lock()
                 .unwrap()
@@ -1214,19 +1610,21 @@ mod tests {
             );
             signals.fetch_add(1, Ordering::Relaxed);
         });
-        let mut client = WorkerClient::new_with_wake(wake.clone()).unwrap();
+        let mut client = WorkerClient::new().unwrap();
         *target.lock().unwrap() = Some(Arc::downgrade(&client.shared));
+        client.set_wakeup(Some(wake));
         let mut owner = Supervisor::new(client.shared.clone(), client.command.clone());
         owner.active = Some(1);
         client.shared.state.lock().unwrap().serial = 1;
         owner
             .handle(WorkerEvent::new("ready", 1), Instant::now())
             .unwrap();
+        client.shared.notify_consumer();
         owner
             .handle(WorkerEvent::new("result", 1), Instant::now())
             .unwrap();
+        client.shared.notify_consumer();
         assert_eq!(calls.load(Ordering::Relaxed), 1);
-        assert!(wake.take());
         assert_eq!(client.poll().len(), 2);
 
         // Replacement and cancellation retain the existing serial/cancel
@@ -1235,26 +1633,30 @@ mod tests {
         owner
             .handle(WorkerEvent::new("result", 1), Instant::now())
             .unwrap();
+        client.shared.notify_consumer();
         owner.active = Some(2);
         client.shared.cancel.store(true, Ordering::Release);
         owner
             .handle(WorkerEvent::new("ready", 2), Instant::now())
             .unwrap();
-        assert!(!wake.take());
+        client.shared.notify_consumer();
         assert!(client.poll().is_empty());
         client.shared.cancel.store(false, Ordering::Release);
         owner
             .handle(WorkerEvent::new("ready", 2), Instant::now())
             .unwrap();
-        assert!(wake.take());
+        client.shared.notify_consumer();
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
         assert_eq!(client.poll()[0].id, 2);
         client.request_stop().unwrap();
+        assert_eq!(calls.load(Ordering::Relaxed), 3);
+        assert!(client.poll().is_empty());
         owner
             .handle(WorkerEvent::new("result", 2), Instant::now())
             .unwrap();
-        assert!(!wake.take());
+        client.shared.notify_consumer();
         assert!(client.poll().is_empty());
-        assert_eq!(calls.load(Ordering::Relaxed), 2);
+        assert_eq!(calls.load(Ordering::Relaxed), 3);
     }
 
     struct Control {
@@ -1363,6 +1765,22 @@ mod tests {
             }
             Ok(())
         }
+        fn take_metrics(&mut self) -> Option<RequestMetrics> {
+            // Synthetic protocol fixture only: exercise exact accounting without
+            // opening a model. Other fixtures deliberately report unknown work.
+            self.config
+                .model_path
+                .contains("measured")
+                .then_some(RequestMetrics {
+                    native: crate::inference_native::NativeWork {
+                        evaluations: 1,
+                        input_tokens: 37,
+                        sampled_tokens: 2,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                })
+        }
     }
 
     /// Launched only in an explicitly marked disposable subprocess. The normal
@@ -1417,7 +1835,7 @@ mod tests {
             allocations.set(allocation);
             control
                 .borrow_mut()
-                .send(json!({"stage":"create","allocation":allocation,"model":config.model_path}));
+                .send(json!({"stage":"create","allocation":allocation,"model":config.model_path,"style":config.prompt_style}));
             Ok(Box::new(FixtureProvider {
                 config,
                 allocation,
@@ -1972,6 +2390,25 @@ mod tests {
                 client.stop().unwrap();
             }
             assert_dead(pid);
+            let inference = client.status()["inference"].clone();
+            assert_eq!(inference["unreported_requests"], 1);
+            assert_eq!(inference["cancelled_requests"], 1);
+            assert_eq!(inference["measured_requests"], 0);
+            assert!(inference["last_request"].is_null());
+            let report = client.take_terminal_report().unwrap();
+            assert_eq!(report.request_id, 1);
+            assert!(report.metrics.is_none());
+            assert!(report.cancelled);
+            assert_eq!(
+                report.reason,
+                if stop {
+                    TerminalReason::Stopped
+                } else {
+                    TerminalReason::Superseded
+                }
+            );
+            assert!(report.ready.is_none());
+            assert!(report.proceed.is_none());
         }
     }
 
@@ -2002,6 +2439,23 @@ mod tests {
         complete(&mut client, next);
         assert_eq!(harness.control.stage("stream")["prefix"], "after prompt");
         assert_eq!(client.status()["worker_pid"], pid);
+        let inference = client.status()["inference"].clone();
+        assert_eq!(inference["submitted_requests"], 2);
+        assert_eq!(inference["finished_requests"], 2);
+        assert_eq!(inference["cancelled_requests"], 1);
+        assert_eq!(inference["unreported_requests"], 0);
+        let cancelled = client.take_terminal_report().unwrap();
+        assert_eq!(cancelled.request_id, id);
+        assert!(cancelled.cancelled);
+        assert!(cancelled.metrics.is_none());
+        assert!(cancelled.ready.is_some());
+        assert!(cancelled.proceed.is_some());
+        let completed = client.take_terminal_report().unwrap();
+        assert_eq!(completed.request_id, next);
+        assert_eq!(completed.reason, TerminalReason::Completed);
+        assert!(completed.first_result.is_some());
+        assert!(completed.terminal >= completed.first_result.unwrap());
+        assert!(client.take_terminal_report().is_none());
         client.stop().unwrap();
     }
 
@@ -2027,6 +2481,17 @@ mod tests {
         assert_eq!(harness.control.stage("stream")["prefix"], "latest");
         assert!(events.iter().all(|event| event.id == next));
         assert_dead(old);
+        let inference = client.status()["inference"].clone();
+        assert_eq!(inference["submitted_requests"], 2);
+        assert_eq!(inference["finished_requests"], 1);
+        assert_eq!(inference["cancelled_requests"], 1);
+        assert_eq!(inference["unreported_requests"], 1);
+        let retired = client.take_terminal_report().unwrap();
+        assert_eq!(retired.request_id, id);
+        assert!(retired.metrics.is_none());
+        assert!(retired.first_result.is_some());
+        assert_eq!(retired.reason, TerminalReason::Superseded);
+        assert_eq!(client.take_terminal_report().unwrap().request_id, next);
         client.stop().unwrap();
     }
 
@@ -2050,6 +2515,11 @@ mod tests {
             assert_eq!(events.len(), 1);
             assert_eq!(events[0].kind, "error");
             assert!(!events[0].message.contains("private draft"));
+            let report = client.take_terminal_report().unwrap();
+            assert_eq!(report.request_id, events[0].id);
+            assert!(report.metrics.is_none());
+            assert!(report.failed);
+            assert_eq!(report.reason, TerminalReason::Failed);
             client.stop().unwrap();
         }
     }
@@ -2071,6 +2541,17 @@ mod tests {
         assert!(errors.iter().any(|event| event.id == first
             && event.kind == "error"
             && event.message == worker::INFERENCE_ERROR));
+        let inference = client.status()["inference"].clone();
+        assert_eq!(inference["failed_requests"], 1);
+        assert_eq!(inference["finished_requests"], 1);
+        assert_eq!(inference["measured_requests"], 0);
+        assert!(inference["last_request"].is_null());
+        let report = client.take_terminal_report().unwrap();
+        assert_eq!(report.request_id, first);
+        assert_eq!(report.reason, TerminalReason::Failed);
+        assert!(report.metrics.is_none());
+        assert!(report.ready.is_none());
+        assert!(report.proceed.is_none());
         let retry = client
             .submit(&config, "retry", "", &GenerationOptions::default())
             .unwrap();
@@ -2227,7 +2708,8 @@ mod tests {
         let harness = Harness::new("normal");
         let mut untouched = harness.client();
         assert_eq!(untouched.status()["release_complete"], false);
-        untouched.release().unwrap();
+        let untouched_ticket = untouched.release().unwrap();
+        assert!(untouched.release_complete(untouched_ticket));
         assert_eq!(untouched.status()["release_complete"], true);
         assert_eq!(untouched.status()["release_pending"], false);
         assert!(untouched.thread.is_none());
@@ -2252,11 +2734,13 @@ mod tests {
             .unwrap();
         let gate = harness.pause(&client);
         assert!(client.status()["worker_pid"].is_null());
-        client.release().unwrap();
+        let ticket = client.release().unwrap();
+        assert!(!client.release_complete(ticket));
         assert_eq!(client.status()["release_pending"], true);
         assert_eq!(client.status()["release_complete"], false);
         drop(gate);
         let released = wait_status(&client, |status| status["release_complete"] == true);
+        assert!(client.release_complete(ticket));
         assert!(released["worker_pid"].is_null());
         assert_eq!(released["release_pending"], false);
         assert_eq!(
@@ -2283,16 +2767,236 @@ mod tests {
         harness.control.stage("create");
         harness.control.stage("prepare");
         let pid = client.status()["worker_pid"].as_u64().unwrap() as u32;
-        client.release().unwrap();
+        let ticket = client.release().unwrap();
+        assert!(!client.release_complete(ticket));
         assert_eq!(client.status()["release_complete"], false);
         let terminating = wait_status(&client, |status| status["terminating"] == true);
         assert_eq!(terminating["release_complete"], false);
         assert!(!terminating["worker_pid"].is_null());
         let released = wait_status(&client, |status| status["release_complete"] == true);
+        assert!(client.release_complete(ticket));
         assert!(released["worker_pid"].is_null());
         assert_eq!(released["terminating"], false);
         assert!(released["released_through"].as_u64().unwrap() >= id);
         assert_dead(pid);
+        client.stop().unwrap();
+    }
+
+    #[test]
+    fn validation_requires_exact_unused_release_from_its_own_client() {
+        let harness = Harness::new("normal");
+        let mut client = harness.client();
+        let mut other = harness.client();
+        let foreign = other.release().unwrap();
+        let obsolete = client.release().unwrap();
+        let ticket = client.release().unwrap();
+        assert!(!client.release_complete(foreign));
+        assert!(!client.release_complete(obsolete));
+        assert!(client.release_complete(ticket));
+        let model = tempfile::NamedTempFile::new().unwrap();
+        let config = local(model.path().to_str().unwrap());
+        assert!(client.prepare_for_validation(&config, foreign).is_err());
+        assert!(client.prepare_for_validation(&config, obsolete).is_err());
+        // An admitted, invalid candidate consumes the release, even though no
+        // child was started. It must not authorize a different retry silently.
+        let mut invalid = config.clone();
+        invalid.prompt_style = "not-a-template".into();
+        assert!(client.prepare_for_validation(&invalid, ticket).is_err());
+        assert!(!client.release_complete(ticket));
+        assert!(client.prepare_for_validation(&config, ticket).is_err());
+        assert!(client.status()["worker_pid"].is_null());
+    }
+
+    #[test]
+    fn validation_releases_warm_owner_and_prepares_style_only_change_without_writing() {
+        let model = tempfile::NamedTempFile::new().unwrap();
+        let mut config = local(model.path().to_str().unwrap());
+        let mut harness = Harness::new("normal");
+        let mut client = harness.client();
+        let unused = client.release().unwrap();
+        let first = client.prepare(&config).unwrap();
+        assert!(client.prepare_for_validation(&config, unused).is_err());
+        harness.control.stage("create");
+        harness.control.stage("prepare");
+        wait_event(&mut client, first, "done");
+        assert!(client.prepare_for_validation(&config, unused).is_err());
+        let old_pid = client.status()["worker_pid"].as_u64().unwrap() as u32;
+        let ticket = client.release().unwrap();
+        wait_status(&client, |_| client.release_complete(ticket));
+        assert_dead(old_pid);
+        config.prompt_style = "writing".into();
+        let id = client
+            .prepare_for_validation(&config, ticket)
+            .unwrap()
+            .get();
+        assert!(id > first);
+        assert!(client.prepare_for_validation(&config, ticket).is_err());
+        assert!(!client.release_complete(ticket));
+        assert_eq!(harness.control.stage("create")["style"], "writing");
+        harness.control.stage("prepare");
+        client.cancel().unwrap();
+        let events = wait_event(&mut client, id, "done");
+        assert!(
+            events
+                .iter()
+                .any(|event| event.kind == "prepared" && event.model_loaded)
+        );
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event.kind.as_str(), "ready" | "result"))
+        );
+        let reports: Vec<_> = std::iter::from_fn(|| client.take_terminal_report()).collect();
+        let report = reports
+            .iter()
+            .find(|report| report.request_id == id)
+            .unwrap();
+        assert!(report.preparing && !report.cancelled && !report.failed);
+        assert!(report.proceed.is_none() && report.first_result.is_none());
+        assert!(report.terminal >= report.submitted);
+        assert!(client.prepare_for_validation(&config, ticket).is_err());
+        client.stop().unwrap();
+    }
+
+    #[test]
+    fn failed_validation_reports_error_and_done_and_requires_another_release() {
+        let directory = tempfile::tempdir().unwrap();
+        let model = directory.path().join("fail-once.gguf");
+        std::fs::write(&model, b"").unwrap();
+        let config = local(model.to_str().unwrap());
+        let mut harness = Harness::new("normal");
+        let mut client = harness.client();
+        let ticket = client.release().unwrap();
+        let id = client
+            .prepare_for_validation(&config, ticket)
+            .unwrap()
+            .get();
+        harness.control.stage("create");
+        harness.control.stage("prepare");
+        wait_status(&client, |status| status["active_id"].is_null());
+        client.cancel().unwrap();
+        let events = client.poll();
+        assert!(events.iter().all(|event| event.id == id));
+        assert!(events.iter().any(|event| event.kind == "error"));
+        assert!(
+            events
+                .iter()
+                .any(|event| event.kind == "done" && !event.model_loaded)
+        );
+        assert!(!events.iter().any(|event| event.kind == "prepared"));
+        let report = client.take_terminal_report().unwrap();
+        assert_eq!(report.request_id, id);
+        assert!(report.failed && !report.cancelled && report.preparing);
+        assert!(client.prepare_for_validation(&config, ticket).is_err());
+        client.stop().unwrap();
+    }
+
+    #[test]
+    fn superseding_validation_release_retires_child_before_next_candidate() {
+        let directory = tempfile::tempdir().unwrap();
+        let model = directory.path().join("cold-gate.gguf");
+        std::fs::write(&model, b"").unwrap();
+        let config = local(model.to_str().unwrap());
+        let mut harness = Harness::new("ignore-term");
+        let mut client = harness.client();
+        let first_ticket = client.release().unwrap();
+        let id = client
+            .prepare_for_validation(&config, first_ticket)
+            .unwrap()
+            .get();
+        harness.control.stage("create");
+        harness.control.stage("prepare");
+        let pid = client.status()["worker_pid"].as_u64().unwrap() as u32;
+        let next_ticket = client.release().unwrap();
+        assert!(client.prepare_for_validation(&config, next_ticket).is_err());
+        wait_status(&client, |_| client.release_complete(next_ticket));
+        assert_dead(pid);
+        assert!(!client.release_complete(first_ticket));
+        assert!(client.poll().is_empty());
+        let report = client.take_terminal_report().unwrap();
+        assert_eq!(report.request_id, id);
+        assert_eq!(report.reason, TerminalReason::Released);
+        assert!(report.cancelled && report.preparing);
+        let next = client
+            .prepare_for_validation(&config, next_ticket)
+            .unwrap()
+            .get();
+        harness.control.stage("create");
+        harness.control.stage("prepare");
+        harness.control.go();
+        wait_event(&mut client, next, "done");
+        client.stop().unwrap();
+    }
+
+    #[test]
+    fn worker_wakeups_coalesce_rearm_and_never_hold_internal_locks() {
+        let harness = Harness::new("normal");
+        let mut client = harness.client();
+        let calls = Arc::new(AtomicU64::new(0));
+        let observed = Arc::clone(&calls);
+        let shared = Arc::downgrade(&client.shared);
+        client.set_wakeup(Some(Arc::new(move || {
+            let shared = shared.upgrade().unwrap();
+            assert!(
+                shared.state.try_lock().is_ok(),
+                "callback held the state lock"
+            );
+            assert!(
+                shared.wakeup.try_lock().is_ok(),
+                "callback held its registration lock"
+            );
+            observed.fetch_add(1, Ordering::SeqCst);
+        })));
+        let first = client.release().unwrap();
+        assert!(client.release_complete(first));
+        client.release().unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(client.poll().is_empty());
+        client.release().unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        client.set_wakeup(None);
+        client.poll();
+        client.release().unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn real_child_preparation_and_release_wake_the_consumer() {
+        let directory = tempfile::tempdir().unwrap();
+        let model = directory.path().join("cold-gate.gguf");
+        std::fs::write(&model, b"").unwrap();
+        let config = local(model.to_str().unwrap());
+        let mut harness = Harness::new("normal");
+        let mut client = harness.client();
+        let ticket = client.release().unwrap();
+        client.poll();
+        let (send, receive) = mpsc::channel();
+        client.set_wakeup(Some(Arc::new(move || {
+            let _ = send.send(());
+        })));
+        let id = client
+            .prepare_for_validation(&config, ticket)
+            .unwrap()
+            .get();
+        harness.control.stage("create");
+        harness.control.stage("prepare");
+        receive.recv_timeout(Duration::from_secs(6)).unwrap();
+        assert!(
+            client
+                .poll()
+                .iter()
+                .any(|event| event.id == id && event.kind == "loading")
+        );
+        harness.control.go();
+        receive.recv_timeout(Duration::from_secs(6)).unwrap();
+        let events = wait_event(&mut client, id, "done");
+        assert!(events.iter().any(|event| event.kind == "prepared"));
+        assert_eq!(client.take_terminal_report().unwrap().request_id, id);
+        client.poll();
+        while receive.try_recv().is_ok() {}
+        let ticket = client.release().unwrap();
+        receive.recv_timeout(Duration::from_secs(6)).unwrap();
+        wait_status(&client, |_| client.release_complete(ticket));
         client.stop().unwrap();
     }
 
@@ -2309,5 +3013,287 @@ mod tests {
         );
         assert!(client.status()["worker_pid"].is_null());
         assert!(client.thread.is_none());
+    }
+
+    #[test]
+    fn terminal_queue_is_bounded_and_survives_ui_filtering_and_shutdown() {
+        let harness = Harness::new("normal");
+        let mut client = harness.client();
+        harness
+            .command
+            .fixture
+            .as_ref()
+            .unwrap()
+            .gate
+            .state
+            .lock()
+            .unwrap()
+            .0 = true;
+        let first = client
+            .submit(&server(), "queued", "", &GenerationOptions::default())
+            .unwrap();
+        let gate = harness.pause(&client);
+        let mut latest = first;
+        for _ in 0..TERMINAL_REPORT_CAPACITY + 3 {
+            latest = client
+                .submit(&server(), "queued", "", &GenerationOptions::default())
+                .unwrap();
+        }
+        client.request_stop().unwrap();
+        assert!(client.poll().is_empty());
+        assert_eq!(client.lost_terminal_reports(), 4);
+        let mut reports = Vec::new();
+        while let Some(report) = client.take_terminal_report() {
+            reports.push(report);
+        }
+        assert_eq!(reports.len(), TERMINAL_REPORT_CAPACITY);
+        assert_eq!(reports[0].request_id, first + 4);
+        assert_eq!(reports.last().unwrap().request_id, latest);
+        assert_eq!(reports.last().unwrap().reason, TerminalReason::Stopped);
+        assert!(
+            reports
+                .iter()
+                .all(|report| report.metrics.is_none() && report.proceed.is_none())
+        );
+        assert_eq!(client.status()["inference"]["submitted_requests"], 0);
+        drop(gate);
+        client.stop().unwrap();
+    }
+
+    #[test]
+    fn queued_proceed_cancelled_before_supervisor_dispatch_has_no_timestamp() {
+        let mut harness = Harness::new("normal");
+        let mut client = harness.client();
+        let id = client
+            .submit(
+                &local("measured.gguf"),
+                "queued",
+                "",
+                &GenerationOptions::default(),
+            )
+            .unwrap();
+        harness.control.stage("create");
+        harness.control.stage("prepare");
+        wait_event(&mut client, id, "ready");
+        let gate = harness.pause(&client);
+        client.proceed(id).unwrap();
+        client.cancel().unwrap();
+        // A stale admission is deliberately harmless, but is not dispatch evidence.
+        client.proceed(id).unwrap();
+        drop(gate);
+        wait_status(&client, |status| status["active_id"].is_null());
+        let report = client.take_terminal_report().unwrap();
+        assert_eq!(report.request_id, id);
+        assert!(report.ready.is_some());
+        assert!(report.proceed.is_none());
+        assert!(report.cancelled);
+        client.stop().unwrap();
+    }
+
+    #[test]
+    fn unsent_proceed_does_not_record_supervisor_dispatch() {
+        let harness = Harness::new("normal");
+        let client = harness.client();
+        let mut supervisor = Supervisor::new(client.shared.clone(), harness.command.clone());
+        let now = Instant::now();
+        supervisor.active = Some(1);
+        supervisor.awaiting_proceed = true;
+        supervisor.active_report = Some(TerminalReport {
+            request_id: 1,
+            preparing: false,
+            metrics: None,
+            cancelled: false,
+            failed: false,
+            reason: TerminalReason::Unknown,
+            submitted: now,
+            ready: Some(now),
+            proceed: None,
+            first_result: None,
+            terminal: now,
+        });
+        {
+            let mut state = client.shared.state.lock().unwrap();
+            state.serial = 1;
+            state.proceed = Some((1, client.shared.epoch.load(Ordering::Acquire)));
+        }
+        assert!(supervisor.confirm_proceed().is_err());
+        assert!(supervisor.active_report.unwrap().proceed.is_none());
+    }
+
+    #[test]
+    fn supervisor_observations_do_not_reuse_the_operational_step_clock() {
+        let harness = Harness::new("normal");
+        let mut client = harness.client();
+        let mut supervisor = Supervisor::new(client.shared.clone(), harness.command.clone());
+        let step_now = Instant::now() - Duration::from_secs(30);
+        let pending = Pending {
+            id: 1,
+            identity: Vec::new(),
+            frame: Vec::new(),
+            preparing: false,
+            submitted: step_now,
+        };
+        supervisor.active = Some(pending.id);
+        supervisor.active_report = Some(pending_report(&pending, step_now));
+        supervisor.active_counted = true;
+        {
+            let mut state = client.shared.state.lock().unwrap();
+            state.serial = pending.id;
+            state.active = Some(pending.id);
+            state.inference.submitted_requests = 1;
+        }
+        client.cancel().unwrap();
+        let cancelled_at = Instant::now();
+        supervisor.cancel_since = Some(step_now - Duration::from_secs(1));
+
+        let ready_observation = Instant::now();
+        supervisor
+            .handle(WorkerEvent::new("ready", pending.id), step_now)
+            .unwrap();
+        // Diagnostic sampling must not change the ready-event grace policy.
+        assert_eq!(supervisor.cancel_since, Some(step_now));
+        let result_observation = Instant::now();
+        supervisor
+            .handle(WorkerEvent::new("result", pending.id), step_now)
+            .unwrap();
+        let terminal_observation = Instant::now();
+        supervisor
+            .handle(WorkerEvent::new("done", pending.id), step_now)
+            .unwrap();
+        assert_eq!(supervisor.last_activity, step_now);
+
+        let report = client.take_terminal_report().unwrap();
+        assert_eq!(report.request_id, pending.id);
+        assert!(report.ready.unwrap() >= ready_observation);
+        assert!(report.first_result.unwrap() >= result_observation);
+        assert!(report.terminal >= terminal_observation);
+        assert!(report.ready.unwrap() >= cancelled_at);
+        assert!(report.first_result.unwrap() >= report.ready.unwrap());
+        assert!(report.terminal >= report.first_result.unwrap());
+        assert_eq!(report.reason, TerminalReason::Cancelled);
+        assert!(report.cancelled);
+        assert!(report.metrics.is_none());
+        assert!(report.proceed.is_none());
+        assert!(client.poll().is_empty());
+        assert!(client.take_terminal_report().is_none());
+        let status = client.status();
+        assert_eq!(status["inference"]["finished_requests"], 1);
+        assert_eq!(status["inference"]["cancelled_requests"], 1);
+        assert_eq!(status["inference"]["measured_requests"], 0);
+        assert_eq!(status["inference"]["unreported_requests"], 0);
+    }
+
+    #[test]
+    fn retirement_observation_follows_the_state_lock_wait() {
+        for reported in [false, true] {
+            let harness = Harness::new("normal");
+            let mut client = harness.client();
+            let mut supervisor = Supervisor::new(client.shared.clone(), harness.command.clone());
+            let submitted = Instant::now() - Duration::from_secs(30);
+            let pending = Pending {
+                id: 1,
+                identity: Vec::new(),
+                frame: Vec::new(),
+                preparing: false,
+                submitted,
+            };
+            supervisor.active = Some(pending.id);
+            supervisor.active_report = Some(pending_report(&pending, submitted));
+            supervisor.active_counted = true;
+            let epoch = client.shared.epoch.load(Ordering::Acquire);
+            for kind in ["ready", "result"]
+                .into_iter()
+                .chain(reported.then_some("done"))
+            {
+                supervisor
+                    .incoming_tx
+                    .send(Incoming {
+                        epoch,
+                        event: WorkerEvent::new(kind, pending.id),
+                    })
+                    .unwrap();
+            }
+            let mut state = client.shared.state.lock().unwrap();
+            state.serial = pending.id;
+            state.active = Some(pending.id);
+            state.inference.submitted_requests = 1;
+            let retiring = thread::spawn(move || supervisor.retire());
+            // Epoch revocation acknowledges the completed drain. The held lock
+            // prevents retention until the release and its observation marker.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while client.shared.epoch.load(Ordering::Acquire) == epoch {
+                assert!(
+                    Instant::now() < deadline,
+                    "retirement did not revoke its epoch"
+                );
+                thread::yield_now();
+            }
+            state.release_through = Some(pending.id);
+            let released_at = Instant::now();
+            drop(state);
+            retiring.join().unwrap();
+
+            let report = client.take_terminal_report().unwrap();
+            assert_eq!(report.request_id, pending.id);
+            assert!(report.ready.unwrap() <= released_at);
+            assert!(report.first_result.unwrap() >= report.ready.unwrap());
+            assert!(report.first_result.unwrap() <= released_at);
+            assert!(report.terminal >= released_at);
+            assert_eq!(report.reason, TerminalReason::Released);
+            assert!(report.cancelled);
+            assert!(report.metrics.is_none());
+            assert!(report.proceed.is_none());
+            assert!(client.poll().is_empty());
+            assert!(client.take_terminal_report().is_none());
+            let status = client.status();
+            assert!(status["active_id"].is_null());
+            assert_eq!(
+                status["inference"]["finished_requests"],
+                u64::from(reported)
+            );
+            assert_eq!(
+                status["inference"]["unreported_requests"],
+                u64::from(!reported)
+            );
+            assert_eq!(status["inference"]["cancelled_requests"], 1);
+            assert_eq!(status["inference"]["measured_requests"], 0);
+        }
+    }
+
+    #[test]
+    fn matched_terminal_metrics_survive_cancelled_result_filter_and_release() {
+        let mut harness = Harness::new("normal");
+        let mut client = harness.client();
+        let id = client
+            .submit(
+                &local("measured.gguf"),
+                "blocked prompt",
+                "",
+                &GenerationOptions::default(),
+            )
+            .unwrap();
+        harness.control.stage("create");
+        harness.control.stage("prepare");
+        wait_event(&mut client, id, "ready");
+        client.proceed(id).unwrap();
+        harness.control.stage("stream");
+        client.cancel().unwrap();
+        wait_status(&client, |status| status["latest_id"].as_u64().unwrap() > id);
+        harness.control.go();
+        wait_status(&client, |status| status["active_id"].is_null());
+        assert!(client.poll().is_empty());
+        client.release().unwrap();
+        wait_status(&client, |status| status["release_complete"] == true);
+        client.stop().unwrap();
+        let report = client.take_terminal_report().unwrap();
+        assert_eq!(report.request_id, id);
+        assert!(report.cancelled);
+        assert_eq!(report.metrics.unwrap().native.input_tokens, 37);
+        assert_eq!(report.metrics.unwrap().native.sampled_tokens, 2);
+        assert_eq!(
+            client.status()["inference"]["cancelled_work"]["input_tokens"],
+            37
+        );
+        assert!(client.take_terminal_report().is_none());
     }
 }

@@ -82,6 +82,13 @@ impl Fixture {
 fn policy() -> ObservationPolicy {
     ObservationPolicy::new(&Config::default()).unwrap()
 }
+fn context_policy() -> ObservationPolicy {
+    ObservationPolicy::new(&Config {
+        screen_context: true,
+        ..Config::default()
+    })
+    .unwrap()
+}
 impl Accessibility for Fixture {
     fn root(&self) -> Object {
         object("root")
@@ -269,7 +276,7 @@ fn static_context_skips_editable_and_password_values_and_obeys_bounds() {
     let api = Fixture::new();
     let snapshot = api.snapshot();
     let reads = api.reads.get();
-    let context = read_context(&api, &policy(), &snapshot, &|| true, 6).unwrap();
+    let context = read_context(&api, &context_policy(), &snapshot, &|| true, 6).unwrap();
     assert_eq!(context.text, "Static");
     assert_eq!(context.status, "ready");
     assert_eq!(api.reads.get(), reads);
@@ -282,7 +289,7 @@ fn revoked_context_authorization_discards_already_collected_labels() {
     let checks = Cell::new(0);
     let result = read_context(
         &api,
-        &policy(),
+        &context_policy(),
         &snapshot,
         &|| {
             checks.set(checks.get() + 1);

@@ -121,11 +121,11 @@ fn main() {
     shim.file("native/llama_bridge.c")
         .include("native/include")
         .warnings(true);
+    shim.define("LLAMA_SHARED", None);
     if env::var_os("CARGO_FEATURE_NATIVE_SMOKE").is_some() {
         shim.define("BROTYPIST_NATIVE_SMOKE", None);
         shim.file("native/grammar_sampler_tests.c");
     }
-    shim.define("LLAMA_SHARED", None);
     if target == "windows" {
         shim.static_crt(true);
     }

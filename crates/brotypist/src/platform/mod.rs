@@ -7,8 +7,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Instant};
 
-/// A bounded, revocable native preedit capability, NOT evidence of rendered pixels.
-/// Only the originating bridge can validate this exact receipt before acceptance.
+/// A bounded presentation receipt from an opted-in target-owned native client.
+/// Only that client can validate it; an input-method protocol ACK is insufficient.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NativePreedit {
     pub anchor: String,
@@ -102,6 +102,8 @@ pub mod policy;
 pub mod wayland;
 #[cfg(target_os = "windows")]
 pub mod windows;
+#[cfg(any(target_os = "windows", test))]
+mod windows_decisions;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -177,6 +179,18 @@ pub trait DetachedContextRead: Send {
 pub trait NativeBridge {
     fn configure(&mut self, config: &Config) -> Result<()>;
     fn capture(&mut self) -> Result<Option<Snapshot>>;
+    /// One-shot proof that the latest `capture()` returned a classified transient
+    /// `Ok(None)` while this dispatched edit still owns the same safe native scope.
+    /// Implementations must freshly revalidate authority, policy, protection,
+    /// composition and the original user revision. This is not a readback or
+    /// permission to mutate; errors, stale proof and ordinary absence return false.
+    fn pending_edit_capture_is_transient(
+        &mut self,
+        _before: &Snapshot,
+        _user_revision: u64,
+    ) -> bool {
+        false
+    }
     fn foreground(&mut self) -> Result<Option<Foreground>>;
     fn insert(&mut self, snapshot: &Snapshot, text: &str) -> Result<EditOutcome>;
     fn replace_range(
@@ -186,6 +200,19 @@ pub trait NativeBridge {
         length: usize,
         text: &str,
     ) -> Result<EditOutcome>;
+    /// Emoji-only replacement. Extra emoji capability never authorizes other range tools.
+    fn replace_emoji_range(
+        &mut self,
+        snapshot: &Snapshot,
+        start: usize,
+        length: usize,
+        text: &str,
+    ) -> Result<EditOutcome> {
+        if !snapshot.can_replace {
+            return Ok(EditOutcome::Rejected);
+        }
+        self.replace_range(snapshot, start, length, text)
+    }
     fn range_rect(
         &mut self,
         snapshot: &Snapshot,
@@ -276,9 +303,6 @@ pub trait NativeBridge {
     /// Only compositor-owned input methods implement this; normal OS overlays are separate UI owners.
     fn present_native(&mut self, _anchor: &str, _text: &str, _paused: bool) -> Result<bool> {
         Ok(false)
-    }
-    fn present_preedit(&mut self, _anchor: &str, _text: &str) -> Result<Option<NativePreedit>> {
-        Ok(None)
     }
     fn native_preedit_valid(&self, _receipt: &NativePreedit) -> bool {
         false

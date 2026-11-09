@@ -10,7 +10,7 @@ use super::{
     NativeHostPresentation, NativeHostUncertain, NativePreedit, Permission, ShortcutHandler,
 };
 use crate::{
-    config::Config,
+    config::{Config, ScopedPreference},
     core::{Rect, Snapshot},
 };
 use anyhow::{Result, ensure};
@@ -24,6 +24,431 @@ use std::{
     time::{Duration, Instant},
 };
 use zbus::blocking::{Connection, Proxy, connection::Builder};
+
+/// Private owned-host acceptance diagnostics; never part of the shipped CLI.
+/// Uses the real authenticated broker and production receipt validator. No
+/// fallback observer, fabricated registration or alternate transport schema.
+#[cfg(feature = "native-smoke")]
+pub mod smoke {
+    use super::*;
+    pub type Wire = HashMap<String, zbus::zvariant::OwnedValue>;
+    pub struct Reply {
+        pub value: Wire,
+        pub serial: u32,
+    }
+    /// Fixed labels and booleans only: never retain peer text or D-Bus errors.
+    #[derive(Debug, Default)]
+    pub struct PresentationDiagnostic {
+        pub stage: &'static str,
+        pub reason: &'static str,
+        pub transport: &'static str,
+        pub withdraw_cause: &'static str,
+        pub native: std::collections::BTreeMap<&'static str, bool>,
+    }
+    impl PresentationDiagnostic {
+        pub(super) fn transport_error(&mut self, error: &zbus::Error) {
+            self.stage = "present-transport";
+            // Never format the error: names, messages and nested I/O errors can
+            // contain arbitrary peer data. Preserve only known error classes.
+            self.transport = match error {
+                zbus::Error::MethodError(name, _, _) => match name.as_str() {
+                    "org.freedesktop.DBus.Error.NoReply" => "dbus-no-reply",
+                    "org.freedesktop.DBus.Error.Timeout"
+                    | "org.freedesktop.DBus.Error.TimedOut" => "dbus-timeout",
+                    "org.freedesktop.DBus.Error.Disconnected" => "dbus-disconnected",
+                    "org.freedesktop.DBus.Error.ServiceUnknown" => "dbus-service-unknown",
+                    "org.freedesktop.DBus.Error.NameHasNoOwner" => "dbus-no-owner",
+                    "org.freedesktop.DBus.Error.AccessDenied" => "dbus-access-denied",
+                    "org.freedesktop.DBus.Error.UnknownMethod" => "dbus-unknown-method",
+                    "org.freedesktop.DBus.Error.UnknownObject" => "dbus-unknown-object",
+                    _ => "dbus-method-error",
+                },
+                zbus::Error::InputOutput(error) => match error.kind() {
+                    std::io::ErrorKind::TimedOut => "io-timeout",
+                    std::io::ErrorKind::BrokenPipe => "io-broken-pipe",
+                    std::io::ErrorKind::UnexpectedEof => "io-eof",
+                    std::io::ErrorKind::ConnectionReset => "io-reset",
+                    std::io::ErrorKind::ConnectionAborted => "io-aborted",
+                    std::io::ErrorKind::NotConnected => "io-disconnected",
+                    _ => "io-other",
+                },
+                zbus::Error::FDO(error) => match error.as_ref() {
+                    zbus::fdo::Error::NoReply(_) => "dbus-no-reply",
+                    zbus::fdo::Error::Timeout(_) => "dbus-timeout",
+                    zbus::fdo::Error::Disconnected(_) => "dbus-disconnected",
+                    _ => "dbus-fdo-error",
+                },
+                zbus::Error::InvalidReply => "invalid-reply",
+                zbus::Error::Variant(_) => "invalid-reply-value",
+                zbus::Error::InvalidField => "invalid-message-field",
+                zbus::Error::MissingField => "missing-message-field",
+                zbus::Error::ExcessData => "excess-data",
+                zbus::Error::Connection(_, _) => "connection-error",
+                zbus::Error::Failure(_) => "transport-failure",
+                _ => "transport-other",
+            };
+        }
+        pub(super) fn receipt(&mut self, receipt: &Wire) {
+            self.stage = if matches!(flag(receipt, "presented"), Ok(false)) {
+                "native-refusal"
+            } else {
+                "receipt-envelope"
+            };
+            self.reason = match string(receipt, "reason").ok() {
+                Some(reason) => [
+                    "target",
+                    "pending",
+                    "policy",
+                    "privacy",
+                    "composition",
+                    "size",
+                    "content",
+                    "editable",
+                    "offer",
+                    "lease",
+                    "witness",
+                    "range",
+                    "feature",
+                    "preedit",
+                    "values",
+                    "layout",
+                    "preedit-disabled",
+                    "selection",
+                    "preedit-text",
+                    "overwrite",
+                    "ghost-state",
+                    "ghost-layout",
+                    "ghost-bounds-left",
+                    "ghost-bounds-right",
+                    "ghost-bounds-top",
+                    "ghost-bounds-bottom",
+                    "textview-layout",
+                    "choice-empty",
+                    "choice-layout",
+                    "withdrawn",
+                    "target-layout",
+                    "choice-clock",
+                    "unauthorized",
+                    "stale-or-unsupported-target",
+                    "disabled-feature",
+                    "higher-priority-native-preedit",
+                    "invalid-range",
+                    "selection-range-mismatch",
+                    "unavailable-native-geometry",
+                    "preedit-not-fully-visible",
+                    "native-preedit-refused",
+                    "invalid-choices",
+                    "choices-not-fully-visible",
+                    "expired",
+                    "target-changed-during-presentation",
+                    "presentation-withdrawn-or-expired",
+                ]
+                .into_iter()
+                .find(|known| *known == reason)
+                .unwrap_or("unrecognized-peer-reason"),
+                None => "missing-peer-reason",
+            };
+            self.withdraw_cause = string(receipt, "diag_withdraw_cause")
+                .ok()
+                .and_then(|cause| {
+                    [
+                        "presentation-clear",
+                        "client-clear",
+                        "changed",
+                        "policy-expired",
+                        "scope",
+                        "policy-change",
+                        "bridge-revoke",
+                        "clear-request",
+                        "text-changed",
+                        "cursor-position",
+                        "selection-bound",
+                        "visibility",
+                        "input-purpose",
+                        "input-hints",
+                        "editable",
+                        "sensitive",
+                        "has-focus",
+                        "buffer",
+                        "overwrite-mode",
+                        "max-length",
+                        "hierarchy",
+                        "mark",
+                        "button",
+                        "destroy",
+                        "rebind",
+                        "signature",
+                        "popover-unmap",
+                        "focus",
+                        "ime-availability",
+                        "ime-disconnected",
+                        "ime-client-ui",
+                        "ime-current-im",
+                        "ime-remote-preedit",
+                        "ime-use-preedit",
+                        "ime-reset",
+                        "ime-slave-preedit",
+                        "ime-remote-commit",
+                        "ime-delete-surrounding",
+                        "ime-connected",
+                        "ime-purpose",
+                        "ime-hints",
+                        "ime-simple-commit",
+                        "ime-state",
+                        "ime-pending",
+                        "simple-end",
+                        "simple-idle",
+                        "simple-active",
+                    ]
+                    .into_iter()
+                    .find(|known| *known == cause)
+                })
+                .unwrap_or("");
+            for key in [
+                "diag_focus",
+                "diag_editable",
+                "diag_protected",
+                "diag_idle",
+                "diag_use_preedit",
+                "diag_collapsed",
+                "diag_mapped",
+                "diag_overwrite",
+                "diag_remote",
+                "diag_remote_ordered",
+                "diag_cached_preedit",
+                "diag_remote_preedit",
+                "diag_simple_idle",
+                "diag_pending",
+                "diag_witness_valid",
+                "diag_allocation_ready",
+                "diag_candidate_pending",
+                "diag_selection_pending",
+                "diag_popover_mapped",
+            ] {
+                if let Ok(value) = flag(receipt, key) {
+                    self.native.insert(key, value);
+                }
+            }
+        }
+    }
+    #[derive(Debug, Default)]
+    pub struct ConfirmationDiagnostic {
+        pub outcome: &'static str,
+        pub validation: &'static str,
+    }
+    pub struct Harness {
+        bridge: ClientBridge,
+        target: Option<Target>,
+        replies: Arc<Mutex<HashMap<u32, usize>>>,
+        observer: Option<std::thread::JoinHandle<()>>,
+    }
+    impl Harness {
+        pub fn open(config: &Config) -> Result<Self> {
+            ensure!(unsafe { libc::geteuid() } != 0, "No root native UI");
+            ensure!(
+                std::env::var("BROTYPIST_OWNED_CLIENT_SMOKE").as_deref() == Ok("1"),
+                "Explicit owned-client opt-in required"
+            );
+            let broker = Broker::open(config)?;
+            let replies = Arc::new(Mutex::new(HashMap::<u32, usize>::new()));
+            let observed = replies.clone();
+            let mut messages = zbus::blocking::MessageIterator::from(&broker.connection);
+            let observer = std::thread::spawn(move || {
+                for message in &mut messages {
+                    let Ok(message) = message else { break };
+                    if let Some(serial) = message.header().reply_serial() {
+                        let Ok(mut counts) = observed.lock() else {
+                            break;
+                        };
+                        if counts.len() >= 4096 {
+                            break;
+                        }
+                        *counts.entry(serial.get()).or_default() += 1;
+                    }
+                }
+            });
+            Ok(Self {
+                bridge: ClientBridge {
+                    base: None,
+                    base_error: Some("Owned smoke: no fallback observer".into()),
+                    broker,
+                    input_callback: None,
+                    shortcuts_enabled: false,
+                    client_owned: false,
+                    stopped: false,
+                },
+                target: None,
+                replies,
+                observer: Some(observer),
+            })
+        }
+        pub fn bridge(&mut self) -> &mut dyn NativeBridge {
+            &mut self.bridge
+        }
+        /// Bind only an authenticated child process spawned by this runner.
+        pub fn bind(&mut self, pid: u32, backend: &str) -> Result<bool> {
+            self.bridge.pump_events()?;
+            let targets = self.bridge.broker.targets();
+            ensure!(targets.len() <= 1, "Unexpected extra native client");
+            let Some(target) = targets.into_iter().next() else {
+                return Ok(false);
+            };
+            ensure!(
+                target.peer.pid == pid && self.bridge.broker.authenticate(&target),
+                "Native registration is not the owned child"
+            );
+            let metadata = self.bridge.broker.metadata(&target)?;
+            ensure!(
+                string(&metadata, "backend")? == backend,
+                "Wrong production client backend"
+            );
+            self.target = Some(target);
+            Ok(true)
+        }
+        pub fn pump(&mut self) -> Result<()> {
+            self.bridge.pump_events()
+        }
+        pub fn accepted_reports(&self) -> usize {
+            self.bridge.broker.smoke_accepted_reports
+        }
+        pub fn confirmation_diagnostic(&self) -> &ConfirmationDiagnostic {
+            &self.bridge.broker.smoke_confirmation
+        }
+        pub fn presentation_diagnostic(&self) -> &PresentationDiagnostic {
+            &self.bridge.broker.smoke_presentation
+        }
+        pub fn reply_count(&self, serial: u32) -> Result<usize> {
+            Ok(*self
+                .replies
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Reply observer poisoned"))?
+                .get(&serial)
+                .unwrap_or(&0))
+        }
+        pub fn arm_wire(&self, receipt: &NativeHostPresentation) -> Result<Wire> {
+            let frozen = self
+                .bridge
+                .broker
+                .offers
+                .iter()
+                .find(|offer| offer.presentation.as_ref() == Some(receipt))
+                .ok_or_else(|| anyhow::anyhow!("Missing real broker receipt"))?;
+            let mut wire = Wire::new();
+            put(&mut wire, "offer_id", frozen.offer_id);
+            put(&mut wire, "capability_id", frozen.capability);
+            put(&mut wire, "policy_epoch", frozen.epoch);
+            put(&mut wire, "expires_ns", frozen.expires);
+            text(&mut wire, "shown_text", &frozen.shown_text);
+            list(&mut wire, "shown_values", &frozen.shown_values)?;
+            text(&mut wire, "word_text", "ghost");
+            text(&mut wire, "all_text", "ghost");
+            Ok(wire)
+        }
+        pub fn arm_raw(&self, wire: Wire) -> Result<bool> {
+            let target = self
+                .target
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No child"))?;
+            Ok(self.bridge.broker.proxy(target)?.call("Arm", &(wire,))?)
+        }
+        pub fn clear(&mut self, receipt: Option<&NativeHostPresentation>) -> Result<()> {
+            let target = self
+                .target
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No child"))?;
+            let capability = match receipt {
+                Some(receipt) => self
+                    .bridge
+                    .broker
+                    .offers
+                    .iter()
+                    .find(|offer| offer.presentation.as_ref() == Some(receipt))
+                    .map(|offer| offer.capability)
+                    .ok_or_else(|| anyhow::anyhow!("Unknown receipt"))?,
+                None => 0,
+            };
+            self.bridge.broker.cancel(target, capability)
+        }
+        /// Exercise delayed Present with real owner credentials and a captured
+        /// native witness. Raw diagnostic offers are never entered as accepted
+        /// broker offers and cannot authorize a core completion.
+        pub fn pending(
+            &mut self,
+            lease_ms: u64,
+            values: &[String],
+        ) -> Result<(Wire, std::thread::JoinHandle<Result<Reply>>)> {
+            ensure!((20..=1000).contains(&lease_ms), "Bounded diagnostic lease");
+            ensure!(
+                values.len() == 3
+                    && values
+                        .iter()
+                        .all(|value| crate::features::safe_choice(value)),
+                "Diagnostic geometry requires three valid choice values"
+            );
+            let broker = &mut self.bridge.broker;
+            broker
+                .capture()?
+                .ok_or_else(|| anyhow::anyhow!("Native capture unavailable"))?;
+            let witness = broker
+                .witness
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No witness"))?;
+            broker.serial += 1;
+            let mut wire = Wire::new();
+            witness.write_offer(&mut wire);
+            put(&mut wire, "offer_id", broker.serial);
+            put(&mut wire, "policy_epoch", broker.epoch);
+            put(&mut wire, "expires_ns", now() + lease_ms * 1_000_000);
+            text(&mut wire, "mode", "alternatives");
+            text(&mut wire, "text", "");
+            list(&mut wire, "values", values)?;
+            put(
+                &mut wire,
+                "start",
+                native(&witness.text, &witness.unit, 5)? as u32,
+            );
+            put(&mut wire, "length", 0u32);
+            let handle = self.present_raw(clone_dict(&wire)?)?;
+            Ok((wire, handle))
+        }
+        /// Send an owned diagnostic offer on the authenticated broker connection.
+        /// This does not insert an accepted offer or authorize an edit.
+        pub fn present_raw(&self, sent: Wire) -> Result<std::thread::JoinHandle<Result<Reply>>> {
+            let target = self
+                .target
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("No child"))?;
+            let connection = self.bridge.broker.connection.clone();
+            let handle = std::thread::spawn(move || {
+                let reply = connection.call_method(
+                    Some(target.peer.sender.as_str()),
+                    target.path.as_str(),
+                    Some("org.brotypist.Client1"),
+                    "Present",
+                    &(sent,),
+                )?;
+                let serial = reply
+                    .header()
+                    .reply_serial()
+                    .ok_or_else(|| anyhow::anyhow!("Missing Present reply serial"))?
+                    .get();
+                Ok(Reply {
+                    value: reply.body().deserialize()?,
+                    serial,
+                })
+            });
+            Ok(handle)
+        }
+    }
+    impl Drop for Harness {
+        fn drop(&mut self) {
+            self.bridge.broker.stop();
+            if let Some(observer) = self.observer.take() {
+                let _ = observer.join();
+            }
+        }
+    }
+}
 
 const RPC_DEADLINE: Duration = Duration::from_millis(180);
 const POLICY_LEASE: u64 = 6_000_000_000;
@@ -342,6 +767,12 @@ struct Broker {
     offers: VecDeque<Frozen>,
     events: VecDeque<NativeHostEvent>,
     acceptance: HashMap<u64, u64>,
+    #[cfg(feature = "native-smoke")]
+    smoke_accepted_reports: usize,
+    #[cfg(feature = "native-smoke")]
+    smoke_presentation: smoke::PresentationDiagnostic,
+    #[cfg(feature = "native-smoke")]
+    smoke_confirmation: smoke::ConfirmationDiagnostic,
     user_input: UserInputFence,
     serial: u64,
     revision: u64,
@@ -397,6 +828,12 @@ impl Broker {
             offers: VecDeque::new(),
             events: VecDeque::new(),
             acceptance: HashMap::new(),
+            #[cfg(feature = "native-smoke")]
+            smoke_accepted_reports: 0,
+            #[cfg(feature = "native-smoke")]
+            smoke_presentation: smoke::PresentationDiagnostic::default(),
+            #[cfg(feature = "native-smoke")]
+            smoke_confirmation: smoke::ConfirmationDiagnostic::default(),
             user_input: UserInputFence::default(),
             serial: 0,
             revision: 0,
@@ -689,6 +1126,9 @@ impl Broker {
         }
     }
     fn capture(&mut self) -> Result<Option<Snapshot>> {
+        self.capture_for(None)
+    }
+    fn capture_for(&mut self, preference: Option<ScopedPreference>) -> Result<Option<Snapshot>> {
         self.probe(true);
         let Some(t) = self.active.clone() else {
             return Ok(None);
@@ -714,6 +1154,20 @@ impl Broker {
                 capture_permitted(&self.config, &t.peer, &meta),
                 "Native policy or composition refused"
             );
+            if let Some(preference) = preference {
+                ensure!(
+                    self.config
+                        .resolve_preference(
+                            preference,
+                            &t.peer.app,
+                            string(&meta, "domain")?,
+                            self.config.has_domain_denial(preference)
+                                && super::policy::is_browser(&[&t.peer.app, &t.peer.executable]),
+                        )
+                        .value,
+                    "Native optional source consent refused"
+                );
+            }
             self.send_policy(&t, &meta)?;
             let capture: Dict = self.proxy(&t)?.call("Capture", &(self.epoch,))?;
             let w = Witness::parse(&capture)?;
@@ -770,8 +1224,19 @@ impl Broker {
         Ok(Some(metadata_origin(t, &client.metadata)?))
     }
     fn present(&mut self, offer: &NativeClientOffer<'_>) -> Result<Option<NativeHostPresentation>> {
+        #[cfg(feature = "native-smoke")]
+        {
+            self.smoke_presentation = smoke::PresentationDiagnostic {
+                stage: "broker-preconditions",
+                ..Default::default()
+            };
+        }
         ensure!(self.shortcuts_enabled, "Native shortcuts are suspended");
         let Some(snapshot) = self.capture()? else {
+            #[cfg(feature = "native-smoke")]
+            {
+                self.smoke_presentation.stage = "capture-unavailable";
+            }
             return Ok(None);
         };
         ensure!(
@@ -876,17 +1341,18 @@ impl Broker {
             armed_at: None,
             revoked_at: None,
         });
-        let receipt: Result<Dict> = self
-            .proxy(&t)?
-            .call("Present", &(wire,))
-            .map_err(Into::into);
+        let receipt: zbus::Result<Dict> = self.proxy(&t)?.call("Present", &(wire,));
         let receipt = match receipt {
             Ok(r) => r,
-            Err(_) => {
+            Err(_error) => {
+                #[cfg(feature = "native-smoke")]
+                self.smoke_presentation.transport_error(&_error);
                 let _ = self.cancel(&t, 0);
                 return Ok(None);
             }
         };
+        #[cfg(feature = "native-smoke")]
+        self.smoke_presentation.receipt(&receipt);
         let result = (|| -> Result<NativeHostPresentation> {
             ensure!(
                 bounded(&receipt)
@@ -894,22 +1360,35 @@ impl Broker {
                     && number(&receipt, "offer_id")? == offer_id,
                 "Native presentation refused"
             );
+            #[cfg(feature = "native-smoke")]
+            {
+                self.smoke_presentation.stage = "receipt-lease";
+            }
             let cap = number(&receipt, "capability_id")?;
             let end = number(&receipt, "expires_ns")?;
             ensure!(
                 cap != 0 && end > now() && end <= expires,
                 "Invalid native presentation lease"
             );
+            #[cfg(feature = "native-smoke")]
+            {
+                self.smoke_presentation.stage = "receipt-payload";
+            }
             let shown = string(&receipt, "shown_text")?.to_owned();
             let values = strings(&receipt, "shown_values")?;
             let chooser = !matches!(offer.mode, "completion" | "correction");
             ensure!(
                 if chooser {
-                    shown.is_empty() && !values.is_empty() && offer.values.starts_with(&values)
+                    shown.is_empty()
+                        && crate::features::match_choice_subsequence(
+                            offer.values,
+                            values.iter().map(String::as_str),
+                        )
+                        .is_some()
                 } else {
                     values.is_empty() && !shown.is_empty() && offer.text.starts_with(&shown)
                 },
-                "Invalid shown native prefix"
+                "Invalid shown native payload"
             );
             let at = Instant::now() + Duration::from_nanos(end.saturating_sub(now()));
             let anchor = format!("client:{}:offer:{}:cap:{}", t.id, offer_id, cap);
@@ -940,7 +1419,13 @@ impl Broker {
             Ok(presentation)
         })();
         match result {
-            Ok(r) => Ok(Some(r)),
+            Ok(r) => {
+                #[cfg(feature = "native-smoke")]
+                {
+                    self.smoke_presentation.stage = "accepted";
+                }
+                Ok(Some(r))
+            }
             Err(_) => {
                 if !matches!(flag(&receipt, "presented"), Ok(false)) {
                     let _ = self.cancel(&t, number(&receipt, "capability_id").unwrap_or(0));
@@ -1039,6 +1524,43 @@ impl Broker {
             .unwrap_or(false)
     }
     fn confirmed(&mut self, id: u64, e: &Dict) -> Result<()> {
+        #[cfg(feature = "native-smoke")]
+        {
+            self.smoke_accepted_reports += 1;
+            self.smoke_confirmation.outcome = match string(e, "outcome").ok() {
+                Some("applied") => "applied",
+                Some("indeterminate") => "indeterminate",
+                Some("rejected") => "rejected",
+                _ => "unknown",
+            };
+        }
+        let result = self.confirm_receipt(id, e);
+        #[cfg(feature = "native-smoke")]
+        {
+            self.smoke_confirmation.validation = match &result {
+                Ok(()) => "validated",
+                Err(error) => match error.to_string().as_str() {
+                    "Unknown native receipt" => "unknown-receipt",
+                    "Native receipt mismatch" => "receipt-mismatch",
+                    "Unarmed native acceptance" => "unarmed",
+                    "Revoked native acceptance" => "revoked",
+                    "Expired native acceptance" => "lease",
+                    "Stale native before witness" => "before-witness",
+                    "Native accepted text mismatch" => "accepted-text",
+                    "Native accepted range mismatch" | "Invalid native edit range" => "range",
+                    "Native after witness mismatch" => "after-witness",
+                    "Native caret mismatch" => "caret",
+                    "Hidden native choice" => "choice",
+                    "Split native surrogate" => "utf16-surrogate",
+                    "Invalid native offset" | "Invalid native offset unit" => "offset",
+                    "Native host queue full" => "queue",
+                    _ => "other-validation",
+                },
+            };
+        }
+        result
+    }
+    fn confirm_receipt(&mut self, id: u64, e: &Dict) -> Result<()> {
         take_acceptance(&mut self.acceptance, id, number(e, "acceptance_id")?)?;
         let offer_id = number(e, "offer_id")?;
         let cap = number(e, "capability_id")?;
@@ -1821,10 +2343,26 @@ impl NativeBridge for ClientBridge {
         max_chars: usize,
     ) -> Result<ContextRead> {
         if self.owns(snapshot) {
-            if !authorized() {
+            if !authorized()
+                || !self
+                    .broker
+                    .config
+                    .resolve_preference(
+                        ScopedPreference::ScreenContext,
+                        &snapshot.app_id,
+                        &snapshot.domain,
+                        self.broker
+                            .config
+                            .has_domain_denial(ScopedPreference::ScreenContext)
+                            && super::policy::is_browser(&[&snapshot.app_id]),
+                    )
+                    .value
+            {
                 return Ok(ContextRead::blocked("native-client"));
             }
-            let fresh = self.broker.capture()?;
+            let fresh = self
+                .broker
+                .capture_for(Some(ScopedPreference::ScreenContext))?;
             if authorized()
                 && fresh.as_ref().is_some_and(|current| {
                     current.same_key(snapshot) && current.same_authority(snapshot)
@@ -2091,22 +2629,12 @@ impl NativeBridge for ClientBridge {
             .as_mut()
             .map_or(Ok(false), |base| base.present_native(anchor, text, paused))
     }
-    fn present_preedit(&mut self, anchor: &str, text: &str) -> Result<Option<NativePreedit>> {
-        if self.broker.active.is_some() || anchor.starts_with("client:") {
-            return Ok(None);
-        }
-        self.base
-            .as_mut()
-            .map_or(Ok(None), |base| base.present_preedit(anchor, text))
-    }
     fn native_preedit_valid(&self, receipt: &NativePreedit) -> bool {
         if receipt.anchor.starts_with("client:") {
             self.broker
                 .valid_presentation(&NativeHostPresentation::Preedit(receipt.clone()))
         } else {
-            self.base
-                .as_ref()
-                .is_some_and(|base| base.native_preedit_valid(receipt))
+            false
         }
     }
     fn present_choices(

@@ -435,6 +435,9 @@ fn model_choice(config: &Config, inventory: &Value, pending: Option<&str>) -> St
         .clone()
 }
 fn model_ready(config: &Config, status: &Value, inventory: &Value, pending: Option<&str>) -> bool {
+    if status["model_verification_pending"] == true {
+        return false;
+    }
     if !field(status, "backend_error").is_empty() {
         return false;
     }
@@ -496,6 +499,9 @@ pub(super) struct Welcome {
     language: String,
     model_options: Vec<(String, Value)>,
     closing: bool,
+    pub(super) verification_operation: Option<crate::runtime::ConfigOperationId>,
+    #[cfg(feature = "native-smoke")]
+    preview_observed: Value,
 }
 impl Welcome {
     pub(super) fn new(kit: Kit) -> Result<Self> {
@@ -520,6 +526,7 @@ impl Welcome {
             window,
             root,
             controls: BTreeMap::new(),
+            verification_operation: None,
             step: 0,
             state,
             editor: None,
@@ -536,6 +543,8 @@ impl Welcome {
             language: "en".into(),
             model_options: Vec::new(),
             closing: false,
+            #[cfg(feature = "native-smoke")]
+            preview_observed: Value::Null,
         })
     }
     pub(super) fn visible(&self) -> bool {
@@ -629,20 +638,9 @@ impl Welcome {
         }
         Ok(std::mem::take(&mut self.commands))
     }
+    /// Read-only evidence for the isolated native harness; never grants ownership.
     #[cfg(feature = "native-smoke")]
-    pub(super) fn preview_offer(&self) -> Option<(Snapshot, String, String)> {
-        if self.step != 4 || self.stopping || self.closing {
-            return None;
-        }
-        let current = self.editor.as_ref()?.acceptance_snapshot()?;
-        let ghost = self.state.ghost.borrow();
-        let visible = ghost.visible_for(&current)?.to_owned();
-        // The smoke observes the same native focus/IME/caret and draw acknowledgment
-        // used by keyDown, not accessibilityHelp's unbounded generated candidate.
-        Some((current, ghost.text.clone(), visible))
-    }
-    #[cfg(feature = "native-smoke")]
-    pub(super) fn preview_diagnostic(&self) -> Value {
+    pub(super) fn smoke_observation(&self) -> Value {
         let ghost = self.state.ghost.borrow();
         let key: bool = unsafe { msg_send![&*self.window, isKeyWindow] };
         let editor = self.editor.as_ref().map(|editor| {
@@ -661,17 +659,32 @@ impl Welcome {
             "step": self.step,
             "visible": self.visible(),
             "key_window": key,
-            "active": self.state.active.get(),
-            "stopping": self.stopping,
             "closing": self.closing,
-            "suspended": self.suspended,
-            "awaiting_resume": self.awaiting_resume,
-            "session_present": self.session.is_some(),
             "generated_scalars": ghost.text.chars().count(),
             "visible_scalars": ghost.visible.chars().count(),
-            "status": self.controls.get("preview_status").map(|label| string(label)),
+            "session_present": self.session.is_some(),
+            "stopping": self.stopping,
+            "awaiting_resume": self.awaiting_resume,
+            "suspended": self.suspended,
+            "active": self.state.active.get(),
+            "focused": editor.as_ref().is_some_and(|editor| editor["native_focus"] == true),
+            "marked": editor.as_ref().is_some_and(|editor| editor["marked"] == true),
+            "last_poll": self.preview_observed,
+            "message": self.controls.get("preview_status").map(|label| string(label)),
             "editor": editor,
         })
+    }
+    #[cfg(feature = "native-smoke")]
+    pub(super) fn preview_offer(&self) -> Option<(Snapshot, String, String)> {
+        if self.step != 4 || self.stopping || self.closing {
+            return None;
+        }
+        let current = self.editor.as_ref()?.acceptance_snapshot()?;
+        let ghost = self.state.ghost.borrow();
+        let visible = ghost.visible_for(&current)?.to_owned();
+        // The smoke observes the same native focus/IME/caret and draw acknowledgment
+        // used by keyDown, not accessibilityHelp's unbounded generated candidate.
+        Some((current, ghost.text.clone(), visible))
     }
     pub(super) fn preview_accept(&mut self, full: bool) -> Result<()> {
         let Some(editor) = self.editor.as_ref() else {
@@ -890,6 +903,10 @@ impl Welcome {
     fn preview_config(config: &Config, language: &str) -> Config {
         let mut preview = config.clone();
         preview.record_history = false;
+        preview.use_history = false;
+        preview.history_retention_days = 0;
+        preview.personalization_strength = 0;
+        preview.app_rules.clear();
         preview.record_unaccepted = false;
         preview.statistics_enabled = false;
         preview.clipboard_context = false;
@@ -958,6 +975,10 @@ impl Welcome {
             return Ok(());
         }
         if self.session.is_none() {
+            #[cfg(feature = "native-smoke")]
+            {
+                self.preview_observed = Value::Null;
+            }
             self.session = Some(PreviewSession::new(Self::preview_config(
                 config,
                 &self.language,
@@ -984,6 +1005,10 @@ impl Welcome {
         );
         session.update(&current.text, current.caret, current.selection_length)?;
         let result = session.poll();
+        #[cfg(feature = "native-smoke")]
+        {
+            self.preview_observed = result.clone();
+        }
         let suggestion = field(&result, "suggestion");
         // Polling is synchronous, but retain an actual native readback boundary so
         // an event/result alone never becomes authority for display or insertion.
@@ -1494,6 +1519,7 @@ impl Welcome {
             .find(|m| field(m, "id") == choice);
         let download = status.get("download").unwrap_or(&Value::Null);
         let active = field(download, "state") == "downloading";
+        let verifying = self.verification_operation.is_some();
         let ready = model_ready(config, status, inventory, pending);
         if let Some(next) = self.controls.get("next") {
             set_enabled(next, ready);
@@ -1539,7 +1565,7 @@ impl Welcome {
             let available = model.is_some_and(|m| field(m, "availability").is_empty());
             set_enabled(
                 request,
-                model.is_some() && !active && (installed || available),
+                model.is_some() && !active && !verifying && (installed || available),
             );
             self.kit.rebind(
                 request,
@@ -1552,11 +1578,28 @@ impl Welcome {
             );
         }
         if let Some(import) = self.controls.get("model_import") {
-            set_enabled(import, !active);
+            set_enabled(import, !active && !verifying);
         }
         if let Some(cancel) = self.controls.get("model_cancel") {
-            set_hidden(cancel, !active);
-            set_enabled(cancel, active);
+            set_hidden(cancel, !(active || verifying));
+            set_enabled(cancel, active || verifying);
+            set_title(
+                cancel,
+                if verifying {
+                    "Cancel Verification"
+                } else {
+                    "Cancel Download"
+                },
+            );
+            self.kit.rebind(
+                cancel,
+                if let Some(operation) = self.verification_operation {
+                    UiAction::ModelVerificationCancel(operation)
+                } else {
+                    UiAction::ModelCancel
+                },
+                ReadValue::None,
+            );
         }
         let received = download
             .get("received")
@@ -1564,13 +1607,14 @@ impl Welcome {
             .unwrap_or(0.0);
         let total = download.get("total").and_then(Value::as_f64).unwrap_or(0.0);
         if let Some(progress) = self.controls.get("model_progress") {
-            set_hidden(progress, !active);
+            set_hidden(progress, !(active || verifying));
             unsafe {
-                let _: () = msg_send![&**progress, setIndeterminate: active && total <= 0.0];
+                let _: () =
+                    msg_send![&**progress, setIndeterminate: verifying || (active && total <= 0.0)];
                 let _: () = msg_send![&**progress, setMaxValue: total.max(1.0)];
                 let _: () =
                     msg_send![&**progress, setDoubleValue: received.clamp(0.0, total.max(1.0))];
-                if active && total <= 0.0 {
+                if verifying || (active && total <= 0.0) {
                     let _: () =
                         msg_send![&**progress, startAnimation: std::ptr::null::<AnyObject>()];
                 } else {
@@ -1579,7 +1623,9 @@ impl Welcome {
                 }
             }
         }
-        let message = if active {
+        let message = if verifying {
+            "Verifying file and preparing this template before saving. You can cancel; the previous saved selection is unchanged.".into()
+        } else if active {
             let name = inventory_items(inventory)
                 .iter()
                 .find(|m| field(m, "id") == field(download, "id"))
@@ -1607,9 +1653,11 @@ impl Welcome {
             .into()
         } else if !field(status, "backend_error").is_empty() {
             field(status, "backend_error").into()
+        } else if !field(status, "settings_operation").is_empty() {
+            field(status, "settings_operation").into()
         } else if ready {
             if config.backend == "gguf" {
-                "Local model file and inference support are ready. Try it next."
+                "Saved local model file is available. Try it next; this is not a language-quality or speed measurement."
             } else {
                 "Local server configured. Try it next to check inference."
             }
@@ -1969,6 +2017,9 @@ mod tests {
         let config = Config {
             custom_instructions: "é".repeat(8000),
             record_history: true,
+            use_history: true,
+            history_retention_days: 7,
+            personalization_strength: 80,
             record_unaccepted: true,
             statistics_enabled: true,
             clipboard_context: true,
@@ -1984,6 +2035,10 @@ mod tests {
             assert_eq!(preview.custom_instructions.chars().count(), 8000);
             assert!(
                 !preview.record_history
+                    && !preview.use_history
+                    && preview.history_retention_days == 0
+                    && preview.personalization_strength == 0
+                    && preview.app_rules.is_empty()
                     && !preview.record_unaccepted
                     && !preview.statistics_enabled
             );

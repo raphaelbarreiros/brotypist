@@ -685,6 +685,8 @@ pub struct TerminalContextTicket {
 }
 impl TerminalContextTicket {
     fn observe(&self) -> Result<bool> {
+        // Freshness protects every independently consented source, not just
+        // screen context. The only text re-read here is the signed unsent row.
         if !self.lease.valid() {
             return Ok(false);
         }
@@ -1451,7 +1453,10 @@ impl TerminalIntegration for TerminalAdapter {
                     };
                     let mut appearance = std::mem::take(&mut self.appearance);
                     let rendered = appearance.request(&snapshot, &evidence, &mut || {
-                        self.context_matches(services, &snapshot)
+                        Ok(services.preference_consent(
+                            &snapshot,
+                            crate::config::ScopedPreference::ScreenshotAppearance,
+                        )? && self.context_matches(services, &snapshot)?)
                     });
                     self.appearance = appearance;
                     if let Ok(Some(render)) = rendered {
@@ -1645,6 +1650,63 @@ mod tests {
     }
 
     #[test]
+    fn terminal_ticket_never_reads_context_and_revocation_precedes_native_observation() {
+        use crate::platform::DetachedContextRead;
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicU64},
+        };
+        let (metadata, host) = composer_metadata();
+        let snapshot = composer_snapshot(&metadata, &host, "Explain 😀");
+        let config = Config {
+            terminal_completion: true,
+            screen_context: true,
+            screenshot_context: true,
+            clipboard_context: true,
+            ..Default::default()
+        };
+        let ticket = TerminalContextTicket {
+            lease: super::super::NativeReadLease {
+                foreground: crate::platform::Foreground {
+                    app_id: snapshot.app_id.clone(),
+                    window_pid: snapshot.window_pid,
+                    window_id: snapshot.window_id.clone(),
+                    ..Default::default()
+                },
+                name: "Terminal".into(),
+                secure_description: "secure".into(),
+                source_kind: InputSourceKind::Layout,
+                salt: [7; 32],
+                policy: Arc::new(
+                    super::super::ObservationPolicy::new(&super::super::effective_config(&config))
+                        .unwrap(),
+                ),
+                epoch: Arc::new(AtomicU64::new(2)),
+                issued_epoch: 1,
+                revision: Arc::new(|| panic!("Revoked ticket queried native input revision")),
+                issued_revision: 0,
+                dirty: Arc::new(AtomicBool::new(false)),
+                snapshot_binding: super::super::snapshot_binding(&[7; 32], &snapshot),
+            },
+            host,
+        };
+        assert!(ticket.matches_snapshot(&snapshot));
+        let mut changed = snapshot.clone();
+        changed.text = "Explain 😃".into();
+        assert!(!ticket.matches_snapshot(&changed));
+        assert!(!ticket.matches().unwrap());
+        let mut access = DetachedAccess {
+            lease: ticket.lease.clone(),
+            host: ticket.host.clone(),
+        };
+        assert!(access.session().unwrap().is_none());
+        for consent in [false, true] {
+            let read = ticket.read(&|| consent, 2400).unwrap();
+            assert_eq!(read.status, "blocked");
+            assert!(read.text.is_empty());
+        }
+    }
+    #[test]
     fn terminal_authority_tracks_signed_session_not_renderer_geometry() {
         let (meta, host) = composer_metadata();
         let identity = terminal_document_identity(&meta, &host, 8, 9);
@@ -1681,31 +1743,31 @@ mod tests {
         let after = composer_snapshot(&meta, &host, &expected.0);
         assert!(before.same_authority(&after));
         assert!(matches!(
-            super::super::classify_readback(&before, &after, &expected, true),
+            super::super::classify_readback(&before, &after, &expected, true).0,
             EditOutcome::Applied(_)
         ));
         let wrong_row = composer_snapshot(&meta, &host, "Another composer row");
         assert!(matches!(
-            super::super::classify_readback(&before, &wrong_row, &expected, true),
+            super::super::classify_readback(&before, &wrong_row, &expected, true).0,
             EditOutcome::Indeterminate
         ));
         let mut wrong_focus = after.clone();
         wrong_focus.field_id.push_str("-other");
         assert!(matches!(
-            super::super::classify_readback(&before, &wrong_focus, &expected, true),
+            super::super::classify_readback(&before, &wrong_focus, &expected, true).0,
             EditOutcome::Indeterminate
         ));
         let mut wrong_caret = after.clone();
         wrong_caret.caret -= 1;
         assert!(matches!(
-            super::super::classify_readback(&before, &wrong_caret, &expected, true),
+            super::super::classify_readback(&before, &wrong_caret, &expected, true).0,
             EditOutcome::Indeterminate
         ));
         let next_expected =
             super::super::expected_mutation(&after, after.caret, 0, " please").unwrap();
         let next = composer_snapshot(&meta, &host, &next_expected.0);
         assert!(matches!(
-            super::super::classify_readback(&after, &next, &next_expected, true),
+            super::super::classify_readback(&after, &next, &next_expected, true).0,
             EditOutcome::Applied(_)
         ));
     }

@@ -2,6 +2,7 @@
 pub mod cli;
 pub mod config;
 pub mod core;
+pub mod diagnostics;
 pub mod features;
 pub mod inference_native;
 pub mod instance;

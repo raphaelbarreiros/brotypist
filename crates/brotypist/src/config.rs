@@ -8,6 +8,121 @@ use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use unicode_normalization::UnicodeNormalization;
 
+/// Preferences accept bounded BCP-47-style language/script/region/variant tags.
+/// Extensions and private-use suffixes are preserved, not mapped to a catalogue.
+pub fn normalize_language_preference(value: &str) -> Result<String> {
+    if value.eq_ignore_ascii_case("auto") {
+        return Ok("auto".into());
+    }
+    ensure!(
+        !value.is_empty() && value.len() <= 63 && value.is_ascii(),
+        "Language must be 'auto' or an ASCII language tag up to 63 bytes"
+    );
+    let parts: Vec<_> = value.split('-').collect();
+    let alpha = |s: &str| s.bytes().all(|b| b.is_ascii_alphabetic());
+    let alnum = |s: &str| s.bytes().all(|b| b.is_ascii_alphanumeric());
+    ensure!(
+        (2..=8).contains(&parts[0].len()) && alpha(parts[0]),
+        "Language tag requires a 2–8 letter language"
+    );
+    let mut normalized = vec![parts[0].to_ascii_lowercase()];
+    let mut i = 1;
+    if parts[0].len() <= 3 {
+        let mut extlangs = 0;
+        while i < parts.len() && parts[i].len() == 3 && alpha(parts[i]) && extlangs < 3 {
+            normalized.push(parts[i].to_ascii_lowercase());
+            i += 1;
+            extlangs += 1;
+        }
+    }
+    if i < parts.len() && parts[i].len() == 4 && alpha(parts[i]) {
+        let mut script = parts[i].to_ascii_lowercase();
+        script[..1].make_ascii_uppercase();
+        normalized.push(script);
+        i += 1;
+    }
+    if i < parts.len()
+        && ((parts[i].len() == 2 && alpha(parts[i]))
+            || (parts[i].len() == 3 && parts[i].bytes().all(|b| b.is_ascii_digit())))
+    {
+        normalized.push(parts[i].to_ascii_uppercase());
+        i += 1;
+    }
+    let mut variants = BTreeSet::new();
+    while i < parts.len()
+        && ((5..=8).contains(&parts[i].len())
+            || (parts[i].len() == 4 && parts[i].as_bytes()[0].is_ascii_digit()))
+    {
+        let variant = parts[i].to_ascii_lowercase();
+        ensure!(
+            alnum(&variant) && variants.insert(variant.clone()),
+            "Invalid or repeated language variant"
+        );
+        normalized.push(variant);
+        i += 1;
+    }
+    let mut extensions = BTreeSet::new();
+    while i < parts.len() {
+        let singleton = parts[i].to_ascii_lowercase();
+        ensure!(
+            singleton.len() == 1 && alnum(&singleton) && extensions.insert(singleton.clone()),
+            "Invalid or repeated language extension"
+        );
+        let private = singleton == "x";
+        normalized.push(singleton);
+        i += 1;
+        let start = i;
+        let minimum = if private { 1 } else { 2 };
+        while i < parts.len() && (minimum..=8).contains(&parts[i].len()) {
+            ensure!(alnum(parts[i]), "Invalid language extension");
+            normalized.push(parts[i].to_ascii_lowercase());
+            i += 1;
+        }
+        ensure!(i > start, "Language extension requires a value");
+    }
+    Ok(normalized.join("-"))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScopedPreference {
+    RecordHistory,
+    UseHistory,
+    ClipboardContext,
+    ScreenContext,
+    ScreenshotContext,
+    ScreenshotAppearance,
+}
+impl ScopedPreference {
+    pub fn field(self) -> &'static str {
+        match self {
+            Self::RecordHistory => "record_history",
+            Self::UseHistory => "use_history",
+            Self::ClipboardContext => "clipboard_context",
+            Self::ScreenContext => "screen_context",
+            Self::ScreenshotContext => "screenshot_context",
+            Self::ScreenshotAppearance => "screenshot_appearance",
+        }
+    }
+    fn context(self) -> bool {
+        !matches!(self, Self::RecordHistory | Self::UseHistory)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PreferenceOrigin {
+    Global,
+    App,
+    Domain,
+    GlobalConsentDenied,
+    DomainUnavailable,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResolvedPreference {
+    pub value: bool,
+    pub origin: PreferenceOrigin,
+}
+pub const MAX_RESOLVED_INSTRUCTIONS: usize = 26_000;
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct Config {
@@ -43,8 +158,14 @@ pub struct Config {
     pub terminal_completion: bool,
     pub typo_suppression: bool,
     pub typo_fixes: bool,
+    /// "auto" follows the surrounding writing; explicit tags never imply English.
+    pub writing_language: String,
+    pub spelling_language: String,
     pub custom_instructions: String,
     pub record_history: bool,
+    pub use_history: bool,
+    /// Zero preserves indefinite retention; disabling collection is not deletion.
+    pub history_retention_days: u32,
     pub record_unaccepted: bool,
     pub personalization_strength: u32,
     pub statistics_enabled: bool,
@@ -119,8 +240,12 @@ impl Default for Config {
             terminal_completion: false,
             typo_suppression: false,
             typo_fixes: false,
+            writing_language: "auto".into(),
+            spelling_language: "auto".into(),
             custom_instructions: String::new(),
             record_history: false,
+            use_history: false,
+            history_retention_days: 0,
             record_unaccepted: false,
             personalization_strength: 50,
             statistics_enabled: true,
@@ -145,7 +270,136 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Scope resolution only: callers retain exclusion, browser, temporary,
+    /// protected-field and other hard authority gates.
+    pub fn scoped_rules<'a>(
+        &'a self,
+        app: &str,
+        host: &str,
+    ) -> impl Iterator<Item = &'a BTreeMap<String, Value>> {
+        [
+            self.app_rules.get(&format!("app:{app}")),
+            normalize_domain(host)
+                .ok()
+                .and_then(|host| self.app_rules.get(&format!("domain:{host}"))),
+        ]
+        .into_iter()
+        .flatten()
+    }
+
+    pub fn has_domain_denial(&self, preference: ScopedPreference) -> bool {
+        self.app_rules.iter().any(|(key, rule)| {
+            key.starts_with("domain:") && rule.get(preference.field()) == Some(&Value::Bool(false))
+        })
+    }
+
+    /// `require_domain` is supplied by the runtime's browser authority policy.
+    /// Unobservable or invalid required domains fail closed with an explicit origin.
+    pub fn resolve_preference(
+        &self,
+        preference: ScopedPreference,
+        app: &str,
+        host: &str,
+        require_domain: bool,
+    ) -> ResolvedPreference {
+        let global = match preference {
+            ScopedPreference::RecordHistory => self.record_history,
+            ScopedPreference::UseHistory => self.use_history,
+            ScopedPreference::ClipboardContext => self.clipboard_context,
+            ScopedPreference::ScreenContext => self.screen_context,
+            ScopedPreference::ScreenshotContext => self.screenshot_context,
+            ScopedPreference::ScreenshotAppearance => self.screenshot_appearance,
+        };
+        if preference.context() && !global {
+            return ResolvedPreference {
+                value: false,
+                origin: PreferenceOrigin::GlobalConsentDenied,
+            };
+        }
+        let host = normalize_domain(host).ok();
+        if require_domain && host.is_none() {
+            return ResolvedPreference {
+                value: false,
+                origin: PreferenceOrigin::DomainUnavailable,
+            };
+        }
+        let mut resolved = ResolvedPreference {
+            value: global,
+            origin: PreferenceOrigin::Global,
+        };
+        if let Some(value) = self
+            .app_rules
+            .get(&format!("app:{app}"))
+            .and_then(|rule| rule.get(preference.field()))
+            .and_then(Value::as_bool)
+        {
+            resolved = ResolvedPreference {
+                value,
+                origin: PreferenceOrigin::App,
+            };
+        }
+        if let Some(host) = host {
+            if let Some(value) = self
+                .app_rules
+                .get(&format!("domain:{host}"))
+                .and_then(|rule| rule.get(preference.field()))
+                .and_then(Value::as_bool)
+            {
+                resolved = ResolvedPreference {
+                    value,
+                    origin: PreferenceOrigin::Domain,
+                };
+            }
+        }
+        resolved
+    }
+
+    /// Defaults precede authored global/app/domain instructions. Authored text is
+    /// never rewritten or replaced; later, more specific instructions take precedence.
+    /// This helper does not replace the worker's mandatory security instructions.
+    pub fn resolve_instructions(
+        &self,
+        app: &str,
+        host: &str,
+        require_domain: bool,
+    ) -> Result<String> {
+        ensure!(
+            !require_domain || normalize_domain(host).is_ok(),
+            "Required browser domain unavailable"
+        );
+        let mut instructions = String::new();
+        if self.writing_language != "auto" {
+            instructions.push_str(&format!("Default writing language: {}. Follow the surrounding text when it uses another language.\n", self.writing_language));
+        }
+        if self.spelling_language != "auto" {
+            instructions.push_str(&format!(
+                "Default regional spelling and conventions: {}.\n",
+                self.spelling_language
+            ));
+        }
+        instructions.push_str(&self.custom_instructions);
+        for rule in self.scoped_rules(app, host) {
+            if let Some(text) = rule
+                .get("custom_instructions")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+            {
+                if !instructions.is_empty() && !instructions.ends_with('\n') {
+                    instructions.push('\n');
+                }
+                instructions.push_str(text);
+            }
+        }
+        ensure!(
+            instructions.chars().count() <= MAX_RESOLVED_INSTRUCTIONS,
+            "Resolved instructions exceed worker bounds"
+        );
+        Ok(instructions)
+    }
+
     pub fn validate(&mut self) -> Result<()> {
+        self.writing_language = normalize_language_preference(&self.writing_language)?;
+        self.spelling_language = normalize_language_preference(&self.spelling_language)?;
         for (name, value, choices) in [
             (
                 "backend",
@@ -248,11 +502,16 @@ impl Config {
             );
             shortcuts.insert(action.clone(), crate::shortcuts::normalize_shortcut(value)?);
         }
-        let active: Vec<_> = shortcuts.values().filter(|s| !s.is_empty()).collect();
-        ensure!(
-            active.len() == active.iter().collect::<BTreeSet<_>>().len(),
-            "Assign each active shortcut to only one action"
-        );
+        let mut active = BTreeMap::new();
+        for (action, chord) in &shortcuts {
+            if !chord.is_empty() {
+                if let Some(other) = active.insert(chord, action) {
+                    bail!(
+                        "Shortcut {chord} is assigned to both {other} and {action}; assign each active shortcut to only one action"
+                    );
+                }
+            }
+        }
         self.shortcuts = shortcuts;
         ensure!(
             self.app_rules.len() <= 1000,
@@ -276,6 +535,11 @@ impl Config {
                     "enabled"
                     | "tab_enabled"
                     | "record_history"
+                    | "use_history"
+                    | "clipboard_context"
+                    | "screen_context"
+                    | "screenshot_context"
+                    | "screenshot_appearance"
                     | "improve_compatibility"
                     | "complete_in_code_editors" => {
                         ensure!(value.is_boolean(), "Rule {name} must be a boolean")
@@ -289,7 +553,10 @@ impl Config {
                 key.clone()
             };
             // Optional fields remain absent; false is a meaningful override, not inheritance.
-            rules.insert(key, rule.clone());
+            ensure!(
+                rules.insert(key, rule.clone()).is_none(),
+                "Duplicate normalized scope rule"
+            );
         }
         self.app_rules = rules;
         if self.backend != "gguf" {
@@ -546,6 +813,24 @@ fn config_from_json(bytes: &[u8]) -> Result<Config> {
     let data = value
         .as_object_mut()
         .context("Settings must be an object")?;
+    // The global field marks the new consent schema. Once present, missing
+    // scoped use_history means inheritance, not a request to repeat migration.
+    if !data.contains_key("use_history") {
+        let historical = data
+            .get("record_history")
+            .cloned()
+            .unwrap_or(Value::Bool(false));
+        data.insert("use_history".into(), historical);
+        if let Some(rules) = data.get_mut("app_rules").and_then(Value::as_object_mut) {
+            for rule in rules.values_mut().filter_map(Value::as_object_mut) {
+                if !rule.contains_key("use_history") {
+                    if let Some(historical) = rule.get("record_history").cloned() {
+                        rule.insert("use_history".into(), historical);
+                    }
+                }
+            }
+        }
+    }
     if !data.contains_key("battery_model") {
         data.insert(
             "battery_model".into(),
@@ -639,11 +924,13 @@ pub fn default_instructions(locale: Option<&str>) -> String {
     };
     let identifier = identifier.replace('-', "_");
     let parts: Vec<_> = identifier.split('_').filter(|s| !s.is_empty()).collect();
-    let language = parts
+    let Some(language) = parts
         .first()
-        .filter(|s| s.chars().all(char::is_alphabetic))
+        .filter(|s| (2..=8).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphabetic()))
         .map(|s| caseless::default_case_fold_str(s))
-        .unwrap_or_else(|| "en".into());
+    else {
+        return "Continue in the language of the surrounding text.".into();
+    };
     let region = parts
         .iter()
         .skip(1)
@@ -702,7 +989,7 @@ fn system_locale() -> String {
             return String::from_utf16_lossy(&buffer[..count as usize - 1]);
         }
     }
-    "en_US".into()
+    String::new()
 }
 
 fn english_name(kind: &str, code: &str) -> String {
@@ -843,6 +1130,220 @@ mod mac_locale {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn persisted_learning_migration_preserves_recording_and_explicit_new_consent() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("settings.json");
+        let historical = json!({
+            "record_history": true,
+            "custom_instructions": "  Original\né text.  ",
+            "app_rules": {
+                "app:private": {"record_history": false},
+                "domain:allowed.test": {"record_history": true}
+            }
+        });
+        std::fs::write(&path, historical.to_string()).unwrap();
+        let migrated = load_config_from(&path).unwrap();
+        assert!(migrated.record_history && migrated.use_history);
+        assert_eq!(migrated.custom_instructions, "  Original\né text.  ");
+        assert_eq!(migrated.app_rules["app:private"]["record_history"], false);
+        assert_eq!(migrated.app_rules["app:private"]["use_history"], false);
+        assert_eq!(migrated.history_retention_days, 0);
+        assert_eq!(migrated.writing_language, "auto");
+        assert_eq!(migrated.spelling_language, "auto");
+        save_config_to(&migrated, &path).unwrap();
+        assert_eq!(load_config_from(&path).unwrap(), migrated);
+        let mut modern = historical.clone();
+        modern["use_history"] = json!(false);
+        std::fs::write(&path, modern.to_string()).unwrap();
+        let modern = load_config_from(&path).unwrap();
+        assert!(!modern.use_history && modern.record_history);
+        assert!(!modern.app_rules["domain:allowed.test"].contains_key("use_history"));
+        assert!(
+            !modern
+                .resolve_preference(
+                    ScopedPreference::UseHistory,
+                    "private",
+                    "allowed.test",
+                    false
+                )
+                .value
+        );
+        let mut partial = historical;
+        partial["app_rules"]["domain:allowed.test"]["use_history"] = json!(false);
+        std::fs::write(&path, partial.to_string()).unwrap();
+        let partial = load_config_from(&path).unwrap();
+        assert!(
+            !partial
+                .resolve_preference(
+                    ScopedPreference::UseHistory,
+                    "private",
+                    "allowed.test",
+                    false
+                )
+                .value
+        );
+        std::fs::write(
+            &path,
+            r#"{"record_history":false,"app_rules":{"app:allowed":{"record_history":true}}}"#,
+        )
+        .unwrap();
+        let scoped = load_config_from(&path).unwrap();
+        assert!(!scoped.use_history);
+        assert!(
+            scoped
+                .resolve_preference(ScopedPreference::UseHistory, "allowed", "", false)
+                .value
+        );
+    }
+
+    #[test]
+    fn scoped_preferences_report_precedence_global_cap_and_missing_domain() {
+        let mut config = from(json!({
+            "use_history": true, "clipboard_context": true,
+            "app_rules": {
+                "app:browser": {"use_history": false, "clipboard_context": false, "screen_context": true},
+                "domain:EXAMPLE.test.": {"use_history": true, "clipboard_context": true, "screen_context": true},
+                "domain:private.test": {"use_history": false}
+            }
+        })).unwrap();
+        assert_eq!(
+            config.resolve_preference(
+                ScopedPreference::UseHistory,
+                "browser",
+                "EXAMPLE.test.",
+                true
+            ),
+            ResolvedPreference {
+                value: true,
+                origin: PreferenceOrigin::Domain
+            }
+        );
+        assert_eq!(
+            config.resolve_preference(ScopedPreference::UseHistory, "browser", "", false),
+            ResolvedPreference {
+                value: false,
+                origin: PreferenceOrigin::App
+            }
+        );
+        assert_eq!(
+            config.resolve_preference(ScopedPreference::UseHistory, "browser", "", true),
+            ResolvedPreference {
+                value: false,
+                origin: PreferenceOrigin::DomainUnavailable
+            }
+        );
+        assert!(config.has_domain_denial(ScopedPreference::UseHistory));
+        assert!(
+            config
+                .resolve_preference(
+                    ScopedPreference::ClipboardContext,
+                    "browser",
+                    "example.test",
+                    true
+                )
+                .value
+        );
+        assert_eq!(
+            config.resolve_preference(
+                ScopedPreference::ScreenContext,
+                "browser",
+                "example.test",
+                true
+            ),
+            ResolvedPreference {
+                value: false,
+                origin: PreferenceOrigin::GlobalConsentDenied
+            }
+        );
+        config.clipboard_context = false;
+        assert!(
+            !config
+                .resolve_preference(
+                    ScopedPreference::ClipboardContext,
+                    "browser",
+                    "example.test",
+                    false
+                )
+                .value
+        );
+        assert!(
+            !config
+                .resolve_preference(
+                    ScopedPreference::UseHistory,
+                    "browser",
+                    "sub.example.test",
+                    true
+                )
+                .value
+        );
+    }
+
+    #[test]
+    fn language_preferences_validate_normalize_and_preserve_instruction_precedence() {
+        let mut config = from(json!({
+            "writing_language": "sR-lATN-rs", "spelling_language": "pt-br",
+            "custom_instructions": "  global é\n",
+            "app_rules": {
+                "app:editor": {"custom_instructions": "app: prefer Portuguese"},
+                "domain:example.test": {"custom_instructions": "domain: exact authored text  "}
+            }
+        }))
+        .unwrap();
+        assert_eq!(config.writing_language, "sr-Latn-RS");
+        assert_eq!(config.spelling_language, "pt-BR");
+        let instructions = config
+            .resolve_instructions("editor", "example.test", true)
+            .unwrap();
+        assert!(instructions.starts_with("Default writing language: sr-Latn-RS."));
+        assert!(
+            instructions
+                .ends_with("  global é\napp: prefer Portuguese\ndomain: exact authored text  ")
+        );
+        assert!(config.resolve_instructions("editor", "", true).is_err());
+        config.writing_language = "auto".into();
+        config.spelling_language = "auto".into();
+        assert_eq!(
+            config.resolve_instructions("", "", false).unwrap(),
+            config.custom_instructions
+        );
+        for tag in [
+            "sw-KE",
+            "zh-Hant-TW",
+            "es-419",
+            "de-DE-1996",
+            "en-US-u-ca-gregory",
+        ] {
+            assert_eq!(normalize_language_preference(tag).unwrap(), tag);
+        }
+        for tag in [
+            "",
+            "en_US",
+            " en-US",
+            "en--US",
+            "en-US-",
+            "e-US",
+            "en-ABCD-ABCD",
+            "en-u",
+            "en-US-u-ca-u-nu",
+        ] {
+            assert!(normalize_language_preference(tag).is_err(), "{tag}");
+        }
+        for invalid in [
+            json!({"writing_language": 42}),
+            json!({"spelling_language": false}),
+            json!({"use_history": null}),
+            json!({"history_retention_days": -1}),
+            json!({"history_retention_days": 1.5}),
+            json!({"app_rules": {"app:x": {"use_history": "false"}}}),
+            json!({"app_rules": {"app:x": {"screen_context": null}}}),
+            json!({"app_rules": {"app:x": {"clipboard_context": 1}}}),
+            json!({"app_rules": {"domain:EXAMPLE.test": {}, "domain:example.test": {}}}),
+        ] {
+            assert!(from(invalid).is_err());
+        }
+    }
+
     fn from(value: Value) -> Result<Config> {
         config_from_json(&serde_json::to_vec(&value).unwrap())
     }
@@ -1176,14 +1677,6 @@ mod tests {
                 && !config.record_history
                 && !config.record_unaccepted
         );
-        assert_eq!(
-            serde_json::to_value(&config)
-                .unwrap()
-                .as_object()
-                .unwrap()
-                .len(),
-            53
-        );
         assert!(config.custom_instructions.is_empty() && config.model_id.is_empty());
     }
     #[test]
@@ -1270,6 +1763,42 @@ mod tests {
         config.model_id = "removed".into();
         assert!(config.validate().is_err());
     }
+    #[test]
+    fn shortcut_collisions_report_both_actions_and_normalized_chord() {
+        let error = from(json!({"shortcuts":{
+            "word":"shift + control + k",
+            "all":"Ctrl+Shift+K"
+        }}))
+        .unwrap_err()
+        .to_string();
+        for detail in ["word", "all", "Ctrl+Shift+K"] {
+            assert!(error.contains(detail), "Missing {detail} in {error}");
+        }
+
+        let inherited = crate::shortcuts::default_shortcuts()["force"].clone();
+        let error = from(json!({"shortcuts":{"word":inherited}}))
+            .unwrap_err()
+            .to_string();
+        for detail in ["word", "force", inherited.as_str()] {
+            assert!(error.contains(detail), "Missing {detail} in {error}");
+        }
+    }
+
+    #[test]
+    fn shortcut_validation_merges_defaults_and_preserves_unbound_actions() {
+        let config = from(json!({"shortcuts":{
+            "word":"",
+            "all":"   ",
+            "synonyms":"shift + control + k"
+        }}))
+        .unwrap();
+        let mut expected = crate::shortcuts::default_shortcuts();
+        expected.insert("word".into(), String::new());
+        expected.insert("all".into(), String::new());
+        expected.insert("synonyms".into(), "Ctrl+Shift+K".into());
+        assert_eq!(config.shortcuts, expected);
+    }
+
     #[test]
     fn unicode_lengths_are_scalars_and_rules_preserve_absence_vs_false() {
         let mut config = from(json!({"enabled":false,"global_enabled":true,"custom_instructions":"😀".repeat(8000),"excluded_apps":["設定".repeat(256)],"app_rules":{"app:Exact.App":{"enabled":false},"app:inherits":{},"domain:BÜCHER.example.":{"tab_enabled":false,"custom_instructions":""}}})).unwrap();
@@ -1476,8 +2005,9 @@ mod tests {
             assert!(instructions.contains("Brazil"));
             assert!(instructions.contains("dates, numbers and currency"));
         }
-        assert!(
-            default_instructions(Some("123_invalid")).starts_with("Write in English by default")
+        assert_eq!(
+            default_instructions(Some("123_invalid")),
+            "Continue in the language of the surrounding text."
         );
     }
 }

@@ -121,9 +121,20 @@ fn joiner(c: char) -> bool {
 }
 pub fn mid_word(prefix: &str) -> bool {
     let mut chars = prefix.chars().rev();
-    chars.next().is_some_and(|last| {
-        word_char(last) || (joiner(last) && chars.next().is_some_and(word_char))
-    })
+    if chars.clone().next().is_some_and(joiner) {
+        chars.next();
+    }
+    // A combining mark extends its preceding letter; it is not a word base.
+    // In particular, emoji presentation selectors and keycaps are not words.
+    for c in chars {
+        if c == '\u{20e3}' {
+            return false;
+        }
+        if !is_mark(c) {
+            return is_alphanumeric(c);
+        }
+    }
+    false
 }
 pub fn current_word_only(prefix: &str, continuation: &str) -> String {
     if !mid_word(prefix) {
@@ -131,9 +142,24 @@ pub fn current_word_only(prefix: &str, continuation: &str) -> String {
     }
     let mut chars = continuation.char_indices().peekable();
     let mut end = 0;
+    let mut may_join = prefix.chars().next_back().is_some_and(word_char);
     while let Some((i, c)) = chars.next() {
-        if word_char(c) || (joiner(c) && chars.peek().is_some_and(|(_, next)| word_char(*next))) {
+        let following = &continuation[i + c.len_utf8()..];
+        // Do not expose only a digit/selector from a keycap emoji sequence.
+        if c == '\u{20e3}'
+            || (c == '\u{fe0f}' && following.starts_with('\u{20e3}'))
+            || (c.is_ascii_digit()
+                && (following.starts_with('\u{20e3}') || following.starts_with("\u{fe0f}\u{20e3}")))
+        {
+            break;
+        }
+        if word_char(c)
+            || (joiner(c)
+                && may_join
+                && chars.peek().is_some_and(|(_, next)| is_alphanumeric(*next)))
+        {
             end = i + c.len_utf8();
+            may_join = word_char(c);
         } else {
             break;
         }
@@ -260,6 +286,9 @@ pub fn emoji_choices(prefix: &str, config: &Config) -> Option<(String, Vec<Strin
             .split(is_space)
             .filter(|t| !t.is_empty())
             .collect();
+        if tokens.is_empty() {
+            return None;
+        }
         let mut ranked: Vec<_> = CATALOGUE
             .base
             .iter()
@@ -332,6 +361,43 @@ pub fn synonym_prompt(prefix: &str, suffix: &str, selection: &str) -> String {
         serde_json::to_string(selection).expect("string JSON")
     )
 }
+/// Frozen displayed ordinal to original offer index; no allocation on key dispatch.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ChoiceMap {
+    indices: [usize; 9],
+    len: usize,
+}
+impl ChoiceMap {
+    pub fn len(&self) -> usize {
+        self.len
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+    pub fn original_index(&self, displayed: usize) -> Option<usize> {
+        (displayed < self.len()).then(|| self.indices[displayed])
+    }
+}
+
+/// Accept the entire nonempty, exact ordered subsequence, never a matching fragment.
+pub fn match_choice_subsequence<'a>(
+    offered: &[String],
+    shown: impl IntoIterator<Item = &'a str>,
+) -> Option<ChoiceMap> {
+    let mut map = ChoiceMap::default();
+    let mut next = 0;
+    for row in shown {
+        if row.is_empty() || map.len == map.indices.len() {
+            return None;
+        }
+        let index = next + offered[next..].iter().position(|value| value == row)?;
+        map.indices[map.len] = index;
+        map.len += 1;
+        next = index + 1;
+    }
+    (!map.is_empty()).then_some(map)
+}
+
 /// Validate the decoded insertion itself, not JSON wire escapes. Empty utility
 /// arrays are safe abstention; invalid individual entries are never inserted.
 pub fn safe_choice(value: &str) -> bool {
@@ -393,6 +459,37 @@ pub fn parse_choices(text: &str, max_choices: usize) -> Vec<String> {
 mod tests {
     use super::*;
     #[test]
+    fn visible_choices_bind_exact_ordered_rows_to_offered_indices() {
+        let offered = [" short", "overlong", "  cafe\u{301}  👩🏽‍💻", " café"].map(String::from);
+        let map =
+            match_choice_subsequence(&offered, [" short", "  cafe\u{301}  👩🏽‍💻", " café"]).unwrap();
+        assert_eq!(map.len(), 3);
+        assert_eq!(map.original_index(0), Some(0));
+        assert_eq!(map.original_index(1), Some(2));
+        assert_eq!(map.original_index(2), Some(3));
+        assert_eq!(map.original_index(3), None);
+        for shown in [
+            vec![" short", "forged"],
+            vec![" café", " short"],
+            vec![" short", " short"],
+            vec!["short"],
+            vec!["  café  👩🏽‍💻"],
+            vec!["  cafe\u{301}  👩🏽💻"],
+            vec![""],
+            vec![],
+        ] {
+            assert!(match_choice_subsequence(&offered, shown).is_none());
+        }
+        let offered = vec!["same".to_owned(); 10];
+        assert!(match_choice_subsequence(&offered, ["same"; 10]).is_none());
+        assert_eq!(
+            match_choice_subsequence(&offered, ["same"; 9])
+                .unwrap()
+                .original_index(8),
+            Some(8)
+        );
+    }
+    #[test]
     fn scalar_word_shaping_preserves_portuguese_marks_and_cjk() {
         for (prefix, text, expected) in [
             ("I will recie", "ve the parcel", "ve"),
@@ -412,6 +509,49 @@ mod tests {
         assert_eq!(shorter_length("long"), "medium");
         assert!(include_punctuation("full", true));
         assert!(!include_punctuation("full", false));
+    }
+    #[test]
+    fn emoji_marks_and_unanchored_marks_do_not_start_word_extensions() {
+        for prefix in [
+            "❤️",
+            "☺︎",
+            "👩🏽‍⚕️",
+            "1️⃣",
+            "1\u{20e3}",
+            "\u{301}",
+            "❤️'",
+            "word--",
+            "don''",
+        ] {
+            assert!(!mid_word(prefix), "{prefix}");
+            assert_eq!(current_word_only(prefix, "next word"), "");
+        }
+        for prefix in ["cafe\u{301}", "ação", "界\u{fe00}", "cafe\u{301}'"] {
+            assert!(mid_word(prefix), "{prefix}");
+        }
+        for (prefix, continuation, expected) in [
+            ("don'", "'t go", ""),
+            ("well-", "-known", ""),
+            ("don'", "t go", "t"),
+            ("well", "-known phrase", "-known"),
+            ("1", "\u{fe0f}\u{20e3} next", ""),
+            ("1", "\u{20e3} next", ""),
+            ("x", "1️⃣ next", ""),
+            ("x", "a1️⃣ next", "a"),
+        ] {
+            assert_eq!(current_word_only(prefix, continuation), expected);
+        }
+    }
+
+    #[test]
+    fn punctuation_only_emoji_queries_do_not_offer_unrelated_catalogue_rows() {
+        let config = Config::default();
+        for prefix in [":-", ":_", ":--:", ":___", ":_-_:"] {
+            assert!(emoji_choices(prefix, &config).is_none(), "{prefix}");
+        }
+        assert_eq!(emoji_choices(":", &config).unwrap().1[0], "😀");
+        assert_eq!(emoji_choices(":-1:", &config).unwrap().1[0], "👎");
+        assert_eq!(emoji_choices(":-)", &config).unwrap().1[0], "🙂");
     }
     #[test]
     fn real_catalogue_preferences_and_replacement_boundaries() {

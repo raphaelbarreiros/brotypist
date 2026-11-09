@@ -25,7 +25,10 @@ enum Authorized {
         all: Option<Plan>,
     },
     Correction(String),
-    Choices(Vec<String>),
+    Choices {
+        values: Vec<String>,
+        shown: features::ChoiceMap,
+    },
 }
 impl Authorized {
     fn insertions(&self) -> (&str, &str) {
@@ -35,7 +38,7 @@ impl Authorized {
                 all.as_ref().map_or("", |plan| plan.text.as_str()),
             ),
             Self::Correction(text) => (text, text),
-            Self::Choices(_) => ("", ""),
+            Self::Choices { .. } => ("", ""),
         }
     }
     fn take(self, action: &Action) -> Option<Plan> {
@@ -46,12 +49,10 @@ impl Authorized {
                 text,
                 remainder: None,
             }),
-            (Self::Choices(mut values), Action::Choice(index)) if *index < values.len() => {
-                Some(Plan {
-                    text: values.swap_remove(*index),
-                    remainder: None,
-                })
-            }
+            (Self::Choices { mut values, shown }, Action::Choice(index)) => Some(Plan {
+                text: values.swap_remove(shown.original_index(*index)?),
+                remainder: None,
+            }),
             _ => None,
         }
     }
@@ -67,6 +68,7 @@ struct Offer {
     authorized: Authorized,
     issued_at: Instant,
     completion_counted: bool,
+    trace_id: Option<u64>,
 }
 fn expiry(presentation: &NativeHostPresentation) -> Instant {
     match presentation {
@@ -126,13 +128,38 @@ impl Controller {
     }
 }
 impl Engine {
+    pub(super) fn client_holds_trace(&self, trace: u64) -> bool {
+        self.native_client
+            .offers
+            .iter()
+            .any(|offer| offer.trace_id == Some(trace))
+    }
+    fn finish_client_trace(&mut self, trace: Option<u64>, outcome: Outcome) {
+        if trace.is_some_and(|trace| !self.client_holds_trace(trace))
+            || matches!(outcome, Outcome::Accepted | Outcome::Dismissed)
+        {
+            self.finish_trace(trace, outcome);
+        }
+    }
+    pub(super) fn stop_client_traces(&mut self) {
+        while let Some(offer) = self.native_client.offers.pop_front() {
+            self.finish_trace(offer.trace_id, Outcome::Stopped);
+        }
+    }
     fn prune_client_offers(&mut self) {
         let now = self.now();
-        self.native_client.offers.retain(|offer| {
-            expiry(&offer.presentation)
+        let mut index = 0;
+        while index < self.native_client.offers.len() {
+            let offer = &self.native_client.offers[index];
+            if expiry(&offer.presentation)
                 .checked_add(CONFIRMATION_GRACE)
                 .is_some_and(|end| now <= end)
-        });
+            {
+                index += 1;
+            } else if let Some(offer) = self.native_client.offers.remove(index) {
+                self.finish_client_trace(offer.trace_id, Outcome::Cancelled);
+            }
+        }
     }
     fn completion_plan(&self, snapshot: &Snapshot, visible: &str, all: bool) -> Option<Plan> {
         let mut remainder = self.suggestion.clone();
@@ -257,6 +284,13 @@ impl Engine {
             return Ok(false);
         };
         let now = self.now();
+        let choices = match &presentation {
+            NativeHostPresentation::Choices(receipt) => features::match_choice_subsequence(
+                &values,
+                receipt.values.iter().map(String::as_str),
+            ),
+            NativeHostPresentation::Preedit(_) => Some(features::ChoiceMap::default()),
+        };
         let authorized = match &presentation {
             NativeHostPresentation::Preedit(receipt)
                 if receipt.revision == self.candidate_revision
@@ -266,7 +300,7 @@ impl Engine {
                 match mode {
                     "completion"
                         if self
-                            .presentation_count(key, authority, &receipt.text, mode)
+                            .presentation_choices(key, authority, &receipt.text, mode)
                             .is_some() =>
                     {
                         let word = self.completion_plan(&snapshot, &receipt.text, false);
@@ -288,11 +322,12 @@ impl Engine {
                     && receipt.revision == self.candidate_revision
                     && receipt.expires_at > now
                     && receipt.expires_at <= now + Duration::from_secs(2)
-                    && !receipt.values.is_empty()
-                    && receipt.values.len() <= values.len()
-                    && receipt.values == values[..receipt.values.len()] =>
+                    && choices.is_some() =>
             {
-                Some(Authorized::Choices(receipt.values.clone()))
+                Some(Authorized::Choices {
+                    values,
+                    shown: choices.unwrap(),
+                })
             }
             _ => None,
         };
@@ -313,10 +348,7 @@ impl Engine {
                 NativeHostPresentation::Preedit(receipt) => receipt.text.clone(),
                 NativeHostPresentation::Choices(receipt) => receipt.values.join("\n"),
             },
-            count: match &presentation {
-                NativeHostPresentation::Choices(receipt) => receipt.values.len(),
-                _ => 0,
-            },
+            choices: choices.unwrap(),
             evidence: match &presentation {
                 NativeHostPresentation::Preedit(receipt) => {
                     PresentationEvidence::NativePreedit(receipt.clone())
@@ -339,6 +371,11 @@ impl Engine {
             authorized,
             issued_at: offered_at,
             completion_counted: self.completion_counted,
+            trace_id: self.diagnostic_traces[if mode == "completion" || mode == "correction" {
+                PresentationLane::Inline as usize
+            } else {
+                PresentationLane::Chooser as usize
+            }],
         });
         let (word_text, all_text) = self
             .native_client
@@ -401,7 +438,7 @@ impl Engine {
             .map(|bridge| bridge.drain_host_events())
             .unwrap_or_default();
         if self.stopping {
-            self.native_client.offers.clear();
+            self.stop_client_traces();
             self.native_client.actions.clear();
             self.native_client.consuming = false;
             return;
@@ -418,6 +455,7 @@ impl Engine {
                             self.uncertain_provenance =
                                 Some((native.before.authority(), offer.revision));
                         }
+                        self.finish_client_trace(offer.trace_id, Outcome::Unknown);
                     }
                 }
                 NativeHostEvent::Dismissed(dismissed) => self.confirm_client_dismissal(dismissed),
@@ -504,19 +542,24 @@ impl Engine {
             || native.start != offer.start
             || native.length != offer.length
         {
+            self.finish_client_trace(offer.trace_id, Outcome::AuthorityDenied);
             return;
         }
         let restore_view = self.client_view_current(&offer);
         let count_completion = !offer.completion_counted;
+        let trace_id = offer.trace_id;
         let Some(mut plan) = offer.authorized.take(&native.action) else {
+            self.finish_client_trace(trace_id, Outcome::AuthorityDenied);
             return;
         };
         if plan.text != native.text {
+            self.finish_client_trace(trace_id, Outcome::AuthorityDenied);
             return;
         }
         let Some(expected) =
             edit_snapshot(&native.before, native.start, native.length, &native.text)
         else {
+            self.finish_client_trace(trace_id, Outcome::Unknown);
             return;
         };
         if !restore_view {
@@ -532,9 +575,11 @@ impl Engine {
             at: native.accepted_at,
             revision: offer.revision,
             mode: native.mode,
+            trace_id,
         };
         if !confirmed_edit(&edit, &native.after) {
             self.uncertain_provenance = Some((edit.before.authority(), edit.revision));
+            self.finish_client_trace(trace_id, Outcome::Unknown);
             return;
         }
         self.commit_confirmed_edit(edit, native.after, restore_view, count_completion);
@@ -545,8 +590,10 @@ impl Engine {
             return;
         };
         if !self.client_confirmation_allowed(&offer, &native.before, native.accepted_at) {
+            self.finish_client_trace(offer.trace_id, Outcome::AuthorityDenied);
             return;
         }
+        self.finish_client_trace(offer.trace_id, Outcome::Dismissed);
         let clear_view = self.client_view_current(&offer);
         self.finish_dismissal(
             &native.before,

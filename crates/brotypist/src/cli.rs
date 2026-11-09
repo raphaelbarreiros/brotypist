@@ -1,4 +1,6 @@
 //! Public CLI and resident launcher. Launch overrides never silently persist preferences.
+use crate::runtime::Worker;
+use crate::ui::settings::SettingsDraft;
 use crate::{
     config::{Config, load_config, save_config},
     models,
@@ -194,11 +196,29 @@ fn dispatch(args: Cli) -> Result<i32> {
                         &mut |_, _| {},
                     )?;
                     if !no_select {
-                        config.backend = "gguf".into();
-                        config.model_path = path.to_string_lossy().into_owned();
-                        config.prompt_style.clone_from(&preset.prompt_style);
-                        config.model_id.clone_from(&preset.id);
-                        save_config(&config)?;
+                        let _owner = crate::instance::InstanceLock::acquire()?
+                            .ok_or_else(|| anyhow::anyhow!("BroTypist is running. Select the downloaded model in AI Models so its existing inference owner can validate it."))?;
+                        let baseline = load_config()?;
+                        let mut candidate = baseline.clone();
+                        candidate.backend = "gguf".into();
+                        candidate.model_path = path.to_string_lossy().into_owned();
+                        candidate.prompt_style.clone_from(&preset.prompt_style);
+                        candidate.model_id.clone_from(&preset.id);
+                        candidate.validate()?;
+                        let draft = SettingsDraft::from_configs(&baseline, &candidate)?;
+                        let mut worker = crate::process_client::WorkerClient::new()?;
+                        let validation = validate_selection(&candidate, &mut worker);
+                        let cleanup = worker.stop();
+                        validation?;
+                        cleanup?;
+                        let rebased = draft.apply_to(&load_config()?)?;
+                        ensure!(
+                            rebased.provider_identity() == candidate.provider_identity()
+                                && rebased.prompt_style == candidate.prompt_style
+                                && rebased.battery_model == candidate.battery_model,
+                            "Model inputs changed during validation; select it again."
+                        );
+                        save_config(&rebased)?;
                     }
                     println!("Verified model: {}\n{}", preset.label, path.display());
                     println!(
@@ -206,7 +226,7 @@ fn dispatch(args: Cli) -> Result<i32> {
                         if no_select {
                             "Model downloaded; selection unchanged."
                         } else {
-                            "Model selected. Restart BroTypist or select it in AI Models to reload."
+                            "Model structurally validated and selected. This does not certify writing quality."
                         }
                     );
                 }
@@ -236,6 +256,62 @@ fn dispatch(args: Cli) -> Result<i32> {
             },
         ),
     }
+}
+
+fn validate_selection(config: &Config, worker: &mut dyn Worker) -> Result<()> {
+    let mut targets = Vec::new();
+    if config.backend == "gguf" && config.battery_model != "same" {
+        let preset = models::get_preset(&config.battery_model)?;
+        let mut battery = config.clone();
+        battery.model_path = models::model_path(preset)?.to_string_lossy().into_owned();
+        battery.model_id = preset.id.clone();
+        battery.prompt_style = preset.prompt_style.clone();
+        targets.push(battery);
+    }
+    targets.push(config.clone());
+    for target in targets {
+        if !target.model_id.is_empty() {
+            let preset = models::get_preset(&target.model_id)?.clone();
+            let path = crate::paths::expand_user(std::ffi::OsStr::new(&target.model_path))?;
+            std::thread::spawn(move || {
+                models::verify_catalogue_file(&preset, &path, &models::DownloadCancellation::new())
+            })
+            .join()
+            .map_err(|_| anyhow::anyhow!("Model integrity worker stopped."))??;
+        }
+        let deadline = Instant::now() + Duration::from_secs(120);
+        let ticket = worker.release()?;
+        while !worker.release_complete(ticket) {
+            ensure!(
+                Instant::now() < deadline,
+                "Model owner did not release in time."
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let id = worker.prepare_for_validation(&target, ticket)?;
+        let mut prepared = false;
+        loop {
+            let mut done = false;
+            for event in worker.poll() {
+                if event.id != id.get() {
+                    continue;
+                }
+                match event.kind.as_str() {
+                    "prepared" => prepared = true,
+                    "error" => bail!("{}", event.message),
+                    "done" => done = true,
+                    _ => {}
+                }
+            }
+            if done {
+                ensure!(prepared, "Model ended without fresh preparation.");
+                break;
+            }
+            ensure!(Instant::now() < deadline, "Model validation timed out.");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    Ok(())
 }
 
 fn doctor(config: &Config) -> Result<i32> {
@@ -285,6 +361,7 @@ fn complete(config: Config) -> Result<i32> {
         "Provide text on stdin, e.g. printf 'The capital of France is' | brotypist complete"
     );
     let options = GenerationOptions {
+        instructions: config.resolve_instructions("", "", false)?,
         max_words: if config.prompt_style == "writing" {
             8
         } else {
@@ -414,4 +491,120 @@ fn prepare_wayland(enabled: bool) -> Result<bool> {
 fn cleanup_wayland() {
     #[cfg(target_os = "linux")]
     let _ = crate::platform::wayland::cleanup_prepared();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        process_client::{ReleaseTicket, WorkerClient},
+        worker::WorkerEvent,
+    };
+    use std::num::NonZeroU64;
+
+    struct ValidationWorker {
+        ticket: Option<ReleaseTicket>,
+        events: Vec<WorkerEvent>,
+        validation_available: bool,
+        ordinary_prepares: usize,
+        validations: usize,
+    }
+    impl Worker for ValidationWorker {
+        fn prepare(&mut self, _: &Config) -> Result<u64> {
+            self.ordinary_prepares += 1;
+            Ok(0)
+        }
+        fn submit(&mut self, _: &Config, _: &str, _: &str, _: &GenerationOptions) -> Result<u64> {
+            panic!("selection must not write")
+        }
+        fn proceed(&mut self, _: u64) -> Result<()> {
+            panic!("config-only preparation must not authorize writing")
+        }
+        fn poll(&mut self) -> Vec<WorkerEvent> {
+            std::mem::take(&mut self.events)
+        }
+        fn cancel(&mut self) -> Result<()> {
+            Ok(())
+        }
+        fn release(&mut self) -> Result<ReleaseTicket> {
+            let ticket = WorkerClient::new()?.release()?;
+            self.ticket = Some(ticket);
+            Ok(ticket)
+        }
+        fn release_complete(&self, ticket: ReleaseTicket) -> bool {
+            self.ticket == Some(ticket)
+        }
+        fn prepare_for_validation(
+            &mut self,
+            _: &Config,
+            ticket: ReleaseTicket,
+        ) -> Result<NonZeroU64> {
+            ensure!(self.ticket.take() == Some(ticket), "exact release required");
+            ensure!(self.validation_available, "fresh validation unavailable");
+            self.validations += 1;
+            Ok(NonZeroU64::new(7).unwrap())
+        }
+        fn set_idle_timeout(&mut self, _: u32) {}
+        fn status(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        fn request_stop(&mut self) -> Result<()> {
+            Ok(())
+        }
+        fn is_stopped(&mut self) -> bool {
+            true
+        }
+    }
+    fn worker(events: Vec<WorkerEvent>, available: bool) -> ValidationWorker {
+        ValidationWorker {
+            ticket: None,
+            events,
+            validation_available: available,
+            ordinary_prepares: 0,
+            validations: 0,
+        }
+    }
+    #[test]
+    fn cli_selection_requires_fresh_matching_prepared_and_done_without_writing() {
+        let config = Config {
+            model_id: String::new(),
+            battery_model: "same".into(),
+            ..Config::default()
+        };
+        let mut valid = worker(
+            vec![WorkerEvent::new("prepared", 7), WorkerEvent::new("done", 7)],
+            true,
+        );
+        validate_selection(&config, &mut valid).unwrap();
+        assert_eq!(valid.validations, 1);
+        assert_eq!(valid.ordinary_prepares, 0);
+        let mut no_prepared = worker(
+            vec![WorkerEvent::new("prepared", 6), WorkerEvent::new("done", 7)],
+            true,
+        );
+        assert!(validate_selection(&config, &mut no_prepared).is_err());
+        let mut zero_only = worker(Vec::new(), false);
+        assert!(validate_selection(&config, &mut zero_only).is_err());
+        assert_eq!(zero_only.ordinary_prepares, 0);
+    }
+    #[test]
+    fn cli_selection_refuses_error_even_when_prepared_and_done_share_the_batch() {
+        let config = Config {
+            model_id: String::new(),
+            battery_model: "same".into(),
+            ..Config::default()
+        };
+        let mut failed = worker(
+            vec![
+                WorkerEvent::new("prepared", 7),
+                WorkerEvent::new("done", 7),
+                WorkerEvent {
+                    message: "validation failed".into(),
+                    ..WorkerEvent::new("error", 7)
+                },
+            ],
+            true,
+        );
+        assert!(validate_selection(&config, &mut failed).is_err());
+    }
 }

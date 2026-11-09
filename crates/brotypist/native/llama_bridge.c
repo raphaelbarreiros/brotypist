@@ -7,8 +7,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#ifdef __APPLE__
 #include <math.h>
+#ifdef __APPLE__
 #import <Foundation/Foundation.h>
 #import <NaturalLanguage/NaturalLanguage.h>
 #endif
@@ -22,7 +22,12 @@ struct bt_llama {
     int batch_initialized;
     int backend_initialized;
     int gpu_layers;
-    int batch_capacity;
+    int cache_window;
+#ifdef BROTYPIST_NATIVE_SMOKE
+    llama_logit_bias diagnostic_bias[64];
+    int32_t diagnostic_bias_count;
+    int diagnostic_full_vocabulary_grammar;
+#endif
 };
 
 void bt_llama_sampler_close(struct bt_llama *p) {
@@ -40,32 +45,15 @@ void bt_llama_close(struct bt_llama *p) {
 static void quiet_log(enum ggml_log_level level, const char *text, void *user) {
     (void)level; (void)text; (void)user;
 }
-#ifdef BROTYPIST_NATIVE_SMOKE
-#define PREPARATION_PHASE(phase, entering) do { if (preparation) preparation(phase, entering); } while (0)
-#else
-#define PREPARATION_PHASE(phase, entering) ((void)0)
-#endif
-struct bt_llama *bt_llama_open(const char *path, int auto_gpu, int threads, int batch_capacity, char *error, size_t cap
-#ifdef BROTYPIST_NATIVE_SMOKE
-    , void (*preparation)(int phase, int entering)
-#endif
-) {
-    if (batch_capacity < 1 || batch_capacity > 4096) {
-        snprintf(error, cap, "Native inference batch capacity is invalid."); return NULL;
-    }
+static struct bt_llama *bt_llama_open_policy(const char *path, int auto_gpu, int threads, int full_swa, int flash, char *error, size_t cap) {
     struct bt_llama *p = calloc(1, sizeof(*p));
     if (!p) { snprintf(error, cap, "Native model owner allocation failed."); return NULL; }
-    p->batch_capacity = batch_capacity;
     llama_log_set(quiet_log, NULL);
-    PREPARATION_PHASE(0, 1);
     llama_backend_init(); p->backend_initialized = 1;
     p->gpu_layers = auto_gpu && llama_supports_gpu_offload() ? -1 : 0;
-    PREPARATION_PHASE(0, 0);
     struct llama_model_params mp = llama_model_default_params();
     mp.n_gpu_layers = p->gpu_layers;
-    PREPARATION_PHASE(1, 1);
     p->model = llama_model_load_from_file(path, mp);
-    PREPARATION_PHASE(1, 0);
     if (!p->model) { snprintf(error, cap, "The native engine could not load this GGUF model."); goto fail; }
     if (llama_model_has_encoder(p->model) || !llama_model_has_decoder(p->model)) {
         snprintf(error, cap, "Local writing requires a decoder-only GGUF model."); goto fail;
@@ -73,18 +61,17 @@ struct bt_llama *bt_llama_open(const char *path, int auto_gpu, int threads, int 
     p->vocab = llama_model_get_vocab(p->model);
     if (!p->vocab) { snprintf(error, cap, "The GGUF model has no vocabulary."); goto fail; }
     struct llama_context_params cp = llama_context_default_params();
-    cp.n_ctx = 4096; cp.n_batch = (uint32_t)batch_capacity; cp.n_ubatch = (uint32_t)batch_capacity;
+    cp.n_ctx = 4096; cp.n_batch = 64; cp.n_ubatch = 32;
+    cp.swa_full = full_swa != 0;
+    /* Allocation size does not change attention masking or recover evicted cells. */
+    p->cache_window = llama_model_n_swa(p->model);
     cp.n_threads = threads > 1 ? threads / 2 : 1;
     cp.n_threads_batch = threads > 0 ? threads : 1;
-    cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
+    cp.flash_attn_type = flash ? LLAMA_FLASH_ATTN_TYPE_ENABLED : LLAMA_FLASH_ATTN_TYPE_DISABLED;
     if (!auto_gpu) { cp.offload_kqv = false; cp.op_offload = false; }
-    PREPARATION_PHASE(2, 1);
     p->context = llama_init_from_model(p->model, cp);
-    PREPARATION_PHASE(2, 0);
     if (!p->context) { snprintf(error, cap, "The native engine could not allocate the model context."); goto fail; }
-    PREPARATION_PHASE(3, 1);
-    p->batch = llama_batch_init(batch_capacity, 0, 1); p->batch_initialized = 1;
-    PREPARATION_PHASE(3, 0);
+    p->batch = llama_batch_init(64, 0, 1); p->batch_initialized = 1;
     if (!p->batch.token || !p->batch.pos || !p->batch.n_seq_id || !p->batch.seq_id || !p->batch.logits) {
         snprintf(error, cap, "Native inference batch allocation failed."); goto fail;
     }
@@ -92,6 +79,52 @@ struct bt_llama *bt_llama_open(const char *path, int auto_gpu, int threads, int 
 fail:
     bt_llama_close(p); return NULL;
 }
+struct bt_llama *bt_llama_open(const char *path, int auto_gpu, int threads, int full_swa, char *error, size_t cap) {
+    return bt_llama_open_policy(path, auto_gpu, threads, full_swa, 0, error, cap);
+}
+#ifdef BROTYPIST_NATIVE_SMOKE
+struct bt_llama *bt_llama_diagnostic_open(const char *path, int auto_gpu, int threads, int full_swa, int flash, char *error, size_t cap) {
+    return bt_llama_open_policy(path, auto_gpu, threads, full_swa, flash, error, cap);
+}
+void bt_llama_diagnostic_drain(struct bt_llama *p) { llama_synchronize(p->context); }
+/* Per-owner opt-out only. Retire the old chain before changing its policy;
+ * zero-initialized owners retain the ordinary shortlist wrapper by default. */
+void bt_llama_diagnostic_full_vocabulary_grammar(struct bt_llama *p, int enabled) {
+    bt_llama_sampler_close(p);
+    p->diagnostic_full_vocabulary_grammar = enabled != 0;
+}
+/* The pinned whole-state implementation serializes architecture and occupied
+ * memory (seq=-1), not logits. It avoids sequence-SWA snapshot filtering but
+ * cannot recreate compact-cache cells evicted before saving. Rust must evaluate
+ * again before exposing logits. This experiment never persists state to disk. */
+size_t bt_llama_diagnostic_state_size(struct bt_llama *p) {
+    return llama_state_get_size(p->context);
+}
+size_t bt_llama_diagnostic_state_save(struct bt_llama *p, uint8_t *out, size_t cap) {
+    return llama_state_get_data(p->context, out, cap);
+}
+size_t bt_llama_diagnostic_state_restore(struct bt_llama *p, const uint8_t *data, size_t size) {
+    bt_llama_sampler_close(p);
+    llama_synchronize(p->context);
+    llama_memory_clear(llama_get_memory(p->context), true);
+    return llama_state_set_data(p->context, data, size);
+}
+int bt_llama_diagnostic_bias(struct bt_llama *p, const int32_t *tokens, const float *bias, int32_t count) {
+    if (count < 0 || count > 64) return -1;
+    for (int32_t i = 0; i < count; ++i) {
+        if (tokens[i] < 0 || tokens[i] >= llama_vocab_n_tokens(p->vocab) ||
+            !isfinite(bias[i]) || fabsf(bias[i]) > 2.0f) return -1;
+        for (int32_t j = 0; j < i; ++j) if (tokens[i] == tokens[j]) return -1;
+    }
+    bt_llama_sampler_close(p);
+    memset(p->diagnostic_bias, 0, sizeof(p->diagnostic_bias));
+    for (int32_t i = 0; i < count; ++i) {
+        p->diagnostic_bias[i].token = tokens[i]; p->diagnostic_bias[i].bias = bias[i];
+    }
+    p->diagnostic_bias_count = count;
+    return 0;
+}
+#endif
 int bt_llama_context_size(const struct bt_llama *p) { return (int)llama_n_ctx(p->context); }
 int bt_llama_gpu_layers(const struct bt_llama *p) { return p->gpu_layers; }
 int bt_llama_meta(const struct bt_llama *p, const char *key, char *buf, size_t cap) {
@@ -105,20 +138,51 @@ int bt_llama_piece(const struct bt_llama *p, int32_t token, char *bytes, int32_t
 }
 int bt_llama_is_eog(const struct bt_llama *p, int32_t token) { return llama_vocab_is_eog(p->vocab, token); }
 int bt_llama_trim(struct bt_llama *p, int32_t from) {
-    return llama_memory_seq_rm(llama_get_memory(p->context), -1, from, -1);
+    llama_memory_t memory = llama_get_memory(p->context);
+    if (!llama_memory_seq_rm(memory, 0, from, -1)) return 0;
+    /* Suffix removal cannot restore evicted SWA cells. This owner only appends
+     * contiguous positions and removes suffixes, so retained extrema describe
+     * the available history.
+     * Standard SWA masks distance >= window: position `from` needs history
+     * starting at max(0, from - window + 1), inclusive. This is conservative
+     * for the pinned chunked/symmetric windows too. Dense attention needs 0.
+     * Rust resets and credits zero reuse if any required history is missing. */
+    const llama_pos minimum = llama_memory_seq_pos_min(memory, 0);
+    const llama_pos maximum = llama_memory_seq_pos_max(memory, 0);
+    const llama_pos required = p->cache_window > 0 && from >= p->cache_window
+        ? from - p->cache_window + 1 : 0;
+    return minimum >= 0 && maximum >= from - 1 && minimum <= required;
 }
-void bt_llama_reset(struct bt_llama *p) { llama_memory_clear(llama_get_memory(p->context), true); }
-void bt_llama_synchronize(struct bt_llama *p) { llama_synchronize(p->context); }
-int bt_llama_decode(struct bt_llama *p, const int32_t *tokens, int32_t count, int32_t start_pos, int final_logits) {
-    if (count < 1 || count > p->batch_capacity || start_pos < 0 || start_pos + count > (int32_t)llama_n_ctx(p->context)) return -100;
+void bt_llama_reset(struct bt_llama *p) {
+    llama_synchronize(p->context);
+    llama_memory_clear(llama_get_memory(p->context), true);
+}
+int bt_llama_decode(struct bt_llama *p, const int32_t *tokens, int32_t count, int32_t start_pos) {
+    if (count < 1 || count > 64 || start_pos < 0 || start_pos + count > (int32_t)llama_n_ctx(p->context)) return -100;
     struct llama_batch batch = p->batch;
     batch.n_tokens = count;
     for (int32_t i = 0; i < count; ++i) {
         batch.token[i] = tokens[i]; batch.pos[i] = start_pos + i;
-        batch.n_seq_id[i] = 1; batch.seq_id[i][0] = 0; batch.logits[i] = final_logits && i == count - 1;
+        batch.n_seq_id[i] = 1; batch.seq_id[i][0] = 0; batch.logits[i] = i == count - 1;
     }
     return llama_decode(p->context, batch);
 }
+#ifdef BROTYPIST_NATIVE_SMOKE
+int bt_llama_diagnostic_logits(struct bt_llama *p, float *out, int32_t cap) {
+    const int32_t count = llama_vocab_n_tokens(p->vocab);
+    if (!out || cap < count) return count;
+    const float *logits = llama_get_logits_ith(p->context, -1);
+    if (!logits) return -1;
+    memcpy(out, logits, (size_t)count * sizeof(float));
+    return count;
+}
+int bt_llama_diagnostic_cache(const struct bt_llama *p, int32_t *minimum, int32_t *maximum) {
+    const llama_memory_t memory = llama_get_memory(p->context);
+    *minimum = llama_memory_seq_pos_min(memory, 0);
+    *maximum = llama_memory_seq_pos_max(memory, 0);
+    return llama_model_n_swa(p->model);
+}
+#endif
 static int add_sampler(struct bt_llama *p, struct llama_sampler *sampler) {
     if (!sampler) return -1;
     llama_sampler_chain_add(p->sampler, sampler); return 0;
@@ -133,7 +197,20 @@ int bt_llama_sampler(struct bt_llama *p, int top_k, float top_p, float min_p, fl
      * sampled output (accepting the draft would corrupt exact replay grammar).
      */
     if (add_sampler(p, llama_sampler_init_penalties(llama_vocab_n_tokens(p->vocab), 64, repeat_penalty, 0.0f, 0.0f))) goto fail;
-    if (grammar && grammar[0] && add_sampler(p, bt_grammar_wrap(llama_sampler_init_grammar(p->vocab, grammar, "root"), top_k))) goto fail;
+#ifdef BROTYPIST_NATIVE_SMOKE
+    /* Diagnostic-only setter is unreachable through production Rust APIs.
+     * Bias precedes grammar and truncation; grammar remains authoritative. */
+    if (p->diagnostic_bias_count && add_sampler(p, llama_sampler_init_logit_bias(
+            llama_vocab_n_tokens(p->vocab), p->diagnostic_bias_count, p->diagnostic_bias))) goto fail;
+#endif
+    if (grammar && grammar[0]) {
+        struct llama_sampler *grammar_sampler = llama_sampler_init_grammar(p->vocab, grammar, "root");
+#ifdef BROTYPIST_NATIVE_SMOKE
+        if (!p->diagnostic_full_vocabulary_grammar)
+#endif
+        grammar_sampler = bt_grammar_wrap(grammar_sampler, top_k);
+        if (add_sampler(p, grammar_sampler)) goto fail;
+    }
     if (add_sampler(p, llama_sampler_init_top_k(top_k)) ||
         add_sampler(p, llama_sampler_init_typical(1.0f, 1)) ||
         add_sampler(p, llama_sampler_init_top_p(top_p, 1)) ||

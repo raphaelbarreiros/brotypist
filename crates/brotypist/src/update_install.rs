@@ -3485,6 +3485,9 @@ finally:
         assert!(!f.root.join("startup.json").exists());
         assert_eq!(marker(&f.destination, native()).unwrap().version, "1.2.4");
         assert_eq!(marker(&previous, native()).unwrap().version, "1.2.3");
+        // Concurrent test subprocesses can inherit this open file description
+        // until exec. Establish the unlocked precondition before the zero-deadline call.
+        fs2::FileExt::unlock(&held).unwrap();
         drop(held);
         cancel_and_wait(&f.root, &f.request, &previous, Duration::ZERO).unwrap();
         assert_eq!(

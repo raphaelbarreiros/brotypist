@@ -75,6 +75,12 @@ struct Arguments {
     /// measures canonical IPC lifecycle separately; both never pools timings.
     #[arg(long, default_value = "direct", value_parser = ["direct", "worker", "both"])]
     execution: String,
+    /// Direct-only seed root override; default MAX is hashed, never passed as native entropy.
+    #[arg(long)]
+    paired_seed: Option<u32>,
+    /// Direct-only: clear actual KV/logits before every case, retaining the loaded owner.
+    #[arg(long)]
+    cold_kv: bool,
 }
 
 struct Inputs {
@@ -193,6 +199,10 @@ fn inputs(args: &Arguments) -> Result<Inputs> {
     ensure!(
         cfg!(target_os = "macos"),
         "This writing benchmark preserves its macOS-only inference environment"
+    );
+    ensure!(
+        args.execution == "direct" || (args.paired_seed.is_none() && !args.cold_kv),
+        "--paired-seed and --cold-kv require --execution direct; worker seeds are not controlled"
     );
     let app = native_executable(&args.app)?;
     let mut models = Vec::new();
@@ -374,6 +384,13 @@ fn report(args: &Arguments, inputs: &Inputs) -> Result<Value> {
         "repetitions":args.repetitions, "max_tokens":inputs.tokens, "max_words":inputs.words, "completion_length":args.completion_length,
         "acceleration":args.acceleration, "prompt_style":args.prompt_style, "utility_max_tokens":128,
         "execution":args.execution, "sessions":[], "worker_sessions":[], "source_sha256":source_hashes(), "cases":inputs.cases,
+        "comparison":{"seed_mode":if args.execution == "worker" {"ordinary"} else if args.paired_seed.is_some() {"paired_case_round_v2"} else {"default_case_round_v2"},
+            "paired_seed":args.paired_seed,
+            "seed_root":if args.execution == "worker" {None} else {Some(args.paired_seed.unwrap_or(direct::DEFAULT_SEED_ROOT))},
+            "kv_mode":if args.cold_kv {"cold_each_case"} else {"retained_owner"},
+            "seed_derivation":"SHA-256(brotypist-paired-case-round-v2\\0 || root-u32-LE || round-index-u64-LE || case-ID-UTF8), first-u32-LE modulo 4294967295; MAX maps to zero, all other words unchanged",
+            "model_owner":"fresh process/model per round; retained across cases",
+            "os_cache":"not cleared or controlled", "worker_controlled_pair":false},
         "case_coverage":{"selected":inputs.cases.len(), "full_corpus":inputs.full_case_count, "complete_corpus_selected":inputs.cases.len() == inputs.full_case_count},
         "semantic_rubric":inputs.quality["rubric"], "review_policy":inputs.quality["review_policy"], "model_files":model_files,
         "contextual_comparison_policy":inputs.quality["contextual_comparison_policy"],
@@ -384,8 +401,9 @@ fn report(args: &Arguments, inputs: &Inputs) -> Result<Value> {
             "displayable":"First nonblank cumulative canonical insertion, or first parse_choices-compatible utility array, measured in that path's consumer. Worker time_to_first_worker_result_ms can include empty final output; neither is necessarily raw native first-token latency.",
             "alternatives":"Canonical alternatives algorithm: zero to three distinct strict insertable caret continuations, excluding anchor. Empty output or [] is safe absence only if mechanical checks pass; actual counts/empty results remain separately reported. Availability is not semantic quality.",
             "memory":"Direct self-child Darwin getrusage(RUSAGE_SELF).ru_maxrss in bytes: process-lifetime high-water RSS, including Rust/native/shared mappings. Per-case values are cumulative, not incremental or GPU/Metal/whole-machine memory. Measured in the same direct sessions as inference. Worker-only RSS is null because the explicit native child does not expose its own rusage over WorkerClient; never substitute parent/all-children RSS. No cross-path memory comparison.",
-            "fairness":"Same model paths, production sampler, cases, length, diagnostic token caps and per-round rotated case order within each measurement path. Candidate/baseline execution order alternates each round; direct process is joined and worker release/shutdown acknowledged before the next scenario. No seed override/cache clearing. Descriptive small samples only; no quality/factual guarantee or SLA. Subsets identify incomplete corpus coverage.",
+            "fairness":"Same cases, length and diagnostic token caps; per-round rotated case order; model order alternates. Direct-only opt-in paired-case seeds derive from root seed, case ID and round, independent of model/prompt/order; subsequent alternative samplers retain native recurrence. Optional cold-KV clears actual KV/logits per case, not model owner or OS cache. Ordinary mode preserves production sampling. Worker is never a controlled seed pair. Descriptive samples only; no quality guarantee or SLA. Subsets identify incomplete corpus coverage.",
             "sampler":"Direct calls observe actual NativeModel prompt token counts/BOS occurrences, selected production SamplerOptions, native allowance, grammar/stops, raw UTF-8 before canonical replay/display filtering, finish reasons and sampler-return cleanup. NativeModel's byte-level stop fence precedes UTF-8 callbacks, as native stop handling precedes old Python chunks. No instrumentation changes production sampling. Current public ABI does not expose resolved batch/thread/mmap/mlock getters; those are null with reasons, not guessed defaults.",
+            "seed_observation":"Raw native recurrence state is separate from the actual sampler seed. Actual seed stays null when no sampler is observed or the ordinary recurrence selects the native random sentinel; paired v2 first seeds cannot select that sentinel. Alternatives retain the ordinary recurrence.",
             "reference_budget":"Direct retains the complete oversized authored context and canonical tokenizer-based budget clipping. Authored reference_sources use canonical reference_context's 8000-byte budget. Only worker transport bounds oversized direct context to 8000 scalars and identifies truncation. No fake reference sources.",
             "cancellation":"Direct preserves pre-cancel and synchronous cancellation before display at the first real native UTF-8 callback, observing real sampler return/cleanup. Worker separately probes before proceed and after first observed IPC result with bounded quiescence; already completed producer is inconclusive, not fabricated as active native interruption.",
             "limits":{"prepare_seconds":args.prepare_timeout_seconds, "each_case_seconds":args.case_timeout_seconds, "release_seconds":30, "shutdown_seconds":30}

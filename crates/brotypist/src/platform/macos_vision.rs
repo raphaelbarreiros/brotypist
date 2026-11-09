@@ -791,6 +791,10 @@ pub fn recognize_window_text(
         if !current()? || frontmost() != pid {
             return Ok(context("stale", String::new()));
         }
+        if !authorized() || text_cache().lock().unwrap_or_else(|e| e.into_inner()).epoch != epoch {
+            clear_text_cache();
+            return Ok(context("blocked", String::new()));
+        }
         return Ok(context(
             if text.is_empty() { "empty" } else { "ready" },
             text,
@@ -847,6 +851,10 @@ pub fn recognize_window_text(
     let bounded = text.chars().take(limit).collect::<String>();
     if !retain_text(key, text, epoch) {
         return Ok(context("stale", String::new()));
+    }
+    if !authorized() {
+        clear_text_cache();
+        return Ok(context("blocked", String::new()));
     }
     Ok(context(
         if bounded.is_empty() { "empty" } else { "ready" },
@@ -1839,6 +1847,7 @@ fn snapshot_binding(snapshot: &Snapshot) -> [u8; 32] {
         snapshot.multiline as u8,
         snapshot.on_demand_only as u8,
         snapshot.can_replace as u8,
+        snapshot.can_replace_emoji as u8,
     ]);
     digest.finalize().into()
 }
@@ -1908,10 +1917,14 @@ impl VisionBridge {
             self.clear_styles();
             return Ok(None);
         }
+        if snapshot.protected || !authorized()? {
+            self.reset();
+            return Ok(None);
+        }
         if unsafe { pthread_main_np() } == 0 {
             return Err(anyhow!("appearance-main-thread-required"));
         }
-        if snapshot.protected || !authorized()? || secure() || !capture_granted() {
+        if secure() || !capture_granted() {
             self.reset();
             return Ok(None);
         }
@@ -1926,7 +1939,11 @@ impl VisionBridge {
             let entry = self.styles.remove(position).unwrap();
             let render = render_for(&entry.1, &line);
             self.styles.push_back(entry);
-            if render.is_some() && authorized()? {
+            if !authorized()? {
+                self.clear_styles();
+                return Ok(None);
+            }
+            if render.is_some() {
                 return Ok(render);
             }
         }
@@ -1941,6 +1958,10 @@ impl VisionBridge {
                 {
                     match job.capture.poll() {
                         Ok(Some(shot)) => {
+                            if !authorized()? {
+                                self.clear_styles();
+                                return Ok(None);
+                            }
                             let spans: Vec<_> = work
                                 .line
                                 .samples
@@ -2027,6 +2048,10 @@ impl VisionBridge {
             self.reject(&line, 30);
             return Ok(None);
         }
+        if !authorized()? {
+            self.clear_styles();
+            return Ok(None);
+        }
         if let Some(capture) = Capture::start(line.pid, line.window)? {
             self.last_capture = Some(Instant::now());
             let work = Arc::new(Mutex::new(Some(StyleWork {
@@ -2068,7 +2093,10 @@ impl AppearanceIntegration for VisionBridge {
         self.request(snapshot, evidence, &mut || {
             Ok(services.secure_input() == Some(false)
                 && !services.dead_key()
-                && services.context_matches(snapshot)?)
+                && services.preference_allowed(
+                    snapshot,
+                    crate::config::ScopedPreference::ScreenshotAppearance,
+                )?)
         })
     }
     fn stop(&mut self) -> Result<()> {
@@ -2159,6 +2187,102 @@ mod tests {
         assert!(bridge.styles.is_empty());
         assert!(bridge.job.is_none());
         assert_ne!(epoch, bridge.epoch);
+    }
+    #[test]
+    fn denied_appearance_request_discards_cached_and_completed_work_before_native_access() {
+        use crate::config::ScopedPreference;
+        use crate::platform::{Foreground, policy::ObservationPolicy};
+        for settings in [
+            serde_json::json!({}),
+            serde_json::json!({"screenshot_appearance": false,
+                "app_rules": {"app:com.apple.Terminal": {"screenshot_appearance": true}}}),
+            serde_json::json!({"screenshot_appearance": true,
+                "app_rules": {"app:com.apple.Terminal": {"screenshot_appearance": false}}}),
+            serde_json::json!({"screenshot_appearance": true,
+                "app_rules": {"domain:example.test": {"screenshot_appearance": false}}}),
+        ] {
+            let mut config: Config = serde_json::from_value(settings).unwrap();
+            config.terminal_completion = true;
+            let policy = ObservationPolicy::new(&super::super::effective_config(&config)).unwrap();
+            let snapshot = Snapshot {
+                app_id: "com.apple.Terminal".into(),
+                domain: "example.test".into(),
+                ..Default::default()
+            };
+            let front = Foreground {
+                app_id: snapshot.app_id.clone(),
+                domain: snapshot.domain.clone(),
+                ..Default::default()
+            };
+            let evidence = AppearanceEvidence {
+                font_name: "Synthetic".into(),
+                font_family: String::new(),
+                font_size: 14.0,
+                fixed_advance: 0.0,
+                samples: vec![],
+                caret_rect: [200.0, 100.0, 1.0, 20.0],
+                clip_rect: [0.0, 0.0, 800.0, 600.0],
+                suffix: None,
+                ax_render: None,
+            };
+            let mut bridge = VisionBridge::new();
+            // Simulate work retained before a scoped denial/revocation. Global
+            // enablement alone must never admit either path.
+            bridge.enabled = true;
+            bridge.styles.push_back((
+                "synthetic-style".into(),
+                Style {
+                    spec: FontSpec::Ax,
+                    font_name: "Synthetic".into(),
+                    font_size: 14.0,
+                    offset: 15.0,
+                    line_height: 20.0,
+                    ascent: 10.0,
+                    descent: 3.0,
+                    weight: 400,
+                    italic: false,
+                    line_top: 100.0,
+                    verified_at: Instant::now(),
+                    text_rgb: Some([0.0; 3]),
+                    background_rgb: Some([1.0; 3]),
+                },
+            ));
+            bridge.job = Some(StyleJob {
+                binding: snapshot_binding(&snapshot),
+                work: Arc::new(Mutex::new(Some(StyleWork {
+                    line: synthetic_line(),
+                    options: vec![],
+                    deadline: Instant::now() + TIMEOUT,
+                }))),
+                capture: Capture {
+                    stage: Stage::Done,
+                    deadline: Instant::now() + TIMEOUT,
+                    pid: 123,
+                    bounds: evidence.clip_rect,
+                    number: 1,
+                    scale: 1.0,
+                    width: 800,
+                    height: 600,
+                },
+                epoch: bridge.epoch,
+            });
+            assert!(
+                bridge
+                    .request(&snapshot, &evidence, &mut || {
+                        Ok(super::super::source_preference_allowed(
+                            &policy,
+                            &front,
+                            "Terminal",
+                            &snapshot,
+                            ScopedPreference::ScreenshotAppearance,
+                        ))
+                    })
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(bridge.styles.is_empty());
+            assert!(bridge.job.is_none());
+        }
     }
     #[test]
     fn terminal_context_is_blocked_before_any_capture_or_authorization() {
@@ -2261,6 +2385,9 @@ mod tests {
         assert_ne!(snapshot_binding(&original), snapshot_binding(&changed));
         changed = original.clone();
         changed.window_id = "window2".into();
+        assert_ne!(snapshot_binding(&original), snapshot_binding(&changed));
+        changed = original.clone();
+        changed.can_replace_emoji = true;
         assert_ne!(snapshot_binding(&original), snapshot_binding(&changed));
     }
     #[test]

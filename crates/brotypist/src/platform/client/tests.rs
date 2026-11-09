@@ -477,32 +477,48 @@ fn rejected_and_indeterminate_dispatch_are_terminal_not_applied() {
     assert!(validate_edit(frozen(), &e, 1001).is_err());
 }
 #[test]
-fn choice_uses_only_exact_visible_original_index_without_trailing_space() {
-    let mut f = frozen();
-    f.mode = "alternatives".into();
-    f.shown_text.clear();
-    f.shown_values = vec!["xy ".into()];
-    f.word.clear();
-    f.all.clear();
-    f.presentation = Some(NativeHostPresentation::Choices(NativeChoices {
-        anchor: "client:choice".into(),
-        values: f.shown_values.clone(),
-        revision: 11,
-        expires_at: Instant::now() + Duration::from_secs(1),
-    }));
-    let mut e = accepted();
-    text(&mut e, "action", "choice");
-    put(&mut e, "choice_index", 0u32);
-    assert_eq!(
-        validate_edit(f, &e, 250).unwrap().0.action,
-        Action::Choice(0)
-    );
-    let mut f = frozen();
-    f.shown_values = vec!["visible".into()];
-    let mut e = accepted();
-    text(&mut e, "action", "choice");
-    put(&mut e, "choice_index", 1u32);
-    assert!(validate_edit(f, &e, 250).is_err());
+fn choice_uses_dense_visible_ordinal_and_exact_unicode_payload_with_independent_readback() {
+    for payload in ["xy ", "  café  café", " 👩🏽‍💻"] {
+        let choice = || {
+            let mut f = frozen();
+            f.mode = "alternatives".into();
+            f.shown_text.clear();
+            f.shown_values = vec!["first".into(), payload.into()];
+            f.word.clear();
+            f.all.clear();
+            f.presentation = Some(NativeHostPresentation::Choices(NativeChoices {
+                anchor: "client:choice".into(),
+                values: f.shown_values.clone(),
+                revision: 11,
+                expires_at: Instant::now() + Duration::from_secs(1),
+            }));
+            f
+        };
+        let mut e = accepted();
+        text(&mut e, "action", "choice");
+        put(&mut e, "choice_index", 1u32);
+        text(&mut e, "text", payload);
+        let mut after = witness();
+        after.text = format!("A😀{payload}bc");
+        after.caret = 3 + payload.encode_utf16().count();
+        after.anchor = after.caret;
+        after.revision += 1;
+        after.notification += 1;
+        put(&mut e, "after", snapshot_wire(&after));
+        let mut wrong_readback = clone_dict(&e).unwrap();
+        let mut wrong_after = snapshot_wire(&after);
+        text(&mut wrong_after, "text", "A😀firstbc");
+        put(&mut wrong_readback, "after", wrong_after);
+        assert!(validate_edit(choice(), &wrong_readback, 250).is_err());
+        let mut hidden = clone_dict(&e).unwrap();
+        put(&mut hidden, "choice_index", 2u32);
+        assert!(validate_edit(choice(), &hidden, 250).is_err());
+        let (edit, _) = validate_edit(choice(), &e, 250).unwrap();
+        assert_eq!(edit.action, Action::Choice(1));
+        assert_eq!(edit.text, payload);
+        assert_eq!(edit.after.text.as_ref(), after.text);
+        assert_eq!(edit.start, 2);
+    }
 }
 #[test]
 fn wire_bounds_reject_oversized_text_and_nested_resource_payloads() {

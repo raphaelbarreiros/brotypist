@@ -17,7 +17,7 @@
   {
     "id": "gemma4-e4b",
     "label": "Gemma 4 E4B",
-    "description": "Larger multilingual writer; 4.59 GB download. More memory and generation time than E2B.",
+    "description": "Larger multilingual writer; 4.59 GB download. Higher catalog memory minimum than E2B; generation speed depends on hardware and settings.",
     "repo": "ggml-org/gemma-4-E4B-it-GGUF",
     "revision": "a69f018d7678a2b9f5e705f8903d6fb29b9b25dc",
     "filename": "gemma-4-E4B-it-Q4_0.gguf",
@@ -32,7 +32,7 @@
   {
     "id": "gemma4-26b-a4b",
     "label": "Gemma 4 26B-A4B",
-    "description": "Mixture-of-experts writer; 14.62 GB of weights despite fewer active parameters. Requires a high-memory Mac.",
+    "description": "Mixture-of-experts writer; 14.62 GB of weights despite fewer active parameters. Requires a high-memory computer.",
     "repo": "ggml-org/gemma-4-26B-A4B-it-GGUF",
     "revision": "9cf8c8db0f83fb4582f15381f8fb1a7c1b0b9ca2",
     "filename": "gemma-4-26B-A4B-it-Q4_0.gguf",
@@ -122,7 +122,7 @@
   {
     "id": "qwen3-30b-a3b",
     "label": "Qwen 3 30B-A3B",
-    "description": "Mixture-of-experts writer; 18.56 GB of weights. Requires a high-memory Mac.",
+    "description": "Mixture-of-experts writer; 18.56 GB of weights. Requires a high-memory computer.",
     "repo": "Qwen/Qwen3-30B-A3B-GGUF",
     "revision": "e4d4bafdfb96a411a163846265362aceb0b9c63a",
     "filename": "Qwen3-30B-A3B-Q4_K_M.gguf",

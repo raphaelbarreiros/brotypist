@@ -449,7 +449,9 @@ fn run(
                     } else {
                         grabs = candidate.grabs;
                         names = candidate.names;
-                        status.lock().unwrap_or_else(|e| e.into_inner()).conflict = false;
+                        let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
+                        s.conflict = false;
+                        s.message.clear();
                     }
                 }
                 status.lock().unwrap_or_else(|e| e.into_inner()).enabled = enabled;

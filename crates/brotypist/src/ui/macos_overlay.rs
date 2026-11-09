@@ -1,12 +1,15 @@
 //! Main-thread, nonactivating AppKit presentation. Acknowledgments describe only
 //! verified visible glyphs; an ordering request alone never arms host insertion.
+//! Complete-draw diagnostics require a containing native damage rectangle, not
+//! drawRect's potentially disconnected damage bounds. Fragmented coverage that
+//! needs union reconstruction remains unknown; diagnostics never grant acceptance.
 use crate::{
     core::{Authority, InlineRender, Rect, SnapshotKey},
     platform::{
         Action,
         macos::input::{ChooserHitRegion, publish_chooser_hit_region},
     },
-    runtime::Command,
+    runtime::{Command, PaintObservation, PaintReporter, PresentationLane},
 };
 use anyhow::{Result, anyhow};
 use objc2::rc::Retained;
@@ -19,7 +22,13 @@ use objc2_foundation::{
     NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
 };
 use serde_json::Value;
-use std::{cell::RefCell, ffi::c_void, io::Write};
+use std::{
+    cell::{Cell, RefCell},
+    ffi::c_void,
+    io::Write,
+    rc::Rc,
+    time::Instant,
+};
 
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
@@ -90,15 +99,201 @@ impl PassivePanel {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PaintIdentity {
+    trace_id: u64,
+    lane: PresentationLane,
+    view_serial: u64,
+}
+impl PaintIdentity {
+    fn from_event(event: &Value, lane: PresentationLane) -> Option<Self> {
+        let metadata = if lane == PresentationLane::Chooser
+            && matches!(
+                event["mode"].as_str().unwrap_or("completion"),
+                "completion" | "correction"
+            ) {
+            &event["choices_diagnostic"]
+        } else {
+            &event["diagnostic"]
+        };
+        let expected = match lane {
+            PresentationLane::Inline => "inline",
+            PresentationLane::Chooser => "chooser",
+        };
+        if metadata["lane"].as_str()? != expected {
+            return None;
+        }
+        let identity = Self {
+            trace_id: metadata["trace_id"].as_u64()?,
+            lane,
+            view_serial: metadata["view_serial"].as_u64()?,
+        };
+        (identity.trace_id != 0 && identity.view_serial != 0).then_some(identity)
+    }
+}
+
+// A callback snapshots this batch before drawing. Replacement never relabels an
+// in-flight draw; any observation already queued keeps its original diagnostic IDs.
+struct PaintBatch {
+    identity: PaintIdentity,
+    reporter: PaintReporter,
+    active: Cell<bool>,
+    required: u16,
+    drawn: Cell<u16>,
+}
+impl PaintBatch {
+    fn did_draw(&self, row: u16, visible: bool) {
+        if !visible || !self.active.get() || self.drawn.get() == self.required {
+            return;
+        }
+        let drawn = self.drawn.get() | (row & self.required);
+        self.drawn.set(drawn);
+        if drawn == self.required {
+            (self.reporter)(PaintObservation {
+                trace_id: self.identity.trace_id,
+                lane: self.identity.lane,
+                view_serial: self.identity.view_serial,
+                painted_at: Instant::now(),
+            });
+        }
+    }
+}
+#[derive(Default)]
+struct PaintBinding(RefCell<Option<Rc<PaintBatch>>>);
+impl PaintBinding {
+    fn clear(&self) {
+        if let Some(batch) = self.0.borrow_mut().take() {
+            batch.active.set(false);
+        }
+    }
+    fn bind(
+        &self,
+        identity: Option<PaintIdentity>,
+        reporter: Option<&PaintReporter>,
+        required: u16,
+    ) {
+        if let (Some(identity), Some(reporter)) = (identity, reporter) {
+            if required != 0 {
+                if self.0.borrow().as_ref().is_some_and(|batch| {
+                    batch.identity == identity
+                        && batch.required == required
+                        && std::sync::Arc::ptr_eq(&batch.reporter, reporter)
+                }) {
+                    return;
+                }
+                self.clear();
+                self.0.replace(Some(Rc::new(PaintBatch {
+                    identity,
+                    reporter: reporter.clone(),
+                    active: Cell::new(true),
+                    required,
+                    drawn: Cell::new(0),
+                })));
+                return;
+            }
+        }
+        self.clear();
+    }
+    fn snapshot(&self) -> Option<Rc<PaintBatch>> {
+        self.0.borrow().clone()
+    }
+}
+fn valid_damage_rect(region: NSRect) -> bool {
+    let right = region.origin.x + region.size.width;
+    let top = region.origin.y + region.size.height;
+    region.origin.x.is_finite()
+        && region.origin.y.is_finite()
+        && region.size.width.is_finite()
+        && region.size.height.is_finite()
+        && region.size.width > 0.
+        && region.size.height > 0.
+        && right.is_finite()
+        && top.is_finite()
+        && right > region.origin.x
+        && top > region.origin.y
+}
+
+fn damage_covers_region(damage: &[NSRect], region: NSRect) -> bool {
+    if !valid_damage_rect(region) {
+        return false;
+    }
+    // A single containing native rectangle is a sufficient, allocation-free
+    // proof. Do not infer coverage from bounds or accumulate partial callbacks.
+    let mut covered = false;
+    for &drawn in damage {
+        if !valid_damage_rect(drawn) {
+            return false;
+        }
+        covered |= contains_rect(drawn, region);
+    }
+    covered
+}
+
+fn native_damage_covers_region(view: &NSView, region: NSRect) -> bool {
+    let mut rectangles: *const NSRect = std::ptr::null();
+    let mut count: isize = 0;
+    // Called only synchronously inside this view's drawRect:. AppKit owns this
+    // array and guarantees its lifetime through the callback; never retain it.
+    unsafe {
+        view.getRectsBeingDrawn_count(&mut rectangles, &mut count);
+    }
+    if count <= 0
+        || rectangles.is_null()
+        || !rectangles.is_aligned()
+        || count as usize > isize::MAX as usize / std::mem::size_of::<NSRect>()
+    {
+        return false;
+    }
+    let damage = unsafe { std::slice::from_raw_parts(rectangles, count as usize) };
+    damage_covers_region(damage, region)
+}
+
+fn draw_is_visible(view: &NSView, dirty: NSRect, region: NSRect) -> bool {
+    !view.isHiddenOrHasHiddenAncestor()
+        && valid_damage_rect(dirty)
+        && contains_rect(dirty, region)
+        && contains_rect(view.visibleRect(), region)
+        && view
+            .window()
+            .is_some_and(|window| window.isVisible() && window.isOnActiveSpace())
+        && native_damage_covers_region(view, region)
+}
+#[derive(Default)]
+struct ButtonIvars {
+    paint: Option<Rc<PaintBinding>>,
+    row: u16,
+}
 define_class!(
     #[unsafe(super = NSButton)]
     #[thread_kind = MainThreadOnly]
+    #[ivars = ButtonIvars]
     struct PassiveButton;
     impl PassiveButton {
         #[unsafe(method(acceptsFirstMouse:))] fn first_mouse(&self,_event:Option<&NSEvent>)->bool { true }
         #[unsafe(method(acceptsFirstResponder))] fn no_responder(&self)->bool { false }
+        #[unsafe(method(drawRect:))]
+        fn draw(&self, dirty:NSRect) {
+            let batch = self.ivars().paint.as_ref().and_then(|paint| paint.snapshot());
+            let screen = NSGraphicsContext::currentContext()
+                .is_some_and(|context| context.isDrawingToScreen());
+            unsafe { let _: () = msg_send![super(self), drawRect:dirty]; }
+            if let Some(batch) = batch {
+                batch.did_draw(self.ivars().row, screen && draw_is_visible(self, dirty, self.bounds()));
+            }
+        }
     }
 );
+impl PassiveButton {
+    fn new(
+        mtm: MainThreadMarker,
+        frame: NSRect,
+        paint: Option<Rc<PaintBinding>>,
+        row: u16,
+    ) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(ButtonIvars { paint, row });
+        unsafe { msg_send![super(this), initWithFrame:frame] }
+    }
+}
 fn choice_action(tag: isize, enabled: &[usize]) -> Option<Action> {
     ((1..=9).contains(&tag) && enabled.contains(&(tag as usize)))
         .then(|| Action::Choice((tag - 1) as usize))
@@ -108,6 +303,7 @@ struct ActionsIvars {
     queue: RefCell<Vec<Command>>,
     menu: RefCell<Option<Retained<NSMenu>>>,
     enabled: RefCell<Vec<usize>>,
+    buttons: RefCell<[Option<Retained<PassiveButton>>; 9]>,
 }
 define_class!(
     #[unsafe(super = NSObject)]
@@ -125,7 +321,25 @@ define_class!(
                 } else if let Some(menu)=self.ivars().menu.borrow().as_ref().cloned() {
                     menu.popUpMenuPositioningItem_atLocation_inView(None, NSPoint::new(0.,-4.), Some(sender));
                 }
-            } else if let Some(action)=choice_action(tag, &self.ivars().enabled.borrow()) {
+            } else {
+                let mut enabled = self.ivars().enabled.borrow_mut();
+                let Some(action) = choice_action(tag, &enabled) else { return };
+                let buttons = self.ivars().buttons.borrow();
+                let Some(button) = buttons[(tag - 1) as usize].as_ref() else { return };
+                // An ordinal belongs to this exact installed control, not to any
+                // retained button from a previous publication with the same tag.
+                let current: &NSButton = button;
+                if !std::ptr::eq(current, sender)
+                    || !sender.isEnabled()
+                    || sender.isHiddenOrHasHiddenAncestor()
+                    || !contains_rect(sender.visibleRect(), sender.bounds())
+                    || !sender.window().is_some_and(|window| {
+                        window.isVisible() && window.isOnActiveSpace()
+                    })
+                {
+                    return;
+                }
+                enabled.clear();
                 self.ivars().queue.borrow_mut().push(Command::Action(action));
             }
         }
@@ -137,8 +351,26 @@ impl OverlayActions {
             queue: RefCell::new(Vec::new()),
             menu: RefCell::new(None),
             enabled: RefCell::new(Vec::new()),
+            buttons: RefCell::new(std::array::from_fn(|_| None)),
         });
         unsafe { msg_send![super(this), init] }
+    }
+    fn revoke_choices(&self) {
+        self.ivars().enabled.borrow_mut().clear();
+        // Also revoke actions queued before replacement but not yet delivered.
+        self.ivars()
+            .queue
+            .borrow_mut()
+            .retain(|command| !matches!(command, Command::Action(Action::Choice(_))));
+        for button in self.ivars().buttons.borrow_mut().iter_mut() {
+            if let Some(button) = button.take() {
+                button.setEnabled(false);
+                unsafe {
+                    button.setTarget(None);
+                    button.setAction(None);
+                }
+            }
+        }
     }
 }
 struct DrawRun {
@@ -152,6 +384,7 @@ struct GhostIvars {
     runs: Vec<DrawRun>,
     fills: Vec<(NSRect, Retained<NSColor>)>,
     clip: NSRect,
+    paint: Rc<PaintBinding>,
 }
 define_class!(
     #[unsafe(super = NSView)]
@@ -162,7 +395,8 @@ define_class!(
         #[unsafe(method(isOpaque))] fn transparent(&self)->bool { false }
         #[unsafe(method(hitTest:))] fn mouse_through(&self,_point:NSPoint)->Option<&NSView> { None }
         #[unsafe(method(drawRect:))]
-        fn draw(&self,_dirty:NSRect) {
+        fn draw(&self,dirty:NSRect) {
+            let batch = self.ivars().paint.snapshot();
             let Some(context)=NSGraphicsContext::currentContext() else {return};
             let cg:*mut objc2_core_graphics::CGContext=unsafe {msg_send![&*context,CGContext]};
             if cg.is_null() {return;}
@@ -182,6 +416,10 @@ define_class!(
                 unsafe {CGContextSetTextPosition(cg,run.x,self.ivars().baseline);CTLineDraw(&*line as *const _ as *const c_void,cg);}
             }
             unsafe { CGContextRestoreGState(cg); }
+            if let Some(batch) = batch {
+                batch.did_draw(1, context.isDrawingToScreen()
+                    && draw_is_visible(self, dirty, self.ivars().clip));
+            }
         }
     }
 );
@@ -426,30 +664,26 @@ fn fit_text<'a>(text: &'a str, available: f64, measure: impl Fn(&str) -> f64) ->
     }
     best
 }
-fn chip_text(text: &str) -> String {
-    let clean = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let chars: Vec<char> = clean.chars().collect();
-    if chars.len() <= 44 {
-        return clean;
+fn visible_choices(rows: &[String], available: f64, measure: impl Fn(&str) -> f64) -> Vec<&str> {
+    let mut shown = Vec::with_capacity(rows.len().min(9));
+    if !available.is_finite() || available <= 0. {
+        return shown;
     }
-    let mut end = 43;
-    if !chars[43].is_whitespace() {
-        if let Some(i) = chars[..43].iter().rposition(|c| c.is_whitespace()) {
-            if i > 0 {
-                end = i;
+    for row in rows {
+        // These are single-line buttons and newline-delimited receipts. Reject
+        // unsupported lines rather than silently changing an insertable payload.
+        if row.is_empty() || row.contains(['\r', '\n', '\u{2028}', '\u{2029}']) {
+            continue;
+        }
+        let measured = measure(&format!("{}   {}", shown.len() + 1, row));
+        if measured.is_finite() && measured <= available {
+            shown.push(row.as_str());
+            if shown.len() == 9 {
+                break;
             }
         }
     }
-    format!("{}…", chars[..end].iter().collect::<String>().trim_end())
-}
-fn visible_choices(rows: &[String], available: f64, measure: impl Fn(&str) -> f64) -> usize {
-    rows.iter()
-        .take(9)
-        .enumerate()
-        .take_while(|(i, row)| {
-            chip_text(row) == **row && measure(&format!("{}   {}", i + 1, row)) <= available
-        })
-        .count()
+    shown
 }
 fn visible(panel: &PassivePanel) -> bool {
     panel.isVisible() && panel.isOnActiveSpace()
@@ -533,7 +767,6 @@ pub struct OverlayOwner {
     mtm: MainThreadMarker,
     ghost: Retained<PassivePanel>,
     chooser: Retained<PassivePanel>,
-    chooser_buttons: [Option<Retained<PassiveButton>>; 9],
     accessory: Retained<PassivePanel>,
     button: Retained<PassiveButton>,
     target: Retained<OverlayActions>,
@@ -547,6 +780,9 @@ pub struct OverlayOwner {
     chooser_event: Option<Value>,
     environment: Value,
     whatsapp_diagnostic: WhatsAppGhostDiagnostic,
+    paint_reporter: Option<PaintReporter>,
+    ghost_paint: Rc<PaintBinding>,
+    chooser_paint: Rc<PaintBinding>,
     closed: bool,
 }
 impl OverlayOwner {
@@ -578,8 +814,7 @@ impl OverlayOwner {
         );
         accessory.setHasShadow(false);
         let target = OverlayActions::new(mtm);
-        let button: Retained<PassiveButton> =
-            unsafe { msg_send![PassiveButton::alloc(mtm),initWithFrame:rect([1.,1.,22.,22.])] };
+        let button = PassiveButton::new(mtm, rect([1., 1., 22., 22.]), None, 0);
         button.setBordered(false);
         button.setTag(100);
         button.setImagePosition(NSCellImagePosition::ImageOnly);
@@ -599,7 +834,6 @@ impl OverlayOwner {
             mtm,
             ghost,
             chooser,
-            chooser_buttons: std::array::from_fn(|_| None),
             accessory,
             button,
             target,
@@ -613,11 +847,20 @@ impl OverlayOwner {
             chooser_event: None,
             environment: Value::Null,
             whatsapp_diagnostic: WhatsAppGhostDiagnostic::default(),
+            paint_reporter: None,
+            ghost_paint: Rc::default(),
+            chooser_paint: Rc::default(),
             closed: false,
         };
         this.environment = this.environment_signature();
         this.label(false);
         Ok(this)
+    }
+    /// Observations originate only in successful native draw callbacks.
+    pub fn set_paint_reporter(&mut self, reporter: Option<PaintReporter>) {
+        self.ghost_paint.clear();
+        self.chooser_paint.clear();
+        self.paint_reporter = reporter;
     }
     #[cfg(feature = "native-smoke")]
     pub fn smoke_ghost_diagnostic(&self) -> Value {
@@ -685,7 +928,8 @@ impl OverlayOwner {
             button_rects: [[0.; 4]; 9],
             button_count: 0,
         };
-        for (index, button) in self.chooser_buttons.iter().enumerate() {
+        let buttons = self.target.ivars().buttons.borrow();
+        for (index, button) in buttons.iter().enumerate() {
             if !enabled.contains(&(index + 1)) {
                 continue;
             }
@@ -786,17 +1030,18 @@ impl OverlayOwner {
     }
     fn clear(&mut self, hide: bool, panel: Option<&str>) {
         if panel.is_none() || panel == Some("ghost") {
+            self.ghost_paint.clear();
             self.ghost.orderOut(None);
             self.ghost_state = None;
             self.ghost_event = None;
         }
         if panel.is_none() || panel == Some("chooser") {
+            self.chooser_paint.clear();
             publish_chooser_hit_region(None);
             self.chooser.orderOut(None);
-            self.chooser_buttons.fill(None);
+            self.target.revoke_choices();
             self.chooser_state = None;
             self.chooser_event = None;
-            self.target.ivars().enabled.borrow_mut().clear();
         }
         if hide {
             self.caret = None;
@@ -828,6 +1073,8 @@ impl OverlayOwner {
         if environment != self.environment {
             publish_chooser_hit_region(None);
             self.environment = environment;
+            self.ghost_paint.clear();
+            self.chooser_paint.clear();
             self.ghost.orderOut(None);
             self.chooser.orderOut(None);
             self.accessory.orderOut(None);
@@ -915,8 +1162,21 @@ impl OverlayOwner {
                         self.environment_signature()
                     ]);
                     if !cached(&identity, self.ghost_state.as_ref(), visible(&self.ghost)) {
+                        self.ghost_paint.clear();
+                        self.ghost_paint = Rc::default();
+                        self.ghost_paint.bind(
+                            PaintIdentity::from_event(event, PresentationLane::Inline),
+                            self.paint_reporter.as_ref(),
+                            1,
+                        );
                         let text = self.present_ghost(event, mode);
                         self.ghost_state = Some((identity, text));
+                    } else {
+                        self.ghost_paint.bind(
+                            PaintIdentity::from_event(event, PresentationLane::Inline),
+                            self.paint_reporter.as_ref(),
+                            1,
+                        );
                     }
                     self.ghost_event = Some(event.clone());
                     if let Some(c) = Self::ack(
@@ -953,37 +1213,44 @@ impl OverlayOwner {
         mode: &str,
         commands: &mut Vec<Command>,
     ) {
-        let rows: Vec<String> = rows
-            .iter()
-            .filter(|s| !s.is_empty())
-            .take(9)
-            .cloned()
-            .collect();
+        let font = NSFont::systemFontOfSize(13.);
+        let rows = visible_choices(rows, 440., |s| width(&font, s));
+        let paint_identity = PaintIdentity::from_event(event, PresentationLane::Chooser);
+        let required = (1u16 << rows.len()) - 1;
         let identity = serde_json::json!([
             rows,
             mode,
             event["rect"],
             event["field_anchor"],
-            self.environment_signature()
+            self.environment_signature(),
+            event["key"],
+            event["authority"],
+            event["revision"]
         ]);
-        if !cached(
+        let repaint = !cached(
             &identity,
             self.chooser_state.as_ref(),
             visible(&self.chooser),
-        ) {
+        );
+        if repaint {
+            self.chooser_paint.clear();
+            self.chooser_paint = Rc::default();
+        }
+        self.chooser_paint
+            .bind(paint_identity, self.paint_reporter.as_ref(), required);
+        if repaint {
             publish_chooser_hit_region(None);
             self.chooser.orderOut(None);
-            self.chooser_buttons.fill(None);
+            self.target.revoke_choices();
             let text = if rows.is_empty() {
                 String::new()
             } else {
                 let w = (rows
                     .iter()
-                    .map(|r| chip_text(r).chars().count())
-                    .max()
-                    .unwrap_or(0) as f64
-                    * 7.
-                    + 60.)
+                    .enumerate()
+                    .map(|(i, row)| width(&font, &format!("{}   {}", i + 1, row)))
+                    .fold(0., f64::max)
+                    + 40.)
                     .clamp(180., 480.);
                 let h = rows.len() as f64 * 30. + 8.;
                 let surface = NSVisualEffectView::initWithFrame(
@@ -1022,23 +1289,23 @@ impl OverlayOwner {
                         }
                     }
                 }
-                let font = NSFont::systemFontOfSize(13.);
-                let count = visible_choices(&rows, w - 40., |s| width(&font, s));
-                self.target.ivars().enabled.replace((1..=count).collect());
+                self.target
+                    .ivars()
+                    .enabled
+                    .replace((1..=rows.len()).collect());
                 for (i, row) in rows.iter().enumerate() {
-                    let button: Retained<PassiveButton> = unsafe {
-                        msg_send![PassiveButton::alloc(self.mtm),initWithFrame:rect([10.,h-(i+1)as f64*30.-4.,w-20.,30.])]
-                    };
-                    button.setTitle(&NSString::from_str(&format!(
-                        "{}   {}",
-                        i + 1,
-                        chip_text(row)
-                    )));
+                    let button = PassiveButton::new(
+                        self.mtm,
+                        rect([10., h - (i + 1) as f64 * 30. - 4., w - 20., 30.]),
+                        Some(self.chooser_paint.clone()),
+                        1 << i,
+                    );
+                    button.setTitle(&NSString::from_str(&format!("{}   {}", i + 1, row)));
                     button.setFont(Some(&font));
                     button.setContentTintColor(Some(&NSColor::labelColor()));
                     button.setAlignment(NSTextAlignment::Left);
                     button.setBordered(false);
-                    button.setEnabled(i < count);
+                    button.setEnabled(true);
                     button.setTag((i + 1) as isize);
                     button.setIdentifier(Some(&NSString::from_str(&format!(
                         "inklow.suggestion.choice.{}",
@@ -1052,11 +1319,11 @@ impl OverlayOwner {
                         let _: () = msg_send![&*button,setAccessibilityLabel:&*NSString::from_str(&format!("Accept choice {}: {}",i+1,row))];
                         if let Some(cell) = button.cell() {
                             let _: () = msg_send![&*cell,setWraps:false];
-                            let _: () = msg_send![&*cell,setLineBreakMode:4usize];
+                            let _: () = msg_send![&*cell,setLineBreakMode:2usize];
                         }
                     }
                     surface.addSubview(&button);
-                    self.chooser_buttons[i] = Some(button);
+                    self.target.ivars().buttons.borrow_mut()[i] = Some(button);
                 }
                 self.chooser.setContentView(Some(&surface));
                 if let Some(mut anchor) = finite_rect(&event["rect"]) {
@@ -1070,8 +1337,10 @@ impl OverlayOwner {
                     }
                 }
                 if visible(&self.chooser) {
-                    rows[..count].join("\n")
+                    rows.join("\n")
                 } else {
+                    self.chooser_paint.clear();
+                    self.target.revoke_choices();
                     String::new()
                 }
             };
@@ -1321,6 +1590,7 @@ impl OverlayOwner {
                     runs,
                     fills,
                     clip: rect([dx, dy, right - left, bottom - top]),
+                    paint: self.ghost_paint.clone(),
                 },
             );
             self.ghost.setContentView(Some(&surface));
@@ -1342,6 +1612,7 @@ impl OverlayOwner {
         match result {
             Ok(text) => text,
             Err(_) => {
+                self.ghost_paint.clear();
                 self.ghost.orderOut(None);
                 String::new()
             }
@@ -1351,11 +1622,13 @@ impl OverlayOwner {
         if self.closed {
             return Ok(Vec::new());
         }
-        let mut commands = self.target.ivars().queue.take();
+        let mut commands = Vec::new();
         let environment = self.environment_signature();
         if environment != self.environment {
             publish_chooser_hit_region(None);
             self.environment = environment;
+            self.ghost_paint.clear();
+            self.chooser_paint.clear();
             self.ghost.orderOut(None);
             self.chooser.orderOut(None);
             self.accessory.orderOut(None);
@@ -1363,6 +1636,7 @@ impl OverlayOwner {
         // Revoke stale authority immediately when native visibility/Space is lost.
         // A subsequent same-content event retries rendering rather than caching refusal.
         if !visible(&self.ghost) {
+            self.ghost_paint.clear();
             if let Some((_, text)) = self.ghost_state.as_mut() {
                 if !text.is_empty() {
                     text.clear();
@@ -1379,11 +1653,12 @@ impl OverlayOwner {
             }
         }
         if !visible(&self.chooser) {
+            self.chooser_paint.clear();
+            self.target.revoke_choices();
             publish_chooser_hit_region(None);
             if let Some((_, text)) = self.chooser_state.as_mut() {
                 if !text.is_empty() {
                     text.clear();
-                    self.target.ivars().enabled.borrow_mut().clear();
                     if let Some(event) = &self.chooser_event {
                         let mode = event["mode"].as_str().unwrap_or("completion");
                         let mode = if matches!(mode, "completion" | "correction") {
@@ -1399,6 +1674,24 @@ impl OverlayOwner {
             }
         }
         publish_chooser_hit_region(self.choice_targets());
+        for command in self.target.ivars().queue.take() {
+            if let Command::Action(Action::Choice(index)) = &command {
+                let buttons = self.target.ivars().buttons.borrow();
+                let Some(button) = buttons.get(*index).and_then(Option::as_ref) else {
+                    continue;
+                };
+                if !button.isEnabled()
+                    || button.isHiddenOrHasHiddenAncestor()
+                    || !contains_rect(button.visibleRect(), button.bounds())
+                    || !button
+                        .window()
+                        .is_some_and(|window| window.windowNumber() == self.chooser.windowNumber())
+                {
+                    continue;
+                }
+            }
+            commands.push(command);
+        }
         Ok(commands)
     }
     pub fn close(&mut self) -> Result<()> {
@@ -1430,6 +1723,307 @@ impl Drop for OverlayOwner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn paint_sink() -> (
+        PaintReporter,
+        std::sync::Arc<std::sync::Mutex<Vec<PaintObservation>>>,
+    ) {
+        let observations = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = observations.clone();
+        let reporter: PaintReporter = std::sync::Arc::new(move |observation| {
+            sink.lock().unwrap().push(observation);
+        });
+        (reporter, observations)
+    }
+    fn paint_id(trace_id: u64, lane: PresentationLane) -> PaintIdentity {
+        PaintIdentity {
+            trace_id,
+            lane,
+            view_serial: trace_id + 100,
+        }
+    }
+    // These are damage-geometry and batch-bookkeeping regressions, not evidence
+    // that AppKit delivered a draw callback or displayed pixels.
+    #[test]
+    fn damage_coverage_rejects_disconnected_strips_holes_and_partial_draws() {
+        let region = rect([0., 0., 100., 20.]);
+        let edges = [rect([0., 0., 10., 20.]), rect([90., 0., 10., 20.])];
+        assert!(!damage_covers_region(&edges, region));
+        let hole = [
+            edges[0],
+            edges[1],
+            rect([10., 0., 80., 5.]),
+            rect([10., 15., 80., 5.]),
+        ];
+        assert!(!damage_covers_region(&hole, region));
+        assert!(!damage_covers_region(&[rect([0., 0., 99., 20.])], region));
+        assert!(!damage_covers_region(&[], region));
+        assert!(damage_covers_region(&[region], region));
+        assert!(damage_covers_region(&[rect([-1., -1., 102., 22.])], region));
+        // A union of individually partial rectangles is conservatively unknown.
+        assert!(!damage_covers_region(
+            &[rect([0., 0., 50., 20.]), rect([50., 0., 50., 20.])],
+            region,
+        ));
+    }
+    #[test]
+    fn damage_coverage_rejects_invalid_and_unrepresentable_geometry() {
+        let region = rect([0., 0., 100., 20.]);
+        for invalid in [
+            rect([f64::NAN, 0., 100., 20.]),
+            rect([0., 0., f64::INFINITY, 20.]),
+            rect([0., 0., -100., 20.]),
+            rect([0., 0., 100., 0.]),
+            rect([f64::MAX, 0., f64::MAX, 20.]),
+            rect([f64::MAX, 0., 1., 20.]),
+        ] {
+            assert!(!damage_covers_region(&[invalid], region));
+            assert!(!damage_covers_region(&[region, invalid], region));
+            assert!(!damage_covers_region(&[region], invalid));
+        }
+    }
+    #[test]
+    fn damage_coverage_cannot_complete_stale_or_partially_drawn_chooser_rows() {
+        let (reporter, observations) = paint_sink();
+        let binding = PaintBinding::default();
+        let region = rect([0., 0., 100., 20.]);
+        binding.bind(
+            Some(paint_id(1, PresentationLane::Chooser)),
+            Some(&reporter),
+            3,
+        );
+        let stale = binding.snapshot().unwrap();
+        binding.bind(
+            Some(paint_id(2, PresentationLane::Chooser)),
+            Some(&reporter),
+            3,
+        );
+        stale.did_draw(3, damage_covers_region(&[region], region));
+        assert!(observations.lock().unwrap().is_empty());
+        let current = binding.snapshot().unwrap();
+        current.did_draw(1, damage_covers_region(&[region], region));
+        current.did_draw(
+            2,
+            damage_covers_region(
+                &[rect([0., 0., 10., 20.]), rect([90., 0., 10., 20.])],
+                region,
+            ),
+        );
+        assert!(observations.lock().unwrap().is_empty());
+        current.did_draw(2, damage_covers_region(&[rect([0., 0., 50., 20.])], region));
+        current.did_draw(
+            2,
+            damage_covers_region(&[rect([50., 0., 50., 20.])], region),
+        );
+        // Separate partial callbacks cannot accumulate into complete row evidence.
+        assert!(observations.lock().unwrap().is_empty());
+        current.did_draw(2, damage_covers_region(&[region], region));
+        current.did_draw(2, damage_covers_region(&[region], region));
+        let observations = observations.lock().unwrap();
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].trace_id, 2);
+        assert_eq!(observations[0].lane, PresentationLane::Chooser);
+        assert_eq!(observations[0].view_serial, 102);
+    }
+    #[test]
+    fn delayed_native_observation_cannot_paint_a_replacement_in_diagnostic_book() {
+        use crate::diagnostics::{CaptureTiming, DiagnosticBook, WorkKind};
+        let mut book = DiagnosticBook::new();
+        let capture = || {
+            let now = Instant::now();
+            CaptureTiming {
+                input_notified: None,
+                started: now,
+                finished: now,
+            }
+        };
+        let old = book
+            .begin(WorkKind::Generated, PresentationLane::Inline, 1, capture())
+            .unwrap();
+        assert!(book.publish(old, PresentationLane::Inline, 1, Instant::now()));
+        let (reporter, observations) = paint_sink();
+        let binding = PaintBinding::default();
+        binding.bind(
+            Some(PaintIdentity {
+                trace_id: old,
+                lane: PresentationLane::Inline,
+                view_serial: 1,
+            }),
+            Some(&reporter),
+            1,
+        );
+        binding.snapshot().unwrap().did_draw(1, true);
+        // Runtime advances before draining the already queued observation.
+        let current = book
+            .begin(WorkKind::Generated, PresentationLane::Inline, 2, capture())
+            .unwrap();
+        assert!(book.publish(current, PresentationLane::Inline, 2, Instant::now()));
+        {
+            let observations = observations.lock().unwrap();
+            let observation = &observations[0];
+            assert!(!book.record_draw(
+                observation.trace_id,
+                observation.lane,
+                observation.view_serial,
+                observation.painted_at
+            ));
+        }
+        binding.bind(
+            Some(PaintIdentity {
+                trace_id: current,
+                lane: PresentationLane::Inline,
+                view_serial: 2,
+            }),
+            Some(&reporter),
+            1,
+        );
+        assert!(
+            book.snapshot()
+                .traces
+                .iter()
+                .all(|trace| trace.first_draw_us.is_none())
+        );
+        binding.snapshot().unwrap().did_draw(1, true);
+        let observations = observations.lock().unwrap();
+        assert_eq!(observations.len(), 2);
+        let observation = &observations[1];
+        assert!(book.record_draw(
+            observation.trace_id,
+            observation.lane,
+            observation.view_serial,
+            observation.painted_at
+        ));
+        let snapshot = book.snapshot();
+        assert_eq!(snapshot.rejected_draws, 1);
+        assert!(snapshot.traces[0].first_draw_us.is_none());
+        assert!(snapshot.traces[1].first_draw_us.is_some());
+    }
+    #[test]
+    fn paint_requires_a_visible_draw_not_cached_acknowledgment() {
+        let (reporter, observations) = paint_sink();
+        let binding = PaintBinding::default();
+        let identity = paint_id(1, PresentationLane::Inline);
+        binding.bind(Some(identity), Some(&reporter), 1);
+        // Binding/rebinding a cached offer is not a native paint callback.
+        binding.bind(Some(identity), Some(&reporter), 1);
+        assert!(observations.lock().unwrap().is_empty());
+        let draw = binding.snapshot().unwrap();
+        draw.did_draw(1, false);
+        assert!(observations.lock().unwrap().is_empty());
+        draw.did_draw(1, true);
+        draw.did_draw(1, true);
+        let observations = observations.lock().unwrap();
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].trace_id, 1);
+        assert_eq!(observations[0].view_serial, 101);
+        assert_eq!(observations[0].lane, PresentationLane::Inline);
+    }
+    #[test]
+    fn replacement_and_hide_revoke_pending_draws_without_relabeling_queued_reports() {
+        let (reporter, observations) = paint_sink();
+        let binding = PaintBinding::default();
+        binding.bind(
+            Some(paint_id(1, PresentationLane::Inline)),
+            Some(&reporter),
+            1,
+        );
+        let old = binding.snapshot().unwrap();
+        old.did_draw(1, true);
+        binding.bind(
+            Some(paint_id(2, PresentationLane::Inline)),
+            Some(&reporter),
+            1,
+        );
+        old.did_draw(1, true);
+        let current = binding.snapshot().unwrap();
+        binding.clear();
+        current.did_draw(1, true);
+        assert!(binding.snapshot().is_none());
+        let observations = observations.lock().unwrap();
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].trace_id, 1);
+        assert_eq!(observations[0].view_serial, 101);
+    }
+    #[test]
+    fn chooser_waits_for_every_current_row_and_is_independent_of_inline() {
+        let (reporter, observations) = paint_sink();
+        let inline = PaintBinding::default();
+        let chooser = PaintBinding::default();
+        inline.bind(
+            Some(paint_id(1, PresentationLane::Inline)),
+            Some(&reporter),
+            1,
+        );
+        chooser.bind(
+            Some(paint_id(2, PresentationLane::Chooser)),
+            Some(&reporter),
+            7,
+        );
+        let stale = chooser.snapshot().unwrap();
+        stale.did_draw(1, true);
+        stale.did_draw(2, true);
+        assert!(observations.lock().unwrap().is_empty());
+        chooser.bind(
+            Some(paint_id(3, PresentationLane::Chooser)),
+            Some(&reporter),
+            7,
+        );
+        stale.did_draw(4, true);
+        assert!(observations.lock().unwrap().is_empty());
+        let current = chooser.snapshot().unwrap();
+        current.did_draw(4, true);
+        current.did_draw(2, true);
+        current.did_draw(2, true);
+        assert!(observations.lock().unwrap().is_empty());
+        inline.snapshot().unwrap().did_draw(1, true);
+        inline.clear();
+        current.did_draw(1, true);
+        let observations = observations.lock().unwrap();
+        assert_eq!(observations.len(), 2);
+        assert_eq!(
+            (observations[0].trace_id, observations[0].lane),
+            (1, PresentationLane::Inline)
+        );
+        assert_eq!(
+            (observations[1].trace_id, observations[1].lane),
+            (3, PresentationLane::Chooser)
+        );
+    }
+    #[test]
+    fn diagnostic_ids_are_lane_specific_and_never_native_revisions() {
+        let event = serde_json::json!({
+            "mode":"correction", "revision":900,
+            "diagnostic":{"trace_id":1,"lane":"inline","view_serial":101},
+            "choices_diagnostic":{"trace_id":2,"lane":"chooser","view_serial":102}
+        });
+        assert_eq!(
+            PaintIdentity::from_event(&event, PresentationLane::Inline),
+            Some(paint_id(1, PresentationLane::Inline))
+        );
+        assert_eq!(
+            PaintIdentity::from_event(&event, PresentationLane::Chooser),
+            Some(paint_id(2, PresentationLane::Chooser))
+        );
+        assert!(
+            PaintIdentity::from_event(
+                &serde_json::json!({"revision":900}),
+                PresentationLane::Inline
+            )
+            .is_none()
+        );
+        let standalone = serde_json::json!({
+            "mode":"alternatives",
+            "diagnostic":{"trace_id":3,"lane":"chooser","view_serial":103}
+        });
+        assert_eq!(
+            PaintIdentity::from_event(&standalone, PresentationLane::Chooser),
+            Some(paint_id(3, PresentationLane::Chooser))
+        );
+        assert!(PaintIdentity::from_event(&standalone, PresentationLane::Inline).is_none());
+        let invalid = serde_json::json!({
+            "diagnostic":{"trace_id":0,"lane":"inline","view_serial":103}
+        });
+        assert!(PaintIdentity::from_event(&invalid, PresentationLane::Inline).is_none());
+    }
     #[test]
     fn numbered_clicks_use_the_same_zero_based_choices_as_keyboard_keys() {
         for number in 1..=9 {
@@ -1481,24 +2075,30 @@ mod tests {
         assert_eq!(fit_text("abc", f64::NAN, measure), "");
     }
     #[test]
-    fn exact_chooser_prefix() {
+    fn chooser_skips_overlong_rows_and_keeps_exact_dense_choices() {
         let rows = vec![
-            "tomorrow".into(),
-            "a deliberately long choice that exceeds the display limit".into(),
-            "later".into(),
+            "  amanhã  cedo ".into(),
+            "W".repeat(100),
+            " later 😀".into(),
         ];
+        let shown = visible_choices(&rows, 40., |s| s.chars().count() as f64);
+        assert_eq!(shown, ["  amanhã  cedo ", " later 😀"]);
+        assert_eq!(shown.join("\n"), "  amanhã  cedo \n later 😀");
+        assert_eq!(choice_action(2, &[1, 2]), Some(Action::Choice(1)));
+        assert_eq!(choice_action(3, &[1, 2]), None);
+    }
+    #[test]
+    fn chooser_measures_raw_whitespace_and_does_not_elide_fitting_rows() {
+        let rows = vec![" ".repeat(40) + "later", "a".repeat(45), "last".into()];
         assert_eq!(
-            visible_choices(&rows, 440., |s| s.chars().count() as f64 * 7.),
-            1
+            visible_choices(&rows, 49., |s| s.chars().count() as f64),
+            [rows[0].as_str(), rows[1].as_str(), "last"]
         );
         assert_eq!(
-            visible_choices(
-                &["W".repeat(43), "later".into()],
-                320.,
-                |s| s.chars().count() as f64 * 12.
-            ),
-            0
+            visible_choices(&rows, 12., |s| s.chars().count() as f64),
+            ["last"]
         );
+        assert!(visible_choices(&rows, f64::NAN, |_| 1.).is_empty());
     }
     #[test]
     fn invalid_rectangles() {

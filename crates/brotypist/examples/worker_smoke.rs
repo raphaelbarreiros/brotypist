@@ -469,7 +469,7 @@ fn exercise_worker(
         json!({"check":"cancellation_acknowledged", "passed":true, "cancelled_request":id, "status":cancelled,
         "boundary":"ready-before-proceed; cancellation revokes authorization, not a claim of mid-token interruption"}),
     );
-    client
+    let ticket = client
         .release()
         .context("Cannot request actual model release")?;
     let released = wait_status(
@@ -487,36 +487,49 @@ fn exercise_worker(
         },
         "Worker model release was not acknowledged before deadline",
     )?;
+    ensure!(
+        client.release_complete(ticket),
+        "Release ticket did not match the completed owner"
+    );
     record(
         receipt,
         json!({"check":"release_acknowledged", "passed":true, "status":released}),
     );
     // Shutdown must also retire a genuinely loaded child, not merely an idle owner.
     let prepared = client
-        .prepare(config)
-        .context("Cannot prepare worker for loaded shutdown")?;
-    ensure!(
-        prepared > 0,
-        "Worker did not reserve model preparation after release"
-    );
+        .prepare_for_validation(config, ticket)
+        .context("Cannot validate worker for loaded shutdown")?
+        .get();
     let deadline = Instant::now() + timeout;
     let mut loaded = false;
+    let mut prepared_seen = false;
     loop {
         for event in client.poll() {
+            ensure!(
+                event.id == prepared,
+                "Reload returned another request's event"
+            );
             match event.kind.as_str() {
                 "loading" => loaded = true,
                 "prepared" => {
                     ensure!(
-                        event.id == prepared && loaded && event.model_loaded,
+                        loaded && event.model_loaded && !prepared_seen,
                         "Reload did not acknowledge actual model preparation"
+                    );
+                    prepared_seen = true;
+                }
+                "done" => {
+                    ensure!(
+                        prepared_seen && event.model_loaded,
+                        "Reload finished without matching prepared and done acknowledgements"
                     );
                     record(
                         receipt,
-                        json!({"check":"reload_before_shutdown", "passed":true, "request":prepared}),
+                        json!({"check":"reload_before_shutdown", "passed":true, "request":prepared,
+                            "release_ticket_matched":true, "prepared_acknowledged":true, "done_acknowledged":true}),
                     );
                     return Ok(());
                 }
-                "done" => {}
                 _ => bail!("Worker model reload returned an unexpected event"),
             }
         }
@@ -594,7 +607,7 @@ fn validate_text(text: &str, prefix: &str, suffix: &str, short: bool) -> Result<
         );
     }
     ensure!(
-        clean_completion(text, suffix, false) == text,
+        clean_completion(text, prefix, suffix, false) == text,
         "Completion violated canonical suffix/sanitation fences"
     );
     ensure!(

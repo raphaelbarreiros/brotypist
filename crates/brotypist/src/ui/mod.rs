@@ -12,6 +12,9 @@ pub mod macos_power;
 pub mod settings;
 #[cfg(target_os = "windows")]
 pub mod windows;
+#[cfg(all(test, not(target_os = "windows")))]
+#[path = "windows_settings.rs"]
+mod windows_settings;
 
 #[derive(Clone, Debug, Default)]
 pub struct LaunchOptions {

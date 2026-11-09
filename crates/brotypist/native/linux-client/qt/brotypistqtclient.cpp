@@ -112,44 +112,57 @@ class ChoiceWindow final : public QWindow {
 public:
     ChoiceWindow(QtClient *client, QWindow *parent, const QStringList &values,
                  const QFont &font, const QPoint &anchor)
-        : client_(client), store_(this), values_(values), font_(font) {
+        : client_(client), store_(this), font_(font) {
         setFlags(Qt::ToolTip | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
         setTransientParent(parent);
         setScreen(parent->screen());
         const QRect available = screen()->availableGeometry();
         int width = 0;
-        const int limit = std::min(9, int(values_.size()));
-        for (int i = 0; i < limit; ++i) {
-            if (values_[i].isEmpty() || values_[i].contains(QChar::LineFeed) ||
-                values_[i].contains(QChar::CarriageReturn) || values_[i].contains(QChar::Tabulation) ||
-                values_[i].contains(QChar::LineSeparator) || values_[i].contains(QChar::ParagraphSeparator)) break;
-            auto layout = std::make_unique<QTextLayout>(QString::number(i + 1) + QStringLiteral("  ") + values_[i], font_);
+        for (const auto &value : values) {
+            if (count_ == 9) break;
+            if (value.isEmpty() || !bounded(value) || value.contains(QChar::LineFeed) ||
+                value.contains(QChar::CarriageReturn) || value.contains(QChar::Tabulation) ||
+                value.contains(QChar::LineSeparator) || value.contains(QChar::ParagraphSeparator)) continue;
+            auto layout = std::make_unique<QTextLayout>(QString::number(count_ + 1) + QStringLiteral("  ") + value, font_);
             QTextOption option; option.setWrapMode(QTextOption::NoWrap); option.setTextDirection(Qt::LeftToRight);
             layout->setTextOption(option); layout->beginLayout();
             auto line = layout->createLine();
             if (line.isValid()) line.setLineWidth(16000000);
             layout->endLayout();
-            if (!line.isValid()) break;
+            if (!line.isValid()) continue;
             QRectF occupied(0, 0, line.naturalTextWidth(), line.height());
             for (const auto &run : line.glyphRuns()) occupied = occupied.united(run.boundingRect());
             const int candidateWidth = qCeil(occupied.width()) + 24;
             const int candidateRow = std::max(row_, qCeil(occupied.height()) + 12);
-            if (candidateWidth > available.width() || (i + 1) * candidateRow > available.height()) break;
+            if (candidateWidth > available.width() || (count_ + 1) * candidateRow > available.height()) continue;
             width = std::max(width, candidateWidth); row_ = candidateRow;
+            values_.push_back(value);
             bounds_.push_back(occupied); layouts_.push_back(std::move(layout)); ++count_;
         }
         if (!count_) return;
-        const QSize size(width, row_ * count_);
+        const QSize size(width, row_ * count_); layoutSize_ = size;
         const QPoint point(std::clamp(anchor.x(), available.left(), available.right() - width + 1),
                            std::clamp(anchor.y(), available.top(), available.bottom() - size.height() + 1));
         setGeometry(QRect(point, size));
         create();
+        usable_ = handle() && available.contains(geometry()) && geometry().size() == size;
+    }
+    ~ChoiceWindow() override {
+        if (client_ && client_->chooser_.popup == this) {
+            client_->chooser_.popup = nullptr;
+            client_->revoke(client_->chooser_);
+        }
+    }
+    bool ready() const { return usable_ && count_; }
+    void start() {
         show();
-        usable_ = handle() && isVisible() && available.contains(geometry()) && geometry().size() == size;
         requestUpdate();
     }
-    QStringList visibleValues() const { return usable_ ? values_.first(count_) : QStringList(); }
-    bool usable() const { return usable_ && isVisible() && screen() && screen()->availableGeometry().contains(geometry()); }
+    QStringList visibleValues() const {
+        // Only an owner-loop expose/update event can establish full paint.
+        return usable() ? values_ : QStringList();
+    }
+    bool usable() const { return painted_ && isExposed() && layoutVisible(); }
     int selected() const { return selected_; }
     void moveSelection(int delta) {
         if (!count_) return;
@@ -158,7 +171,11 @@ public:
     }
 protected:
     bool event(QEvent *event) override {
-        if (event->type() == QEvent::UpdateRequest || event->type() == QEvent::Expose) paint();
+        if (event->type() == QEvent::UpdateRequest || event->type() == QEvent::Expose) {
+            paint();
+            if (client_ && client_->chooser_.popup == this && painted_ && !isExposed())
+                client_->revoke(client_->chooser_);
+        }
         if (event->type() == QEvent::MouseButtonRelease) {
             const auto *mouse = static_cast<QMouseEvent *>(event);
             const int index = int(mouse->position().y()) / row_;
@@ -168,15 +185,27 @@ protected:
                 client_->accept(client_->chooser_, QStringLiteral("choice"), index)) return true;
             return QWindow::event(event);
         }
-        return QWindow::event(event);
+        const bool handled = QWindow::event(event);
+        if (client_ && client_->chooser_.popup == this &&
+            (event->type() == QEvent::Hide || event->type() == QEvent::Close ||
+             ((event->type() == QEvent::Move || event->type() == QEvent::Resize) &&
+              geometry() != client_->chooser_.popupGeometry)))
+            client_->revoke(client_->chooser_);
+        return handled;
     }
 private:
+    bool layoutVisible() const {
+        return usable_ && isVisible() && size() == layoutSize_ && screen() &&
+            screen()->availableGeometry().contains(geometry());
+    }
     void paint() {
-        if (!isExposed() || !usable()) return;
+        if (!isExposed() || !layoutVisible()) return;
         store_.resize(size());
         const QRegion area(QRect(QPoint(), size()));
         store_.beginPaint(area);
+        painted_ = false;
         QPainter painter(store_.paintDevice());
+        if (!painter.isActive()) { store_.endPaint(); return; }
         painter.fillRect(QRect(QPoint(), size()), QGuiApplication::palette().base());
         painter.setPen(QGuiApplication::palette().text().color());
         painter.setFont(font_);
@@ -187,9 +216,19 @@ private:
             layouts_[i]->draw(&painter, QPointF(12 - bounds.left(),
                 i * row_ + (row_ - bounds.height()) / 2 - bounds.top()));
         }
-        painter.end();
+        const bool completed = painter.end();
         store_.endPaint();
         store_.flush(area);
+        painted_ = completed;
+        if (painted_ && client_ && !completionQueued_) {
+            completionQueued_ = true;
+            const QPointer<ChoiceWindow> window(this);
+            QTimer::singleShot(0, client_, [window] {
+                if (!window) return;
+                window->completionQueued_ = false;
+                if (window->client_) window->client_->completePresentation(window);
+            });
+        }
     }
     QPointer<QtClient> client_;
     QBackingStore store_;
@@ -197,8 +236,9 @@ private:
     QFont font_;
     std::vector<std::unique_ptr<QTextLayout>> layouts_;
     std::vector<QRectF> bounds_;
+    QSize layoutSize_;
     int row_ = 1, count_ = 0, selected_ = 0;
-    bool usable_ = false;
+    bool usable_ = false, painted_ = false, completionQueued_ = false;
 };
 
 QtClient::QtClient(QtClientHooks hooks, QObject *parent)
@@ -208,7 +248,7 @@ QtClient::QtClient(QtClientHooks hooks, QObject *parent)
     connect(expiry_, &QTimer::timeout, this, [this] {
         const auto now = nowNs();
         if (ghost_.capability && (!now || now >= ghost_.lease)) revoke(ghost_);
-        if (chooser_.capability && (!now || now >= chooser_.lease)) revoke(chooser_);
+        if ((chooser_.capability || pendingPresentation_.active) && (!now || now >= chooser_.lease)) revoke(chooser_);
         scheduleExpiry(); scheduleChanged();
     });
     policyExpiry_->setSingleShot(true);
@@ -306,7 +346,14 @@ void QtClient::observeScope(const Target &t) {
         scopeTarget_.windowToken != t.windowToken || scopeTarget_.document != t.document ||
         scopeTarget_.focused != t.focused);
     scopeTarget_ = t; scopeKnown_ = true;
-    if (transition) { ++focusGeneration_; withdrawPolicy(); }
+    if (transition) {
+        // A release cannot inherit a consumed press across a focus round trip,
+        // even when the next key names the same object/window again.
+        ownedKeys_ = {};
+        keyTarget_.clear(); keyWindow_.clear();
+        ++focusGeneration_;
+        withdrawPolicy();
+    }
 }
 QtClient::Target QtClient::target() {
     if (metadataQuery_) return {};
@@ -427,11 +474,12 @@ QtClient::State QtClient::capture(bool pendingReadback) {
 QVariantMap QtClient::Metadata() {
     if (!authorized()) return {};
     const auto t = target();
-    return {{"protocol", uint(1)}, {"backend", QStringLiteral("qt6-fcitx-client/1")}, {"pid", uint(QCoreApplication::applicationPid())},
+    QVariantMap result{{"protocol", uint(1)}, {"backend", QStringLiteral("qt6-fcitx-client/1")}, {"pid", uint(QCoreApplication::applicationPid())},
         {"app_id", QCoreApplication::applicationFilePath()}, {"focus", t.focused}, {"protected", t.protectedText},
         {"editable", t.editable}, {"purpose", t.purpose}, {"composing", t.composition}, {"domain", QString()},
         {"field_token", t.field}, {"window_token", t.windowToken}, {"document_token", t.document},
         {"focus_generation", u64(focusGeneration_)}, {"pending_edit", pending_.active}};
+    return result;
 }
 QVariantMap QtClient::Capture(qulonglong policy_epoch) {
     if (!authorized() || policy_epoch != policy_.value("policy_epoch").toULongLong()) return {};
@@ -581,6 +629,7 @@ bool QtClient::ghostGeometry(const State &s, const QString &text, QRectF *out) c
 }
 QVariantMap QtClient::Present(const QVariantMap &offer) {
     if (!authorized()) return refusal("unauthorized");
+    const auto registration = registration_, clientId = clientId_;
     State state = capture();
     if (!matches(state, offer)) return refusal("stale-or-unsupported-target");
     const QString mode = offer.value("mode").toString();
@@ -601,6 +650,7 @@ QVariantMap QtClient::Present(const QVariantMap &offer) {
         !query.value(Qt::ImFont).isValid() || !cursor.isValid() || !state.target.window->screen()) return refusal("unavailable-native-geometry");
     Presentation &p = inlineMode ? ghost_ : chooser_;
     revoke(p); // A chooser never destroys an existing native ghost receipt.
+    p.identity = ++nextPresentation_;
     if (inlineMode) {
         const QString text = offer.value("text").toString();
         if (qGuiApp->inputMethod()->inputDirection() != Qt::LeftToRight || state.caret != state.anchor ||
@@ -626,12 +676,28 @@ QVariantMap QtClient::Present(const QVariantMap &offer) {
     } else {
         const QStringList values = stringList(offer.value("values"));
         if (values.isEmpty() || values.size() > 256) return refusal("invalid-choices");
-        for (const auto &value : values) if (!bounded(value)) return refusal("invalid-choices");
         auto *window = new ChoiceWindow(this, state.target.window, values, font,
             state.target.window->mapToGlobal(cursor.bottomLeft().toPoint()));
         p.popup = window;
-        p.shownValues = window->visibleValues();
-        if (p.shownValues.isEmpty()) { revoke(p); return refusal("choices-not-fully-visible"); }
+        if (!window->ready() || !state.target.object || !state.target.window || !state.target.window->screen()) {
+            revoke(p); return refusal("choices-not-fully-visible");
+        }
+        p.offer = offer; p.witness = state;
+        p.cursor = cursor; p.queryCursor = query.value(Qt::ImCursorRectangle).toRectF(); p.font = font;
+        p.targetGeometry = state.target.window->geometry(); p.popupGeometry = window->geometry();
+        p.screen = state.target.window->screen(); p.availableGeometry = p.screen->availableGeometry();
+        const auto now = nowNs();
+        p.lease = std::min({offer.value("expires_ns").toULongLong(),
+            policy_.value("expires_ns").toULongLong(), now + 2000000000ULL});
+        if (!now || p.lease <= now) { revoke(p); return refusal("expired"); }
+        // Keep the original call (including its reply serial and unique sender)
+        // until an exposed backing-store paint completes. Returning below does
+        // not send an automatic reply; no nested GUI/event loop is involved.
+        pendingPresentation_ = {message(), message().service(), registration, clientId, true};
+        setDelayedReply(true);
+        scheduleExpiry();
+        window->start();
+        return {};
     }
     const auto after = capture();
     if (!matches(after, offer)) { revoke(p); return refusal("target-changed-during-presentation"); }
@@ -643,20 +709,101 @@ QVariantMap QtClient::Present(const QVariantMap &offer) {
     return {{"presented", true}, {"capability_id", u64(p.capability)}, {"offer_id", offer.value("offer_id")},
         {"expires_ns", u64(p.lease)}, {"shown_text", p.shownText}, {"shown_values", p.shownValues}};
 }
+bool QtClient::currentPresentation(const Presentation &witness, const State &state) const {
+    const auto &current = witness.popup ? chooser_ : ghost_;
+    const auto now = nowNs();
+    return witness.identity && current.identity == witness.identity &&
+        current.popup == witness.popup && current.ghostTarget == witness.ghostTarget &&
+        current.capability == witness.capability && current.lease == witness.lease &&
+        now && now < witness.lease && matches(state, witness.offer) &&
+        state.snapshot.value("revision").toULongLong() == revision_ &&
+        state.snapshot.value("user_revision").toULongLong() == userRevision_ &&
+        feature(witness.offer.value("mode").toString()) &&
+        state.target.object && state.target.window &&
+        state.target.object == witness.witness.target.object &&
+        state.target.window == witness.witness.target.window &&
+        state.target.object == hooks_.focusObject() && state.target.window == hooks_.focusWindow() &&
+        state.target.window == QGuiApplication::focusWindow() &&
+        state.target.window->isActive() && state.target.window->isExposed();
+}
+bool QtClient::choiceGeometry(const Presentation &p, const State &state) const {
+    if (!state.valid || !p.popup || !p.popup->usable() || !p.screen ||
+        state.target.object != p.witness.target.object || state.target.window != p.witness.target.window ||
+        !state.target.object || !state.target.window) return false;
+    const Presentation witness = p;
+    QInputMethodQueryEvent query(Qt::ImCursorRectangle | Qt::ImFont);
+    QCoreApplication::sendEvent(state.target.object, &query);
+    const QRectF cursor = qGuiApp->inputMethod()->cursorRectangle();
+    // Both calls above dispatch into application code. Nothing below may make
+    // another native query before identity, lifetime and deadline are accepted.
+    return currentPresentation(witness, state) && witness.popup && witness.popup->usable() && witness.screen &&
+        state.target.window->geometry() == witness.targetGeometry &&
+        state.target.window->screen() == witness.screen && witness.popup->screen() == witness.screen &&
+        witness.screen->availableGeometry() == witness.availableGeometry &&
+        witness.popup->geometry() == witness.popupGeometry &&
+        query.value(Qt::ImCursorRectangle).isValid() && query.value(Qt::ImFont).isValid() &&
+        query.value(Qt::ImCursorRectangle).toRectF() == witness.queryCursor &&
+        query.value(Qt::ImFont).value<QFont>() == witness.font && cursor == witness.cursor;
+}
+bool QtClient::replyPresentation(const QVariantMap &result) {
+    if (!pendingPresentation_.active) return false;
+    const auto request = pendingPresentation_.request;
+    pendingPresentation_ = {};
+    return bus_.send(request.createReply(QVariantList{QVariant::fromValue(result)}));
+}
+void QtClient::completePresentation(ChoiceWindow *window) {
+    if (!pendingPresentation_.active || chooser_.popup != window) return;
+    const Presentation witness = chooser_;
+    const auto current = capture();
+    if (!pendingPresentation_.active || chooser_.identity != witness.identity) return;
+    const bool initialGeometry = choiceGeometry(witness, current);
+    if (!pendingPresentation_.active || chooser_.identity != witness.identity) return;
+    if (!initialGeometry || !connected_ || owner_ != pendingPresentation_.owner ||
+        pendingPresentation_.request.service() != owner_ ||
+        registration_ != pendingPresentation_.registration || clientId_ != pendingPresentation_.clientId) {
+        revoke(chooser_);
+        return;
+    }
+    // Capture again, then perform ALL synchronous geometry queries before the
+    // final identity/pointer/focus/deadline checks. Never dereference the raw
+    // callback window after application code has had an opportunity to delete it.
+    if (!pendingPresentation_.active || chooser_.identity != witness.identity) return;
+    const auto after = capture();
+    if (!pendingPresentation_.active || chooser_.identity != witness.identity) return;
+    const bool geometry = choiceGeometry(witness, after);
+    if (!pendingPresentation_.active || chooser_.identity != witness.identity) return;
+    if (!geometry || !connected_ || !currentPresentation(witness, after) ||
+        owner_ != pendingPresentation_.owner || pendingPresentation_.request.service() != owner_ ||
+        registration_ != pendingPresentation_.registration || clientId_ != pendingPresentation_.clientId) {
+        revoke(chooser_);
+        return;
+    }
+    chooser_.shownValues = witness.popup->visibleValues();
+    if (chooser_.shownValues.isEmpty()) { revoke(chooser_); return; }
+    chooser_.witness = after;
+    chooser_.capability = ++nextCapability_; // Still unarmed until exact Arm.
+    const QVariantMap receipt{{"presented", true}, {"capability_id", u64(chooser_.capability)},
+        {"offer_id", chooser_.offer.value("offer_id")}, {"expires_ns", u64(chooser_.lease)},
+        {"shown_text", chooser_.shownText}, {"shown_values", chooser_.shownValues}};
+    if (!replyPresentation(receipt)) revoke(chooser_);
+    scheduleExpiry();
+}
 QtClient::Presentation *QtClient::presentation(qulonglong capability) {
     if (capability && capability == ghost_.capability) return &ghost_;
     if (capability && capability == chooser_.capability) return &chooser_;
     return nullptr;
 }
 bool QtClient::live(const Presentation &p, const State &state) const {
-    if (!p.capability || nowNs() >= p.lease || !matches(state, p.offer) ||
-        state.target.object != p.witness.target.object || state.target.window != p.witness.target.window) return false;
-    if (!p.shownText.isEmpty()) {
+    const Presentation witness = p;
+    if (!witness.capability || !currentPresentation(witness, state)) return false;
+    if (!witness.shownText.isEmpty()) {
         QRectF viewport;
-        if (!p.ghostTarget || qGuiApp->inputMethod()->cursorRectangle() != p.cursor ||
-            !ghostGeometry(state, p.shownText, &viewport) || viewport != p.clip) return false;
+        const QRectF cursor = qGuiApp->inputMethod()->cursorRectangle();
+        if (!witness.ghostTarget || cursor != witness.cursor ||
+            !ghostGeometry(state, witness.shownText, &viewport) || viewport != witness.clip) return false;
     }
-    return p.shownValues.isEmpty() || (p.popup && p.popup->usable());
+    if (!witness.shownValues.isEmpty() && !choiceGeometry(witness, state)) return false;
+    return currentPresentation(witness, state);
 }
 bool QtClient::Arm(const QVariantMap &acceptance) {
     if (!authorized()) return false;
@@ -682,7 +829,8 @@ void QtClient::scheduleExpiry() {
     expiry_->stop();
     qulonglong deadline = 0;
     for (const auto *p : {&ghost_, &chooser_})
-        if (p->capability && (!deadline || p->lease < deadline)) deadline = p->lease;
+        if ((p->capability || (p == &chooser_ && pendingPresentation_.active)) &&
+            (!deadline || p->lease < deadline)) deadline = p->lease;
     const auto now = nowNs();
     if (deadline) expiry_->start(!now || deadline <= now ? 0 : int((deadline - now + 999999) / 1000000));
 }
@@ -690,6 +838,8 @@ void QtClient::revoke(Presentation &p) {
     const QPointer<QObject> object = p.ghostTarget;
     const QPointer<ChoiceWindow> popup = p.popup;
     p = {};
+    if (&p == &chooser_ && pendingPresentation_.active)
+        replyPresentation(refusal("presentation-withdrawn-or-expired"));
     if (popup) { popup->hide(); popup->deleteLater(); }
     if (object) {
         const bool previous = dispatching_; dispatching_ = true;
@@ -764,6 +914,11 @@ void QtClient::nativeChanged() {
     const auto current = capture();
     if (ghost_.capability && !live(ghost_, current)) revoke(ghost_);
     if (chooser_.capability && !live(chooser_, current)) revoke(chooser_);
+    if (pendingPresentation_.active && (!matches(current, chooser_.offer) ||
+        current.target.object != chooser_.witness.target.object ||
+        current.target.window != chooser_.witness.target.window ||
+        !current.target.window || current.target.window->geometry() != chooser_.targetGeometry ||
+        qGuiApp->inputMethod()->cursorRectangle() != chooser_.cursor)) revoke(chooser_);
     scheduleChanged();
 }
 void QtClient::scheduleChanged() {
@@ -811,6 +966,38 @@ bool QtClient::sendAction(const QString &action) {
     return true;
 }
 bool QtClient::key(const QKeyEvent &key) {
+    if (key.type() != QEvent::KeyPress && key.type() != QEvent::KeyRelease) return false;
+    const auto object = hooks_.focusObject();
+    const auto window = hooks_.focusWindow();
+    if (keyTarget_ != object || keyWindow_ != window) {
+        ownedKeys_ = {};
+        keyTarget_ = object; keyWindow_ = window;
+    }
+    if (!object || !window) { ownedKeys_ = {}; return false; }
+    // Symbols can change when modifiers or the keyboard layout change while held.
+    const auto scan = key.nativeScanCode();
+    auto found = std::find_if(ownedKeys_.begin(), ownedKeys_.end(), [&key, scan](const OwnedKey &owned) {
+        return owned.key && (scan ? owned.scan == scan :
+            !owned.scan && owned.key == key.key() && owned.symbol == key.nativeVirtualKey());
+    });
+    if (key.type() == QEvent::KeyRelease) {
+        if (found == ownedKeys_.end()) return false;
+        // Fcitx must not receive a release for a press it never saw. Its async
+        // processing would mark composition unknown and invalidate the chooser.
+        // This only balances an already consumed press; it authorizes no edit.
+        if (!key.isAutoRepeat()) *found = {};
+        return true;
+    }
+    if (found == ownedKeys_.end())
+        found = std::find_if(ownedKeys_.begin(), ownedKeys_.end(), [](const OwnedKey &owned) { return !owned.key; });
+    if (found == ownedKeys_.end()) { invalidate(true); return false; }
+    const bool consumed = keyPress(key);
+    if (keyTarget_ != object || keyWindow_ != window ||
+        hooks_.focusObject() != object || hooks_.focusWindow() != window) return consumed;
+    *found = consumed ? OwnedKey{key.key(), scan, key.nativeVirtualKey()} : OwnedKey{};
+    return consumed;
+}
+bool QtClient::keyPress(const QKeyEvent &key) {
     if (key.type() != QEvent::KeyPress) return false;
     target(); // Detect actual scope transitions before even metadata-only keys.
     if (policyLive()) {
@@ -948,7 +1135,9 @@ bool QtClient::accept(Presentation &p, const QString &action, int index) {
     if (pending_.active || pendingEvents_ >= 31) return false; // Reserve final-confirmation capacity.
     if (!p.armed) return false;
     const State before = capture();
-    if (!live(p, before)) { revoke(p); return false; }
+    if (!live(p, before)) {
+        revoke(p); return false;
+    }
     QString accepted;
     if (action == QStringLiteral("choice")) {
         if (!p.popup || index < 0 || index >= p.shownValues.size()) return false;
@@ -1011,6 +1200,7 @@ bool QtClient::eventFilter(QObject *object, QEvent *event) {
     const auto *focus = hooks_.focusObject();
     if (object != focus && object != hooks_.focusWindow() &&
         object != ghost_.ghostTarget && object != ghost_.witness.target.window &&
+        object != chooser_.witness.target.object && object != chooser_.witness.target.window &&
         object != scopeTarget_.object && object != scopeTarget_.window &&
         (!pending_.active || object != pending_.before.target.object)) return false;
     switch (event->type()) {

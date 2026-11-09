@@ -326,7 +326,34 @@ pub fn plan_languages(
     hypotheses: &BTreeMap<String, f64>,
     available: &[String],
     preferred: &[String],
+    preference: &str,
 ) -> LanguagePlan {
+    let Ok(preference) = crate::config::normalize_language_preference(preference) else {
+        return LanguagePlan {
+            status: LanguageStatus::Unavailable,
+            languages: Vec::new(),
+            detected: String::new(),
+        };
+    };
+    // An explicit region is an exact dictionary choice, never a base-language
+    // fallback. Native identifiers may use underscores instead of hyphens.
+    let selected = if preference == "auto" {
+        None
+    } else {
+        available.iter().find(|tag| {
+            crate::config::normalize_language_preference(&tag.replace('_', "-"))
+                .is_ok_and(|tag| tag == preference)
+        })
+    };
+    if preference != "auto" && selected.is_none() {
+        return LanguagePlan {
+            status: LanguageStatus::Unavailable,
+            languages: Vec::new(),
+            detected: preference,
+        };
+    }
+    let available = selected.map_or(available, std::slice::from_ref);
+    let preferred = selected.map_or(preferred, std::slice::from_ref);
     let mut variants = HashMap::new();
     for tag in preferred
         .iter()
@@ -394,12 +421,16 @@ pub fn plan_languages(
 struct Identity {
     key: SnapshotKey,
     authority: Authority,
+    preference: String,
+    preference_epoch: u64,
 }
 impl Identity {
-    fn of(snapshot: &Snapshot) -> Self {
+    fn of(snapshot: &Snapshot, preference: &str, preference_epoch: u64) -> Self {
         Self {
             key: snapshot.key(),
             authority: snapshot.authority(),
+            preference: preference.into(),
+            preference_epoch,
         }
     }
 }
@@ -476,6 +507,7 @@ struct CacheKey {
     finished: bool,
     tail: String,
     languages: Vec<String>,
+    preference: String,
 }
 #[derive(Clone)]
 struct Verdict {
@@ -495,6 +527,7 @@ struct Evaluator {
     languages_at: Option<Instant>,
     verdicts: HashMap<CacheKey, CachedVerdict>,
     clock: u64,
+    preference_epoch: Option<u64>,
 }
 impl Evaluator {
     fn new(backend: BackendOwner) -> Self {
@@ -504,10 +537,15 @@ impl Evaluator {
             languages_at: None,
             verdicts: HashMap::new(),
             clock: 0,
+            preference_epoch: None,
         }
     }
     fn check(&mut self, job: &Job) -> Result<SpellingResult> {
         let _scope = self.backend.0.work_scope()?;
+        if self.preference_epoch != Some(job.identity.preference_epoch) {
+            self.preference_epoch = Some(job.identity.preference_epoch);
+            self.languages_at = None;
+        }
         if self
             .languages_at
             .is_none_or(|at| at.elapsed() > LANGUAGE_REFRESH)
@@ -518,7 +556,7 @@ impl Evaluator {
         }
         let hypotheses = self.backend.0.identify(&job.word.context)?;
         let (available, preferred) = self.languages.as_ref().expect("language refresh succeeded");
-        let plan = plan_languages(&hypotheses, available, preferred);
+        let plan = plan_languages(&hypotheses, available, preferred, &job.identity.preference);
         if plan.status == LanguageStatus::Unsupported {
             return Ok(job.whole_result("unsupported-language", plan.detected));
         }
@@ -532,6 +570,7 @@ impl Evaluator {
             finished: job.word.finished,
             tail: job.word.tail.nfc().collect(),
             languages: plan.languages,
+            preference: job.identity.preference.clone(),
         };
         self.clock = self.clock.wrapping_add(1);
         let verdict = if let Some(cached) = self.verdicts.get_mut(&key) {
@@ -688,6 +727,8 @@ struct ServiceState {
     diagnostic: String,
     cleanup_epoch: u64,
     finalizing: bool,
+    preference: String,
+    preference_epoch: u64,
 }
 struct Shared {
     state: Mutex<ServiceState>,
@@ -715,6 +756,8 @@ impl SpellingService {
                     worker_done: false,
                     cleanup_epoch: 0,
                     finalizing: false,
+                    preference: "auto".into(),
+                    preference_epoch: 0,
                     diagnostic: if available {
                         String::new()
                     } else {
@@ -725,6 +768,20 @@ impl SpellingService {
             }),
             wake,
         }
+    }
+    /// Select an exact native dictionary tag or "auto". A changed preference
+    /// revokes pending/latest work and refreshes dictionary availability.
+    pub fn set_language(&self, preference: &str) -> Result<()> {
+        let preference = crate::config::normalize_language_preference(preference)?;
+        let mut state = lock(&self.shared.state);
+        if state.preference != preference {
+            state.preference = preference;
+            state.preference_epoch = state.preference_epoch.wrapping_add(1);
+            state.pending = None;
+            state.desired = None;
+            state.latest = None;
+        }
+        Ok(())
     }
     pub fn diagnostic(&self) -> String {
         lock(&self.shared.state).diagnostic.clone()
@@ -749,7 +806,7 @@ impl SpellingService {
                 ));
             }
         };
-        let identity = Identity::of(snapshot);
+        let identity = Identity::of(snapshot, &state.preference, state.preference_epoch);
         state.desired = Some(identity.clone());
         if state.latest.as_ref().is_some_and(|result| {
             result.key == identity.key && result.authority == identity.authority
@@ -1085,6 +1142,99 @@ mod tests {
             close_allowed: None,
         }
     }
+    #[test]
+    fn explicit_regional_dictionary_never_substitutes_another_region() {
+        let hypotheses = BTreeMap::from([("pt".into(), 0.95)]);
+        let brazil = vec!["en".into(), "pt_BR".into()];
+        let both = vec!["en".into(), "pt_BR".into(), "pt_PT".into()];
+        let preferred = vec!["en".into(), "pt_BR".into()];
+        let missing = plan_languages(&hypotheses, &brazil, &preferred, "pt-PT");
+        assert_eq!(missing.status, LanguageStatus::Unavailable);
+        assert!(missing.languages.is_empty());
+        let installed = plan_languages(&hypotheses, &both, &preferred, "pt-PT");
+        assert_eq!(installed.status, LanguageStatus::Ok);
+        assert_eq!(installed.languages, vec!["pt_PT"]);
+        assert_eq!(
+            plan_languages(&hypotheses, &brazil, &preferred, "pt-PT").status,
+            LanguageStatus::Unavailable
+        );
+        assert_eq!(
+            plan_languages(&hypotheses, &both, &preferred, "auto").languages,
+            vec!["pt_BR", "en"]
+        );
+        assert_eq!(
+            plan_languages(
+                &BTreeMap::from([("sw".into(), 0.95)]),
+                &both,
+                &preferred,
+                "pt-PT"
+            )
+            .status,
+            LanguageStatus::Unsupported
+        );
+        assert_eq!(
+            plan_languages(&hypotheses, &both, &preferred, "invalid_tag").status,
+            LanguageStatus::Unavailable
+        );
+    }
+
+    #[test]
+    fn language_changes_revoke_latest_and_cached_verdicts_without_rewriting_text() {
+        let backend = dictionary(&[("pt", 0.95)]);
+        let checked = backend.checked.clone();
+        let service = SpellingService::new(Some(Box::new(backend)), None);
+        let authored = snapshot("Até cafe\u{301}");
+        service.set_language("pt-BR").unwrap();
+        let first = settle(&service, &authored);
+        assert_eq!(first.reason, "ok");
+        assert_eq!(first.language, "pt_BR");
+        assert_eq!(first.word, "cafe\u{301}");
+        assert_eq!(lock(&checked).len(), 1);
+        assert!(service.set_language("pt_BR").is_err());
+        assert_eq!(service.assess(&authored).unwrap(), first);
+        service.set_language("pt-PT").unwrap();
+        assert!(service.assess(&authored).is_none());
+        let missing = settle(&service, &authored);
+        assert_eq!(missing.reason, "unavailable");
+        assert!(!missing.suspected);
+        assert_eq!(missing.word, "cafe\u{301}");
+        assert_eq!(lock(&checked).len(), 1);
+        service.set_language("pt-BR").unwrap();
+        assert!(service.assess(&authored).is_none());
+        assert_eq!(settle(&service, &authored).reason, "ok");
+        assert_eq!(lock(&checked).len(), 2);
+        assert!(service.close());
+    }
+
+    #[test]
+    fn preference_epoch_revokes_inflight_work_even_after_switching_back() {
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (gate_tx, gate_rx) = mpsc::channel();
+        let (wake_tx, wake_rx) = mpsc::channel();
+        let mut backend = dictionary(&[("pt", 0.95)]);
+        backend.entered = Some(entered_tx);
+        backend.gate = Some(gate_rx);
+        let checked = backend.checked.clone();
+        let service = SpellingService::new(
+            Some(Box::new(backend)),
+            Some(Arc::new(move || {
+                let _ = wake_tx.send(());
+            })),
+        );
+        let authored = snapshot("Até café");
+        service.set_language("pt-BR").unwrap();
+        assert!(service.assess(&authored).is_none());
+        entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        service.set_language("pt-PT").unwrap();
+        service.set_language("pt-BR").unwrap();
+        assert!(service.assess(&authored).is_none());
+        gate_tx.send(()).unwrap();
+        wake_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(service.assess(&authored).unwrap().language, "pt_BR");
+        assert_eq!(lock(&checked).len(), 2);
+        assert!(service.close());
+    }
+
     fn settle(service: &SpellingService, snapshot: &Snapshot) -> SpellingResult {
         let until = Instant::now() + Duration::from_secs(3);
         loop {
@@ -1227,6 +1377,7 @@ mod tests {
             &BTreeMap::from([("pt".into(), 0.9)]),
             &available,
             &["pt_PT".into(), "en".into()],
+            "auto",
         );
         assert_eq!(plan.languages, vec!["pt_PT", "en"]);
     }

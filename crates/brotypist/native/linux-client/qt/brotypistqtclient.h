@@ -4,13 +4,17 @@
 #include <QDBusConnection>
 #include <QHash>
 #include <QDBusContext>
+#include <QDBusMessage>
+#include <QFont>
 #include <QPointer>
 #include <QVariantMap>
 #include <QWindow>
 #include <functional>
+#include <array>
 
 class QKeyEvent;
 class QTimer;
+class QScreen;
 
 namespace brotypist {
 
@@ -66,10 +70,20 @@ private:
         QPointer<QObject> ghostTarget;
         QPointer<ChoiceWindow> popup;
         QRectF cursor, clip;
+        QRectF queryCursor;
+        QRect targetGeometry, popupGeometry, availableGeometry;
+        QPointer<QScreen> screen;
+        QFont font;
         QString shownText, word, all;
         QStringList shownValues;
-        qulonglong capability = 0, lease = 0;
+        qulonglong identity = 0, capability = 0, lease = 0;
         bool armed = false;
+    };
+    struct PendingPresentation {
+        QDBusMessage request;
+        QString owner;
+        qulonglong registration = 0, clientId = 0;
+        bool active = false;
     };
     struct PendingEdit {
         QVariantMap confirmation;
@@ -97,6 +111,10 @@ private:
     void observeScope(const Target &target);
     QString scopeToken(const QString &field, qlonglong origin);
     bool ghostGeometry(const State &state, const QString &text, QRectF *viewport = nullptr) const;
+    bool choiceGeometry(const Presentation &presentation, const State &state) const;
+    bool currentPresentation(const Presentation &witness, const State &state) const;
+    void completePresentation(ChoiceWindow *window);
+    bool replyPresentation(const QVariantMap &result);
     bool matches(const State &state, const QVariantMap &offer) const;
     void revoke();
     void revoke(Presentation &presentation);
@@ -107,24 +125,33 @@ private:
     QString token(QObject *object);
     QString shortcut(const QString &action) const;
     bool feature(const QString &mode) const;
+    bool keyPress(const QKeyEvent &event);
 
     QtClientHooks hooks_;
     QDBusConnection bus_;
     QString busName_, owner_, path_;
     qulonglong clientId_ = 0, registration_ = 0, nextToken_ = 0;
     qulonglong revision_ = 1, userRevision_ = 1, notificationRevision_ = 0;
-    qulonglong nextCapability_ = 0, nextAcceptance_ = 0;
+    qulonglong nextPresentation_ = 0, nextCapability_ = 0, nextAcceptance_ = 0;
     QVariantMap policy_;
     State last_;
     Presentation ghost_, chooser_;
     Target observedTarget_, scopeTarget_;
     PendingEdit pending_;
+    PendingPresentation pendingPresentation_;
     qulonglong focusGeneration_ = 1;
     bool scopeKnown_ = false, resolvingPending_ = false, finalizingPending_ = false;
     QHash<QString, QString> scopeTokens_;
     QHash<QObject *, QString> tokens_;
     QHash<QObject *, bool> userPreedit_;
     const QEvent *ownEvent_ = nullptr;
+    struct OwnedKey {
+        int key = 0;
+        quint32 scan = 0, symbol = 0;
+    };
+    std::array<OwnedKey, 16> ownedKeys_{};
+    QPointer<QObject> keyTarget_;
+    QPointer<QWindow> keyWindow_;
     QTimer *expiry_, *policyExpiry_, *pendingTimer_;
     bool dispatching_ = false, editing_ = false, scheduled_ = false, querying_ = false, metadataQuery_ = false;
     bool connected_ = false;

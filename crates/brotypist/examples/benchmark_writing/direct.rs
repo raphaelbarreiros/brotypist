@@ -13,33 +13,35 @@ use brotypist::{
     writing,
 };
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{
     path::PathBuf,
     sync::atomic::{AtomicBool, Ordering},
     time::Instant,
 };
 
-const SEED_SCHEDULE: &str = "fnv1a64-base-round-case-v1";
-const BASE_SEED: u64 = u32::MAX as u64;
-
-// Stable across processes/platforms; never use Rust's randomized hashers.
-// Fixed-width little-endian fields precede the complete UTF-8 case ID.
-// This is the state BEFORE the native CPython-compatible per-call seed step.
-fn case_seed(base: u64, round: u64, case_id: &str) -> u64 {
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in base
-        .to_le_bytes()
-        .into_iter()
-        .chain(round.to_le_bytes())
-        .chain(case_id.bytes())
-    {
-        hash = (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3);
-    }
-    hash
-}
+// This is a hash input, never a native sampler seed. case_seed maps the
+// derived word away from the native random-seed sentinel before submission.
+pub const DEFAULT_SEED_ROOT: u32 = u32::MAX;
 
 fn ms(started: Instant) -> f64 {
     started.elapsed().as_secs_f64() * 1000.0
+}
+/// Map the reserved native random-seed sentinel to zero; all other words retain
+/// their value. This deterministic mapping deliberately has a collision at zero.
+fn exact_seed(word: u32) -> u32 {
+    word % u32::MAX
+}
+fn case_seed(root: u32, round: usize, case_id: &str) -> u32 {
+    let mut hash = Sha256::new();
+    hash.update(b"brotypist-paired-case-round-v2\0");
+    hash.update(root.to_le_bytes());
+    hash.update((round as u64).to_le_bytes());
+    hash.update(case_id.as_bytes());
+    let bytes = hash.finalize();
+    exact_seed(u32::from_le_bytes(
+        bytes[..4].try_into().expect("SHA-256 prefix"),
+    ))
 }
 fn options(case: &Case, max_words: u32) -> GenerationOptions {
     GenerationOptions {
@@ -65,11 +67,9 @@ fn stream_case(
     case: &Case,
     token_cap: u32,
     words: u32,
-    seed: u64,
 ) -> Result<Value> {
     let options = options(case, words);
     direct.reset_observations();
-    direct.reset_case_seed(seed);
     let cancel = AtomicBool::new(false);
     let started = Instant::now();
     let mut text = String::new();
@@ -98,7 +98,6 @@ fn stream_case(
         "assembled_draft":if case.kind == "completion" { Some(format!("{}{}{}", case.prefix, text, case.suffix)) } else { None },
         "reference_context_used":options.context, "reference_context_truncated_for_worker":false,
         "requested_limits":{"max_tokens":token_cap, "max_words":words},
-        "seed_schedule":{"version":SEED_SCHEDULE, "base_seed":BASE_SEED, "initial_native_seed_state":seed},
         "time_to_first_displayable_text_ms":first, "total_stream_ms":if error.is_none() { Some(elapsed) } else { None },
         "stream_observed_ms":elapsed, "stream_updates":updates, "error":error,
         "protocol_completed":execution.is_ok(), "measurement_path":"direct_native_provider",
@@ -159,7 +158,7 @@ pub fn run(request: &Value, emit: &mut dyn FnMut(Value) -> Result<()>) -> Result
     let model = PathBuf::from(request["model"].as_str().context("Missing direct model")?);
     let round = request["round_index"]
         .as_u64()
-        .context("Missing direct round")?;
+        .context("Missing direct round")? as usize;
     let token_cap = u32::try_from(
         request["max_tokens"]
             .as_u64()
@@ -174,6 +173,20 @@ pub fn run(request: &Value, emit: &mut dyn FnMut(Value) -> Result<()>) -> Result
         (8..=256).contains(&token_cap) && (1..=32).contains(&words),
         "Invalid direct benchmark limits"
     );
+    let paired_seed = request
+        .get("paired_seed")
+        .filter(|seed| !seed.is_null())
+        .map(|seed| {
+            u32::try_from(seed.as_u64().context("Invalid paired seed")?)
+                .context("Paired seed exceeds u32")
+        })
+        .transpose()?;
+    let seed_root = paired_seed.unwrap_or(DEFAULT_SEED_ROOT);
+    let cold_kv = request
+        .get("cold_kv")
+        .map(|value| value.as_bool().context("Invalid cold-KV mode"))
+        .transpose()?
+        .unwrap_or(false);
     let mut config = Config {
         backend: "gguf".into(),
         model_path: model
@@ -215,14 +228,18 @@ pub fn run(request: &Value, emit: &mut dyn FnMut(Value) -> Result<()>) -> Result
         .filter(|case| requested.contains(&case.id))
         .collect();
     let mut report = json!({"round":round + 1, "model_path":model, "cases":[], "cancellation":[], "close":{"status":"not_started"},
-        "seed_schedule":{"version":SEED_SCHEDULE, "base_seed":BASE_SEED, "round_index":round,
-            "encoding":"FNV-1a-64 over base_seed u64 LE, round_index u64 LE, then UTF-8 case ID",
-            "application":"Reset native seed state before each case; native CPython-compatible step chooses each call's seed; retries advance only within the case",
-            "cache_policy":"Preserve warm native KV and framing across cases"},
         "measurement_path":"direct_native_provider", "config":{"backend":"gguf", "prompt_style":config.prompt_style,
             "max_tokens":token_cap, "diagnostic_token_cap":token_cap, "production_validated_max_tokens":config.max_tokens, "context_chars":config.context_chars,
             "acceleration":config.acceleration, "record_history":false, "record_unaccepted":false,
             "clipboard_context":false, "screen_context":false, "screenshot_context":false, "statistics_enabled":false}});
+    report["comparison"] = json!({
+        "seed_mode":if paired_seed.is_some() {"paired_case_round_v2"} else {"default_case_round_v2"},
+        "paired_seed":paired_seed, "seed_root":seed_root,
+        "kv_mode":if cold_kv {"cold_each_case"} else {"retained_owner"},
+        "model_owner":"fresh per round; retained across cases",
+        "os_cache":"not cleared or controlled",
+        "cancellation_probes":"ordinary recurrence; not controlled semantic pairs"
+    });
     emit(json!({"phase":"prepare"}))?;
     let started = Instant::now();
     let mut direct =
@@ -240,12 +257,17 @@ pub fn run(request: &Value, emit: &mut dyn FnMut(Value) -> Result<()>) -> Result
     let execution = (|| -> Result<()> {
         report["model"] = native_details::model_details(&model, &direct)?;
         emit(
-            json!({"prepared":{"model":report["model"], "config":report["config"], "seed_schedule":report["seed_schedule"], "cold_prepare_ms":report["cold_prepare_ms"]}}),
+            json!({"prepared":{"model":report["model"], "config":report["config"], "cold_prepare_ms":report["cold_prepare_ms"]}}),
         )?;
-        let offset = (round % cases.len() as u64) as usize;
+        let offset = round % cases.len();
         for case in cases[offset..].iter().chain(cases[..offset].iter()) {
             emit(json!({"phase":"case", "case":case.id}))?;
-            let row = stream_case(
+            if cold_kv {
+                direct.clear_cache();
+            }
+            let seed = case_seed(seed_root, round, &case.id);
+            direct.set_next_seed(seed)?;
+            let mut row = stream_case(
                 &mut direct,
                 case,
                 if case.kind == "completion" {
@@ -254,8 +276,28 @@ pub fn run(request: &Value, emit: &mut dyn FnMut(Value) -> Result<()>) -> Result
                     128
                 },
                 words,
-                case_seed(BASE_SEED, round, &case.id),
             )?;
+            row["comparison"] = json!({
+                "requested_first_seed":seed, "seed_root":seed_root,
+                "seed_derivation":"SHA-256(brotypist-paired-case-round-v2\\0 || root-u32-LE || round-index-u64-LE || case-ID-UTF8), first-u32-LE modulo 4294967295 (reserved MAX maps to zero)",
+                "seed_mode":if paired_seed.is_some() {"paired_case_round_v2"} else {"default_case_round_v2"},
+                "kv_mode":if cold_kv {"cold_each_case"} else {"retained_owner"},
+                "model_owner_reopened":false,
+                "os_cache_cleared":false
+            });
+            let observed_seed = row["native_calls"]
+                .as_array()
+                .and_then(|calls| calls.first())
+                .and_then(|call| call["sampler_seed"].as_u64());
+            row["comparison"]["observed_first_seed"] = json!(observed_seed);
+            row["comparison"]["seed_match"] =
+                json!(observed_seed.map(|observed| observed == u64::from(seed)));
+            // Missing sampler evidence stays unknown (e.g. safe no-offer). A
+            // mismatched observed sampler must never be labeled a controlled pair.
+            let mismatch = observed_seed.is_some_and(|observed| u64::from(seed) != observed);
+            if mismatch {
+                row["error"] = json!("Observed first sampler seed differs from controlled request");
+            }
             let failed = !row["error"].is_null();
             emit(json!({"case_result":row}))?;
             report["cases"].as_array_mut().expect("cases").push(row);
@@ -287,35 +329,54 @@ pub fn run(request: &Value, emit: &mut dyn FnMut(Value) -> Result<()>) -> Result
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod seed_tests {
+    use super::{case_seed, exact_seed};
 
     #[test]
-    fn case_seeds_are_independent_of_selection_and_order() {
-        let all = ["completion-en", "alternatives-pt", "completion-日本語"];
-        let selected = ["completion-日本語", "completion-en"];
-        for id in selected {
-            let original = all
-                .iter()
-                .map(|id| (*id, case_seed(BASE_SEED, 2, id)))
-                .find(|(candidate, _)| *candidate == id)
-                .unwrap()
-                .1;
-            assert_eq!(case_seed(BASE_SEED, 2, id), original);
-        }
+    fn reserved_random_seed_is_mapped_to_an_exact_seed() {
+        // Boundary words are supplied directly, rather than hoping a hash
+        // fixture happens to exercise the one-in-2^32 reserved value.
+        assert_eq!(exact_seed(0xffff_ffff), 0);
+        assert_eq!(exact_seed(0xffff_fffe), 0xffff_fffe);
+        assert_eq!(exact_seed(0), 0);
+        assert_eq!(exact_seed(1), 1);
     }
 
     #[test]
-    fn seed_schedule_distinguishes_base_round_and_complete_case_id() {
-        let seed = case_seed(BASE_SEED, 0, "case");
-        assert_ne!(seed, case_seed(BASE_SEED - 1, 0, "case"));
-        assert_ne!(seed, case_seed(BASE_SEED, 1, "case"));
-        assert_ne!(seed, case_seed(BASE_SEED, 1 << 32, "case"));
-        assert_ne!(seed, case_seed(BASE_SEED, 0, "case-other"));
+    fn paired_seeds_follow_case_identity_not_execution_order() {
+        let forward =
+            ["completion", "alternatives", "synonyms"].map(|id| (id, case_seed(42, 2, id)));
+        for id in ["synonyms", "completion", "alternatives"] {
+            assert_eq!(
+                case_seed(42, 2, id),
+                forward.iter().find(|(case, _)| *case == id).unwrap().1
+            );
+        }
         assert_ne!(
-            case_seed(BASE_SEED, 0, "日本語-a"),
-            case_seed(BASE_SEED, 0, "日本語-b")
+            case_seed(42, 2, "completion"),
+            case_seed(42, 3, "completion")
         );
-        assert_ne!(case_seed(BASE_SEED, 1, "23"), case_seed(BASE_SEED, 12, "3"));
+        assert_ne!(
+            case_seed(42, 2, "completion"),
+            case_seed(43, 2, "completion")
+        );
+        assert_ne!(
+            case_seed(42, 2, "completion"),
+            case_seed(42, 2, "alternatives")
+        );
+        if let Ok(round) = usize::try_from(1u64 << 32) {
+            assert_ne!(case_seed(42, 0, "case"), case_seed(42, round, "case"));
+        }
+        assert_ne!(case_seed(42, 0, "日本語-a"), case_seed(42, 0, "日本語-b"));
+        assert_ne!(case_seed(42, 1, "23"), case_seed(42, 12, "3"));
+    }
+
+    #[test]
+    fn default_root_is_hashed_and_never_requests_native_entropy() {
+        for id in ["completion", "alternatives", "completion-日本語"] {
+            let seed = case_seed(super::DEFAULT_SEED_ROOT, 0, id);
+            assert_ne!(seed, u32::MAX);
+            assert_ne!(seed, case_seed(42, 0, id));
+        }
     }
 }

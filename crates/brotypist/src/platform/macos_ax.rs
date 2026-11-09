@@ -112,6 +112,7 @@ pub mod ffi {
         pub fn CGEventCreateKeyboardEvent(source: Native, code: u16, down: bool) -> Native;
         pub fn CGEventKeyboardSetUnicodeString(event: Native, length: usize, text: *const u16);
         pub fn CGEventPost(location: u32, event: Native);
+        pub fn CGEventPostToPid(pid: i32, event: Native);
         pub fn CGEventSourceFlagsState(state: i32) -> u64;
         pub fn CGPreflightPostEventAccess() -> bool;
         pub fn CGRequestListenEventAccess() -> bool;
@@ -172,6 +173,7 @@ unsafe extern "C" {
     fn CFStringGetLength(value: Raw) -> isize;
     fn CFStringGetCharacters(value: Raw, range: CfRange, buffer: *mut u16);
     fn CFBooleanGetTypeID() -> usize;
+    fn CFNullGetTypeID() -> usize;
     fn CFBooleanGetValue(value: Raw) -> u8;
     fn CFNumberGetTypeID() -> usize;
     fn CFNumberGetValue(value: Raw, kind: isize, output: *mut c_void) -> u8;
@@ -181,6 +183,7 @@ unsafe extern "C" {
     fn CFArrayGetTypeID() -> usize;
     fn CFArrayGetCount(value: Raw) -> isize;
     fn CFArrayGetValueAtIndex(value: Raw, index: isize) -> Raw;
+    fn CFArrayCreate(allocator: Raw, values: *const Raw, count: isize, callbacks: Raw) -> Raw;
     fn CFDictionaryGetTypeID() -> usize;
     fn CFDictionaryGetValue(dictionary: Raw, key: Raw) -> Raw;
     fn CFDictionaryCreate(
@@ -211,6 +214,12 @@ unsafe extern "C" {
     fn AXUIElementCreateSystemWide() -> Raw;
     fn AXUIElementGetPid(element: Raw, pid: *mut i32) -> i32;
     fn AXUIElementCopyAttributeValue(element: Raw, name: Raw, result: *mut Raw) -> i32;
+    fn AXUIElementCopyMultipleAttributeValues(
+        element: Raw,
+        names: Raw,
+        options: u32,
+        result: *mut Raw,
+    ) -> i32;
     fn AXUIElementCopyParameterizedAttributeValue(
         element: Raw,
         name: Raw,
@@ -437,6 +446,68 @@ impl AxValue {
         unsafe { Self::from_owned(AXValueCreate(4, (&native as *const CfRange).cast())) }
     }
 }
+
+// Only immutable attribute names live in TLS. Host geometry reuse, when enabled,
+// belongs to an explicit capture pass; `frame` itself always reads afresh.
+struct FrameAttributes {
+    array: AxValue,
+    // The array has no callbacks and borrows these names; it drops first.
+    _names: [AxValue; 2],
+}
+impl FrameAttributes {
+    fn new() -> Option<Self> {
+        let names = [AxValue::string("AXPosition")?, AxValue::string("AXSize")?];
+        let raw = names.each_ref().map(AxValue::as_raw);
+        let array = unsafe {
+            AxValue::from_owned(CFArrayCreate(
+                std::ptr::null(),
+                raw.as_ptr(),
+                2,
+                std::ptr::null(),
+            ))
+        }?;
+        Some(Self {
+            array,
+            _names: names,
+        })
+    }
+}
+thread_local! {
+    static FRAME_ATTRIBUTES: Option<FrameAttributes> = FrameAttributes::new();
+}
+
+fn frame_attribute_pair(value: &AxValue) -> Option<[AxValue; 2]> {
+    if !value.is_type(CFArrayGetTypeID) || unsafe { CFArrayGetCount(value.as_raw()) } != 2 {
+        return None;
+    }
+    let position = unsafe { AxValue::from_borrowed(CFArrayGetValueAtIndex(value.as_raw(), 0)) }?;
+    let size = unsafe { AxValue::from_borrowed(CFArrayGetValueAtIndex(value.as_raw(), 1)) }?;
+    // Individual errors/nulls may be returned even when the grouped call succeeded.
+    if position.is_type(CFNullGetTypeID)
+        || size.is_type(CFNullGetTypeID)
+        || position.native_value::<i32>(5).is_some()
+        || size.native_value::<i32>(5).is_some()
+    {
+        return None;
+    }
+    Some([position, size])
+}
+
+fn frame_from_reads(
+    grouped: impl FnOnce() -> Option<[AxValue; 2]>,
+    mut single: impl FnMut(&str) -> Option<AxValue>,
+) -> Option<Rect> {
+    let [position, size] = match grouped() {
+        Some(values) => values,
+        // Retry the entire pair, never combine a grouped position with a
+        // later size. Unsupported hosts retain their existing safe reads.
+        None => [single("AXPosition")?, single("AXSize")?],
+    };
+    let point = position.as_point()?;
+    let size = size.as_size()?;
+    let rect = [point[0], point[1], size[0], size[1]];
+    (rect.iter().all(|x| x.is_finite()) && rect[2] > 0. && rect[3] > 0.).then_some(rect)
+}
 #[derive(Clone, Debug)]
 pub struct AxElement(AxValue);
 impl PartialEq for AxElement {
@@ -466,8 +537,12 @@ impl AxElement {
         (unsafe { AXUIElementGetPid(self.as_raw(), &mut pid) } == 0 && pid > 0).then_some(pid)
     }
     pub fn attribute(&self, name: &str) -> Result<Option<AxValue>, AxError> {
+        self.attribute_counted(name, &|| {})
+    }
+    fn attribute_counted(&self, name: &str, call: &impl Fn()) -> Result<Option<AxValue>, AxError> {
         let name = AxValue::string(name).ok_or(AxError(-25200))?;
         let mut value = std::ptr::null();
+        call();
         let error =
             unsafe { AXUIElementCopyAttributeValue(self.as_raw(), name.as_raw(), &mut value) };
         if error == 0 {
@@ -499,10 +574,34 @@ impl AxElement {
         self.attribute("AXChildren").ok()??.as_elements()
     }
     pub fn frame(&self) -> Option<Rect> {
-        let point = self.attribute("AXPosition").ok()??.as_point()?;
-        let size = self.attribute("AXSize").ok()??.as_size()?;
-        let rect = [point[0], point[1], size[0], size[1]];
-        (rect.iter().all(|x| x.is_finite()) && rect[2] > 0. && rect[3] > 0.).then_some(rect)
+        self.frame_counted(&|| {})
+    }
+    pub(super) fn frame_counted(&self, call: &impl Fn()) -> Option<Rect> {
+        frame_from_reads(
+            || {
+                FRAME_ATTRIBUTES.with(|names| {
+                    let names = names.as_ref()?;
+                    let mut raw = std::ptr::null();
+                    // Grouping reduces IPC; it is not an atomic snapshot or a
+                    // freshness proof. All capture/readback fences still run.
+                    call();
+                    let error = unsafe {
+                        AXUIElementCopyMultipleAttributeValues(
+                            self.as_raw(),
+                            names.array.as_raw(),
+                            0,
+                            &mut raw,
+                        )
+                    };
+                    let values = unsafe { AxValue::from_owned(raw) };
+                    if error != 0 {
+                        return None;
+                    }
+                    frame_attribute_pair(&values?)
+                })
+            },
+            |name| self.attribute_counted(name, call).ok().flatten(),
+        )
     }
     pub fn settable(&self, name: &str) -> bool {
         let Some(name) = AxValue::string(name) else {
@@ -736,13 +835,55 @@ const NOTIFICATIONS: &[&str] = &[
     "AXSelectedTextChanged",
     "AXWindowMoved",
     "AXWindowResized",
+    "AXUIElementDestroyed",
+    "AXLayoutChanged",
+    "AXMoved",
+    "AXResized",
 ];
 struct NotificationContext {
     callback: Box<dyn Fn(&str, u64)>,
 }
+struct NotificationRegistration {
+    element: AxElement,
+    names: Vec<AxValue>,
+}
+impl NotificationRegistration {
+    fn new(observer: &AxValue, element: AxElement, context: &mut NotificationContext) -> Self {
+        let names = NOTIFICATIONS
+            .iter()
+            .filter_map(|name| {
+                let native = AxValue::string(name)?;
+                let code = unsafe {
+                    AXObserverAddNotification(
+                        observer.as_raw(),
+                        element.as_raw(),
+                        native.as_raw(),
+                        (context as *mut NotificationContext).cast(),
+                    )
+                };
+                // Unsupported notifications are not registrations or freshness
+                // evidence. The caller must retain defensive polling.
+                (code == 0).then_some(native)
+            })
+            .collect();
+        Self { element, names }
+    }
+    fn remove(&self, observer: &AxValue) {
+        for name in &self.names {
+            unsafe {
+                AXObserverRemoveNotification(
+                    observer.as_raw(),
+                    self.element.as_raw(),
+                    name.as_raw(),
+                )
+            };
+        }
+    }
+}
 pub struct AxObservation {
     observer: AxValue,
-    app: AxElement,
+    app: NotificationRegistration,
+    targets: Vec<NotificationRegistration>,
     runloop: ffi::RunLoopRef,
     context: Box<NotificationContext>,
 }
@@ -773,17 +914,7 @@ impl AxObservation {
         }
         let observer = unsafe { AxValue::from_owned(raw) }.ok_or(AxError(-25200))?;
         let runloop = unsafe { CFRunLoopGetCurrent() };
-        for name in NOTIFICATIONS {
-            let native = AxValue::string(name).ok_or(AxError(-25200))?;
-            unsafe {
-                AXObserverAddNotification(
-                    observer.as_raw(),
-                    app.as_raw(),
-                    native.as_raw(),
-                    (&mut *context as *mut NotificationContext).cast(),
-                )
-            };
-        }
+        let app = NotificationRegistration::new(&observer, app, &mut context);
         unsafe {
             CFRunLoopAddSource(
                 runloop,
@@ -794,9 +925,39 @@ impl AxObservation {
         Ok(Self {
             observer,
             app,
+            targets: Vec::new(),
             runloop,
             context,
         })
+    }
+    /// Subscriptions only wake defensive capture. Their absence or delivery
+    /// never authorizes reusing text, security proof, geometry or authority.
+    pub fn update_targets(&mut self, field: &AxElement, window: Option<&AxElement>) {
+        let targets = [
+            (field != &self.app.element).then_some(field),
+            window.filter(|window| *window != field && *window != &self.app.element),
+        ]
+        .into_iter()
+        .flatten();
+        if self.targets.len() == targets.clone().count()
+            && self
+                .targets
+                .iter()
+                .zip(targets.clone())
+                .all(|(old, new)| &old.element == new)
+        {
+            return;
+        }
+        for old in self.targets.drain(..) {
+            old.remove(&self.observer);
+        }
+        for target in targets {
+            self.targets.push(NotificationRegistration::new(
+                &self.observer,
+                target.clone(),
+                &mut self.context,
+            ));
+        }
     }
 }
 impl Drop for AxObservation {
@@ -809,17 +970,10 @@ impl Drop for AxObservation {
                 kCFRunLoopCommonModes,
             )
         };
-        for name in NOTIFICATIONS {
-            if let Some(native) = AxValue::string(name) {
-                unsafe {
-                    AXObserverRemoveNotification(
-                        self.observer.as_raw(),
-                        self.app.as_raw(),
-                        native.as_raw(),
-                    )
-                };
-            }
+        for target in &self.targets {
+            target.remove(&self.observer);
         }
+        self.app.remove(&self.observer);
         let _ = &self.context;
     }
 }
@@ -916,5 +1070,225 @@ mod tests {
             assert_eq!(value.as_range(), None);
             assert_eq!(value.as_bool(), None);
         }
+    }
+}
+
+#[cfg(test)]
+mod acquisition_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    fn point(x: f64, y: f64) -> AxValue {
+        let value = Point { x, y };
+        unsafe { AxValue::from_owned(AXValueCreate(1, (&value as *const Point).cast())) }.unwrap()
+    }
+    fn size(width: f64, height: f64) -> AxValue {
+        let value = Size { width, height };
+        unsafe { AxValue::from_owned(AXValueCreate(2, (&value as *const Size).cast())) }.unwrap()
+    }
+    fn array(values: &[AxValue]) -> AxValue {
+        let raw: Vec<_> = values.iter().map(AxValue::as_raw).collect();
+        // Callers keep `values` alive throughout use of this borrowed array.
+        unsafe {
+            AxValue::from_owned(CFArrayCreate(
+                std::ptr::null(),
+                raw.as_ptr(),
+                raw.len() as isize,
+                std::ptr::null(),
+            ))
+        }
+        .unwrap()
+    }
+
+    #[test]
+    fn grouped_frame_reads_once_per_call_and_never_reuses_geometry() {
+        let calls = Cell::new(0);
+        for x in [10.0, 20.0] {
+            assert_eq!(
+                frame_from_reads(
+                    || {
+                        calls.set(calls.get() + 1);
+                        Some([point(x, 30.0), size(100.0, 40.0)])
+                    },
+                    |_| panic!("grouped frame must not issue individual reads"),
+                ),
+                Some([x, 30.0, 100.0, 40.0]),
+            );
+        }
+        assert_eq!(calls.get(), 2);
+    }
+
+    #[test]
+    fn unsupported_group_retries_only_position_and_size_in_order() {
+        let mut reads = Vec::new();
+        assert_eq!(
+            frame_from_reads(
+                || None,
+                |name| {
+                    reads.push(name.to_owned());
+                    match name {
+                        "AXPosition" => Some(point(7.0, 8.0)),
+                        "AXSize" => Some(size(9.0, 10.0)),
+                        _ => panic!("protected or unrelated attribute requested"),
+                    }
+                },
+            ),
+            Some([7.0, 8.0, 9.0, 10.0]),
+        );
+        assert_eq!(reads, ["AXPosition", "AXSize"]);
+        let mut reads = 0;
+        assert_eq!(
+            frame_from_reads(
+                || None,
+                |_| {
+                    reads += 1;
+                    None
+                }
+            ),
+            None
+        );
+        assert_eq!(reads, 1, "missing position retains old short-circuit");
+    }
+
+    #[test]
+    fn partial_group_errors_never_supply_half_a_frame() {
+        let error = -25205i32;
+        let error = unsafe { AxValue::from_owned(AXValueCreate(5, (&error as *const i32).cast())) }
+            .unwrap();
+        let values = [point(999.0, 999.0), error];
+        let grouped = array(&values);
+        assert!(frame_attribute_pair(&grouped).is_none());
+        assert_eq!(
+            frame_from_reads(
+                || frame_attribute_pair(&grouped),
+                |name| match name {
+                    "AXPosition" => Some(point(1.0, 2.0)),
+                    "AXSize" => Some(size(3.0, 4.0)),
+                    _ => unreachable!(),
+                },
+            ),
+            Some([1.0, 2.0, 3.0, 4.0]),
+        );
+        assert!(frame_attribute_pair(&array(&values[..1])).is_none());
+        assert!(frame_attribute_pair(&AxValue::string("not an array").unwrap()).is_none());
+        unsafe extern "C" {
+            static kCFNull: Raw;
+        }
+        let null = unsafe { AxValue::from_borrowed(kCFNull) }.unwrap();
+        let missing = [point(999.0, 999.0), null];
+        assert!(frame_attribute_pair(&array(&missing)).is_none());
+    }
+
+    #[test]
+    fn pass_reuse_never_admits_partial_group_or_failed_fallback() {
+        let mut pass = super::super::geometry::FrameReads::new(1, true);
+        let error = -25205i32;
+        let error = unsafe { AxValue::from_owned(AXValueCreate(5, (&error as *const i32).cast())) }
+            .unwrap();
+        let values = [point(999., 999.), error];
+        let grouped = array(&values);
+        let calls = Cell::new(0);
+        let acquire = |size_available| {
+            frame_from_reads(
+                || {
+                    calls.set(calls.get() + 1);
+                    frame_attribute_pair(&grouped)
+                },
+                |name| {
+                    calls.set(calls.get() + 1);
+                    match name {
+                        "AXPosition" => Some(point(1., 2.)),
+                        "AXSize" if size_available => Some(size(3., 4.)),
+                        "AXSize" => None,
+                        _ => panic!("unexpected attribute"),
+                    }
+                },
+            )
+        };
+        assert_eq!(pass.read(&1, &1, || acquire(false), || true), None);
+        assert_eq!(calls.get(), 3);
+        assert_eq!(
+            pass.read(&1, &1, || acquire(true), || true),
+            Some([1., 2., 3., 4.])
+        );
+        assert_eq!(calls.get(), 6, "failed reads are never negative-cached");
+        assert_eq!(
+            pass.read(&1, &1, || panic!("whole-pair hit"), || true),
+            Some([1., 2., 3., 4.])
+        );
+        // A malformed present pair invalidates all earlier entries as well.
+        assert_eq!(
+            pass.read(
+                &1,
+                &2,
+                || frame_from_reads(
+                    || Some([point(f64::NAN, 0.), size(3., 4.)]),
+                    |_| panic!("malformed present pair does not fallback"),
+                ),
+                || true
+            ),
+            None
+        );
+        assert_eq!(
+            pass.read(&1, &1, || acquire(true), || true),
+            Some([1., 2., 3., 4.])
+        );
+        assert_eq!(calls.get(), 9);
+    }
+
+    #[test]
+    fn malformed_group_geometry_is_unavailable_without_invented_defaults() {
+        for values in [
+            [point(f64::NAN, 0.0), size(10.0, 10.0)],
+            [point(0.0, 0.0), size(0.0, 10.0)],
+            [point(0.0, 0.0), size(10.0, -1.0)],
+            [AxValue::string("not a point").unwrap(), size(10.0, 10.0)],
+        ] {
+            assert_eq!(
+                frame_from_reads(|| Some(values), |_| panic!("malformed present geometry")),
+                None,
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod frame_name_tests {
+    use super::*;
+
+    #[test]
+    fn reusable_frame_request_contains_no_content_or_authorization_attributes() {
+        FRAME_ATTRIBUTES.with(|request| {
+            let request = request.as_ref().unwrap();
+            assert_eq!(
+                request.array.as_strings().unwrap(),
+                ["AXPosition", "AXSize"],
+            );
+        });
+        let position = Point { x: -20.0, y: 3.0 };
+        let size = Size {
+            width: 50.0,
+            height: 60.0,
+        };
+        let values = [
+            unsafe { AxValue::from_owned(AXValueCreate(1, (&position as *const Point).cast())) }
+                .unwrap(),
+            unsafe { AxValue::from_owned(AXValueCreate(2, (&size as *const Size).cast())) }
+                .unwrap(),
+        ];
+        let raw = values.each_ref().map(AxValue::as_raw);
+        let array = unsafe {
+            AxValue::from_owned(CFArrayCreate(
+                std::ptr::null(),
+                raw.as_ptr(),
+                2,
+                std::ptr::null(),
+            ))
+        }
+        .unwrap();
+        assert_eq!(
+            frame_from_reads(|| frame_attribute_pair(&array), |_| unreachable!()),
+            Some([-20.0, 3.0, 50.0, 60.0]),
+        );
     }
 }

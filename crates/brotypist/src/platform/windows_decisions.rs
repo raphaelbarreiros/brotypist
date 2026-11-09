@@ -1,4 +1,6 @@
 //! Pure decisions shared with the Win32/UIA boundary; no operating-system calls.
+//! Compiled on every test target; native Win32/UIA integration remains Windows-only.
+use super::{Action, policy::ObservationPolicy};
 use crate::core::{ScalarIndex, Snapshot};
 
 pub(super) const MAX_TEXT: usize = 1_000_000;
@@ -12,12 +14,12 @@ pub(super) struct Modifiers {
     pub right_alt: bool,
 }
 pub(super) fn shortcut_action(
-    policy: &super::ObservationPolicy,
+    policy: &ObservationPolicy,
     key: PhysicalKey,
     flags: u32,
     modifiers: Modifiers,
     app: &str,
-) -> Option<super::super::Action> {
+) -> Option<Action> {
     if flags & 0x12 != 0
         || (modifiers.right_alt && modifiers.ctrl)
         || (key.vk == 9 && modifiers.alt)
@@ -61,6 +63,26 @@ pub(super) fn readable_element(
         && !offscreen
         && process == expected_process
         && matches!(control, 50004 | 50030)
+}
+
+/// Native Edit can select a checked range; generic UIA can only replace the
+/// existing selection. A collapsed UIA caret still permits ordinary insertion.
+pub(super) fn replacement_capability(native_edit: bool, selection_length: usize) -> bool {
+    native_edit || selection_length != 0
+}
+
+/// Revalidate the captured target before any effect. Generic UIA Character
+/// units cannot authorize moving the selection to an arbitrary scalar range.
+pub(super) fn replacement_matches_capture(
+    before: &Snapshot,
+    current: &Snapshot,
+    native_edit: bool,
+    start: usize,
+    length: usize,
+) -> bool {
+    current.same_key(before)
+        && current.same_authority(before)
+        && (native_edit || (start, length) == (current.caret, current.selection_length))
 }
 
 pub(super) fn replacement_units(
@@ -268,13 +290,12 @@ mod tests {
     }
     #[test]
     fn actual_hook_decision_preserves_altgr_injection_os_switching_and_exact_modifiers() {
-        use super::super::super::Action;
         let mut config = crate::config::Config::default();
         config
             .shortcuts
             .insert("force".into(), "Ctrl+AboveTab".into());
         config.shortcuts.insert("word".into(), "Alt+Tab".into());
-        let policy = super::super::ObservationPolicy::new(&config).unwrap();
+        let policy = ObservationPolicy::new(&config).unwrap();
         let key = PhysicalKey {
             vk: 0xc0,
             scan: 41,
@@ -338,6 +359,104 @@ mod tests {
         assert!(!readable_element(false, true, true, false, 42, 42, 50020));
     }
     #[test]
+    fn replacement_capability_requires_native_edit_or_existing_selection() {
+        assert!(!replacement_capability(false, 0));
+        assert!(replacement_capability(false, 4));
+        assert!(replacement_capability(true, 0));
+        assert!(replacement_capability(true, 4));
+    }
+    #[test]
+    fn collapsed_generic_uia_refuses_rewrites_but_preserves_caret_insertion() {
+        let mut before = snapshot("a😀:-)", 5);
+        before.can_replace = replacement_capability(false, before.selection_length);
+        assert!(!before.can_replace);
+        assert!(!replacement_matches_capture(&before, &before, false, 2, 3));
+        assert!(!replacement_matches_capture(&before, &before, false, 0, 5));
+        assert!(replacement_matches_capture(&before, &before, false, 5, 0));
+    }
+    #[test]
+    fn generic_uia_preserves_only_exact_existing_selection_replacement() {
+        let mut before = snapshot("a😀word!", 2);
+        before.selection_length = 4;
+        before.can_replace = replacement_capability(false, before.selection_length);
+        assert!(before.can_replace);
+        assert!(replacement_matches_capture(&before, &before, false, 2, 4));
+        assert!(!replacement_matches_capture(&before, &before, false, 2, 3));
+        assert!(!replacement_matches_capture(&before, &before, false, 1, 4));
+        assert!(!replacement_matches_capture(&before, &before, false, 2, 0));
+        let mut after = snapshot("a😀term!", 6);
+        after.can_replace = replacement_capability(false, after.selection_length);
+        assert!(!after.can_replace);
+        assert_eq!(
+            classify_readback(&before, &after, 2, 4, "term"),
+            Readback::Applied
+        );
+    }
+    #[test]
+    fn native_edit_preserves_checked_suffix_and_selection_replacement() {
+        let mut before = snapshot("a😀:-)", 5);
+        before.can_replace = replacement_capability(true, before.selection_length);
+        assert!(replacement_matches_capture(&before, &before, true, 2, 3));
+        assert!(replacement_matches_capture(&before, &before, true, 5, 0));
+        before.caret = 2;
+        before.selection_length = 3;
+        assert!(replacement_matches_capture(&before, &before, true, 2, 3));
+        assert!(replacement_matches_capture(&before, &before, true, 0, 5));
+    }
+    #[test]
+    fn replacement_refuses_changed_selection_text_or_authority_before_effects() {
+        let mut before = snapshot("a😀word!", 2);
+        before.selection_length = 4;
+        for native_edit in [false, true] {
+            let mut current = before.clone();
+            current.caret = 1;
+            assert!(!replacement_matches_capture(
+                &before,
+                &current,
+                native_edit,
+                2,
+                4
+            ));
+            current = before.clone();
+            current.selection_length = 3;
+            assert!(!replacement_matches_capture(
+                &before,
+                &current,
+                native_edit,
+                2,
+                4
+            ));
+            current = before.clone();
+            current.selection_length = 0;
+            current.can_replace = replacement_capability(native_edit, 0);
+            assert!(!replacement_matches_capture(
+                &before,
+                &current,
+                native_edit,
+                2,
+                4
+            ));
+            current = before.clone();
+            current.text = "a😀term!".into();
+            assert!(!replacement_matches_capture(
+                &before,
+                &current,
+                native_edit,
+                2,
+                4
+            ));
+            current = before.clone();
+            current.window_id = "42:other".into();
+            assert!(!replacement_matches_capture(
+                &before,
+                &current,
+                native_edit,
+                2,
+                4
+            ));
+        }
+    }
+    #[test]
     fn native_replacement_offsets_are_checked_utf16_not_bytes_or_scalars() {
         let before = snapshot("a😀:-)", 5);
         assert_eq!(replacement_units(&before, 2, 3, "🙂"), Some((3, 6)));
@@ -397,6 +516,7 @@ mod tests {
             extended: false,
         };
         let mut pairs = ConsumedKeys::default();
+        assert!(pairs.has_capacity());
         assert!(pairs.press(key));
         assert!(pairs.press(key));
         assert!(pairs.contains(key));

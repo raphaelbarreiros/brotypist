@@ -3,6 +3,8 @@ use std::{cell::Cell, io::Read};
 pub(super) struct ModelWindow {
     pub window: gtk::Window,
     catalog: gtk::ComboBoxText,
+    #[cfg(feature = "native-smoke")]
+    description: gtk::Label,
     current: gtk::Label,
     status: gtk::Label,
     progress: gtk::ProgressBar,
@@ -13,6 +15,9 @@ pub(super) struct ModelWindow {
     inventory: Rc<RefCell<Vec<Value>>>,
     loading: Rc<Cell<bool>>,
     last_inventory: RefCell<Instant>,
+    selecting: Cell<bool>,
+    selection_message: RefCell<String>,
+    cancel_selection: gtk::Button,
 }
 pub(super) fn validate_import(path: &std::path::Path) -> Result<()> {
     anyhow::ensure!(path.is_file(), "Choose a regular local GGUF file.");
@@ -55,6 +60,23 @@ impl ModelWindow {
             false,
             0,
         );
+        let memory = crate::models::physical_memory_bytes();
+        let recommended = crate::models::recommended_preset(memory);
+        root.pack_start(
+            &label(&match memory {
+                Some(bytes) => format!(
+                    "Physical memory: {} · Catalog recommendation: {}. This is not a measured fit or capacity guarantee.",
+                    crate::models::ram_label(Some(bytes), ""), recommended.label
+                ),
+                None => format!(
+                    "Physical memory unavailable · Default recommendation: {}. Available capacity has not been measured.",
+                    recommended.label
+                ),
+            }),
+            false,
+            false,
+            0,
+        );
         let catalog = gtk::ComboBoxText::new();
         catalog.set_widget_name("available_local_models");
         root.pack_start(&catalog, false, false, 0);
@@ -81,6 +103,13 @@ impl ModelWindow {
         root.pack_start(&actions, false, false, 0);
         let import = gtk::Button::with_label("Choose GGUF…");
         root.pack_start(&import, false, false, 0);
+        let cancel_selection = button(
+            "Cancel model selection",
+            sender,
+            UiAction::CancelModelSelection,
+        );
+        cancel_selection.set_sensitive(false);
+        root.pack_start(&cancel_selection, false, false, 0);
         let reveal = gtk::Button::with_label("Reveal models folder");
         reveal.connect_clicked(|_| {
             if let Err(e) = system::reveal_models() {
@@ -104,8 +133,14 @@ impl ModelWindow {
                 .find(|m| m["id"].as_str() == id.as_deref())
             {
                 details.set_text(&format!(
-                    "{}\nLicense: {}{}",
+                    "{}\nCatalog minimum physical memory: {} (not measured consumption or a capacity guarantee)\nLicense: {}{}",
                     text(model, "description"),
+                    crate::models::ram_label(
+                        model["minimum_memory_bytes"]
+                            .as_u64()
+                            .filter(|bytes| *bytes > 0),
+                        "unavailable",
+                    ),
                     text(model, "license_name"),
                     if text(model, "availability").is_empty() {
                         String::new()
@@ -138,11 +173,11 @@ impl ModelWindow {
                 .find(|m| m["id"].as_str() == id.as_deref())
                 .filter(|m| m["installed"] == true && text(m, "availability").is_empty())
             {
-                let _ = tx.send(UiAction::Command(Command::SetModel {
+                let _ = tx.send(UiAction::SelectModel {
                     path: text(m, "path"),
                     prompt_style: text(m, "prompt_style"),
                     model_id: Some(text(m, "id")),
-                }));
+                });
             }
         });
         let tx = sender.clone();
@@ -170,11 +205,11 @@ impl ModelWindow {
                             .context("The model filename must be valid UTF-8.")
                     }) {
                         Ok(path) => {
-                            let _ = tx.send(UiAction::Command(Command::SetModel {
+                            let _ = tx.send(UiAction::SelectModel {
                                 path,
                                 prompt_style: "continuation".into(),
                                 model_id: None,
-                            }));
+                            });
                         }
                         Err(e) => error(Some(&parent), e),
                     }
@@ -189,6 +224,8 @@ impl ModelWindow {
         Self {
             window,
             catalog,
+            #[cfg(feature = "native-smoke")]
+            description,
             current,
             status,
             progress,
@@ -199,12 +236,78 @@ impl ModelWindow {
             inventory,
             loading,
             last_inventory: RefCell::new(Instant::now() - Duration::from_secs(2)),
+            selecting: Cell::new(false),
+            selection_message: RefCell::new(String::new()),
+            cancel_selection,
         }
     }
     pub fn show(&self) {
         self.window.show_all();
         self.window.present();
         *self.last_inventory.borrow_mut() = Instant::now() - Duration::from_secs(2);
+    }
+    #[cfg(feature = "native-smoke")]
+    pub(super) fn smoke_catalog_ready(&self) -> bool {
+        !self.loading.get()
+            && !self.inventory.borrow().is_empty()
+            && self.catalog.active_id().is_some()
+    }
+    #[cfg(feature = "native-smoke")]
+    pub(super) fn smoke_select_catalog_memory(&self, specified: bool) -> Result<()> {
+        let id = self
+            .inventory
+            .borrow()
+            .iter()
+            .find(|model| {
+                model["minimum_memory_bytes"]
+                    .as_u64()
+                    .is_some_and(|bytes| (bytes > 0) == specified)
+            })
+            .and_then(|model| model["id"].as_str())
+            .map(str::to_owned)
+            .context("No catalogue entry for the requested memory-detail case")?;
+        anyhow::ensure!(
+            self.catalog.set_active_id(Some(&id)),
+            "Native catalogue picker did not select {id}"
+        );
+        Ok(())
+    }
+    #[cfg(feature = "native-smoke")]
+    pub(super) fn smoke_catalog_detail(&self) -> Result<Value> {
+        let id = self.catalog.active_id();
+        let inventory = self.inventory.borrow();
+        let model = inventory
+            .iter()
+            .find(|model| model["id"].as_str() == id.as_deref())
+            .context("Native catalogue selection has no inventory entry")?;
+        Ok(json!({
+            "catalog_entry":model,
+            "native_selected_id":id.as_deref(),
+            "detail_text":self.description.text().as_str(),
+            "license_url":self.description.tooltip_text().as_deref(),
+            "mapped":self.description.is_mapped(),
+            "width":self.description.allocated_width(),
+            "height":self.description.allocated_height(),
+            "download_enabled":self.download.is_sensitive(),
+            "use_installed_enabled":self.select.is_sensitive(),
+        }))
+    }
+    pub fn selection_pending(&self) {
+        self.selecting.set(true);
+        self.selection_message.replace(
+            "Verifying and preparing model; current selection remains unchanged until saved."
+                .into(),
+        );
+        self.select.set_sensitive(false);
+        self.import.set_sensitive(false);
+        self.cancel_selection.set_sensitive(true);
+        self.status.set_text(&self.selection_message.borrow());
+    }
+    pub fn selection_finished(&self, message: &str) {
+        self.selecting.set(false);
+        self.cancel_selection.set_sensitive(false);
+        self.selection_message.replace(message.into());
+        self.status.set_text(message);
     }
     pub fn refresh(&self, status: &Value, config: &Config) {
         if !self.window.is_visible() {
@@ -252,10 +355,13 @@ impl ModelWindow {
         let available = selected.is_some_and(|m| text(m, "availability").is_empty());
         self.download.set_sensitive(available && !active);
         self.select.set_sensitive(
-            available && !active && selected.is_some_and(|m| m["installed"] == true),
+            available
+                && !active
+                && !self.selecting.get()
+                && selected.is_some_and(|m| m["installed"] == true),
         );
         self.cancel.set_sensitive(active);
-        self.import.set_sensitive(!active);
+        self.import.set_sensitive(!active && !self.selecting.get());
         self.catalog.set_sensitive(!active);
         self.current.set_text(&format!(
             "Selected model: {}",
@@ -278,7 +384,10 @@ impl ModelWindow {
             self.progress.pulse();
         }
         let message = text(transfer, "error");
-        self.status.set_text(if !message.is_empty() {
+        let selection_message = self.selection_message.borrow();
+        self.status.set_text(if !selection_message.is_empty() {
+            &selection_message
+        } else if !message.is_empty() {
             &message
         } else if active {
             "Downloading; existing models are kept if cancelled."

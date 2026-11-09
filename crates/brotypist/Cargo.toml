@@ -25,6 +25,51 @@ name = "benchmark_writing"
 path = "examples/benchmark_writing.rs"
 required-features = ["native-smoke"]
 
+[[example]]
+name = "cache_reuse_smoke"
+path = "examples/cache_reuse_smoke.rs"
+required-features = ["native-smoke"]
+
+[[example]]
+name = "cache_schedule_smoke"
+path = "examples/cache_schedule_smoke.rs"
+required-features = ["native-smoke"]
+
+[[example]]
+name = "grammar_shortlist_smoke"
+path = "examples/grammar_shortlist_smoke.rs"
+required-features = ["native-smoke"]
+
+[[example]]
+name = "keystroke_projection"
+path = "examples/keystroke_projection.rs"
+required-features = ["native-smoke"]
+
+[[example]]
+name = "native_client_smoke"
+path = "examples/native_client_smoke.rs"
+required-features = ["native-smoke"]
+
+[[example]]
+name = "warm_prefix_smoke"
+path = "examples/warm_prefix_smoke.rs"
+required-features = ["native-smoke"]
+
+[[example]]
+name = "cache_policy_smoke"
+path = "examples/cache_policy_smoke.rs"
+required-features = ["native-smoke"]
+
+[[example]]
+name = "learning_bias_smoke"
+path = "examples/learning_bias_smoke.rs"
+required-features = ["native-smoke"]
+
+[[example]]
+name = "config_apply_smoke"
+path = "examples/config_apply_smoke.rs"
+required-features = ["native-smoke"]
+
 [features]
 native-smoke = ["dep:png"]
 
@@ -86,7 +131,8 @@ windows = { version = "0.62.2", features = ["Win32_System_SystemInformation", "W
 
 [target.'cfg(target_os = "linux")'.dependencies]
 dbus-secret-service = { version = "4.1", features = ["crypto-rust"] }
-dbus = { version = "0.9", features = ["vendored"] }
+# Share GTK/AT-SPI's system D-Bus; a vendored copy interposes native private symbols.
+dbus = "0.9"
 zbus = { version = "5", features = ["blocking-api"] }
 x11rb = "0.13"
 pango = "0.18.3"

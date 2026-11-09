@@ -1,7 +1,7 @@
 //! Complete retained AppKit settings. All service work is dispatched by the shell.
 use super::macos_settings_contract::{ReadValue, UiAction};
 use super::{Kit, Obj, add, frame, identify, obj, rect, set_string, string};
-use crate::config::Config;
+use crate::config::{Config, PreferenceOrigin, ScopedPreference};
 use anyhow::Result;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject};
@@ -9,6 +9,7 @@ use objc2::{msg_send, sel};
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 #[path = "macos_settings_panes.rs"]
 mod panes;
 use panes::{Chart, Form, Table};
@@ -86,6 +87,7 @@ pub(super) struct Settings {
     live: BTreeMap<String, Obj>,
     editors: BTreeMap<String, Instructions>,
     draft_text: BTreeMap<String, String>,
+    instruction_baselines: BTreeMap<String, String>,
     rule_table: Option<Table>,
     stats_table: Option<Table>,
     chart: Option<Chart>,
@@ -100,6 +102,10 @@ pub(super) struct Settings {
     statistics_snapshot: Value,
     statistics_metric: String,
     layout_dirty: std::cell::Cell<bool>,
+    pub(super) verification_operation: Option<crate::runtime::ConfigOperationId>,
+    pub(super) control_drafts: BTreeMap<String, Value>,
+    pub(super) rule_drafts: BTreeMap<String, BTreeMap<String, Option<Value>>>,
+    spelling_status: Option<(String, std::time::Instant, String)>,
     pub(super) model_selection: Option<String>,
     pub(super) selected_rule: String,
     pub(super) advanced: bool,
@@ -123,6 +129,7 @@ impl Settings {
             live: BTreeMap::new(),
             editors: BTreeMap::new(),
             draft_text: BTreeMap::new(),
+            instruction_baselines: BTreeMap::new(),
             rule_table: None,
             stats_table: None,
             chart: None,
@@ -136,6 +143,10 @@ impl Settings {
             config_values: Value::Null,
             statistics_snapshot: Value::Null,
             statistics_metric: String::new(),
+            verification_operation: None,
+            control_drafts: BTreeMap::new(),
+            rule_drafts: BTreeMap::new(),
+            spelling_status: None,
             layout_dirty: std::cell::Cell::new(true),
             model_selection: None,
             selected_rule: String::new(),
@@ -326,6 +337,9 @@ impl Settings {
         }
         self.remember_drafts();
         self.config_values = serde_json::to_value(config)?;
+        for (field, value) in &self.control_drafts {
+            self.config_values[field] = value.clone();
+        }
         self.statistics_snapshot = Value::Null;
         self.statistics_metric.clear();
         self.layout_dirty.set(true);
@@ -360,6 +374,12 @@ impl Settings {
         let mut form = Form::new(&self.kit);
         form.width = self.content_width();
         self.form = Some(form);
+        self.live_label(
+            "operationStatus",
+            "inklow.settings.operationStatus",
+            "",
+            30.,
+        );
         match self.current_pane.as_str() {
             "setup" => self.setup(config, status),
             "general" => self.general(config, status),
@@ -583,6 +603,12 @@ impl Settings {
     }
     pub(super) fn saved(&mut self, key: &str) {
         self.draft_text.remove(key);
+        if let Some(editor) = self.editors.get(key) {
+            self.instruction_baselines
+                .insert(key.into(), string(&editor.editor));
+        } else {
+            self.instruction_baselines.remove(key);
+        }
     }
     pub(super) fn set_power_card(&mut self, card: Obj) {
         if let Some(old) = self.power_card.replace(card.clone()) {
@@ -829,6 +855,13 @@ impl Settings {
         );
     }
     fn text(&mut self, field: &str, title: &str, detail: &str, value: &str, integer: bool) {
+        let retained = self.control_drafts.get(field).map(|value| {
+            value
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| value.to_string())
+        });
+        let value = retained.as_deref().unwrap_or(value);
         let view = self.kit.text(
             &format!("inklow.{}.{}", self.current_pane, field),
             title,
@@ -846,6 +879,10 @@ impl Settings {
         self.row(title, detail, Some(view));
     }
     fn instructions(&mut self, key: &str, saved: &str, rule: bool) {
+        if self.draft_text.get(key) == self.instruction_baselines.get(key) {
+            self.draft_text.remove(key);
+        }
+        self.instruction_baselines.insert(key.into(), saved.into());
         let scope = if rule { "rule" } else { "global" };
         let text = self
             .draft_text
@@ -1042,6 +1079,19 @@ impl Settings {
                 ("Long (~5–8 words)", "long"),
             ],
         );
+        self.section("Writing & Language");
+        self.text("writing_language", "Default writing language",
+            "Use auto to follow the surrounding writing. Or enter a language tag such as en, pt-BR or fr. A different language in your draft takes priority. Press Return to save.",
+            &c.writing_language, false);
+        self.text("spelling_language", "Regional spelling",
+            "Use auto for detected language and available preferred macOS dictionaries. Or enter an exact dictionary tag, such as en-GB or pt-BR. No other region is substituted. Press Return to save.",
+            &c.spelling_language, false);
+        self.live_label(
+            "spellingAvailability",
+            "inklow.general.spellingAvailability",
+            "",
+            44.,
+        );
         self.section("Autocorrect");
         self.toggle(
             c,
@@ -1064,8 +1114,13 @@ impl Settings {
                 self.row(
                     &format!("Recommended: {}", text(recommended, "label")),
                     &format!(
-                        "{} · Chosen for this Mac’s memory. Downloads require approval.",
-                        gb(recommended["size_bytes"].as_f64().unwrap_or(0.))
+                        "{} download · {} Downloads require approval.",
+                        gb(recommended["size_bytes"].as_f64().unwrap_or(0.)),
+                        if crate::models::physical_memory_bytes().is_some() {
+                            "Catalog recommendation based on this Mac’s physical memory; not a measured fit."
+                        } else {
+                            "Physical memory is unknown; showing the default recommendation, not a measured fit."
+                        }
                     ),
                     None,
                 );
@@ -1075,8 +1130,15 @@ impl Settings {
                 options.push((model_title(model), model["id"].clone()));
             }
             let selected = selected_model_id(c, self.model_selection.as_deref(), inventory);
-            self.choice("model_preset","Choose a model","✓ installed · ↓ download required. Installed selections are used immediately; other choices await approval.",options,json!(selected),UiAction::ModelSelect(String::new()),false);
+            self.choice("model_preset","Choose a model","✓ installed · ↓ download required. Installed selections are verified and prepared before saving; other choices await download approval.",options,json!(selected),UiAction::ModelSelect(String::new()),false);
             self.live_label("modelDescription", "inklow.models.description", "", 80.);
+            self.action_row(
+                "Selected model license",
+                "Review the publisher’s terms before downloading or using a model.",
+                "View License…",
+                "inklow.models.license",
+                UiAction::Url(String::new()),
+            );
             let download = self.button(
                 "Download Model",
                 "inklow.models.download",
@@ -1105,6 +1167,30 @@ impl Settings {
         }
         self.section("Current Model");
         self.live_label("currentModel", "inklow.models.currentModel", "", 60.);
+        self.live_label("modelVerification", "inklow.models.verification", "", 44.);
+        if c.backend == "gguf" {
+            self.note("Download size and minimum physical memory are catalog metadata, not measured model memory, current free memory or a capacity guarantee. Template preparation verifies this configuration; it is not a language-quality or speed benchmark.");
+        } else {
+            self.note("Saving local server settings does not check server availability or generation quality. Availability remains unverified.");
+        }
+        let cancel_verification = self.button(
+            "Cancel Verification",
+            "inklow.models.cancelVerification",
+            UiAction::ModelCancel,
+        );
+        hide(&cancel_verification, true);
+        self.form
+            .as_mut()
+            .unwrap()
+            .actions(&self.kit, vec![cancel_verification]);
+        let verification_progress = self.kit.progress(
+            "inklow.models.verificationProgress",
+            rect(0., 0., 550., 16.),
+        );
+        hide(&verification_progress, true);
+        self.live
+            .insert("verificationProgress".into(), verification_progress.clone());
+        self.custom(verification_progress, 16.);
         self.action_row(
             "Model files",
             "Models stay on this Mac.",
@@ -1135,11 +1221,17 @@ impl Settings {
         );
         self.row(
             "Advanced model settings",
-            "Backend, file diagnostics, acceleration and prompt format.",
+            "Backend, completion token cap, acceleration and prompt format.",
             Some(advanced),
         );
         if self.advanced {
             self.section("Advanced");
+            self.number(
+                c,
+                "max_tokens",
+                "Ordinary completion token cap",
+                "1–128 tokens, additionally limited by the completion-length profile in General. Utility modes keep their separate 128-token cap. Press Return to save.",
+            );
             self.setting_choice(
                 c,
                 "backend",
@@ -1214,7 +1306,20 @@ impl Settings {
         );
         self.section("Screenshots (Opt-in)");
         self.toggle(c,"screenshot_context","Use screenshots for context","When Accessibility text is unavailable, recognize text around the field in memory on this Mac. Images are never saved or uploaded.");
+        self.live_label(
+            "currentContextPolicy",
+            "inklow.context.effectiveSources",
+            "",
+            70.,
+        );
+        self.section("Appearance (Separate Consent)");
         self.toggle(c,"screenshot_appearance","Use screenshots to improve suggestion appearance","Measure font and baseline in memory. Suggestions remain hidden if measurement cannot be verified.");
+        self.live_label(
+            "currentAppearancePolicy",
+            "inklow.context.effectiveAppearance",
+            "",
+            40.,
+        );
         let container = self.kit.view(rect(0., 0., 330., 28.));
         let status_label = self.kit.label("", rect(0., 5., 150., 20.), 12., false);
         identify(
@@ -1241,13 +1346,28 @@ impl Settings {
     }
     fn personalization(&mut self, c: &Config, status: &Value) {
         self.section("Local Writing Learning");
-        self.toggle(c,"record_history","Learn locally from recorded writing","Opt-in encrypted history; key stays in OS secure storage. Short texts and likely secrets are skipped. Scoped rules take precedence.");
-        self.toggle(c,"record_unaccepted","Also learn when you accept no suggestion","Only while history is enabled for this app or website. Otherwise only accepted-suggestion sessions are recorded.");
+        self.toggle(c,"record_history","Record writing locally","Opt-in encrypted history; the key stays in OS secure storage. Short texts and likely secrets are skipped. Recording and use are separate permissions.");
+        self.toggle(c,"use_history","Use recorded writing","Use eligible encrypted examples and derived style in suggestions. Turning this off stops use, not recording, and does not delete existing records.");
+        self.toggle(c,"record_unaccepted","Record even without accepting a suggestion","Only while recording is enabled for this app or website. Otherwise only accepted-suggestion sessions are recorded.");
+        self.number(c, "history_retention_days", "Keep recorded writing (days)",
+            "0 keeps records until you explicitly delete them. A positive number deletes dated records older than this many UTC days when secure history is unlocked. Unknown legacy dates are not guessed. Deletion forgets derived style; aggregate statistics stay separate.");
+        self.live_label(
+            "historyPolicy",
+            "inklow.personalization.effectivePolicy",
+            "",
+            44.,
+        );
+        self.live_label(
+            "currentHistoryPolicy",
+            "inklow.personalization.currentPolicy",
+            "",
+            44.,
+        );
         let slider = obj("NSSlider");
         identify(
             &slider,
             "inklow.personalization.personalization_strength",
-            "Personalize writing style and word choice",
+            "Learned evidence strength",
         );
         frame(&slider, &rect(32., 2., 210., 24.));
         unsafe {
@@ -1270,8 +1390,8 @@ impl Settings {
             kind: 3,
         });
         let container = self.kit.view(rect(0., 0., 280., 28.));
-        let off = self.kit.label("Off", rect(0., 5., 30., 18.), 12., false);
-        let max = self.kit.label("Max", rect(248., 5., 32., 18.), 12., false);
+        let off = self.kit.label("0", rect(0., 5., 30., 18.), 12., false);
+        let max = self.kit.label("100", rect(248., 5., 32., 18.), 12., false);
         unsafe {
             let _: () = msg_send![&*off,setAutoresizingMask:40usize];
             let _: () = msg_send![&*slider,setAutoresizingMask:42usize];
@@ -1280,8 +1400,8 @@ impl Settings {
         add(&container, &off);
         add(&container, &slider);
         add(&container, &max);
-        self.row("Personalize style and word choice","Bounded evidence from observed edits guides local suggestions. Off ignores learned evidence; explicit instructions and the draft’s language win.",Some(container));
-        self.note("Learning never retrains model weights. It matches the app or exact website and confidently detected English, Portuguese, Spanish, French or German. Ambiguous language means no learned context.");
+        self.row("Learned evidence strength","0–100 selects how much eligible aggregate evidence guides suggestions, not a quality percentage. At 0, learned evidence is suppressed; authored instructions and the draft’s language still apply.",Some(container));
+        self.note("Strength never retrains model weights, changes recording/use consent or deletes history. Evidence matches the app or exact website and confidently detected English, Portuguese, Spanish, French or German. Ambiguous language means no learned context.");
         self.note("Only new observed edits establish authorship, not existing drafts, bulk pastes, older history or BroTypist-generated text. Deletion forgets derived style and cancels suggestions using it.");
         self.live_label("historyInfo", "inklow.personalization.historyInfo", "", 65.);
         self.section("Recorded Texts by App and Website");
@@ -1321,13 +1441,13 @@ impl Settings {
             },
         );
         self.section("Custom AI Instructions");
-        self.row("Your writing preferences","Pre-filled from Mac language and region. Scoped instructions are appended. Edits apply only after Save Changes.",None);
+        self.row("Your writing preferences","Language defaults apply first, then nonempty global, app and exact-host instructions are appended in order. Empty instructions do not erase inherited text. Edits apply only after Save Changes; Revert restores saved text.",None);
         self.instructions("global", &c.custom_instructions, false);
     }
     fn emoji(&mut self, c: &Config) {
         self.section("Emoji Suggestions");
-        self.toggle(c,"emoji_enabled","Suggest emoji after typing a colon","At line start or after a space, type :sweat_smile or :sorriso. Plain words do not trigger emoji. macOS picker remains Control-Command-Space.");
-        self.toggle(c,"emoticons_enabled","Suggest emoji from emoticons","Offer emoji for :-) ;-) :( or <3. Accept explicitly; text is never silently rewritten.");
+        self.toggle(c,"emoji_enabled","Enable emoji suggestions","Master switch for colon shortcodes and emoticons. At line start or after a space, type :sweat_smile or :sorriso. Plain words do not trigger emoji. macOS picker remains Control-Command-Space.");
+        self.toggle(c,"emoticons_enabled","Suggest emoji from emoticons","Requires Enable emoji suggestions. Offer emoji for :-) ;-) :( or <3. Accept explicitly; text is never silently rewritten.");
         self.section("Emoji Preferences");
         let labels = [
             "Neutral 👋",
@@ -1498,7 +1618,7 @@ impl Settings {
                 ));
             }
         }
-        self.choice("battery_model","Use a smaller model","Only downloaded catalogue models are offered. Nothing downloads automatically. Applies to local GGUF models.",options,json!(c.battery_model),UiAction::Set("battery_model".into(),Value::Null),true);
+        self.choice("battery_model","Use an alternate installed model","Choose any installed catalog model; it is not necessarily smaller. Nothing downloads automatically. Applies to local GGUF models.",options,json!(c.battery_model),UiAction::Set("battery_model".into(),Value::Null),true);
         self.toggle(
             c,
             "battery_shorter",
@@ -1506,7 +1626,7 @@ impl Settings {
             "Reduce completion length while on battery.",
         );
         self.section("Inference Memory");
-        self.number(c,"idle_release_seconds","Release model after idle (seconds)","0 preloads the cached model at startup and keeps it ready. 1–3600 releases after inactivity. Pause and Quit release immediately.");
+        self.number(c,"idle_release_seconds","Release model after idle (seconds)","0 retains model residency and allows startup preparation of the cached model. 1–3600 releases after inactivity. Pause and Quit release immediately.");
         self.note("With a timeout, preparation begins only in a supported multiline writing field. Startup preparation at 0 sends no writing and respects battery on-demand mode. Models never download automatically.");
     }
     fn rules(&mut self, c: &Config, status: &Value) {
@@ -1548,12 +1668,19 @@ impl Settings {
         );
         self.custom(table.scroll.clone(), 220.);
         self.rule_table = Some(table);
-        self.note("Drag an app from Finder or a browser link onto the list. Website rules work when the browser exposes its URL. Custom exclusions remain hard blocks, including with Terminal opt-in.");
+        self.note("Add App creates an app-specific settings rule, not a hard exclusion. Website rules match exact hostnames when the browser exposes its URL. Drag an app from Finder or a browser link onto the list.");
         self.section("Hard App Exclusions");
+        self.action_row(
+            "Add a hard exclusion",
+            "Case-insensitive substring matching against app identifiers and names, not website hostnames. Matches block capture, context and inference; built-in terminal identifiers retain the Terminal AI-prompt opt-in exception.",
+            "Add Hard Exclusion…",
+            "inklow.appSettings.addExclusion",
+            UiAction::AddExclusion,
+        );
         for excluded in &c.excluded_apps {
             self.action_row(
                 excluded,
-                "Excluded before capture, context and inference.",
+                "Case-insensitive app identifier or name substring; not a website rule.",
                 "Remove Exclusion",
                 &format!("inklow.appSettings.exclusion.{excluded}"),
                 UiAction::RemoveExclusion(excluded.clone()),
@@ -1582,11 +1709,46 @@ impl Settings {
             (
                 "record_history",
                 "Record writing",
-                "Enabled asks for consent and requires secure storage, even when global history is off. Disabled never records here.",
+                "Enabled asks for consent and requires secure storage. Disabled never records here. This does not change use or delete existing writing.",
+            ),
+            (
+                "use_history",
+                "Use recorded writing",
+                "Use only eligible history for this scope. This is independent of recording; Disabled does not delete records.",
             ),
         ] {
             self.rule_choice(&key, rule, field, title, detail, false);
         }
+        self.live_label(
+            "ruleHistoryPolicy",
+            "inklow.appSettings.historyPolicy",
+            "",
+            44.,
+        );
+        self.section("Context Sources");
+        for (field, title) in [
+            ("screen_context", "Focused-window text"),
+            ("clipboard_context", "Clipboard context"),
+            ("screenshot_context", "Screenshot context"),
+        ] {
+            self.rule_choice(&key, rule, field, title,
+                "Inherit follows global → app → exact website. Enabled cannot override global consent being off. Missing required website authority disables this source.", false);
+        }
+        self.live_label(
+            "ruleContextPolicy",
+            "inklow.appSettings.contextPolicy",
+            "",
+            70.,
+        );
+        self.section("Appearance");
+        self.rule_choice(&key, rule, "screenshot_appearance", "Screenshot appearance",
+            "Matches suggestion styling only; separate from screenshot context. Requires global appearance consent and Screen Recording permission.", false);
+        self.live_label(
+            "ruleAppearancePolicy",
+            "inklow.appSettings.appearancePolicy",
+            "",
+            30.,
+        );
         if key.starts_with("app:") {
             self.rule_choice(
                 &key,
@@ -1637,7 +1799,7 @@ impl Settings {
             UiAction::RemoveRule(key.clone()),
         );
         self.section("Custom Instructions");
-        self.row("Additional instructions","Added after global instructions for this app or website. Unsaved drafts survive switching panes.",None);
+        self.row("Additional instructions","App text is appended after language defaults and global text; exact-host text follows app text. Empty scoped text does not erase inherited instructions. Save Changes applies edits; Revert restores saved text. Unsaved drafts survive switching panes.",None);
         self.instructions(
             &format!("rule:{key}"),
             rule.get("custom_instructions")
@@ -1664,7 +1826,14 @@ impl Settings {
                 ("Disabled", "no"),
             ]
         };
-        let selected = match rule.get(field).and_then(Value::as_bool) {
+        let saved = rule.get(field);
+        let effective = self
+            .rule_drafts
+            .get(key)
+            .and_then(|fields| fields.get(field))
+            .map(Option::as_ref)
+            .unwrap_or(saved);
+        let selected = match effective.and_then(Value::as_bool) {
             Some(true) => items[1].1,
             Some(false) => items[2].1,
             None => items[0].1,
@@ -1711,7 +1880,7 @@ impl Settings {
             c,
             "synonyms_enabled",
             "Suggest synonyms for selected words",
-            "A numbered choice replaces only the exact revalidated selection.",
+            "Requires a provider that can replace the exact revalidated selection. Append-only fields cannot replace selected words.",
         );
         self.setting_choice(
             c,
@@ -1729,6 +1898,7 @@ impl Settings {
             "Delay before showing (milliseconds)",
             "100–10000 milliseconds.",
         );
+        self.note("GGUF models using text-continuation prompt style do not support synonyms. Use a supported writing-style model or local server. Enabling this setting does not change the model’s prompt style or a field’s replacement capability.");
         self.section("Typing Timing");
         self.number(
             c,
@@ -1751,6 +1921,21 @@ impl Settings {
         self.note("Word-tool shortcuts are in Shortcuts. Enabling a lab never makes unsupported or private fields eligible.");
     }
     fn statistics(&mut self, c: &Config) {
+        self.section("Session Diagnostics");
+        self.live_label(
+            "sessionDiagnostics",
+            "inklow.statistics.sessionDiagnostics",
+            "",
+            140.,
+        );
+        self.note("In-memory, content-free measurements. Missing stages and native drawing remain unavailable, never zero. Captured-to-drawn time is not physical-key latency. Export only when you choose; no writing, target identities or paths are included in the diagnostic payload.");
+        self.action_row(
+            "Request diagnostics",
+            "Export the typed, content-free session snapshot to a private local file.",
+            "Export Diagnostics…",
+            "inklow.statistics.exportDiagnostics",
+            UiAction::DiagnosticsExport,
+        );
         self.section("Today’s Activity");
         self.live_label("today", "inklow.statistics.today", "", 38.);
         self.toggle(
@@ -1787,7 +1972,7 @@ impl Settings {
                     ("Completions", "completions"),
                     ("Words", "words"),
                     ("Characters", "characters"),
-                    ("Time saved (minutes)", "estimated_seconds"),
+                    ("Estimated time saved (minutes)", "estimated_seconds"),
                 ],
             ),
         ] {
@@ -1928,7 +2113,9 @@ impl Settings {
     ) -> Result<()> {
         let data = serde_json::to_value(c)?;
         for control in &self.controls {
-            let field = if control.field == "launch_at_login" {
+            let field = if let Some(draft) = self.control_drafts.get(&control.field) {
+                draft
+            } else if control.field == "launch_at_login" {
                 status
                     .get("launch_at_login")
                     .unwrap_or(&data[&control.field])
@@ -1968,11 +2155,32 @@ impl Settings {
         for (key, instructions) in &self.editors {
             let saved = saved_instructions(c, key);
             let draft = string(&instructions.editor);
-            let dirty = draft != saved;
-            enable(&instructions.save, dirty && draft.chars().count() <= 8000);
-            enable(&instructions.revert, dirty);
+            let baseline = self.instruction_baselines.get(key).map(String::as_str);
+            // Refresh untouched editors only. Never rewrite a retained user draft
+            // or marked composition in response to an unrelated config broadcast.
+            let marked: bool = unsafe { msg_send![&*instructions.editor, hasMarkedText] };
+            if !marked && baseline == Some(draft.as_str()) && draft != saved {
+                set_string(&instructions.editor, saved);
+                self.draft_text.remove(key);
+                self.instruction_baselines.insert(key.clone(), saved.into());
+            }
+            let dirty = string(&instructions.editor) != saved;
+            enable(
+                &instructions.save,
+                dirty && draft.chars().count() <= 8000 && !marked,
+            );
+            enable(&instructions.revert, dirty && !marked);
         }
         self.config_values = data;
+        for (field, value) in &self.control_drafts {
+            self.config_values[field] = value.clone();
+        }
+        let operation = status["settings_operation"].as_str().unwrap_or("");
+        self.set_live("operationStatus", &if self.control_drafts.is_empty() && self.rule_drafts.is_empty() {
+            operation.to_owned()
+        } else {
+            format!("Unsaved preference values are retained. Saved effective policy is shown below. {operation}")
+        });
         for (key, button) in &self.sidebar_buttons {
             unsafe {
                 let destination = if self.current_pane.starts_with("rule:") {
@@ -2073,6 +2281,123 @@ impl Settings {
             }
         }
         self.refresh_setup(c, status, inventory);
+        if self.live.contains_key("spellingAvailability") {
+            if self
+                .spelling_status
+                .as_ref()
+                .is_none_or(|(language, at, _)| {
+                    language != &c.spelling_language
+                        || at.elapsed() >= std::time::Duration::from_secs(5)
+                })
+            {
+                self.spelling_status = Some((
+                    c.spelling_language.clone(),
+                    std::time::Instant::now(),
+                    spelling_availability(&c.spelling_language),
+                ));
+            }
+            if let Some((_, _, message)) = &self.spelling_status {
+                self.set_live("spellingAvailability", message);
+            }
+        }
+        self.set_live(
+            "sessionDiagnostics",
+            status["session_diagnostics"]
+                .as_str()
+                .unwrap_or("Session measurements unavailable."),
+        );
+        if self.live.contains_key("historyPolicy") {
+            self.set_live(
+                "historyPolicy",
+                &policy_summary(
+                    c,
+                    "",
+                    "",
+                    false,
+                    &[
+                        (ScopedPreference::RecordHistory, "Global recording"),
+                        (ScopedPreference::UseHistory, "Global use"),
+                    ],
+                ),
+            );
+        }
+        let current_groups: &[(&str, &[(ScopedPreference, &str)])] = &[
+            (
+                "currentHistoryPolicy",
+                &[
+                    (ScopedPreference::RecordHistory, "Recording"),
+                    (ScopedPreference::UseHistory, "Use"),
+                ],
+            ),
+            (
+                "currentContextPolicy",
+                &[
+                    (ScopedPreference::ScreenContext, "Window"),
+                    (ScopedPreference::ClipboardContext, "Clipboard"),
+                    (ScopedPreference::ScreenshotContext, "Screenshot context"),
+                ],
+            ),
+            (
+                "currentAppearancePolicy",
+                &[(
+                    ScopedPreference::ScreenshotAppearance,
+                    "Screenshot appearance",
+                )],
+            ),
+        ];
+        for (key, sources) in current_groups {
+            if self.live.contains_key(*key) {
+                self.set_live(key, &current_policy_summary(status, sources));
+            }
+        }
+        if self.live.contains_key("ruleHistoryPolicy") {
+            let selected_app = self.selected_rule.strip_prefix("app:");
+            let selected_domain = self.selected_rule.strip_prefix("domain:");
+            // Domain inheritance depends on the verified browser, not a guessed app.
+            let current_domain = status["current_domain"].as_str().unwrap_or("");
+            let current_app = status["current_app"].as_str().unwrap_or("");
+            let app = selected_app.unwrap_or(if selected_domain == Some(current_domain) {
+                current_app
+            } else {
+                ""
+            });
+            let host = selected_domain.unwrap_or("");
+            let suffix = if selected_domain.is_some() && app.is_empty() {
+                "\nPreview without a browser app rule; the active browser’s override may change inherited values."
+            } else {
+                "\nStill subject to verified target, secure storage and native permissions."
+            };
+            let groups: &[(&str, &[(ScopedPreference, &str)])] = &[
+                (
+                    "ruleHistoryPolicy",
+                    &[
+                        (ScopedPreference::RecordHistory, "Record"),
+                        (ScopedPreference::UseHistory, "Use"),
+                    ],
+                ),
+                (
+                    "ruleContextPolicy",
+                    &[
+                        (ScopedPreference::ScreenContext, "Window"),
+                        (ScopedPreference::ClipboardContext, "Clipboard"),
+                        (ScopedPreference::ScreenshotContext, "Screenshot context"),
+                    ],
+                ),
+                (
+                    "ruleAppearancePolicy",
+                    &[(
+                        ScopedPreference::ScreenshotAppearance,
+                        "Screenshot appearance",
+                    )],
+                ),
+            ];
+            for (key, sources) in groups {
+                self.set_live(
+                    key,
+                    &(policy_summary(c, app, host, false, sources) + suffix),
+                );
+            }
+        }
         self.set_live(
             "contextStatus",
             &format!(
@@ -2372,6 +2697,9 @@ impl Settings {
         }
     }
     fn refresh_models(&self, c: &Config, status: &Value, inventory: &Value) {
+        if !self.live.contains_key("currentModel") {
+            return;
+        }
         let current = if c.backend != "gguf" {
             c.model.as_str()
         } else if !c.model_path.is_empty() {
@@ -2426,19 +2754,84 @@ impl Settings {
         let description = model
             .map(|m| {
                 let mut parts = Vec::new();
-                for key in ["description", "license", "availability"] {
+                for key in ["description", "license_name", "availability"] {
                     if let Some(value) = m[key].as_str().filter(|s| !s.is_empty()) {
                         parts.push(value);
                     }
                 }
-                parts.join(" · ")
+                let mut description = parts.join(" · ");
+                if let Some(bytes) = m["size_bytes"].as_f64() {
+                    description.push_str(&format!("\nCatalog download: {}", gb(bytes)));
+                }
+                if let Some(bytes) = m["minimum_memory_bytes"]
+                    .as_u64()
+                    .filter(|bytes| *bytes > 0)
+                {
+                    write!(
+                        &mut description,
+                        " · Minimum physical memory: {} (catalog)",
+                        crate::models::ram_label(Some(bytes), "")
+                    )
+                    .expect("writing to a String cannot fail");
+                }
+                if let Some(url) = m["license_url"].as_str().filter(|url| !url.is_empty()) {
+                    description.push_str(&format!("\nLicense: {url}"));
+                }
+                description
             })
             .unwrap_or_else(|| {
                 "Imported local model. Use Import Model to choose a GGUF file.".into()
             });
         self.set_live("modelDescription", &description);
+        if let Some(button) = self.live.get("inklow.models.license") {
+            let url = model
+                .and_then(|m| m["license_url"].as_str())
+                .filter(|url| !url.is_empty());
+            enable(button, url.is_some());
+            self.kit.rebind(
+                button,
+                UiAction::Url(url.unwrap_or("").into()),
+                ReadValue::None,
+            );
+        }
         let download = &status["download"];
         let active = download["state"] == "downloading";
+        let verifying = status["model_verification_pending"] == true;
+        if verifying {
+            let stage = status["config_operation"]["stage"]
+                .as_str()
+                .unwrap_or("awaiting controller");
+            self.set_live("modelVerification", &format!("Model configuration — {stage}. Waiting for exclusive release. GGUF selections additionally require integrity and fresh template preparation as applicable; local server availability is not checked. Nothing is saved until the operation succeeds."));
+        } else {
+            self.set_live("modelVerification", status["settings_operation"].as_str().unwrap_or(if c.backend == "gguf" {
+                "No selection verification in progress. Existing saved configuration is not evidence of a newly verified template."
+            } else {
+                "Local server configuration. Server availability is unverified; generation quality has not been checked."
+            }));
+        }
+        if let Some(button) = self.live.get("inklow.models.cancelVerification") {
+            let hidden: bool = unsafe { msg_send![&**button, isHidden] };
+            if hidden == verifying {
+                hide(button, !verifying);
+                self.layout_dirty.set(true);
+            }
+            enable(button, verifying);
+            if let Some(operation) = self.verification_operation {
+                self.kit.rebind(
+                    button,
+                    UiAction::ModelVerificationCancel(operation),
+                    ReadValue::None,
+                );
+            }
+        }
+        if let Some(progress) = self.live.get("verificationProgress") {
+            progress_value(progress, &Value::Null, verifying);
+            let hidden: bool = unsafe { msg_send![&**progress, isHidden] };
+            if hidden == verifying {
+                hide(progress, !verifying);
+                self.layout_dirty.set(true);
+            }
+        }
         let shutting = status["shutdown_started"].as_bool().unwrap_or(false);
         let unavailable = model
             .and_then(|m| m["availability"].as_str())
@@ -2457,7 +2850,7 @@ impl Settings {
             }
             enable(
                 button,
-                model.is_some() && !active && !shutting && !unavailable,
+                model.is_some() && !active && !verifying && !shutting && !unavailable,
             );
             self.kit
                 .rebind(button, UiAction::ModelDownload(selected), ReadValue::None);
@@ -2471,7 +2864,7 @@ impl Settings {
             enable(button, active && !shutting);
         }
         if let Some(button) = self.live.get("inklow.models.chooseModel") {
-            enable(button, !active && !shutting);
+            enable(button, !active && !verifying && !shutting);
         }
         if let Some(progress) = self.live.get("modelProgress") {
             progress_value(progress, download, active);
@@ -2490,7 +2883,7 @@ impl Settings {
             format!("Downloading: {:.1} / {:.1} MB", done / 1e6, total / 1e6)
         } else if download["state"] == "complete" {
             if download["path"].as_str() == Some(c.model_path.as_str()) {
-                "Download verified. This model is in use.".into()
+                "Download verified. This file matches the saved selection; see verification status above.".into()
             } else {
                 "Download verified. Select it and press Use Model to activate it.".into()
             }
@@ -2499,12 +2892,53 @@ impl Settings {
                 .as_str()
                 .or_else(|| download["message"].as_str())
                 .filter(|s| !s.is_empty())
-                .unwrap_or("No download in progress. Installed models are ready when selected.")
+                .unwrap_or(
+                    "No download in progress. Installed selections are verified before saving.",
+                )
                 .into()
         };
         self.set_live("downloadStatus", &message);
     }
     fn refresh_rules(&self, c: &Config, status: &Value) {
+        if self.rule_table.is_none() {
+            return;
+        }
+        if let Some(rule) = c.app_rules.get(&self.selected_rule) {
+            for field in [
+                "enabled",
+                "tab_enabled",
+                "record_history",
+                "use_history",
+                "screen_context",
+                "clipboard_context",
+                "screenshot_context",
+                "screenshot_appearance",
+                "improve_compatibility",
+                "complete_in_code_editors",
+            ] {
+                let id = if field == "complete_in_code_editors" {
+                    format!("inklow.appSettings.{field}")
+                } else {
+                    format!("inklow.appSettings.rule_{field}")
+                };
+                if let Some(control) = self.live.get(&id) {
+                    let effective = self
+                        .rule_drafts
+                        .get(&self.selected_rule)
+                        .and_then(|fields| fields.get(field))
+                        .map(Option::as_ref)
+                        .unwrap_or_else(|| rule.get(field));
+                    let index = match effective.and_then(Value::as_bool) {
+                        Some(true) => 1isize,
+                        Some(false) => 2,
+                        None => 0,
+                    };
+                    unsafe {
+                        let _: () = msg_send![&**control, selectItemAtIndex:index];
+                    }
+                }
+            }
+        }
         if let Some(table) = &self.rule_table {
             let query = self.rule_query.trim().to_lowercase();
             let mut keys = Vec::new();
@@ -2588,7 +3022,7 @@ impl Settings {
             .as_f64()
             .unwrap_or(0.)
             / scale;
-        self.set_live("totals",&format!("Total: {total:.1} · Daily average ({} active days): {average:.1}\nEstimated time saved: ≈{} minutes (from accepted characters).",stats["active_days"].as_u64().unwrap_or(0),minutes(stats["estimated_seconds"].as_f64().unwrap_or(0.))));
+        self.set_live("totals",&format!("Total: {total:.1} · Average per active day ({} active days): {average:.1}\nEstimated time saved: ≈{} minutes (accepted characters ÷ 5 gives seconds).",stats["active_days"].as_u64().unwrap_or(0),minutes(stats["estimated_seconds"].as_f64().unwrap_or(0.))));
     }
     fn refresh_updates(&self, status: &Value, update: &Value) {
         if !self.live.contains_key("updateStatus") {
@@ -2795,6 +3229,100 @@ fn sidebar_image_ink(image: &AnyObject) -> Result<(NSSize, NSRect, NSSize)> {
         ))
     }
 }
+fn current_policy_summary(status: &Value, sources: &[(ScopedPreference, &str)]) -> String {
+    let mut text = String::from("Current target — ");
+    for (index, (source, title)) in sources.iter().enumerate() {
+        if index > 0 {
+            text.push_str(" · ");
+        }
+        let value = &status["current_preferences"][source.field()];
+        let enabled = match value["value"].as_bool() {
+            Some(true) => "On",
+            Some(false) => "Off",
+            None => "unavailable",
+        };
+        let origin = match value["origin"].as_str() {
+            Some("global") => "global",
+            Some("app") => "app override",
+            Some("domain") => "exact website override",
+            Some("global_consent_denied") => "global consent off",
+            Some("domain_unavailable") => "required website unavailable",
+            _ => "no resolved target",
+        };
+        use std::fmt::Write;
+        let _ = write!(text, "{title}: {enabled} ({origin})");
+    }
+    text.push_str(". Native availability, protected-field and permission gates still apply.");
+    text
+}
+
+fn policy_summary(
+    c: &Config,
+    app: &str,
+    host: &str,
+    require_domain: bool,
+    sources: &[(ScopedPreference, &str)],
+) -> String {
+    sources
+        .iter()
+        .map(|(source, title)| {
+            let resolved = c.resolve_preference(*source, app, host, require_domain);
+            let origin = match resolved.origin {
+                PreferenceOrigin::Global => "global",
+                PreferenceOrigin::App => "app override",
+                PreferenceOrigin::Domain => "exact website override",
+                PreferenceOrigin::GlobalConsentDenied => "global consent off",
+                PreferenceOrigin::DomainUnavailable => "required website unavailable",
+            };
+            format!(
+                "{title}: {} ({origin})",
+                if resolved.value { "On" } else { "Off" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+fn spelling_availability(preference: &str) -> String {
+    if preference == "auto" {
+        return "Automatic spelling follows confidently detected text and the preferred dictionaries available on this Mac. Unsupported or ambiguous language produces no correction.".into();
+    }
+    let available = unsafe {
+        let checker: *mut AnyObject = msg_send![
+            AnyClass::get(c"NSSpellChecker").unwrap(),
+            sharedSpellChecker
+        ];
+        if checker.is_null() {
+            return format!(
+                "{preference}: macOS spelling is unavailable. No regional fallback is used."
+            );
+        }
+        let languages: *mut AnyObject = msg_send![checker, availableLanguages];
+        if languages.is_null() {
+            false
+        } else {
+            let count: usize = msg_send![languages, count];
+            (0..count).any(|index| {
+                let tag: *mut NSString = msg_send![languages, objectAtIndex:index];
+                !tag.is_null()
+                    && crate::config::normalize_language_preference(
+                        &(&*tag).to_string().replace('_', "-"),
+                    )
+                    .is_ok_and(|tag| tag == preference)
+            })
+        }
+    };
+    if available {
+        format!(
+            "{preference}: exact macOS dictionary available. Corrections still require supported, confidently detected text."
+        )
+    } else {
+        format!(
+            "{preference}: exact macOS dictionary unavailable. Typo checks and fixes for this selection are unavailable; no other region or English dictionary is substituted."
+        )
+    }
+}
+
 fn text<'a>(value: &'a Value, key: &str) -> &'a str {
     value[key].as_str().unwrap_or("")
 }

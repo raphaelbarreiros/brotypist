@@ -1,4 +1,4 @@
-BroTypist cooperating Qt6 client — source-only integration handoff
+BroTypist cooperating Qt6 client — integration contract and verification boundary
 
 Reviewed upstream:
   fcitx/fcitx5-qt 5.1.16
@@ -10,8 +10,10 @@ Owned files:
   BroTypistQtClient.cmake — explicit, non-default attachment to existing Qt6 plugin
   fcitx5-qt-5.1.16-brotypist.patch — small upstream hooks, no vendored framework
 
-Build inputs for the integration owner (not executed here):
-  Exact private CachyOS Qt 6.12.0 headers, including GuiPrivate, and libraries.
+Build inputs for the integration owner:
+  Exact Qt 6.12.0 headers, including GuiPrivate, and matching libraries.
+  The original private CachyOS SDK/payload remains a separate integration target;
+  the observed isolated build used an official exact-version Qt 6.12.0 SDK.
   Reviewed upstream checkout above, retaining upstream symlinks/license notices.
   Existing Fcitx5 Qt6 DBusAddons, xkbcommon and normal upstream build inputs.
   Existing upstream Core/Gui/GuiPrivate/DBus/Widgets linkage; no QtQuick linkage,
@@ -24,9 +26,9 @@ Build inputs for the integration owner (not executed here):
   BROTYPIST_NATIVE_QT6 is defined on the Qt6 plugin target only. Qt6's upstream
   source/header symlinks point into qt5/platforminputcontext, hence guarded hunks
   in those shared files. This is not a Qt5 implementation/support claim.
-  Parent owns source staging, exact configure flags, signed-SDK metadata
-  relocation, compilation, packaging and review-gated execution. Do not alter
-  the verified original package payload or install/activate a normal IM module.
+  Parent owns source staging, exact configure flags, SDK metadata relocation,
+  compilation, packaging and review-gated execution. Do not alter the verified
+  original package payload or install/activate a normal IM module.
 
 Activation boundary:
   Unset or empty BROTYPIST_NATIVE_BUS creates no BroTypist client. A nonempty
@@ -94,10 +96,26 @@ Composition/presentation/edit authority:
   clipped ink and unknown geometry never authorize hidden text.
   Choosers use an actual transient, non-focus-taking QWindow/QBackingStore,
   including with QGuiApplication-only Quick apps. The same retained native
-  QTextLayouts supply chooser painting and ink/advance measurements. Only a
-  fully fitting prefix (at most nine entries, original indices 0..n-1) is
-  returned/authorized.
-  Receipts mean native delivery/layout capability, NOT rendered pixels.
+  QTextLayouts supply chooser painting and ink/advance measurements. Eligible
+  fully fitting rows are compacted into an exact ordered subsequence of the
+  offer, at most nine entries; an oversized/unsupported middle row does not
+  suppress later fitting rows. Values are never elided, truncated or rewritten.
+  Labels 1..n, navigation and clicks refer to compact displayed ordinals 0..n-1,
+  NOT original offer indices. Core validates the entire nonempty shown_values
+  subsequence with match_choice_subsequence and freezes a ChoiceMap from each
+  displayed ordinal to its original offer index. Hidden rows have no authority.
+  Duplicate values match successive offered occurrences in order.
+  A chooser Present retains the original D-Bus request/reply serial, unique
+  sender and registration/client identity as a pending delayed reply. It does
+  not synchronously manufacture a receipt or spin a nested GUI loop. A real
+  owner-loop exposed-window paint must complete all retained layouts through
+  QPainter/QBackingStore before a fresh target/geometry/policy/lease recheck
+  can issue the still-unarmed capability. Withdrawal/expiry resolves pending
+  presentation with refusal; the original lease is never extended by waiting.
+  Exposure alone is not owner paint, and withholding paint is not evidence of
+  an actually unexposed window. These require separate native checks. Owner
+  paint/flush is still not compositor-visible pixels or physical display proof;
+  inline receipts attest native delivery/layout capability, not owner paint.
   Presentation is NOT acceptance authorization. Present always leaves the
   capability unarmed. Arm(a{sv})->b requires the same authenticated owner,
   offer/capability/policy epoch, exact original lease, exact shown_text and
@@ -113,18 +131,64 @@ Composition/presentation/edit authority:
   Completion plus anchored alternatives can remain concurrently presented.
   Presenting/clearing/expiring a chooser does not clear a completion ghost;
   Clear(capability_id) removes only that receipt, while Clear(0) removes both.
+  The same independence is required while a chooser Present reply is pending:
+  unrelated inline offers and invalid/stale offers must not cancel that lane.
+  Reentrant native queries must not permit a revoked/deleted popup, field or
+  window to be dereferenced or receive a late success. The bounded native
+  lifetime/lane scenarios passed in the private acceptance checkpoint below;
+  this does not establish every custom host's query or lifetime behavior.
   Qt has one native in-field preedit slot. Correction replaces completion, and
   a completion requested while a live correction occupies that slot refuses
   with higher-priority-native-preedit rather than acknowledging hidden output.
   Word/all uses the live higher-priority ghost first. Only with no ghost may
-  emoji/synonyms word/all choose original index 0. Alternatives never steal
-  word/all; arrows select a visible original index and Enter/click accepts it.
-  Chooser insertion is EXACT shown_values[index], without trailing-space
-  addition, and emits action=choice with the original choice_index.
+  emoji/synonyms word/all choose displayed ordinal 0. Alternatives never steal
+  word/all; arrows select a displayed ordinal and Enter/click accepts it.
+  Chooser insertion is EXACT shown_values[ordinal], without trailing-space
+  addition, and emits action=choice with choice_index equal to that displayed
+  ordinal. Core's frozen ChoiceMap resolves the original offer identity; the
+  adapter never sends an original offer index as a displayed choice_index.
   A live lease and fresh full witness are checked again for every owned key or
   choice click. Escape sends the frozen dismissed receipt; pause/app consume,
   passthrough leaves the original key. Expiry-only policy extensions do not
   clear a still-live ghost and never extend an existing offer's own deadline.
+  Consumed presses retain a bounded, focus-scoped native key identity until the
+  matching release; that release is consumed too, even after acceptance clears
+  the chooser. Unmatched releases still go to Fcitx. Sending Fcitx an unmatched
+  release starts async key processing (composition=unknown), which can revoke a
+  still-armed chooser between Down and Return. Every new press still traverses
+  the original policy, composition, witness, geometry and deadline guards.
+  Widget key timestamps and auto-repeat flags are bounded observations, NOT
+  injection provenance. In reviewed fcitx5-qt commit
+  115750044f3d0db16ca5859808c7da830fd1ff52, ProcessKeyWatcher reconstructs
+  QKeyEvent without copying its timestamp; processKeyEventFinished forwards
+  that event through handleExtendedKeyEvent. createKeyEvent also reconstructs
+  matched Qt6 events without their timestamps, and its unmatched branch sets
+  auto-repeat=false. Therefore zero-time widget events and missing repeat
+  flags can be native Fcitx replay, not fake or untimestamped XTest input.
+  The smoke keeps real private-X11 XTest delivery and exact focus checks.
+  Counters saturate at 4096 and describe post-Fcitx widget delivery only;
+  no zero-time or repeat-flag count is required. Held-key repeat evidence is
+  one injected keydown followed by additional widget presses before the sole
+  injected keyup, with a subsequent observed release. Non-repeat cases retain
+  exact press/release counts; consumed keys must not leak, revoked authority
+  must remain unusable, and unowned releases/repeats must not commit or alter
+  native text/caret/selection. The private Qt subset and canonical both-client
+  run passed these bounded checks; production Metadata is unchanged.
+  The owned Unicode smoke uses synonyms for a selected emoji and alternatives
+  for a collapsed replacement. Native UTF16 active cursor 3/anchor 1 maps to
+  canonical scalar selection start 1/length 1, not active scalar cursor 2.
+  Its exact replacement is decomposed e + U+0301 + U+1F680 + space: expected
+  native caret 6 and broker scalar caret 5. Each navigation press/release must
+  leave the widget selection intact without leaking a key or revoking the
+  chooser. One edit/report, duplicate rejection and one real XTest Ctrl+Z undo
+  are required and passed in the private Qt subset and canonical both-client
+  run. This does not alter the strict 15-field Metadata contract.
+  Physical-scan release matching also passed modifier-release ownership: observed
+  widget press/release totals were 1/1 after the consumed shortcut, 2/1 after an
+  ordinary press and 3/3 finally. One broker toggle action was observed, with no
+  Core toggle invocation, persistence, native commit or completion report.
+  Ordinary native text/caret remained correct. This is exact-focus private-X11
+  XTest evidence, not physical keyboard typing.
   One QInputMethodEvent::setCommitString performs an acceptance. A selected
   exact range uses (text,0,0), since Qt removes the existing selection itself;
   collapsed replacement uses (text,start-caret,length). No SetText, destructive
@@ -152,34 +216,75 @@ Short fixed refusal reasons include:
   Capture returns an empty dictionary for disabled/stale/protected/composing,
   oversize, malformed-UTF16, unsupported-query or ambiguous-scope targets.
 
-Source-only limits:
-  No build, patch-application check, tests, lint, formatter, process launch,
-  installation, modified third-party execution or normal-app changes were run.
-  Qt6.12 compilation, private SDK linkage, actual native preedit/chooser geometry,
-  Wayland transient placement, custom QObject query compliance, composed-key
-  regressions, single-undo behavior and real D-Bus/core integration remain the
-  parent's integrated verification. No Qt5 or pixel/rendered/runtime claim.
+Observed build scope and remaining limits:
+  The original source-only handoff recorded that no build, patch application,
+  test, formatter or process launch had been run in that authoring step. That
+  was a historical checkpoint, not the current aggregate evidence.
+  Subsequently, privately staged reviewed fcitx5-gtk 5.1.7 with source-owned
+  static GClient built against GTK 3.24.41, and reviewed fcitx5-qt 5.1.16 built
+  against the official exact Qt 6.12.0 SDK, on isolated Linux ARM64. Both native
+  fixtures also built. The subsequent canonical both-client native run passed
+  on private Ubuntu 24.04 ARM64 under Xvfb/Openbox: result=passed,
+  canonical_both=true, coverage=gtk3-patched-plugin + qt6.12-patched-plugin.
+  Its 19.51 seconds is an observed run duration, not a performance claim.
+  Earlier GTK and Qt diagnostic subsets passed separately; neither subset
+  alone established canonical acceptance. The earlier GTK Present failure is
+  superseded by this bounded successful run, not erased from its history.
+  Content-free receipt (repository-relative):
+    evidence/rust-migration/target-owned-client-acceptance.json
+  Reviewed source pins, upstream licenses and symlinks remain required. This
+  is not the original CachyOS payload, an x86-64 release or installer proof.
+  No normal IME activation, model inference or production installation occurred.
+  Actual Wayland transient placement, full adapter/host coverage and ordinary
+  dead-key/Compose/AltGr/hex input remain unexercised. Linux remains alpha and
+  explicitly opt-in; standalone Linux popup and full Settings acceptance remain
+  pending separately. No Qt5, GTK4, arbitrary-host, compositor-pixel or physical
+  keyboard proof is implied.
   A conforming host can defer, reject or normalize a dispatched IM edit; real
   readback reports applied or indeterminate, never retries. Host-specific missing
   undo remains a host baseline. No claim is made that arbitrary custom painting
   exposes a provable inline viewport, or that transport failure can safely
   release an unacknowledged native edit.
 
-Integration checks for the owner after source review:
+Diagnostic coverage boundary:
+  native_client_smoke --client gtk or --client qt selects one mandatory client
+  for diagnosis, not a replacement acceptance suite. Receipts identify the
+  requested and covered client and canonical_both=false for a subset. Default
+  invocation / --client both still requires both private plugins and fixtures,
+  with both clients passing; missing prerequisites or refusals fail, not skip.
+  Neither a successful subset nor a successful build establishes canonical
+  both-client acceptance. No private staging paths or probe recipes are needed
+  to interpret this boundary.
+  Exercised Qt scenarios include compact choices/refusals, selected and collapsed
+  non-BMP/NFD replacement with one commit and validated report each plus native
+  undo, live Arm/Down/Return query hide/destroy withdrawal, unmatched release,
+  held-key repeat, focus roundtrip and modifier-release ownership. Owner-paint,
+  independent pending lanes, reentrant paint/final-query hide/destroy, deadline,
+  hide/focus/move/minimize/policy/destroy and orderly broker-disconnect checks
+  also passed. Minimize observed the TARGET unexposed; it did not observe an
+  unexposed popup. Withheld paint observed an exposed popup and is not proof of
+  a genuinely unexposed popup. Orderly disconnect clears receipts first and
+  does not establish isolated abrupt owner-loss behavior.
+
+Integration checklist (bounded cases above passed; remaining cases unexercised):
   Apply patch against the exact commit; configure/build only the private Qt6
   target and confirm moc/QtDBus signatures. Exercise a disposable Qt Widgets,
   Quick and custom-query field under the explicit private bus: all ordinary IME,
   dead-key/Compose/AltGr/Unicode paths, active/unknown compose rejection, protected
   fields (before text access), UTF16 surrogate selections/ranges, bounded block
-  identity, full-visible prefix receipts, Present-without-Arm passthrough,
+  identity, exact compact ordered-subsequence receipts (including a non-fitting
+  middle row and later fitting rows), Present-without-Arm passthrough,
   receipt-loss/late-Arm refusal, exact Arm binding, configured trailing space,
   completion/alternatives coexistence and independent Clear/expiry/Arm,
-  correction priority, emoji/synonyms index-0 versus ghost precedence,
-  alternatives arrow/Enter/click original indices, word/all/choice, exact selected and
-  collapsed replacement, accepted-before-changed, host undo, nested input, stale
+  correction priority, emoji/synonyms displayed-ordinal-0 versus ghost precedence,
+  alternatives arrow/Enter/click displayed ordinals and Core ChoiceMap binding,
+  word/all/choice, exact selected and collapsed non-BMP replacement, unchanged
+  selection/readback boundaries, accepted-before-changed, host undo, nested input, stale
   focus/document/policy/selection, reset/commit/focus-out without ghost commit,
   lease expiry, same-epoch expiry renewal, focused-proxy stale UI signals,
-  query-triggered target destruction, Backtab/keypad Enter bindings, actual text
-  margins/glyph overhang, delayed native commit and final ACK/quarantine,
+  query-triggered target/popup destruction, pending chooser plus inline/stale
+  offers, genuinely unexposed versus exposed-but-unpainted chooser, owner paint
+  before reply, Backtab/keypad Enter bindings, actual text margins/glyph overhang,
+  delayed native commit and final ACK/quarantine,
   stale Configure focus-generation refusal, action origin races, disconnect and
   honest unsupported geometry/query refusals. Actual activation is review-gated.

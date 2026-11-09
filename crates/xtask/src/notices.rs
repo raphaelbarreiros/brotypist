@@ -16,6 +16,7 @@ const ROOT_PACKAGES: [&str; 2] = ["brotypist", "brotypist-updater"];
 const MAX_DOCUMENT: u64 = 2 * 1024 * 1024;
 const MAX_TOTAL: usize = 64 * 1024 * 1024;
 const MAX_ENTRIES: usize = 100_000;
+const EMOJI_ASSET: &str = "crates/brotypist/assets/emoji.json";
 
 #[derive(Deserialize)]
 struct Metadata {
@@ -408,6 +409,7 @@ fn collect_metadata(
         missing.join("\n")
     );
     third_party.push(native_documents(native, target, &mut material)?);
+    third_party.push(emoji_documents(root, &mut material)?);
     third_party
         .sort_by(|a, b| (&a.name, &a.version, &a.source).cmp(&(&b.name, &b.version, &b.source)));
     first_party.sort_by(|a, b| (&a.name, &a.version).cmp(&(&b.name, &b.version)));
@@ -415,7 +417,7 @@ fn collect_metadata(
         schema: 1,
         target: target.into(),
         cargo_lock_sha256: digest(lock_bytes),
-        scope: "normal production dependency reachability from brotypist and brotypist-updater, plus pinned llama.cpp CPU/Metal native notices; excludes build/dev-only dependencies and disabled llama.cpp tools",
+        scope: "normal production dependency reachability from brotypist and brotypist-updater, plus pinned llama.cpp CPU/Metal native notices and embedded Unicode emoji data; excludes build/dev-only dependencies and disabled llama.cpp tools",
         legal_status: "upstream notice evidence only; not legal certification, a first-party license grant, or evidence that system/toolchain/model license obligations are satisfied",
         legal_certification: false,
         first_party,
@@ -432,6 +434,67 @@ fn collect_metadata(
         write_new(&destination, &payload.bytes)?;
     }
     json_new(&output.join("inventory.json"), &inventory)
+}
+
+fn emoji_documents(root: &Path, material: &mut Material) -> Result<ThirdParty> {
+    #[derive(Deserialize)]
+    struct EmojiMetadata {
+        unicode_version: String,
+        source: String,
+        license: String,
+    }
+
+    let bytes = read_bounded(
+        &checked_path(root, Path::new(EMOJI_ASSET), false).context(
+            "embedded Unicode emoji notice prerequisite: canonical asset missing or unsafe",
+        )?,
+        MAX_DOCUMENT,
+    )?;
+    let metadata: EmojiMetadata = serde_json::from_slice(&bytes).context(
+        "embedded Unicode emoji notice prerequisite: invalid or missing required metadata",
+    )?;
+    let (major, minor) = metadata.unicode_version.split_once('.').unwrap_or(("", ""));
+    ensure!(
+        [major, minor]
+            .iter()
+            .all(|part| !part.is_empty() && part.bytes().all(|c| c.is_ascii_digit())),
+        "embedded Unicode emoji notice prerequisite: invalid unicode_version"
+    );
+    ensure!(
+        metadata.source
+            == format!(
+                "https://www.unicode.org/Public/{}.0/emoji/emoji-test.txt",
+                metadata.unicode_version
+            ),
+        "embedded Unicode emoji notice prerequisite: source must identify the declared Unicode release"
+    );
+    ensure!(
+        !metadata.license.trim().is_empty()
+            && !metadata
+                .license
+                .chars()
+                .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t')),
+        "embedded Unicode emoji notice prerequisite: missing or invalid license notice"
+    );
+    let mut document = material.add(
+        "embedded/unicode-emoji",
+        Path::new("LICENSE.txt"),
+        metadata.license.into_bytes(),
+        None,
+    )?;
+    document.upstream_path = format!("{EMOJI_ASSET}#/license");
+    document.upstream_url = Some(metadata.source.clone());
+    Ok(ThirdParty {
+        name: "Unicode emoji data".into(),
+        version: metadata.unicode_version,
+        spdx: None,
+        source: metadata.source,
+        checksum: Some(digest(&bytes)),
+        checksum_kind: "embedded-asset-sha256".into(),
+        documents: vec![document],
+        chosen_license: None,
+        reviewed_material: None,
+    })
 }
 
 // Metadata resolves the whole workspace, including xtask/dev feature requests.
@@ -982,6 +1045,9 @@ mod tests {
         fn new() -> Self {
             let directory = tempdir().unwrap();
             let root = directory.path();
+            let asset = root.join(EMOJI_ASSET);
+            fs::create_dir_all(asset.parent().unwrap()).unwrap();
+            fs::write(&asset, include_bytes!("../../brotypist/assets/emoji.json")).unwrap();
             let source = "registry+https://github.com/rust-lang/crates.io-index";
             let mut packages = Vec::new();
             for name in [
@@ -1095,6 +1161,91 @@ mod tests {
     }
     fn dependency(name: &str, optional: bool, kind: Option<&str>) -> Value {
         json!({"name":name,"rename":null,"kind":kind,"target":null,"optional":optional,"uses_default_features":true,"features":[]})
+    }
+
+    #[test]
+    fn embedded_emoji_inventory_preserves_complete_canonical_notice() {
+        let f = Fixture::new();
+        f.collect("notices").unwrap();
+        let inventory = f.inventory("notices");
+        let asset_bytes = fs::read(f.root().join(EMOJI_ASSET)).unwrap();
+        let asset: Value = serde_json::from_slice(&asset_bytes).unwrap();
+        let entry = inventory["third_party"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["name"] == "Unicode emoji data")
+            .unwrap();
+        assert_eq!(entry["version"], asset["unicode_version"]);
+        assert_eq!(entry["source"], asset["source"]);
+        assert_eq!(entry["checksum"], digest(&asset_bytes));
+        let documents = entry["documents"].as_array().unwrap();
+        assert_eq!(documents.len(), 1);
+        let document = &documents[0];
+        let notice = fs::read(
+            f.root()
+                .join("notices")
+                .join(document["path"].as_str().unwrap()),
+        )
+        .unwrap();
+        assert_eq!(notice, asset["license"].as_str().unwrap().as_bytes());
+        assert_eq!(document["size"], notice.len());
+        assert_eq!(document["sha256"], digest(&notice));
+        assert_eq!(document["upstream_url"], asset["source"]);
+    }
+
+    #[test]
+    fn missing_or_invalid_emoji_metadata_refuses_output() {
+        let f = Fixture::new();
+        let path = f.root().join(EMOJI_ASSET);
+        let original: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        for field in ["unicode_version", "source", "license"] {
+            for invalid in [None, Some(Value::Null), Some(json!(42)), Some(json!(" \n"))] {
+                let mut asset = original.clone();
+                if let Some(value) = invalid {
+                    asset[field] = value;
+                } else {
+                    asset.as_object_mut().unwrap().remove(field);
+                }
+                fs::write(&path, serde_json::to_vec(&asset).unwrap()).unwrap();
+                let error = f.collect("refused").unwrap_err();
+                assert!(
+                    format!("{error:#}").contains("embedded Unicode emoji notice prerequisite"),
+                    "{error:#}"
+                );
+                assert!(!f.root().join("refused").exists());
+            }
+        }
+        fs::remove_file(&path).unwrap();
+        assert!(f.collect("refused").is_err());
+        assert!(!f.root().join("refused").exists());
+    }
+
+    #[test]
+    #[ignore = "requires the offline Cargo source cache and pinned native checkout"]
+    fn actual_notice_generator_without_packaging() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let target = std::env::var("BROTYPIST_NOTICE_TARGET")
+            .expect("set BROTYPIST_NOTICE_TARGET to the production target triple");
+        let directory = tempdir().unwrap();
+        let output = std::env::var_os("BROTYPIST_NOTICE_OUTPUT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| directory.path().join("licenses"));
+        collect(&root, &target, &output).unwrap();
+        let inventory: Value =
+            serde_json::from_slice(&fs::read(output.join("inventory.json")).unwrap()).unwrap();
+        let emoji = inventory["third_party"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["name"] == "Unicode emoji data")
+            .unwrap();
+        let asset: Value =
+            serde_json::from_slice(&fs::read(root.join(EMOJI_ASSET)).unwrap()).unwrap();
+        assert_eq!(
+            fs::read(output.join(emoji["documents"][0]["path"].as_str().unwrap())).unwrap(),
+            asset["license"].as_str().unwrap().as_bytes()
+        );
     }
 
     #[test]

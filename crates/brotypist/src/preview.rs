@@ -204,12 +204,13 @@ impl PreviewSession {
             let (tokens, max_words) = features::length_profile(&config.completion_length);
             config.max_tokens = config.max_tokens.min(tokens);
             let options = GenerationOptions {
-                instructions: self
-                    .config
-                    .custom_instructions
-                    .chars()
-                    .take(26000)
-                    .collect(),
+                instructions: match self.config.resolve_instructions("", "", false) {
+                    Ok(instructions) => instructions,
+                    Err(_) => {
+                        self.error = "Preview writing preferences are invalid.".into();
+                        return json!({"state":"error","suggestion":"","message":self.error,"accepted":self.accepted});
+                    }
+                },
                 max_words,
                 ..Default::default()
             };
@@ -393,8 +394,8 @@ mod tests {
             self.0.borrow_mut().cancelled += 1;
             Ok(())
         }
-        fn release(&mut self) -> Result<()> {
-            Ok(())
+        fn release(&mut self) -> Result<crate::process_client::ReleaseTicket> {
+            WorkerClient::new()?.release()
         }
         fn set_idle_timeout(&mut self, _: u32) {}
         fn status(&self) -> Value {
@@ -435,6 +436,7 @@ mod tests {
             final_,
             model_loaded: true,
             message: String::new(),
+            metrics: None,
         }
     }
     #[test]
@@ -513,5 +515,33 @@ mod tests {
         assert_eq!(p.poll()["accepted"], 0);
         p.update("Hello world ", 12, 0).unwrap();
         assert_eq!(p.poll()["accepted"], 1);
+    }
+    #[test]
+    fn preview_uses_canonical_language_instructions_without_optional_sources() {
+        let (mut preview, state, time) = session();
+        preview.config.writing_language = "pt-BR".into();
+        preview.config.spelling_language = "pt-PT".into();
+        preview.config.custom_instructions = "  Preserve e\u{301} and espaços.\n".into();
+        preview.config.use_history = true;
+        preview.config.screen_context = true;
+        preview.config.clipboard_context = true;
+        preview.set_owner_released(true);
+        preview.update("Olá equipa", 10, 0).unwrap();
+        *time.borrow_mut() += Duration::from_secs(1);
+        preview.poll();
+        let options = state.borrow().options.clone().unwrap();
+        assert_eq!(
+            options.instructions,
+            "Default writing language: pt-BR. Follow the surrounding text when it uses another language.\nDefault regional spelling and conventions: pt-PT.\n  Preserve e\u{301} and espaços.\n"
+        );
+        assert!(options.context.is_empty());
+        assert!(options.personalization.is_empty());
+        preview.set_owner_released(false);
+        state.borrow_mut().events.extend([
+            event(1, "ready", "", false),
+            event(1, "result", " escrita", true),
+        ]);
+        assert_eq!(preview.poll()["suggestion"], "");
+        assert!(state.borrow().proceeds.is_empty());
     }
 }

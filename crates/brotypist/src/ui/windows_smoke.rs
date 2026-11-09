@@ -290,6 +290,477 @@ fn wait_preview(
     }
     Ok(())
 }
+// Constrain real WM_PAINT update regions before the production paint procedure
+// runs. Disconnected strips deliberately have the same bounding box as Full.
+#[derive(Clone, Copy)]
+enum PaintDamage {
+    Partial,
+    Disconnected,
+    Full,
+}
+struct DamageScope {
+    window: HWND,
+    damage: Box<std::cell::Cell<PaintDamage>>,
+}
+impl DamageScope {
+    fn new(window: HWND, damage: PaintDamage) -> Result<Self> {
+        owned(window)?;
+        let scope = Self {
+            window,
+            damage: Box::new(std::cell::Cell::new(damage)),
+        };
+        ensure!(
+            unsafe {
+                SetWindowSubclass(
+                    window,
+                    Some(damage_proc),
+                    0x42525044,
+                    (&*scope.damage as *const std::cell::Cell<PaintDamage>) as usize,
+                )
+                .as_bool()
+            },
+            "Could not constrain the owned native paint damage."
+        );
+        Ok(scope)
+    }
+    fn repaint(&self, damage: PaintDamage) -> Result<()> {
+        self.damage.set(damage);
+        unsafe {
+            ensure!(
+                InvalidateRect(Some(self.window), None, false).as_bool()
+                    && UpdateWindow(self.window).as_bool(),
+                "Owned damage did not reach WM_PAINT."
+            );
+        }
+        Ok(())
+    }
+}
+impl Drop for DamageScope {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = RemoveWindowSubclass(self.window, Some(damage_proc), 0x42525044);
+        }
+    }
+}
+unsafe extern "system" fn damage_proc(
+    hwnd: HWND,
+    msg: u32,
+    wp: WPARAM,
+    lp: LPARAM,
+    _id: usize,
+    data: usize,
+) -> LRESULT {
+    unsafe {
+        if msg == WM_PAINT {
+            let damage = &*(data as *const std::cell::Cell<PaintDamage>);
+            let mut rect = RECT::default();
+            if GetClientRect(hwnd, &mut rect).is_ok() && rect.right >= 4 {
+                let _ = ValidateRect(Some(hwnd), None);
+                match damage.get() {
+                    PaintDamage::Full => {
+                        let _ = InvalidateRect(Some(hwnd), Some(&rect), false);
+                    }
+                    PaintDamage::Partial | PaintDamage::Disconnected => {
+                        let left = RECT {
+                            right: rect.right / 4,
+                            ..rect
+                        };
+                        let _ = InvalidateRect(Some(hwnd), Some(&left), false);
+                        if matches!(damage.get(), PaintDamage::Disconnected) {
+                            let right = RECT {
+                                left: rect.right * 3 / 4,
+                                ..rect
+                            };
+                            let _ = InvalidateRect(Some(hwnd), Some(&right), false);
+                        }
+                    }
+                }
+            }
+        }
+        DefSubclassProc(hwnd, msg, wp, lp)
+    }
+}
+fn paint_coverage_fixture(instance: HINSTANCE, receipt: &mut Value) -> Result<()> {
+    let observations = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = observations.clone();
+    let reporter: PaintReporter = Arc::new(move |paint| {
+        recorded
+            .lock()
+            .unwrap()
+            .push((paint.trace_id, paint.lane, paint.view_serial));
+    });
+    let mut work = RECT::default();
+    unsafe {
+        SystemParametersInfoW(
+            SPI_GETWORKAREA,
+            0,
+            Some((&mut work as *mut RECT).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )?;
+    }
+    let snapshot = crate::core::Snapshot::default();
+    let mut event = json!({
+        "key": snapshot.key(), "authority": snapshot.authority(),
+        "revision": 1, "text": "", "mode": "alternatives",
+        "rect": [work.left + 8, work.top + 8, 1, 16], "render": null,
+        "choices": ["first complete row", "second complete row"],
+        "diagnostic": {"trace_id":81,"lane":"chooser","view_serial":31}
+    });
+    let mut chooser = ChoiceWindow::new(instance)?;
+    chooser.set_paint_reporter(Some(reporter.clone()));
+    let first = DamageScope::new(chooser.labels[0], PaintDamage::Partial)?;
+    let second = DamageScope::new(chooser.labels[1], PaintDamage::Disconnected)?;
+    ensure!(
+        matches!(chooser.show(&event)?, Command::PresentationResult { visible_text, .. }
+            if visible_text == "first complete row\nsecond complete row"),
+        "Diagnostic coverage changed normal chooser acceptance."
+    );
+    ensure!(
+        observations.lock().unwrap().is_empty(),
+        "Partial/disconnected rows consumed a chooser identity."
+    );
+    first.repaint(PaintDamage::Full)?;
+    ensure!(
+        observations.lock().unwrap().is_empty(),
+        "One complete row credited the entire chooser."
+    );
+    second.repaint(PaintDamage::Disconnected)?;
+    ensure!(
+        observations.lock().unwrap().is_empty(),
+        "Disconnected damage completed the remaining row."
+    );
+    second.repaint(PaintDamage::Full)?;
+    ensure!(
+        *observations.lock().unwrap() == vec![(81, PresentationLane::Chooser, 31)],
+        "Full damage of every row did not produce exactly one chooser observation."
+    );
+    first.damage.set(PaintDamage::Partial);
+    second.damage.set(PaintDamage::Partial);
+    event["diagnostic"] = json!({"trace_id":82,"lane":"chooser","view_serial":32});
+    let _ = chooser.show(&event)?;
+    first.repaint(PaintDamage::Full)?;
+    // Leave an old-view update pending; replacement must clear both its identity
+    // and its accumulated complete-row mask.
+    unsafe {
+        let _ = InvalidateRect(Some(chooser.labels[1]), None, false);
+    }
+    first.damage.set(PaintDamage::Partial);
+    event["diagnostic"] = json!({"trace_id":83,"lane":"chooser","view_serial":33});
+    let _ = chooser.show(&event)?;
+    second.repaint(PaintDamage::Full)?;
+    ensure!(
+        observations.lock().unwrap().len() == 1,
+        "Replacement inherited stale row coverage or identity."
+    );
+    first.repaint(PaintDamage::Full)?;
+    ensure!(
+        *observations.lock().unwrap()
+            == vec![
+                (81, PresentationLane::Chooser, 31),
+                (83, PresentationLane::Chooser, 33)
+            ],
+        "Replacement chooser did not require its own complete rows."
+    );
+    let _ = chooser.hide();
+    unsafe {
+        SendMessageW(chooser.labels[0], WM_PAINT, None, None);
+    }
+    ensure!(
+        observations.lock().unwrap().len() == 2,
+        "Hidden chooser consumed a diagnostic identity."
+    );
+    // Build verified native font metrics, not a model or UI-rendering mock.
+    let foreground = unsafe { GetForegroundWindow() };
+    let dpi = unsafe { GetDpiForWindow(foreground) };
+    ensure!(
+        dpi > 0,
+        "No foreground DPI for the owned inline paint fixture."
+    );
+    let mut metrics = TEXTMETRICW::default();
+    let mut face = [0u16; 256];
+    let measured = unsafe {
+        let font = CreateFontW(
+            -(12.0 * dpi as f64 / 72.0).round_ties_even() as i32,
+            0,
+            0,
+            0,
+            400,
+            0,
+            0,
+            0,
+            DEFAULT_CHARSET,
+            OUT_DEFAULT_PRECIS,
+            CLIP_DEFAULT_PRECIS,
+            DEFAULT_QUALITY,
+            0,
+            w!("Segoe UI"),
+        );
+        ensure!(!font.0.is_null(), "No native inline fixture font.");
+        let dc = CreateCompatibleDC(None);
+        if dc.0.is_null() {
+            let _ = DeleteObject(font.into());
+            anyhow::bail!("No native inline fixture metrics DC.");
+        }
+        let old = SelectObject(dc, font.into());
+        let ok =
+            GetTextMetricsW(dc, &mut metrics).as_bool() && GetTextFaceW(dc, Some(&mut face)) > 0;
+        let _ = SelectObject(dc, old);
+        let _ = DeleteDC(dc);
+        let _ = DeleteObject(font.into());
+        ok
+    };
+    ensure!(measured, "No native inline fixture font metrics.");
+    let face =
+        String::from_utf16_lossy(&face[..face.iter().position(|c| *c == 0).unwrap_or(face.len())]);
+    let x = f64::from(work.left + 8);
+    let y = f64::from(work.top + 8);
+    event["mode"] = json!("completion");
+    event["text"] = json!("complete inline frame");
+    event["rect"] = json!([x, y, 1, metrics.tmHeight]);
+    event["render"] = json!({
+        "font_name":face, "font_size":12.0, "font_weight":400,
+        "baseline":y + f64::from(metrics.tmAscent),
+        "clip_rect":[x, y, 440, metrics.tmHeight],
+        "ascent":metrics.tmAscent, "descent":metrics.tmDescent,
+        "direction":"ltr", "source":"windows-uia-font-run"
+    });
+    event["diagnostic"] = json!({"trace_id":84,"lane":"inline","view_serial":34});
+    let mut inline = overlay::Overlay::new(instance)?;
+    inline.set_paint_reporter(Some(reporter));
+    let damage = DamageScope::new(inline.smoke_window(), PaintDamage::Partial)?;
+    ensure!(
+        matches!(inline.show(&event)?, Command::PresentationResult { visible_text, .. }
+            if visible_text == "complete inline frame"),
+        "Diagnostic coverage changed normal inline acceptance."
+    );
+    ensure!(
+        observations.lock().unwrap().len() == 2,
+        "Partial inline damage consumed an identity."
+    );
+    damage.repaint(PaintDamage::Disconnected)?;
+    ensure!(
+        observations.lock().unwrap().len() == 2,
+        "Disconnected inline damage consumed an identity."
+    );
+    damage.repaint(PaintDamage::Full)?;
+    damage.repaint(PaintDamage::Full)?;
+    ensure!(
+        observations.lock().unwrap().len() == 3,
+        "Full inline frame did not report exactly once."
+    );
+    damage.damage.set(PaintDamage::Partial);
+    event["diagnostic"] = json!({"trace_id":85,"lane":"inline","view_serial":35});
+    let _ = inline.show(&event)?;
+    unsafe {
+        let _ = InvalidateRect(Some(inline.smoke_window()), None, false);
+    }
+    event["text"] = json!("replacement inline frame");
+    event["diagnostic"] = json!({"trace_id":86,"lane":"inline","view_serial":36});
+    let _ = inline.show(&event)?;
+    damage.repaint(PaintDamage::Disconnected)?;
+    ensure!(
+        observations.lock().unwrap().len() == 3,
+        "Replacement inline view consumed incomplete/stale damage."
+    );
+    damage.repaint(PaintDamage::Full)?;
+    let _ = inline.hide();
+    unsafe {
+        SendMessageW(inline.smoke_window(), WM_PAINT, None, None);
+    }
+    ensure!(
+        *observations.lock().unwrap()
+            == vec![
+                (81, PresentationLane::Chooser, 31),
+                (83, PresentationLane::Chooser, 33),
+                (84, PresentationLane::Inline, 34),
+                (86, PresentationLane::Inline, 36)
+            ],
+        "Inline full damage, replacement identity, or hidden guard failed."
+    );
+    passed(
+        receipt,
+        "native-update-region-partial-disconnected-full-all-rows-and-stale-replacement-paint-coverage",
+    );
+    Ok(())
+}
+fn chooser_fixture(instance: HINSTANCE, output: &Path, receipt: &mut Value) -> Result<()> {
+    let mut chooser = ChoiceWindow::new(instance)?;
+    let paints = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = paints.clone();
+    chooser.set_paint_reporter(Some(Arc::new(move |observation| {
+        observed.lock().unwrap().push((
+            observation.trace_id,
+            observation.lane,
+            observation.view_serial,
+        ));
+    })));
+    owned(chooser.window)?;
+    let mut work = RECT::default();
+    unsafe {
+        SystemParametersInfoW(
+            SPI_GETWORKAREA,
+            0,
+            Some((&mut work as *mut RECT).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )?;
+    }
+    let snapshot = crate::core::Snapshot::default();
+    let event = json!({
+        "key": snapshot.key(),
+        "authority": snapshot.authority(),
+        "revision": 1,
+        "text": "",
+        "mode": "alternatives",
+        "diagnostic": {"trace_id": 71, "lane": "chooser", "view_serial": 19},
+        "rect": [work.left + 8, work.top + 8, 1, 16],
+        "render": null,
+        "choices": ["  café & tea  ", "W".repeat(1024), "bad\trow", "", " 😀 e\u{301} "]
+    });
+    let foreground = unsafe { GetForegroundWindow() };
+    let ack = chooser.show(&event)?;
+    ensure!(
+        matches!(ack, Command::PresentationResult { visible_text, .. }
+            if visible_text == "  café & tea  \n 😀 e\u{301} "),
+        "The chooser did not acknowledge the exact eligible ordered subsequence."
+    );
+    ensure!(
+        unsafe { GetForegroundWindow() == foreground }
+            && text(chooser.labels[0]) == "1.   café & tea  "
+            && text(chooser.labels[1]) == "2.  😀 e\u{301} ",
+        "The chooser changed focus, whitespace, Unicode, or dense numeric labels."
+    );
+    ensure!(
+        *paints.lock().unwrap() == vec![(71, PresentationLane::Chooser, 19)],
+        "Chooser did not report actual drawing using independent chooser diagnostic IDs."
+    );
+    unsafe {
+        for label in chooser.labels.iter().take(2) {
+            let _ = InvalidateRect(Some(*label), None, false);
+            let _ = UpdateWindow(*label);
+        }
+    }
+    ensure!(
+        paints.lock().unwrap().len() == 1,
+        "Repainting counted one chooser view twice."
+    );
+    let path = output.join("chooser-eligible-subsequence.png");
+    capture(chooser.window, &path)?;
+    receipt["screenshots"].as_array_mut().unwrap().push(json!({"file":"chooser-eligible-subsequence.png","method":"PrintWindow-owned-hwnd","pid":std::process::id()}));
+    unsafe {
+        for (i, label) in chooser.labels.iter().enumerate() {
+            owned(*label)?;
+            ensure!(
+                GetDlgCtrlID(*label) == (i + 1) as i32
+                    && IsWindowVisible(*label).as_bool() == (i < 2),
+                "The chooser exposed a hidden row or used a non-dense control ID."
+            );
+        }
+        SendMessageW(
+            chooser.labels[1],
+            WM_LBUTTONDOWN,
+            Some(WPARAM(1)),
+            Some(LPARAM(4 | (4 << 16))),
+        );
+        SendMessageW(
+            chooser.labels[1],
+            WM_LBUTTONUP,
+            None,
+            Some(LPARAM(4 | (4 << 16))),
+        );
+    }
+    ensure!(
+        chooser.take_actions() == vec![1],
+        "Clicking visible row 2 did not return displayed ordinal 1."
+    );
+    // A queued click must not survive replacement or hiding.
+    unsafe {
+        SendMessageW(
+            chooser.window,
+            WM_COMMAND,
+            Some(WPARAM(2 | ((STN_CLICKED as usize) << 16))),
+            Some(LPARAM(chooser.labels[1].0 as isize)),
+        );
+    }
+    let mut replacement = event.clone();
+    replacement["revision"] = json!(2);
+    replacement["choices"] = json!(["replacement"]);
+    replacement["diagnostic"] = json!({"trace_id":72,"lane":"chooser","view_serial":20});
+    let _ = chooser.show(&replacement)?;
+    ensure!(
+        chooser.take_actions().is_empty(),
+        "A stale click survived replacing the chooser presentation."
+    );
+    ensure!(
+        *paints.lock().unwrap()
+            == vec![
+                (71, PresentationLane::Chooser, 19),
+                (72, PresentationLane::Chooser, 20)
+            ],
+        "Replacement paint used stale diagnostic identity."
+    );
+    unsafe {
+        for (id, label) in [
+            (2, chooser.labels[1]),
+            (0, chooser.labels[0]),
+            (1, chooser.labels[1]),
+        ] {
+            SendMessageW(
+                chooser.window,
+                WM_COMMAND,
+                Some(WPARAM(id | ((STN_CLICKED as usize) << 16))),
+                Some(LPARAM(label.0 as isize)),
+            );
+        }
+    }
+    ensure!(
+        chooser.take_actions().is_empty(),
+        "A hidden row, invalid control ID, or mismatched sender generated a choice."
+    );
+    let _ = chooser.hide();
+    unsafe {
+        SendMessageW(
+            chooser.window,
+            WM_COMMAND,
+            Some(WPARAM(1 | ((STN_CLICKED as usize) << 16))),
+            Some(LPARAM(chooser.labels[0].0 as isize)),
+        );
+    }
+    ensure!(
+        chooser.take_actions().is_empty(),
+        "A hidden chooser accepted a stale click."
+    );
+    replacement["revision"] = json!(3);
+    replacement["choices"] = json!(["W".repeat(1024), "bad\nrow"]);
+    ensure!(
+        matches!(chooser.show(&replacement)?, Command::PresentationResult { visible_text, .. }
+            if visible_text.is_empty())
+            && !unsafe { IsWindowVisible(chooser.window).as_bool() }
+            && chooser.take_actions().is_empty(),
+        "An entirely ineligible offer left a visible or actionable chooser."
+    );
+    ensure!(
+        paints.lock().unwrap().len() == 2,
+        "Hidden or refused choices fabricated a paint observation."
+    );
+    replacement["choices"] = json!(["metadata unavailable"]);
+    replacement["diagnostic"] = Value::Null;
+    let _ = chooser.show(&replacement)?;
+    ensure!(
+        paints.lock().unwrap().len() == 2,
+        "Missing diagnostic metadata fabricated a trace."
+    );
+    let _ = chooser.hide();
+    passed(
+        receipt,
+        "chooser-wm-paint-observations-use-independent-lane-ids-no-repaint-hidden-or-missing-metadata-credit",
+    );
+    passed(
+        receipt,
+        "native-chooser-exact-eligible-subsequence-dense-click2-and-stale-hidden-refusal",
+    );
+    Ok(())
+}
+
 fn exercise(output: &Path, receipt: &mut Value) -> Result<bool> {
     let native = NativeEnvironment::new()?;
     let mut power = crate::power::PowerSampler::start()?;
@@ -322,11 +793,23 @@ fn exercise(output: &Path, receipt: &mut Value) -> Result<bool> {
             "No-tray recovery unexpectedly registered an icon."
         );
         passed(receipt, "actual-owned-shell-visible-with-no-tray-recovery");
+        chooser_fixture(native.instance, output, receipt)?;
+        paint_coverage_fixture(native.instance, receipt)?;
         for index in 0..PANES.len() {
             pane(&mut shell, index, &clipboard)?;
             screenshot(&shell, output, &format!("settings-{index}"), receipt)?;
         }
         passed(receipt, "six-native-settings-panes-navigate-and-render");
+        for key in ["typo_suppression", "typo_fixes", "screenshot_appearance"] {
+            ensure!(
+                !unsafe { IsWindowEnabled(shell.h(field_id(key)?)).as_bool() },
+                "An unavailable Windows capability exposes an effective-looking control."
+            );
+        }
+        passed(
+            receipt,
+            "unavailable-spelling-and-appearance-controls-disabled",
+        );
         modal(
             &mut shell,
             &clipboard,
@@ -408,19 +891,135 @@ fn exercise(output: &Path, receipt: &mut Value) -> Result<bool> {
             "Write concise English continuations.",
             &clipboard,
         )?;
+        edit(&mut shell, "writing_language", "pt-BR", &clipboard)?;
+        edit(&mut shell, "spelling_language", "en-GB", &clipboard)?;
         click(&mut shell, SAVE, &clipboard)?;
+        until(&mut shell, &clipboard, Duration::from_secs(30), |s| {
+            s.operations.is_empty()
+        })?;
         ensure!(
             crate::config::load_config()?.custom_instructions
                 == "Write concise English continuations.",
             "Native Save did not persist the private profile."
         );
+        ensure!(
+            crate::config::load_config()?.writing_language == "pt-BR" && !shell.draft.is_dirty(),
+            "The writing language or matching Saved receipt did not commit."
+        );
+        ensure!(
+            crate::config::load_config()?.spelling_language == "en-GB",
+            "Regional model spelling preference did not persist."
+        );
         passed(receipt, "native-save-persists-private-profile");
+        // Block only this already-established disposable profile's destination.
+        // Equal live configuration is deliberately not treated as Save success.
+        let config_path = crate::config::config_path()?;
+        let backup = config_path.with_extension("native-smoke-backup");
+        ensure!(
+            !backup.exists() && config_path.is_file(),
+            "Private persistence fixture cannot reserve its backup."
+        );
+        std::fs::rename(&config_path, &backup)?;
+        if let Err(error) = std::fs::create_dir(&config_path) {
+            std::fs::rename(&backup, &config_path)?;
+            return Err(error.into());
+        }
+        let failure_check = (|| -> Result<()> {
+            let active = shell.controller.config();
+            for instructions in [None, Some("Keep this unsaved exact draft: 😀 e\u{301}\r\n")] {
+                if let Some(value) = instructions {
+                    edit(&mut shell, "custom_instructions", value, &clipboard)?;
+                }
+                modal(&mut shell, &clipboard, "BroTypist", IDOK.0, None, |s, c| {
+                    click(s, SAVE, c)?;
+                    until(s, c, Duration::from_secs(30), |s| s.operations.is_empty())
+                })?;
+                ensure!(
+                    shell.controller.config() == active,
+                    "Failed persistence installed the candidate."
+                );
+                ensure!(
+                    text(shell.h(RESULTS)).contains("failed"),
+                    "A failed unchanged-value save lacked its operation failure."
+                );
+                if let Some(value) = instructions {
+                    ensure!(
+                        shell.draft.value("custom_instructions") == Some(&json!(value))
+                            && shell.draft.is_dirty(),
+                        "A failed persistence receipt discarded the instruction draft."
+                    );
+                }
+            }
+            Ok(())
+        })();
+        std::fs::remove_dir(&config_path)?;
+        std::fs::rename(&backup, &config_path)?;
+        failure_check?;
+        click(&mut shell, REVERT, &clipboard)?;
+        passed(
+            receipt,
+            "unchanged-and-edited-save-failures-preserve-live-config-and-exact-draft",
+        );
+        // Exercise the operation seam without pumping away the outstanding receipt.
+        edit(
+            &mut shell,
+            "custom_instructions",
+            "Submitted before cancellation",
+            &clipboard,
+        )?;
+        shell.save()?;
+        shell.cancel_operations()?;
+        shell.draft.set(
+            "custom_instructions",
+            json!("Newer draft after cancel: 😀 e\u{301}"),
+        )?;
+        shell.refresh_controls()?;
+        until(&mut shell, &clipboard, Duration::from_secs(30), |s| {
+            s.operations.is_empty()
+        })?;
+        ensure!(
+            shell.draft.is_dirty()
+                && shell.draft.value("custom_instructions")
+                    == Some(&json!("Newer draft after cancel: 😀 e\u{301}")),
+            "A cancelled or already-terminal older operation reset a newer draft."
+        );
+        click(&mut shell, REVERT, &clipboard)?;
+        passed(
+            receipt,
+            "operation-cancel-and-late-receipt-preserve-newer-draft-generation",
+        );
+        pane(&mut shell, 0, &clipboard)?;
+        click(&mut shell, EXPORT_DIAGNOSTICS, &clipboard)?;
+        let exported = text(shell.h(RESULTS));
+        let path = PathBuf::from(
+            exported
+                .strip_prefix("Content-free request diagnostics exported to ")
+                .context("The explicit diagnostic export did not report its destination.")?,
+        );
+        ensure!(
+            path == crate::paths::config_dir()?
+                .join("diagnostics")
+                .join("requests.json"),
+            "Diagnostic export left the disposable profile."
+        );
+        let content = std::fs::read_to_string(&path)?;
+        let diagnostic: Value = serde_json::from_str(&content)?;
+        ensure!(
+            diagnostic.is_object()
+                && !content.contains("Submitted before cancellation")
+                && !content.contains("Newer draft after cancel"),
+            "Diagnostic export included writing or lacked the structured snapshot."
+        );
+        passed(
+            receipt,
+            "explicit-native-diagnostic-export-remains-content-free-and-private-profile-local",
+        );
         pane(&mut shell, 4, &clipboard)?;
         let consents = [
             "clipboard_context",
             "screen_context",
             "screenshot_context",
-            "screenshot_appearance",
+            "use_history",
             "record_history",
             "terminal_completion",
         ];
@@ -458,6 +1057,9 @@ fn exercise(output: &Path, receipt: &mut Value) -> Result<bool> {
             |s, c| click(s, field_id("screen_context")?, c),
         )?;
         click(&mut shell, SAVE, &clipboard)?;
+        until(&mut shell, &clipboard, Duration::from_secs(30), |s| {
+            s.operations.is_empty()
+        })?;
         let saved = crate::config::load_config()?;
         ensure!(
             saved.screen_context
@@ -473,6 +1075,9 @@ fn exercise(output: &Path, receipt: &mut Value) -> Result<bool> {
         // Revoke the saved source through the same native control before trying a model.
         click(&mut shell, field_id("screen_context")?, &clipboard)?;
         click(&mut shell, SAVE, &clipboard)?;
+        until(&mut shell, &clipboard, Duration::from_secs(30), |s| {
+            s.operations.is_empty()
+        })?;
         pane(&mut shell, 5, &clipboard)?;
         click(&mut shell, WELCOME, &clipboard)?;
         ensure!(
@@ -516,6 +1121,14 @@ fn exercise(output: &Path, receipt: &mut Value) -> Result<bool> {
         // verbatim filesystem prefix which common dialog UI need not interpret.
         let model = std::path::absolute(model)?;
         let model_identity = model.canonicalize()?;
+        let saved_instructions = shell.controller.config().custom_instructions;
+        // Seed an outstanding SettingsDraft through its public seam; the native
+        // model dialog must never treat this independent draft as submitted.
+        shell.draft.set(
+            "custom_instructions",
+            json!("Unsaved model-selection draft: 😀 e\u{301}\n"),
+        )?;
+        shell.refresh_controls()?;
         modal(
             &mut shell,
             &clipboard,
@@ -524,6 +1137,22 @@ fn exercise(output: &Path, receipt: &mut Value) -> Result<bool> {
             Some(model.clone()),
             |s, c| click(s, MODEL_IMPORT, c),
         )?;
+        until(&mut shell, &clipboard, Duration::from_secs(180), |s| {
+            s.operations.is_empty() && s.welcome.as_ref().is_some_and(|w| w.can_continue())
+        })?;
+        ensure!(
+            shell.controller.config().custom_instructions == saved_instructions
+                && crate::config::load_config()?.custom_instructions == saved_instructions
+                && shell.draft.value("custom_instructions")
+                    == Some(&json!("Unsaved model-selection draft: 😀 e\u{301}\n")),
+            "Model selection saved or discarded the independent instruction draft."
+        );
+        passed(
+            receipt,
+            "verified-model-receipt-preserves-independent-instruction-draft",
+        );
+        shell.draft.reset(&shell.controller.config())?;
+        shell.refresh_controls()?;
         let selected_model = shell
             .draft
             .value("model_path")
@@ -562,6 +1191,7 @@ fn exercise(output: &Path, receipt: &mut Value) -> Result<bool> {
                 && !preview_config.screenshot_context
                 && !preview_config.screenshot_appearance
                 && !preview_config.record_history
+                && !preview_config.use_history
                 && !preview_config.statistics_enabled,
             "The owned preview borrowed external context or recording consent."
         );

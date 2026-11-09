@@ -51,6 +51,27 @@ pub fn physical_memory_bytes() -> Option<u64> {
     *CAPACITY
 }
 
+struct RamLabel<'a> {
+    bytes: Option<u64>,
+    unavailable: &'a str,
+}
+
+impl std::fmt::Display for RamLabel<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.bytes {
+            Some(bytes) => write!(f, "{:.2} GiB", bytes as f64 / 1_073_741_824.0),
+            None => f.write_str(self.unavailable),
+        }
+    }
+}
+
+/// Formats physical RAM in binary GiB without allocating an intermediate string.
+/// Callers omit or filter unspecified zero catalogue minima and supply their
+/// existing unavailable label; detected memory remains distinct from a minimum.
+pub(crate) fn ram_label(bytes: Option<u64>, unavailable: &str) -> impl std::fmt::Display + '_ {
+    RamLabel { bytes, unavailable }
+}
+
 #[cfg(target_os = "macos")]
 fn measure_physical_memory() -> Option<u64> {
     let mut size = std::mem::size_of::<u64>();
@@ -109,8 +130,8 @@ pub fn model_availability(preset: &ModelPreset, memory: Option<u64>) -> Option<S
         .filter(|bytes| *bytes < preset.minimum_memory_bytes)
         .map(|_| {
             format!(
-                "Requires at least {} GB of physical memory.",
-                preset.minimum_memory_bytes / 1024_u64.pow(3)
+                "Requires at least {} of physical memory.",
+                ram_label(Some(preset.minimum_memory_bytes), "")
             )
         })
 }
@@ -318,6 +339,23 @@ fn verify_retained_file(
     verify_download(preset, size, &hash)
 }
 
+/// Check a catalogue candidate's existing bytes on a background owner. Opens
+/// once, checks regular-file ownership, pinned size and SHA-256, and observes
+/// cancellation while hashing. Never downloads, replaces or adopts custom paths.
+///
+/// This is selection-time integrity, not immutable-file attestation: the caller
+/// must still prepare the selected configuration, and later file mutation is not
+/// prevented by this check.
+pub fn verify_catalogue_file(
+    preset: &ModelPreset,
+    path: &Path,
+    cancel: &DownloadCancellation,
+) -> Result<()> {
+    cancel.check()?;
+    let mut file = retained_file(path)?.context("Catalogue model file is missing")?;
+    verify_retained_file(preset, &mut file, cancel)
+}
+
 /// Cancellation drops an owned asynchronous body read immediately, including stalled transfers.
 #[derive(Clone, Debug, Default)]
 pub struct DownloadCancellation(CancellationToken);
@@ -488,6 +526,57 @@ mod tests {
         std::fs::create_dir_all(&legacy).unwrap();
         std::fs::write(legacy.join(&preset.filename), bytes).unwrap();
         (root, preset, legacy, durable)
+    }
+
+    #[test]
+    fn catalogue_selection_verifies_existing_bytes_without_publication_or_replacement() {
+        let (_root, mut preset, legacy, durable) = retention_fixture();
+        let source = legacy.join(&preset.filename);
+        // Published SHA-256 test vector; independent of the hashing helper.
+        preset.size_bytes = 3;
+        preset.sha256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad".into();
+        let original = b"abc".to_vec();
+        std::fs::write(&source, &original).unwrap();
+        verify_catalogue_file(&preset, &source, &DownloadCancellation::new()).unwrap();
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert!(!durable.exists());
+
+        let mut corrupt = original.clone();
+        corrupt[0] ^= 1;
+        std::fs::write(&source, &corrupt).unwrap();
+        assert!(verify_catalogue_file(&preset, &source, &DownloadCancellation::new()).is_err());
+        assert_eq!(std::fs::read(&source).unwrap(), corrupt);
+        std::fs::write(&source, b"short").unwrap();
+        assert!(verify_catalogue_file(&preset, &source, &DownloadCancellation::new()).is_err());
+        assert_eq!(std::fs::read(&source).unwrap(), b"short");
+        std::fs::remove_file(&source).unwrap();
+        assert!(verify_catalogue_file(&preset, &source, &DownloadCancellation::new()).is_err());
+        assert!(!source.exists());
+        assert!(!durable.exists());
+    }
+
+    #[test]
+    fn cancelled_catalogue_selection_keeps_the_existing_file() {
+        let (_root, preset, legacy, _durable) = retention_fixture();
+        let source = legacy.join(&preset.filename);
+        let original = std::fs::read(&source).unwrap();
+        let cancel = DownloadCancellation::new();
+        cancel.set();
+        assert!(verify_catalogue_file(&preset, &source, &cancel).is_err());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(std::fs::read_dir(&legacy).unwrap().count(), 1);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn catalogue_selection_refuses_symlinks_and_nonregular_files() {
+        let (_root, preset, legacy, _durable) = retention_fixture();
+        let source = legacy.join(&preset.filename);
+        let link = legacy.join("alias.gguf");
+        std::os::unix::fs::symlink(&source, &link).unwrap();
+        assert!(verify_catalogue_file(&preset, &link, &DownloadCancellation::new()).is_err());
+        assert!(verify_catalogue_file(&preset, &legacy, &DownloadCancellation::new()).is_err());
+        verify_catalogue_file(&preset, &source, &DownloadCancellation::new()).unwrap();
     }
 
     #[test]
@@ -755,9 +844,40 @@ mod tests {
     }
 
     #[test]
+    fn ram_labels_use_binary_gibibytes_and_preserve_fractions() {
+        for (bytes, expected) in [
+            (8_589_934_592, "8.00 GiB"),
+            (9_126_805_504, "8.50 GiB"),
+            (536_870_912, "0.50 GiB"),
+            (1_000_000_000, "0.93 GiB"),
+        ] {
+            assert_eq!(ram_label(Some(bytes), "unavailable").to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn fractional_memory_requirements_keep_byte_exact_eligibility() {
+        let mut preset = get_preset("gemma4-e2b").unwrap().clone();
+        preset.minimum_memory_bytes = 9_126_805_504;
+        let warning = model_availability(&preset, Some(9_126_805_503)).unwrap();
+        assert!(warning.contains("8.50 GiB"));
+        assert!(model_availability(&preset, Some(9_126_805_504)).is_none());
+        assert!(model_availability(&preset, Some(9_126_805_505)).is_none());
+        assert!(model_availability(&preset, None).is_none());
+
+        preset.minimum_memory_bytes = 0;
+        assert!(model_availability(&preset, Some(0)).is_none());
+        assert!(model_availability(&preset, Some(9_126_805_504)).is_none());
+        assert!(model_availability(&preset, None).is_none());
+    }
+
+    #[test]
     fn capacity_policy_distinguishes_unknown_and_low_memory() {
         assert_eq!(recommended_preset(None).id, "gemma4-e2b");
         assert_eq!(recommended_preset(Some(4 * 1024_u64.pow(3))).id, "balanced");
+        assert_eq!(recommended_preset(Some(8_589_934_591)).id, "balanced");
+        assert_eq!(recommended_preset(Some(8_589_934_592)).id, "gemma4-e2b");
+        assert_eq!(recommended_preset(Some(8_589_934_593)).id, "gemma4-e2b");
         assert!(
             model_availability(get_preset("gemma3-1b").unwrap(), Some(3 * 1024_u64.pow(3)))
                 .is_some()

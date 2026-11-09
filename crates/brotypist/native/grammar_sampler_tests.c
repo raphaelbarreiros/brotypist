@@ -94,15 +94,19 @@ int bt_grammar_sampler_regression(void) {
             }
         }
     }
-    /* Isolate a tie only at the omitted boundary: the retained 128 scores are
-     * distinct. Also check sparse/small-input fallbacks before top-k can hide
-     * an accidental reorder or a substituted candidate buffer. */
-    for (int fallback = 0; fallback < 4; ++fallback) {
-        size_t size = fallback < 2 ? count : (fallback == 2 ? BT_GRAMMAR_SHORTLIST : 16);
+    /* Preserve the full array for a tie at the omitted boundary or within the
+     * shortlist, too few grammar survivors, small inputs, or fewer than 128
+     * finite logits (including an entirely masked input). */
+    for (int fallback = 0; fallback < 7; ++fallback) {
+        size_t size = fallback == 2 ? BT_GRAMMAR_SHORTLIST : (fallback == 3 ? 16 : count);
         for (int i = 0; i < count; ++i) {
             original[i] = (llama_token_data){i, fallback == 0 ? 127.0f - i : (float)i, 0};
         }
         if (fallback == 0) original[128].logit = original[127].logit;
+        if (fallback == 4 || fallback == 5) {
+            for (int i = fallback == 4 ? 127 : 0; i < count; ++i) original[i].logit = -INFINITY;
+        }
+        if (fallback == 6) original[count - 2].logit = original[count - 1].logit;
         memcpy(optimized, original, sizeof(original));
         int mode = fallback == 1 ? 2 : 0;
         struct llama_sampler *left = mask_new(mode, 0);
@@ -119,15 +123,16 @@ int bt_grammar_sampler_regression(void) {
     }
     /* Invalid floating-point inputs must preserve the original grammar path,
      * without asking downstream probabilistic samplers to normalize NaNs. */
-    for (int exceptional = 0; exceptional < 2; ++exceptional) {
+    for (int exceptional = 0; exceptional < 4; ++exceptional) {
         for (int i = 0; i < count; ++i) original[i] = (llama_token_data){i, (float)i, 0};
-        original[5].logit = exceptional ? INFINITY : NAN;
+        /* Exercise both a grammar-masked and a surviving exceptional value. */
+        original[exceptional < 2 ? 5 : 6].logit = exceptional % 2 ? INFINITY : NAN;
         memcpy(optimized, original, sizeof(original));
         struct llama_sampler *left = mask_new(1, 0);
         struct llama_sampler *right = bt_grammar_wrap(mask_new(1, 0), 64);
         llama_token_data_array a = {original, count, -1, false}, b = {optimized, count, -1, false};
         llama_sampler_apply(left, &a); llama_sampler_apply(right, &b);
-        CHECK(a.size == b.size);
+        CHECK(b.data == optimized && a.size == b.size && a.sorted == b.sorted);
         for (size_t i = 0; i < a.size; ++i) {
             CHECK(a.data[i].id == b.data[i].id);
             CHECK(a.data[i].logit == b.data[i].logit || (isnan(a.data[i].logit) && isnan(b.data[i].logit)));

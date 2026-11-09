@@ -116,6 +116,20 @@ pub(crate) fn export_whatsapp_runtime_diagnostic(value: &impl Serialize) -> Resu
     bytes.push(b'\n');
     atomic_write(&path, &bytes)
 }
+
+/// Explicit local export of the fixed content-free request snapshot only.
+/// No runtime status, target metadata, or authored text is accepted by this API.
+pub fn export_request_diagnostics(
+    snapshot: &crate::diagnostics::DiagnosticSnapshot,
+) -> Result<PathBuf> {
+    let path = crate::paths::config_dir()?
+        .join("diagnostics")
+        .join("requests.json");
+    let mut bytes = serde_json::to_vec_pretty(snapshot)?;
+    bytes.push(b'\n');
+    atomic_write(&path, &bytes)?;
+    Ok(path)
+}
 fn owned_desktop(content: &str) -> bool {
     let mut in_desktop = false;
     content.lines().any(|line| {
@@ -490,7 +504,11 @@ fn clipboard_read(
     if !authorized() {
         return Ok(String::new());
     }
-    result.map(|text| bounded_text(&text, LIMIT))
+    let result = result.map(|text| bounded_text(&text, LIMIT));
+    if !authorized() {
+        return Ok(String::new());
+    }
+    result
 }
 /// Native APIs do not require a toolkit thread. A GUI-owned reader may instead use ClipboardService.
 pub fn clipboard_text(authorized: &dyn Fn() -> bool) -> Result<String> {
@@ -532,19 +550,19 @@ fn native_clipboard() -> Result<String> {
 
 pub type ClipboardAuthorization = Arc<dyn Fn() -> bool + Send + Sync>;
 struct ClipboardRequest {
-    liveness: ClipboardAuthorization,
+    live: ClipboardAuthorization,
     authorized: ClipboardAuthorization,
     deadline: Instant,
     cancelled: AtomicBool,
     result: Mutex<Option<Result<String>>>,
 }
 impl ClipboardRequest {
-    // Queue polling must never resolve the native ticket or take its mutex.
+    // Waiting must not resolve native tickets or contend on their mutexes.
     fn is_live(&self, queue: &ClipboardQueue) -> bool {
         !self.cancelled.load(Ordering::Acquire)
             && !queue.stopped.load(Ordering::Acquire)
             && Instant::now() < self.deadline
-            && (self.liveness)()
+            && (self.live)()
     }
     fn is_authorized(&self, queue: &ClipboardQueue) -> bool {
         self.is_live(queue) && (self.authorized)() && self.is_live(queue)
@@ -592,8 +610,8 @@ impl ClipboardService {
             .unwrap_or_else(|p| p.into_inner())
             .take();
         if let Some(request) = request {
-            let live = || request.is_authorized(&self.queue);
-            let result = clipboard_read(&live, read);
+            let authorized = || request.is_authorized(&self.queue);
+            let result = clipboard_read(&authorized, read);
             *request.result.lock().unwrap_or_else(|p| p.into_inner()) = Some(result);
         }
         Ok(())
@@ -614,36 +632,36 @@ impl Drop for ClipboardService {
     }
 }
 /// Marshal when a GUI service is installed; otherwise use native thread-independent access.
-/// Liveness must be cheap and must not resolve a native authorization ticket.
-/// Full authorization stays fresh at the read and result-acceptance fences.
+/// Waiting uses cheap liveness; native reads and accepted results resolve fresh
+/// authorization, with liveness fenced again after that potentially blocking check.
 pub fn clipboard_text_shared(
-    liveness: ClipboardAuthorization,
+    live: ClipboardAuthorization,
     authorized: ClipboardAuthorization,
 ) -> Result<String> {
-    if !liveness() {
+    if !live() {
         return Ok(String::new());
     }
     let queue = CLIPBOARD
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .upgrade();
-    let full_guard = || liveness() && authorized() && liveness();
+    let full_guard = || live() && authorized() && live();
     let Some(queue) = queue else {
         return clipboard_text(&full_guard);
     };
     if queue.owner == thread::current().id() {
         return clipboard_text(&full_guard);
     }
-    clipboard_from_queue(queue, liveness, authorized, Duration::from_millis(250))
+    clipboard_from_queue(queue, live, authorized, Duration::from_millis(250))
 }
 fn clipboard_from_queue(
     queue: Arc<ClipboardQueue>,
-    liveness: ClipboardAuthorization,
+    live: ClipboardAuthorization,
     authorized: ClipboardAuthorization,
     timeout: Duration,
 ) -> Result<String> {
     let request = Arc::new(ClipboardRequest {
-        liveness,
+        live,
         authorized,
         deadline: Instant::now() + timeout,
         cancelled: AtomicBool::new(false),
@@ -829,16 +847,20 @@ fn screen_context_with(
     if accessibility {
         let result = bridge.focused_context(snapshot, authorized, limit)?;
         if !authorized() {
+            clear_context_cache();
             return Ok(context("blocked", ""));
         }
         // Blocked means privacy refusal; never perform another sensitive read or OCR.
         if result.status == "blocked" {
+            clear_context_cache();
             return Ok(context("blocked", ""));
         }
         if !bridge.context_matches(snapshot)? {
+            clear_context_cache();
             return Ok(context("stale", ""));
         }
         if !authorized() {
+            clear_context_cache();
             return Ok(context("blocked", ""));
         }
         if result.status == "ready" && !result.text.trim().is_empty() {
@@ -1402,6 +1424,52 @@ mod tests {
     use super::*;
     use std::cell::Cell;
 
+    #[test]
+    fn request_snapshot_uses_private_atomic_export_permissions() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("diagnostics/requests.json");
+        let mut book = crate::diagnostics::DiagnosticBook::new();
+        let now = Instant::now();
+        book.begin(
+            crate::diagnostics::WorkKind::RetainedGhost,
+            crate::diagnostics::PresentationLane::Inline,
+            1,
+            crate::diagnostics::CaptureTiming {
+                input_notified: None,
+                started: now,
+                finished: now + std::time::Duration::from_micros(7),
+            },
+        )
+        .unwrap();
+        let snapshot = book.snapshot();
+        let bytes = serde_json::to_vec_pretty(&snapshot).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["version"], 2);
+        assert_eq!(value["traces"][0]["lane"], "inline");
+        assert!(value["traces"][0]["input_wait_us"].is_null());
+        assert_eq!(value["traces"][0]["first_capture_us"], 7);
+        assert_eq!(value["traces"][0]["total_capture_us"], 7);
+        assert_eq!(value["traces"][0]["stage_us"][0], 7);
+        atomic_write(&path, &bytes).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert_eq!(
+                std::fs::metadata(path.parent().unwrap())
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+        }
+    }
+
     fn reading(percent: Option<u32>) -> PowerStatus {
         PowerStatus {
             available: true,
@@ -1580,6 +1648,108 @@ mod tests {
             clipboard_read(&|| true, || bail!("secret native clipboard content")).unwrap_err();
         assert_eq!(error.to_string(), "Clipboard context could not be read.");
     }
+    #[test]
+    fn clipboard_canonical_scope_denials_never_acquire_content() {
+        use crate::config::{Config, ScopedPreference};
+        for (value, domain, required) in [
+            (serde_json::json!({}), "", false),
+            (
+                serde_json::json!({"clipboard_context":true,
+                "app_rules":{"app:browser":{"clipboard_context":false}}}),
+                "",
+                false,
+            ),
+            (
+                serde_json::json!({"clipboard_context":false,
+                "app_rules":{"domain:example.test":{"clipboard_context":true}}}),
+                "example.test",
+                true,
+            ),
+            (serde_json::json!({"clipboard_context":true}), "", true),
+        ] {
+            let config: Config = serde_json::from_value(value).unwrap();
+            let result = clipboard_read(
+                &|| {
+                    config
+                        .resolve_preference(
+                            ScopedPreference::ClipboardContext,
+                            "browser",
+                            domain,
+                            required,
+                        )
+                        .value
+                },
+                || panic!("Denied clipboard source must never be acquired"),
+            )
+            .unwrap();
+            assert!(result.is_empty());
+        }
+    }
+    #[test]
+    fn terminal_clipboard_admission_is_independent_of_screen_consent_and_revocable() {
+        use crate::config::{Config, ScopedPreference};
+        for settings in [
+            serde_json::json!({"clipboard_context": true, "screen_context": false}),
+            serde_json::json!({"clipboard_context": true, "screen_context": true,
+                "app_rules": {"app:com.apple.Terminal": {"screen_context": false}}}),
+            serde_json::json!({"clipboard_context": true, "screen_context": true,
+                "app_rules": {"domain:example.test": {"screen_context": false}}}),
+        ] {
+            let config: Config = serde_json::from_value(settings).unwrap();
+            let app = "com.apple.Terminal";
+            let domain = "example.test";
+            assert!(
+                !config
+                    .resolve_preference(ScopedPreference::ScreenContext, app, domain, false,)
+                    .value
+            );
+            let current = Cell::new(true);
+            let authorized = || {
+                current.get()
+                    && config
+                        .resolve_preference(ScopedPreference::ClipboardContext, app, domain, false)
+                        .value
+            };
+            assert_eq!(
+                clipboard_read(&authorized, || Ok("independently consented 🦀".into())).unwrap(),
+                "independently consented 🦀"
+            );
+            assert_eq!(
+                clipboard_read(&authorized, || {
+                    current.set(false);
+                    Ok("revoked while reading".into())
+                })
+                .unwrap(),
+                ""
+            );
+            assert_eq!(
+                clipboard_read(&authorized, || panic!(
+                    "Revoked primary target read clipboard"
+                ))
+                .unwrap(),
+                ""
+            );
+            let snapshot = Snapshot {
+                app_id: app.into(),
+                field_id: "terminal:unsent-input".into(),
+                ..window()
+            };
+            let mut bridge = fixture("ready", "transcript must remain unread");
+            let context = screen_context_with(
+                &snapshot,
+                &mut bridge,
+                &|| true,
+                2400,
+                true,
+                true,
+                &mut |_, _, _, _| panic!("Terminal screen context reached OCR"),
+            )
+            .unwrap();
+            assert_eq!(context.status, "blocked");
+            assert_eq!(bridge.reads, 0);
+            assert_eq!(bridge.checks, 0);
+        }
+    }
     fn local_clipboard_service() -> ClipboardService {
         ClipboardService {
             queue: Arc::new(ClipboardQueue {
@@ -1596,7 +1766,7 @@ mod tests {
         deadline: Instant,
     ) -> Arc<ClipboardRequest> {
         let request = Arc::new(ClipboardRequest {
-            liveness: Arc::new(|| true),
+            live: Arc::new(|| true),
             authorized,
             deadline,
             cancelled: AtomicBool::new(false),
@@ -1781,6 +1951,50 @@ mod tests {
         }
     }
     #[test]
+    fn screenshot_appearance_never_authorizes_context_and_revoked_ocr_is_discarded() {
+        use crate::config::{Config, ScopedPreference};
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "screenshot_appearance":true, "screenshot_context":false
+        }))
+        .unwrap();
+        let mut bridge = fixture("unavailable", "");
+        let screenshot = config
+            .resolve_preference(ScopedPreference::ScreenshotContext, "writer", "", false)
+            .value;
+        let denied = screen_context_with(
+            &window(),
+            &mut bridge,
+            &|| true,
+            4000,
+            false,
+            screenshot,
+            &mut |_, _, _, _| panic!("Appearance consent cannot acquire OCR context"),
+        )
+        .unwrap();
+        assert_eq!(denied.status, "blocked");
+        assert_eq!(bridge.reads, 0);
+        let grant = Cell::new(true);
+        let revoked = screen_context_with(
+            &window(),
+            &mut bridge,
+            &|| grant.get(),
+            4000,
+            false,
+            true,
+            &mut |_, _, _, _| {
+                grant.set(false);
+                Ok(ContextRead {
+                    status: "ready".into(),
+                    source: "screenshot".into(),
+                    text: "stale cached result".into(),
+                })
+            },
+        )
+        .unwrap();
+        assert_eq!(revoked.status, "blocked");
+        assert!(revoked.text.is_empty());
+    }
+    #[test]
     fn blocked_ax_is_not_an_ocr_fallback() {
         let mut bridge = fixture("blocked", "");
         let result = screen_context_with(
@@ -1929,6 +2143,81 @@ mod tests {
         assert_eq!(bridge.reads, 0);
     }
     #[test]
+    fn clipboard_waiting_uses_only_liveness_and_late_results_require_authorization() {
+        let service = local_clipboard_service();
+        let queue = service.queue.clone();
+        let worker = thread::spawn(move || {
+            clipboard_from_queue(
+                queue,
+                Arc::new(|| true),
+                Arc::new(|| panic!("Waiting must not resolve native authorization")),
+                Duration::from_millis(10),
+            )
+        });
+        assert_eq!(worker.join().unwrap().unwrap(), "");
+        service
+            .poll_with(|| panic!("Expired request must not read"))
+            .unwrap();
+
+        let queue = service.queue.clone();
+        let worker = thread::spawn(move || {
+            clipboard_from_queue(
+                queue,
+                Arc::new(|| true),
+                Arc::new(|| false),
+                Duration::from_secs(1),
+            )
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let request = loop {
+            if let Some(request) = service.queue.pending.lock().unwrap().take() {
+                break request;
+            }
+            assert!(Instant::now() < deadline);
+            thread::yield_now();
+        };
+        *request.result.lock().unwrap() = Some(Ok("formerly authorized content".into()));
+        assert_eq!(worker.join().unwrap().unwrap(), "");
+    }
+
+    #[test]
+    fn clipboard_authorization_cannot_outlive_liveness_or_the_result_deadline() {
+        let service = local_clipboard_service();
+        let live = Arc::new(AtomicBool::new(true));
+        let check = live.clone();
+        let revoke = live.clone();
+        let request = Arc::new(ClipboardRequest {
+            live: Arc::new(move || check.load(Ordering::Acquire)),
+            authorized: Arc::new(move || {
+                revoke.store(false, Ordering::Release);
+                true
+            }),
+            deadline: Instant::now() + Duration::from_secs(1),
+            cancelled: AtomicBool::new(false),
+            result: Mutex::new(None),
+        });
+        *service.queue.pending.lock().unwrap() = Some(request.clone());
+        service
+            .poll_with(|| panic!("Authorization completed after liveness was revoked"))
+            .unwrap();
+        assert_eq!(request.result.lock().unwrap().take().unwrap().unwrap(), "");
+
+        let request = queue_request(
+            &service,
+            Arc::new(|| true),
+            Instant::now() + Duration::from_millis(10),
+        );
+        service
+            .poll_with(|| {
+                while Instant::now() < request.deadline {
+                    thread::yield_now();
+                }
+                Ok("expired during native read".into())
+            })
+            .unwrap();
+        assert_eq!(request.result.lock().unwrap().take().unwrap().unwrap(), "");
+    }
+    #[test]
     fn clipboard_worker_timeout_never_executes_late_and_queue_remains_usable() {
         let service = local_clipboard_service();
         let queue = service.queue.clone();
@@ -2022,8 +2311,6 @@ mod tests {
             .poll_with(|| Ok("owned synthetic text".into()))
             .unwrap();
         assert_eq!(worker.join().unwrap().unwrap(), "owned synthetic text");
-        // Fresh pre-read, post-read and accepting-worker fences only.
-        assert_eq!(calls.load(Ordering::Acquire), 3);
     }
     #[test]
     fn clipboard_queue_cancellation_while_waiting_prevents_read() {
@@ -2077,25 +2364,6 @@ mod tests {
             })
             .unwrap();
         assert_eq!(worker.join().unwrap().unwrap(), "");
-    }
-    #[test]
-    fn clipboard_queue_acceptance_rechecks_native_authorization() {
-        use std::sync::atomic::AtomicUsize;
-
-        let service = local_clipboard_service();
-        let calls = Arc::new(AtomicUsize::new(0));
-        let checks = calls.clone();
-        let (worker, waiting) = spawn_clipboard_request(
-            &service,
-            Arc::new(|| true),
-            Arc::new(move || checks.fetch_add(1, Ordering::AcqRel) < 2),
-        );
-        observe_clipboard_wait(&waiting);
-        service
-            .poll_with(|| Ok("discard owned synthetic text".into()))
-            .unwrap();
-        assert_eq!(worker.join().unwrap().unwrap(), "");
-        assert_eq!(calls.load(Ordering::Acquire), 3);
     }
     #[test]
     fn clipboard_queue_owner_shutdown_unblocks_waiter() {

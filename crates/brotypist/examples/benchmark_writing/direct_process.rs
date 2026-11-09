@@ -159,6 +159,7 @@ pub fn session(
             .tempdir_in(root)?;
         let request = json!({"model":model, "round_index":round, "max_tokens":tokens, "max_words":words,
             "prompt_style":args.prompt_style, "acceleration":args.acceleration,
+            "paired_seed":args.paired_seed, "cold_kv":args.cold_kv,
             "cases":cases.iter().map(|case| &case.id).collect::<Vec<_>>()});
         let (mut owner, messages) = spawn(&request, profile.path())?;
         let mut deadline = Instant::now() + Duration::from_secs(args.prepare_timeout_seconds);

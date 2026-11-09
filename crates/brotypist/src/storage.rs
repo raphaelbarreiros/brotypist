@@ -103,6 +103,18 @@ pub struct HistoryRecord {
     pub authored_spans: Vec<(usize, usize)>,
 }
 
+/// Internal deletion-propagation data, not a diagnostic or export payload.
+pub struct RetentionResult {
+    pub deleted_ids: Vec<String>,
+    pub unknown_timestamp_count: usize,
+}
+
+impl RetentionResult {
+    pub fn deleted_count(&self) -> usize {
+        self.deleted_ids.len()
+    }
+}
+
 /// Allowlisted native backends implement this narrow interface. Tests can inject
 /// a wholly private backend; no global keyring backend is ever used or changed.
 pub trait HistoryCredentials: Send + Sync {
@@ -121,7 +133,8 @@ struct HistoryState {
     key: Option<Zeroizing<[u8; 32]>>,
     broken: bool,
     error: String,
-    learning: Option<Vec<LearningEntry>>,
+    learning: Option<BTreeMap<String, CachedLearningRow>>,
+    learning_dirty: bool,
 }
 
 pub struct HistoryStore {
@@ -280,7 +293,7 @@ impl HistoryStore {
             "INSERT OR REPLACE INTO history VALUES (?,?)",
             params![id, sealed],
         )?;
-        state.learning = None;
+        state.learning_dirty = true;
         Ok(true)
     }
 
@@ -309,65 +322,100 @@ impl HistoryStore {
     }
 
     fn entries(&self, state: &mut HistoryState, limit: Option<usize>) -> Result<Vec<Entry>> {
-        let key = state.key.as_ref().ok_or_else(|| anyhow!(LOCKED_ERROR))?;
+        ensure!(!state.broken, "{}", state.error);
+        ensure!(state.key.is_some(), LOCKED_ERROR);
         if !self.path.try_exists()? {
             return Ok(Vec::new());
         }
-        let connection = self.connect()?;
+        self.entries_on(&self.connect()?, state, limit)
+    }
+
+    fn entries_on(
+        &self,
+        connection: &Connection,
+        state: &mut HistoryState,
+        limit: Option<usize>,
+    ) -> Result<Vec<Entry>> {
+        ensure!(!state.broken, "{}", state.error);
+        let key = state.key.as_ref().ok_or_else(|| anyhow!(LOCKED_ERROR))?;
         let mut query =
             connection.prepare("SELECT id,sealed FROM history ORDER BY rowid DESC LIMIT ?")?;
-        let rows = query.query_map(
-            [limit
-                .map(|n| i64::try_from(n).unwrap_or(i64::MAX))
-                .unwrap_or(-1)],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?)),
-        )?;
+        let mut rows = query.query([limit
+            .map(|n| i64::try_from(n).unwrap_or(i64::MAX))
+            .unwrap_or(-1)])?;
         let cipher =
             Aes256Gcm::new_from_slice(key.as_ref()).map_err(|_| anyhow!(UNAVAILABLE_ERROR))?;
-        let result = (|| -> Result<Vec<Entry>> {
-            let mut entries = Vec::new();
-            for row in rows {
-                let (id, sealed) = row?;
-                let plaintext = Zeroizing::new(open_with_cipher(&cipher, &id, &sealed)?);
-                let value: Value = serde_json::from_slice(&plaintext)?;
-                let object = value
-                    .as_object()
-                    .ok_or_else(|| anyhow!("Invalid history record."))?;
-                let text = object
-                    .get("text")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| anyhow!("Invalid history text."))?;
-                let app = optional_string(object.get("app"))?;
-                let domain = optional_string(object.get("domain"))?;
-                let spans = parse_spans(object.get("authored_spans"));
-                entries.push(Entry {
-                    record: HistoryRecord {
-                        id,
-                        app_id: app.to_owned(),
-                        domain: domain.to_owned(),
-                        text: text.to_owned(),
-                        created_at: object
-                            .get("time")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_owned(),
-                        authored_spans: spans,
-                    },
-                    authored: object.get("authorship").and_then(Value::as_u64) == Some(1),
-                });
-            }
-            Ok(entries)
-        })();
-        match result {
-            Ok(entries) => Ok(entries),
-            Err(_) => {
-                state.key = None;
-                state.learning = None;
-                state.broken = true;
-                state.error = AUTHENTICATION_ERROR.to_owned();
-                bail!(AUTHENTICATION_ERROR)
+        let mut entries = Vec::new();
+        // Stepping SQLite may fail operationally. Only malformed row values or
+        // authenticated payload failures latch corruption, as in learning reads.
+        while let Some(row) = rows.next()? {
+            let result = (|| -> Result<Entry> {
+                let id = row.get_ref(0)?.as_str()?;
+                let sealed = row.get_ref(1)?.as_blob()?;
+                let plaintext = Zeroizing::new(open_with_cipher(&cipher, id, sealed)?);
+                parse_entry(id.to_owned(), &plaintext)
+            })();
+            match result {
+                Ok(entry) => entries.push(entry),
+                Err(_) => {
+                    state.key = None;
+                    state.learning = None;
+                    state.broken = true;
+                    state.error = AUTHENTICATION_ERROR.to_owned();
+                    bail!(AUTHENTICATION_ERROR)
+                }
             }
         }
+        Ok(entries)
+    }
+
+    /// Delete records strictly older than an explicit UTC cutoff. The caller
+    /// must retire queued/session evidence before deletion; returned IDs let it
+    /// remove matching in-memory provenance without exporting writing metadata.
+    /// This never unlocks credentials. Unknown, malformed, or timezone-free
+    /// legacy timestamps remain untouched and are counted for the caller.
+    pub fn retain_since(&mut self, cutoff: DateTime<Utc>) -> Result<RetentionResult> {
+        let mut state = self.state()?;
+        state.learning = None;
+        state.learning_dirty = true;
+        ensure!(!state.broken, "{}", state.error);
+        ensure!(state.key.is_some(), LOCKED_ERROR);
+        let mut result = RetentionResult {
+            deleted_ids: Vec::new(),
+            unknown_timestamp_count: 0,
+        };
+        if !self.path.try_exists()? {
+            return Ok(result);
+        }
+        let mut connection = self.connect()?;
+        // Authenticate and delete under one write reservation: a concurrent
+        // snapshot replacement must not turn an expired ID into a fresh record
+        // between authentication and deletion.
+        let transaction =
+            connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let entries = self.entries_on(&transaction, &mut state, None)?;
+        for entry in entries {
+            match DateTime::parse_from_rfc3339(&entry.record.created_at) {
+                Ok(created_at) if created_at < cutoff => {
+                    result.deleted_ids.push(entry.record.id);
+                }
+                Ok(_) => {}
+                Err(_) => result.unknown_timestamp_count += 1,
+            }
+        }
+        {
+            let mut delete = transaction.prepare("DELETE FROM history WHERE id=?")?;
+            for id in &result.deleted_ids {
+                ensure!(
+                    delete.execute([id])? == 1,
+                    "History retention changed unexpectedly."
+                );
+            }
+        }
+        // connect enables secure_delete; no fallible post-commit maintenance may
+        // hide the successful deletion receipt needed for runtime propagation.
+        transaction.commit()?;
+        Ok(result)
     }
 
     pub fn delete(&mut self, app: Option<&str>, domain: Option<&str>) -> Result<usize> {
@@ -512,37 +560,19 @@ impl HistoryStore {
         if state.key.is_none() {
             return Ok(String::new());
         }
-        if state.learning.is_none() {
-            let mut index = Vec::new();
-            for entry in self.entries(&mut state, Some(LEARNING_ENTRIES))? {
-                if !entry.authored {
-                    continue;
-                }
-                let fragments: Vec<String> =
-                    authored_fragments(&entry.record.text, &entry.record.authored_spans)
-                        .iter()
-                        .map(|fragment| fragment.nfc().collect())
-                        .collect();
-                let authored = Zeroizing::new(fragments.join("\n"));
-                let entry_language = writing_language(&authored);
-                if !history_safe(&authored) || entry_language.is_empty() {
-                    continue;
-                }
-                let (vocabulary, features) = style_features(&fragments);
-                index.push(LearningEntry {
-                    app: entry.record.app_id,
-                    domain: entry.record.domain,
-                    language: entry_language,
-                    vocabulary,
-                    features,
-                });
-            }
-            state.learning = Some(index);
+        if state.learning.is_none() || state.learning_dirty {
+            self.refresh_learning(&mut state)?;
         }
-        let mut words = BTreeMap::<String, u64>::new();
+        let mut words = BTreeMap::<&str, u64>::new();
         let mut totals = Features::default();
         let mut records = 0;
-        for entry in state.learning.as_ref().expect("initialized learning index") {
+        for entry in state
+            .learning
+            .as_ref()
+            .expect("initialized learning index")
+            .values()
+            .filter_map(|row| row.entry.as_ref())
+        {
             let same_context = if domain.is_empty() {
                 entry.domain.is_empty() && entry.app == app
             } else {
@@ -556,7 +586,7 @@ impl HistoryStore {
             }
             records += 1;
             for (word, count) in &entry.vocabulary {
-                *words.entry(word.clone()).or_default() += count;
+                *words.entry(word.as_str()).or_default() += count;
             }
             totals.add(&entry.features);
         }
@@ -595,6 +625,63 @@ impl HistoryStore {
             &json!({"strength": strength.min(100), "language": language,
                                       "records": records, "style": style, "vocabulary": vocabulary}),
         )?)
+    }
+
+    fn refresh_learning(&self, state: &mut HistoryState) -> Result<()> {
+        // Retain every raw row, including nonlearning evidence, so the window
+        // is selected before authorship, language, scope, or consent filtering.
+        // Taking the cache first discards stale evidence on every failure.
+        let mut previous = state.learning.take().unwrap_or_default();
+        let key = state.key.as_ref().ok_or_else(|| anyhow!(LOCKED_ERROR))?;
+        let mut index = BTreeMap::new();
+        if self.path.try_exists()? {
+            let cipher =
+                Aes256Gcm::new_from_slice(key.as_ref()).map_err(|_| anyhow!(UNAVAILABLE_ERROR))?;
+            let connection = self.connect()?;
+            let mut query =
+                connection.prepare("SELECT id,sealed FROM history ORDER BY rowid DESC LIMIT ?")?;
+            let mut rows = query.query([LEARNING_ENTRIES as i64])?;
+            // Filesystem/SQLite operations may fail transiently. Preserve the
+            // healthy key so the next request can refresh, without hidden retries.
+            while let Some(row) = rows.next()? {
+                let result = (|| -> Result<(String, CachedLearningRow)> {
+                    let id = row.get_ref(0)?.as_str()?;
+                    let sealed = row.get_ref(1)?.as_blob()?;
+                    let digest: [u8; 32] = Sha256::digest(sealed).into();
+                    if let Some(cached) = previous
+                        .remove_entry(id)
+                        .filter(|(_, cached)| cached.digest == digest)
+                    {
+                        return Ok(cached);
+                    }
+                    // Identity alone is never evidence that ciphertext is unchanged.
+                    let plaintext = Zeroizing::new(open_with_cipher(&cipher, id, sealed)?);
+                    let mut entry = parse_entry(id.to_owned(), &plaintext)?;
+                    Ok((
+                        std::mem::take(&mut entry.record.id),
+                        CachedLearningRow {
+                            digest,
+                            entry: learning_entry(entry),
+                        },
+                    ))
+                })();
+                match result {
+                    Ok((id, cached)) => {
+                        index.insert(id, cached);
+                    }
+                    Err(_) => {
+                        // Only malformed rows or unauthenticated payloads latch.
+                        state.key = None;
+                        state.broken = true;
+                        state.error = AUTHENTICATION_ERROR.to_owned();
+                        bail!(AUTHENTICATION_ERROR)
+                    }
+                }
+            }
+        }
+        state.learning = Some(index);
+        state.learning_dirty = false;
+        Ok(())
     }
 
     pub fn record_statistics(&mut self, app: &str, text: &str, new_completion: bool) -> Result<()> {
@@ -759,6 +846,64 @@ struct Entry {
     record: HistoryRecord,
     authored: bool,
 }
+fn parse_entry(id: String, plaintext: &[u8]) -> Result<Entry> {
+    let value: Value = serde_json::from_slice(plaintext)?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| anyhow!("Invalid history record."))?;
+    let text = object
+        .get("text")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("Invalid history text."))?;
+    let app = optional_string(object.get("app"))?;
+    let domain = optional_string(object.get("domain"))?;
+    let spans = parse_spans(object.get("authored_spans"));
+    Ok(Entry {
+        record: HistoryRecord {
+            id,
+            app_id: app.to_owned(),
+            domain: domain.to_owned(),
+            text: text.to_owned(),
+            created_at: object
+                .get("time")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned(),
+            authored_spans: spans,
+        },
+        authored: object.get("authorship").and_then(Value::as_u64) == Some(1),
+    })
+}
+
+struct CachedLearningRow {
+    digest: [u8; 32],
+    entry: Option<LearningEntry>,
+}
+
+fn learning_entry(entry: Entry) -> Option<LearningEntry> {
+    if !entry.authored {
+        return None;
+    }
+    let fragments: Vec<String> =
+        authored_fragments(&entry.record.text, &entry.record.authored_spans)
+            .iter()
+            .map(|fragment| fragment.nfc().collect())
+            .collect();
+    let authored = Zeroizing::new(fragments.join("\n"));
+    let language = writing_language(&authored);
+    if !history_safe(&authored) || language.is_empty() {
+        return None;
+    }
+    let (vocabulary, features) = style_features(&fragments);
+    Some(LearningEntry {
+        app: entry.record.app_id,
+        domain: entry.record.domain,
+        language,
+        vocabulary,
+        features,
+    })
+}
+
 struct LearningEntry {
     app: String,
     domain: String,
@@ -1574,6 +1719,159 @@ mod tests {
     }
 
     #[test]
+    fn retention_uses_authenticated_utc_age_and_preserves_unknown_and_statistics() {
+        let (_temp, mut store) = store();
+        let cutoff = now();
+        let before = cutoff - chrono::Duration::microseconds(1);
+        let after = cutoff + chrono::Duration::microseconds(1);
+        for (id, time, app, domain, text) in [
+            ("old-😀", before, "writer", "", TEXT),
+            ("boundary", cutoff, "browser", "chat.example", PORTUGUESE),
+            ("new-e\u{301}", after, "other", "", TEXT),
+        ] {
+            assert!(
+                store
+                    .record_identified_at(id, app, domain, text, &[(0, text.chars().count())], time)
+                    .unwrap()
+            );
+        }
+        for (id, time) in [
+            ("missing", Value::Null),
+            ("invalid", json!("not a timestamp")),
+            ("naive", json!("2020-01-01T00:00:00")),
+            ("wrong-type", json!(42)),
+        ] {
+            insert_raw(
+                &store,
+                id,
+                json!({"text": TEXT, "app": "legacy", "time": time}),
+            );
+        }
+        insert_raw(
+            &store,
+            "offset-old",
+            json!({
+                "text": TEXT, "app": "legacy", "time": "2026-04-15T12:59:59+01:00"
+            }),
+        );
+        store
+            .record_statistics_at("writer", TEXT, true, cutoff.date_naive())
+            .unwrap();
+        let statistics = store.statistics_at(7, "day", cutoff.date_naive()).unwrap();
+        assert!(!learn(&store).is_empty());
+        let result = store.retain_since(cutoff).unwrap();
+        assert_eq!(result.deleted_count(), 2);
+        assert!(result.deleted_ids.iter().any(|id| id == "old-😀"));
+        assert!(result.deleted_ids.iter().any(|id| id == "offset-old"));
+        assert_eq!(result.unknown_timestamp_count, 4);
+        assert!(learn(&store).is_empty());
+        assert_eq!(store.records(None, None, 100).unwrap().len(), 6);
+        assert_eq!(
+            store.records(Some("browser"), None, 100).unwrap()[0].text,
+            PORTUGUESE
+        );
+        assert_eq!(
+            store.statistics_at(7, "day", cutoff.date_naive()).unwrap(),
+            statistics
+        );
+        let repeated = store.retain_since(cutoff).unwrap();
+        assert_eq!(repeated.deleted_count(), 0);
+        assert_eq!(repeated.unknown_timestamp_count, 4);
+    }
+
+    #[test]
+    fn retention_never_loads_locked_credentials_or_creates_an_empty_database() {
+        let temp = TempDir::new().unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = calls.clone();
+        let mut store = HistoryStore::with_key_loader(
+            temp.path().join("local.sqlite3"),
+            Box::new(move || {
+                observed.fetch_add(1, Ordering::SeqCst);
+                bail!("Synthetic credential refusal")
+            }),
+        );
+        assert!(store.retain_since(now()).is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(!store.path().exists());
+        assert!(store.unlock().is_err());
+        assert!(store.retain_since(now()).is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        let mut empty = HistoryStore::with_path_and_key(store.path(), [b'a'; 32]);
+        empty.unlock().unwrap();
+        assert_eq!(empty.retain_since(now()).unwrap().deleted_count(), 0);
+        assert!(!empty.path().exists());
+    }
+
+    #[test]
+    fn retention_refusal_rolls_back_and_operational_errors_remain_recoverable() {
+        let (_temp, mut store) = store();
+        record(&mut store, "first", "writer", "", TEXT);
+        record(&mut store, "second", "writer", "", PORTUGUESE);
+        let cutoff = now() + chrono::Duration::days(1);
+        let connection = Connection::open(store.path()).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TRIGGER refuse_retention BEFORE DELETE ON history
+             WHEN OLD.id='first' BEGIN SELECT RAISE(ABORT, 'synthetic refusal'); END;",
+            )
+            .unwrap();
+        assert!(store.retain_since(cutoff).is_err());
+        assert!(store.is_unlocked());
+        assert_eq!(store.records(None, None, 100).unwrap().len(), 2);
+        assert!(!learn(&store).is_empty());
+        connection
+            .execute_batch("DROP TRIGGER refuse_retention; BEGIN EXCLUSIVE")
+            .unwrap();
+        assert!(store.retain_since(cutoff).is_err());
+        connection.execute_batch("ROLLBACK").unwrap();
+        assert!(store.is_unlocked());
+        let mut deleted = store.retain_since(cutoff).unwrap().deleted_ids;
+        deleted.sort();
+        assert_eq!(deleted, ["first", "second"]);
+        assert!(learn(&store).is_empty());
+    }
+
+    #[test]
+    fn retention_authenticates_unexpired_rows_before_any_deletion_and_latches_damage() {
+        let (_temp, mut store) = store();
+        assert!(
+            store
+                .record_identified_at(
+                    "damaged",
+                    "other",
+                    "",
+                    PORTUGUESE,
+                    &[(0, PORTUGUESE.chars().count())],
+                    now() + chrono::Duration::days(2)
+                )
+                .unwrap()
+        );
+        record(&mut store, "expired", "writer", "", TEXT);
+        assert!(!learn(&store).is_empty());
+        let connection = Connection::open(store.path()).unwrap();
+        connection
+            .execute(
+                "UPDATE history SET sealed=? WHERE id='damaged'",
+                [vec![0u8; 32]],
+            )
+            .unwrap();
+        assert!(
+            store
+                .retain_since(now() + chrono::Duration::days(1))
+                .is_err()
+        );
+        assert_eq!(store.history_info().unwrap()["count"], 2);
+        assert!(!store.is_unlocked());
+        assert!(learn(&store).is_empty());
+        assert!(store.unlock().is_err());
+        assert!(store.retain_since(now()).is_err());
+        assert_eq!(store.delete(None, None).unwrap(), 2);
+        store.unlock().unwrap();
+        assert_eq!(store.retain_since(now()).unwrap().deleted_count(), 0);
+    }
+
+    #[test]
     fn crypto_nonce_identifier_key_and_payload_are_authenticated() {
         let key = [3; 32];
         let payload = "{\"app\":\"writer\",\"text\":\"😀 é\"}".as_bytes();
@@ -2059,6 +2357,165 @@ mod tests {
             );
             assert_eq!(learn(&store), "");
         }
+    }
+
+    #[test]
+    fn incremental_replacement_matches_fresh_learning_and_forgets_old_vocabulary() {
+        let (_temporary, mut store) = store();
+        record(&mut store, "session", "writer", "", TEXT);
+        let initial = learn(&store);
+        assert_eq!(learn(&store), initial);
+        let replacement = TEXT
+            .replace("observability", "telemetry")
+            .replace("instrumentation", "diagnostics");
+        record(&mut store, "session", "writer", "", &replacement);
+        let incremental = learn(&store);
+        let value: Value = serde_json::from_str(&incremental).unwrap();
+        assert_eq!(value["records"], 1);
+        assert!(
+            value["vocabulary"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("telemetry"))
+        );
+        assert!(
+            !value["vocabulary"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("observability"))
+        );
+        let mut fresh = HistoryStore::with_path_and_key(store.path(), [b'a'; 32]);
+        fresh.unlock().unwrap();
+        assert_eq!(learn(&fresh), incremental);
+        assert_eq!(learn(&store), incremental);
+        store.delete(Some("writer"), None).unwrap();
+        assert_eq!(learn(&store), "");
+    }
+
+    #[test]
+    fn learning_refresh_recovers_after_an_exclusive_database_lock() {
+        let (_temporary, mut store) = store();
+        record(&mut store, "existing", "writer", "", TEXT);
+        let initial: Value = serde_json::from_str(&learn(&store)).unwrap();
+        assert_eq!(initial["records"], 1);
+        let replacement = TEXT
+            .replace("observability", "telemetry")
+            .replace("instrumentation", "diagnostics");
+        record(&mut store, "existing", "writer", "", &replacement);
+        record(&mut store, "new", "writer", "", &replacement);
+        let expected_records = store.records(None, None, 100).unwrap();
+
+        let mut blocker = Connection::open(store.path()).unwrap();
+        blocker
+            .execute_batch("PRAGMA journal_mode=DELETE;")
+            .unwrap();
+        let transaction = blocker
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Exclusive)
+            .unwrap();
+        let error = learn_result(&store).unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<rusqlite::Error>(),
+            Some(rusqlite::Error::SqliteFailure(error, _))
+                if error.code == rusqlite::ErrorCode::DatabaseBusy
+        ));
+        assert!(store.is_unlocked());
+        transaction.rollback().unwrap();
+
+        assert_eq!(store.records(None, None, 100).unwrap(), expected_records);
+        let recovered: Value = serde_json::from_str(&learn(&store)).unwrap();
+        assert_eq!(recovered["records"], 2);
+        assert!(store.is_unlocked());
+        let vocabulary = recovered["vocabulary"].as_array().unwrap();
+        for word in ["telemetry", "diagnostics"] {
+            assert!(vocabulary.contains(&json!(word)), "{word}: {vocabulary:?}");
+        }
+        for word in ["observability", "instrumentation"] {
+            assert!(
+                initial["vocabulary"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!(word))
+            );
+            assert!(!vocabulary.contains(&json!(word)), "{word}: {vocabulary:?}");
+        }
+        // A separately authenticated store learns the updated corpus without
+        // the original store's warm cache or transient failure history.
+        let mut fresh = HistoryStore::with_path_and_key(store.path(), [b'a'; 32]);
+        fresh.unlock().unwrap();
+        assert_eq!(fresh.records(None, None, 100).unwrap(), expected_records);
+        assert_eq!(
+            recovered,
+            serde_json::from_str::<Value>(&learn(&fresh)).unwrap()
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(&learn(&store)).unwrap(),
+            recovered
+        );
+    }
+
+    #[test]
+    fn dirty_learning_reauthenticates_changed_ciphertext_at_the_same_identity() {
+        let (_temporary, mut store) = store();
+        record(&mut store, "session", "writer", "", TEXT);
+        assert!(!learn(&store).is_empty());
+        // UPDATE preserves both the ID and rowid. A subsequent successful
+        // record dirties the cache without replacing the damaged row.
+        store
+            .connect()
+            .unwrap()
+            .execute(
+                "UPDATE history SET sealed=zeroblob(length(sealed)) WHERE id='session'",
+                [],
+            )
+            .unwrap();
+        record(&mut store, "new", "writer", "", TEXT);
+        assert!(
+            store
+                .personalization("writer", "", TEXT, 90, &|_, _| true)
+                .is_err()
+        );
+        assert!(!store.is_unlocked());
+        assert_eq!(learn(&store), "");
+        assert!(store.unlock().is_err());
+        store.delete(None, None).unwrap();
+        store.unlock().unwrap();
+        assert_eq!(learn(&store), "");
+    }
+
+    #[test]
+    fn raw_nonlearning_rows_evict_warm_evidence_and_replacement_restores_recency() {
+        let (_temporary, mut store) = store();
+        record(&mut store, "session", "writer", "", TEXT);
+        assert!(!learn(&store).is_empty());
+        for n in 0..199 {
+            let id = format!("nonlearning-{n}");
+            match n % 3 {
+                0 => {
+                    assert!(
+                        store
+                            .record_identified_at(&id, "writer", "", TEXT, &[], now())
+                            .unwrap()
+                    );
+                }
+                1 => insert_raw(&store, &id, json!({"app": "writer", "text": TEXT})),
+                _ => record(&mut store, &id, "other", "", TEXT),
+            }
+        }
+        // Force a dirty refresh after the raw legacy fixture inserts.
+        record(&mut store, "nonlearning-198", "other", "", TEXT);
+        let retained: Value = serde_json::from_str(&learn(&store)).unwrap();
+        assert_eq!(retained["records"], 1);
+        record(&mut store, "last", "other", "", TEXT);
+        assert_eq!(learn(&store), "");
+        record(&mut store, "session", "writer", "", TEXT);
+        let restored = learn(&store);
+        assert_eq!(
+            serde_json::from_str::<Value>(&restored).unwrap()["records"],
+            1
+        );
+        store.lock();
+        store.unlock().unwrap();
+        assert_eq!(learn(&store), restored);
     }
 
     #[test]

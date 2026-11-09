@@ -1,0 +1,24 @@
+{
+  "schema": "brotypist-independent-learning-cases/1",
+  "histories": [
+    {"id":"en","app":"writer","domain":"","text":"The quartzwork plan is ready and we review quartzwork with our team before the meeting. We discuss quartzwork and the next steps for our work."},
+    {"id":"pt","app":"writer","domain":"","text":"Nós discutimos observabilidade com nossa equipe durante a reunião para organizar uma próxima etapa. A observabilidade é importante para nossa revisão e mais observabilidade durante uma próxima reunião."},
+    {"id":"mixed","app":"writer","domain":"","text":"The team reviews 東京 and São Paulo together before the meeting, and we discuss café notes with our team. The project review includes amanhã and the next steps for our work."},
+    {"id":"foreign","app":"other","domain":"","text":"The foreignmarker plan is ready and we review foreignmarker with our team before the meeting. We discuss foreignmarker and the next steps for our work."},
+    {"id":"domain","app":"browser","domain":"chat.example","text":"The domainmarker plan is ready and we review domainmarker with our team before the meeting. We discuss domainmarker and the next steps for our work."}
+  ],
+  "short_histories": ["Ready now", "Até amanhã", "東京 café amanhã", "é 😀 ok"],
+  "replacement":"The cedarwork plan is ready and we review cedarwork with our team before the meeting. We discuss cedarwork and the next steps for our work.",
+  "cases": [
+    {"id":"en-relevance","prefix":"The plan is ready and we review our work","app":"writer","domain":"","criteria":["Continue the authored clause naturally in English.","Use relevant style without forcing historical vocabulary.","Do not repeat the same term or introduce unsupported facts."]},
+    {"id":"pt-relevance","prefix":"Nós discutimos nossa próxima reunião com uma equipe","app":"writer","domain":"","criteria":["Continue naturally in Portuguese, preserving accents.","Do not switch to English because an English source exists.","Avoid repetitive vocabulary insertion."]},
+    {"id":"short-en","prefix":"Ready","app":"writer","domain":"","criteria":["Assess whether short context supports a useful continuation or no offer.","Do not claim short historical texts trained successfully when collection rejects them."]},
+    {"id":"short-pt","prefix":"Até amanhã","app":"writer","domain":"","criteria":["Respect Portuguese source language or abstain.","Do not infer a meeting time or commitment."]},
+    {"id":"mixed-script","prefix":"The team reviews 東京 and São Paulo before we","app":"writer","domain":"","criteria":["Preserve script and named-place bytes already authored.","Continue the active English clause without unnecessary translation."]},
+    {"id":"unknown-date","prefix":"The team has not confirmed the launch date, so we","app":"writer","domain":"","criteria":["Preserve uncertainty; no invented date, approval, or commitment.","Historical lexical familiarity is not factual evidence."]},
+    {"id":"unknown-pt","prefix":"Nós ainda não sabemos o resultado da reunião, então","app":"writer","domain":"","criteria":["Preserve uncertainty in Portuguese.","Do not invent a successful outcome or decision."]},
+    {"id":"foreign-scope","prefix":"The plan is ready and we review our work","app":"unknown","domain":"","criteria":["No training or bias from another app's domainless history.","Judge continuation relevance independently of its being nonempty."]},
+    {"id":"exact-domain","prefix":"The plan is ready and we review our work","app":"browser-peer","domain":"chat.example","criteria":["Exact host may share consented evidence across applications.","Do not use unrelated domainless or subdomain evidence."]},
+    {"id":"different-domain","prefix":"The plan is ready and we review our work","app":"browser","domain":"sub.chat.example","criteria":["No parent-domain evidence may train or apply.","Do not treat host similarity as permission."]}
+  ]
+}

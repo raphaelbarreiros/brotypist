@@ -314,6 +314,7 @@ pub struct Snapshot {
     pub field_rect: Option<Rect>,
     pub native_anchor: String,
     pub inline_render: Option<InlineRender>,
+    /// Opted-in target-owned client rendering, never an ordinary input-method ACK.
     pub native_inline: bool,
     pub window_id: String,
     pub window_revision: String,
@@ -321,6 +322,8 @@ pub struct Snapshot {
     pub window_bounds: Option<Rect>,
     pub on_demand_only: bool,
     pub can_replace: bool,
+    /// Additional emoji-only replacement support; never enables ordinary range tools.
+    pub can_replace_emoji: bool,
 }
 impl Default for Snapshot {
     fn default() -> Self {
@@ -344,6 +347,7 @@ impl Default for Snapshot {
             window_bounds: None,
             on_demand_only: false,
             can_replace: true,
+            can_replace_emoji: false,
         }
     }
 }
@@ -360,6 +364,7 @@ pub struct SnapshotKey {
     pub multiline: bool,
     pub on_demand_only: bool,
     pub can_replace: bool,
+    pub can_replace_emoji: bool,
 }
 /// Native window/document identity, independent of text and screen position.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -383,6 +388,7 @@ impl SnapshotKey {
             && self.multiline == snapshot.multiline
             && self.on_demand_only == snapshot.on_demand_only
             && self.can_replace == snapshot.can_replace
+            && self.can_replace_emoji == snapshot.can_replace_emoji
     }
 }
 impl Authority {
@@ -465,6 +471,7 @@ impl Snapshot {
             && self.multiline == other.multiline
             && self.on_demand_only == other.on_demand_only
             && self.can_replace == other.can_replace
+            && self.can_replace_emoji == other.can_replace_emoji
     }
     pub fn same_authority(&self, other: &Self) -> bool {
         self.app_id == other.app_id
@@ -473,6 +480,43 @@ impl Snapshot {
             && self.window_id == other.window_id
             && self.window_revision == other.window_revision
             && self.window_pid == other.window_pid
+    }
+    /// A dispatched emoji may expose its exact selected range before the glyph arrives.
+    pub(crate) fn matches_pending_emoji_selection(
+        &self,
+        before: &Snapshot,
+        start: usize,
+        length: usize,
+    ) -> bool {
+        if !before.can_replace_emoji
+            || length == 0
+            || before.protected
+            || self.protected
+            || self.text != before.text
+            || self.caret != start
+            || self.selection_length != length
+            || !self.same_authority(before)
+            || self.multiline != before.multiline
+            || self.on_demand_only != before.on_demand_only
+            || self.can_replace != before.can_replace
+            || self.can_replace_emoji != before.can_replace_emoji
+        {
+            return false;
+        }
+        // Reuse a cached scalar count without allocating an index for fresh readback.
+        let scalar_len = before
+            .text
+            .0
+            .index
+            .get()
+            .map_or_else(|| before.text.chars().count(), TextIndex::scalar_len);
+        start
+            .checked_add(length)
+            .is_some_and(|end| end <= scalar_len)
+            && before
+                .caret
+                .checked_add(before.selection_length)
+                .is_some_and(|end| end <= scalar_len)
     }
     pub fn key(&self) -> SnapshotKey {
         SnapshotKey {
@@ -486,6 +530,7 @@ impl Snapshot {
             multiline: self.multiline,
             on_demand_only: self.on_demand_only,
             can_replace: self.can_replace,
+            can_replace_emoji: self.can_replace_emoji,
         }
     }
     pub fn authority(&self) -> Authority {
@@ -596,6 +641,7 @@ impl SuggestionState {
             || current.multiline != previous.multiline
             || current.on_demand_only != previous.on_demand_only
             || current.can_replace != previous.can_replace
+            || current.can_replace_emoji != previous.can_replace_emoji
             || current.caret <= previous.caret
         {
             return false;
@@ -708,6 +754,75 @@ mod tests {
         }
     }
     #[test]
+    fn pending_emoji_selection_requires_exact_scalar_range_and_dedicated_authority() {
+        let mut before = snapshot("Olá 🖋 :smile:!", 13);
+        before.can_replace = false;
+        before.can_replace_emoji = true;
+        let mut selected = before.clone();
+        selected.caret = 6;
+        selected.selection_length = 7;
+        selected.caret_rect = Some([20., 30., 1., 18.]);
+        assert!(selected.matches_pending_emoji_selection(&before, 6, 7));
+
+        for change in [
+            "text",
+            "caret",
+            "selection",
+            "protected",
+            "app",
+            "field",
+            "domain",
+            "window",
+            "document",
+            "pid",
+            "multiline",
+            "mode",
+            "ordinary",
+            "emoji",
+        ] {
+            let mut changed = selected.clone();
+            match change {
+                "text" => changed.text = "Olá 🖋 :smile:?".into(),
+                "caret" => changed.caret = 5,
+                "selection" => changed.selection_length = 6,
+                "protected" => changed.protected = true,
+                "app" => changed.app_id = "other-app".into(),
+                "field" => changed.field_id = "other-field".into(),
+                "domain" => changed.domain = "other.invalid".into(),
+                "window" => changed.window_id = "other-window".into(),
+                "document" => changed.window_revision = "other-document".into(),
+                "pid" => changed.window_pid = 42,
+                "multiline" => changed.multiline = false,
+                "mode" => changed.on_demand_only = true,
+                "ordinary" => changed.can_replace = true,
+                "emoji" => changed.can_replace_emoji = false,
+                _ => unreachable!(),
+            }
+            assert!(
+                !changed.matches_pending_emoji_selection(&before, 6, 7),
+                "{change}"
+            );
+        }
+        for (start, length) in [(6, 0), (usize::MAX, 1), (6, usize::MAX), (14, 1), (13, 2)] {
+            let mut changed = selected.clone();
+            changed.caret = start;
+            changed.selection_length = length;
+            assert!(!changed.matches_pending_emoji_selection(&before, start, length));
+        }
+        let mut invalid_before = before.clone();
+        invalid_before.caret = usize::MAX;
+        assert!(!selected.matches_pending_emoji_selection(&invalid_before, 6, 7));
+        invalid_before = before.clone();
+        invalid_before.protected = true;
+        assert!(!selected.matches_pending_emoji_selection(&invalid_before, 6, 7));
+        before.can_replace = true;
+        before.can_replace_emoji = false;
+        selected.can_replace = true;
+        selected.can_replace_emoji = false;
+        assert!(!selected.matches_pending_emoji_selection(&before, 6, 7));
+    }
+
+    #[test]
     fn unicode15_choice_deduplication_preserves_authored_spelling() {
         let original = "\u{10570}ᲐꟄraft e\u{301} 😀";
         let duplicate = "\u{10597}აꞔraft e\u{301} 😀";
@@ -738,6 +853,31 @@ mod tests {
         s.caret = 2;
         s.selection_length = usize::MAX;
         assert!(!s.valid_range());
+    }
+    #[test]
+    fn whitespace_terminated_drafts_remain_eligible_after_passthrough_tab() {
+        for text in ["The update arrives \t", "The update arrives     "] {
+            let mut current = snapshot(text, text.chars().count());
+            current.can_replace = false;
+            current.can_replace_emoji = true;
+            assert!(current.eligible(1));
+            let mut suggestion = SuggestionState::new();
+            assert!(suggestion.offer(0, current.clone(), "tomorrow".into()));
+            assert_eq!(
+                suggestion
+                    .accept(&current, false, true, true, Some("tomorrow"))
+                    .as_deref(),
+                Some("tomorrow ")
+            );
+            let predicted = suggestion.snapshot.as_ref().unwrap();
+            assert_eq!(predicted.text.as_ref(), format!("{text}tomorrow "));
+            assert!(!predicted.can_replace);
+            assert!(predicted.can_replace_emoji);
+            assert!(suggestion.text.is_empty());
+        }
+        for text in ["", "\t", "    ", " \t "] {
+            assert!(!snapshot(text, text.chars().count()).eligible(1));
+        }
     }
     #[test]
     fn generations_suffix_and_repeated_unicode_proposals() {
@@ -836,9 +976,13 @@ mod tests {
         r.suffix_width = 30.0;
         r.text_rgb = Some([f64::NAN, 0.0, 0.0]);
         assert!(!r.valid(Some(caret)));
+    }
+    #[test]
+    fn manual_native_anchor_does_not_grant_target_owned_inline_capability() {
         let mut s = snapshot("word\nnext", 4);
+        s.native_anchor = "4:7".into();
+        assert!(!s.inline_safe());
         s.native_inline = true;
-        s.native_anchor = "owned".into();
         assert!(s.inline_safe());
         s.caret = 2;
         assert!(!s.inline_safe());
@@ -865,6 +1009,32 @@ mod tests {
         assert_eq!(s.selection_suffix(), "");
         assert!(!s.inline_safe());
     }
+    #[test]
+    fn generated_trailing_space_is_payload_not_finality_or_visible_text() {
+        let original = snapshot("Draft ", 6);
+        for (full, trailing_space, expected) in [
+            (true, false, "tomorrow café 😀"),
+            (true, true, "tomorrow café 😀 "),
+            (false, false, "tomorrow"),
+            (false, true, "tomorrow "),
+        ] {
+            let mut state = SuggestionState::new();
+            assert!(state.offer(0, original.clone(), "tomorrow café 😀 ".into()));
+            assert_eq!(
+                state
+                    .accept(
+                        &original,
+                        full,
+                        trailing_space,
+                        true,
+                        Some("tomorrow café 😀")
+                    )
+                    .as_deref(),
+                Some(expected)
+            );
+        }
+    }
+
     #[test]
     fn word_final_spacing_and_withheld_punctuation_remain_acceptible() {
         let original = snapshot("We will", 7);

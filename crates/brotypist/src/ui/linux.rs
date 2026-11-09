@@ -3,7 +3,7 @@ use super::{LaunchOptions, settings::SettingsDraft};
 use crate::{
     config::Config,
     core::{Authority, SnapshotKey},
-    runtime::{Command, Controller},
+    runtime::{Command, ConfigApplyReceipt, Controller, PendingConfigApply},
     system,
     updates::UpdateService,
 };
@@ -68,6 +68,13 @@ pub(super) enum UiAction {
     WelcomeBack,
     PreviewChanged,
     PreviewKey(String),
+    SelectModel {
+        path: String,
+        prompt_style: String,
+        model_id: Option<String>,
+    },
+    CancelModelSelection,
+    ExportDiagnostics,
 }
 pub(super) type Sender = mpsc::Sender<UiAction>;
 thread_local! {static MODAL_DEPTH:std::cell::Cell<usize>=const{std::cell::Cell::new(0)};}
@@ -187,6 +194,18 @@ pub(super) fn model_selected(c: &Config) -> bool {
     }
 }
 
+enum OperationPurpose {
+    Save { close: Option<bool> },
+    Model,
+    Login,
+    Setup,
+    Immediate,
+}
+struct ConfigOperation {
+    pending: PendingConfigApply,
+    purpose: OperationPurpose,
+}
+
 struct Shell {
     controller: Controller,
     updates: UpdateService,
@@ -201,7 +220,11 @@ struct Shell {
     clipboard: Option<system::ClipboardService>,
     power: Option<crate::power::PowerSampler>,
     last_config: Config,
-    pending_save: Option<Config>,
+    operations: Vec<ConfigOperation>,
+    #[cfg(feature = "native-smoke")]
+    smoke_receipt: native_smoke::ReceiptObservation,
+    #[cfg(feature = "native-smoke")]
+    smoke_owner_turn_completed: bool,
     quitting: bool,
     stopped: bool,
     install: Option<Arc<Mutex<crate::update_install::Handoff>>>,
@@ -260,6 +283,16 @@ impl Shell {
         let _ = self.controller.shutdown();
     }
     fn prompt_draft(&mut self, quitting: bool) -> bool {
+        if self
+            .operations
+            .iter()
+            .any(|operation| matches!(operation.purpose, OperationPurpose::Save { .. }))
+        {
+            self.settings.operation_notice(
+                "Wait for the pending save receipt before closing or discarding this frozen draft.",
+            );
+            return false;
+        }
         if !self.settings.draft.borrow().is_dirty() {
             return true;
         }
@@ -292,35 +325,147 @@ impl Shell {
         };
         let saved = match decision {
             DraftDecision::Discard => self.settings.reset(&self.controller.config()).is_ok(),
-            DraftDecision::Save => self.save(),
+            DraftDecision::Save => {
+                self.save_with_close(Some(quitting));
+                false
+            }
             DraftDecision::Cancel => false,
         };
         close_decision(true, decision, saved)
     }
-    fn save(&mut self) -> bool {
-        let candidate = self
-            .settings
-            .draft
-            .borrow()
-            .apply_to(&self.controller.config());
-        match candidate {
-            Err(e) => {
-                error(Some(&self.parent()), e);
-                false
+    fn save_with_close(&mut self, close: Option<bool>) {
+        if self
+            .operations
+            .iter()
+            .any(|op| matches!(op.purpose, OperationPurpose::Save { .. }))
+        {
+            return;
+        }
+        let draft = self.settings.draft.borrow().clone();
+        match self.controller.apply_settings(draft, true) {
+            Ok(pending) => {
+                #[cfg(feature = "native-smoke")]
+                self.smoke_receipt.started(pending.operation_id());
+                self.settings.set_pending(true);
+                self.operations.push(ConfigOperation {
+                    pending,
+                    purpose: OperationPurpose::Save { close },
+                });
             }
-            Ok(config) => {
-                if let Err(e) = self.controller.send(Command::ApplyConfig {
-                    config: config.clone(),
-                    persist: true,
-                }) {
-                    error(Some(&self.parent()), e);
-                    return false;
+            Err(e) => error(Some(&self.parent()), e),
+        }
+        // Only the operation's terminal Saved receipt can acknowledge persistence.
+    }
+    fn apply_immediate(
+        &mut self,
+        field: &str,
+        value: Value,
+        purpose: OperationPurpose,
+    ) -> Result<()> {
+        let mut draft = SettingsDraft::new(&self.controller.config())?;
+        draft.set(field, value)?;
+        let pending = self.controller.apply_settings(draft, true)?;
+        self.operations.push(ConfigOperation { pending, purpose });
+        Ok(())
+    }
+    fn config_receipts(&mut self) {
+        let mut index = 0;
+        while index < self.operations.len() {
+            let receipt = match self.operations[index].pending.try_recv() {
+                Ok(None) => {
+                    index += 1;
+                    continue;
                 }
-                self.pending_save = Some(config.clone());
-                self.events();
-                // Persistence and validation belong to the controller. A rejected save must keep the draft.
-                self.controller.config() == config && self.pending_save.is_none()
+                Ok(Some(receipt)) => receipt,
+                Err(e) => {
+                    self.settings
+                        .operation_notice(&format!("Configuration receipt unavailable: {e}"));
+                    ConfigApplyReceipt::Stopped
+                }
+            };
+            let operation = self.operations.remove(index);
+            let saved = matches!(&receipt, ConfigApplyReceipt::Saved { .. });
+            let message = match &receipt {
+                ConfigApplyReceipt::Saved { config } if config.backend != "gguf" => {
+                    "Local server configuration saved. Server availability is unverified; generation quality has not been checked.".to_owned()
+                }
+                ConfigApplyReceipt::Saved { .. } if matches!(&operation.purpose, OperationPurpose::Model) => {
+                    "GGUF selection validated and saved. Language quality and speed are not measured.".to_owned()
+                }
+                ConfigApplyReceipt::Saved { .. } => "Configuration saved.".to_owned(),
+                ConfigApplyReceipt::Applied { .. } => {
+                    "Configuration applied but not saved.".to_owned()
+                }
+                ConfigApplyReceipt::Failed { stage, message } => {
+                    format!("Configuration failed ({stage:?}): {message}")
+                }
+                ConfigApplyReceipt::Cancelled => {
+                    "Configuration cancelled; unsaved edits kept.".to_owned()
+                }
+                ConfigApplyReceipt::Superseded => {
+                    "Configuration superseded; unsaved edits kept.".to_owned()
+                }
+                ConfigApplyReceipt::Stopped => {
+                    "Configuration stopped; unsaved edits kept.".to_owned()
+                }
+            };
+            self.settings.operation_notice(&message);
+            #[cfg(feature = "native-smoke")]
+            self.smoke_receipt
+                .received(operation.pending.operation_id(), receipt);
+            match operation.purpose {
+                OperationPurpose::Save { close } => {
+                    self.settings.set_pending(false);
+                    if saved {
+                        // The frozen submitted draft is now committed; refresh from the
+                        // latest config to retain any subsequent independent operation.
+                        if let Err(e) = self.settings.reset(&self.controller.config()) {
+                            self.settings.operation_notice(&e.to_string());
+                            continue;
+                        }
+                        match close {
+                            Some(true) => self.begin_quit(),
+                            Some(false) => {
+                                let _ = self.sender.send(UiAction::CloseSettings);
+                            }
+                            None => {}
+                        }
+                    }
+                }
+                OperationPurpose::Model => {
+                    self.models.selection_finished(&message);
+                    if self
+                        .operations
+                        .iter()
+                        .any(|op| matches!(op.purpose, OperationPurpose::Model))
+                    {
+                        self.models.selection_pending();
+                    }
+                }
+                OperationPurpose::Login => {
+                    // A superseded operation must not roll back a later login
+                    // choice. Once the last receipt lands, reconcile with the
+                    // authoritative persisted configuration, not an old draft.
+                    if !self
+                        .operations
+                        .iter()
+                        .any(|op| matches!(op.purpose, OperationPurpose::Login))
+                    {
+                        if let Err(e) =
+                            system::set_launch_at_login(self.controller.config().launch_at_login)
+                        {
+                            self.settings.operation_notice(&format!(
+                                "{message}\nLogin registration reconciliation failed: {e}"
+                            ));
+                        }
+                    }
+                }
+                OperationPurpose::Setup if saved => self.welcome.select(5),
+                _ => {}
             }
+            let current = self.controller.config();
+            let _ = self.settings.refresh(&current);
+            self.welcome.config_changed(&current);
         }
     }
     fn action(&mut self, action: UiAction) -> Result<()> {
@@ -337,9 +482,17 @@ impl Shell {
                 self.models.show();
             }
             UiAction::Save => {
-                self.save();
+                self.save_with_close(None);
             }
-            UiAction::Revert => self.settings.reset(&self.controller.config())?,
+            UiAction::Revert => {
+                for op in &self.operations {
+                    if matches!(op.purpose, OperationPurpose::Save { .. }) {
+                        self.controller
+                            .cancel_config_apply(op.pending.operation_id())?;
+                    }
+                }
+                self.settings.reset(&self.controller.config())?;
+            }
             UiAction::CloseSettings => {
                 if self.prompt_draft(false) {
                     if self.tray_available {
@@ -368,28 +521,14 @@ impl Shell {
             UiAction::Command(command) => self.send(command),
             UiAction::Login(enabled) => {
                 let old = self.controller.config().launch_at_login;
-                let result = system::set_launch_at_login(enabled);
-                if result.is_ok() {
-                    let mut config = self.controller.config();
-                    config.launch_at_login = enabled;
-                    if let Err(e) = self.controller.send(Command::ApplyConfig {
-                        config: config.clone(),
-                        persist: true,
-                    }) {
-                        let rollback = system::set_launch_at_login(old);
-                        self.settings.refresh_immediate(&self.controller.config());
-                        self.welcome.config_changed(&self.controller.config());
-                        rollback?;
-                        return Err(e);
-                    }
-                    self.events();
-                    if self.controller.config() != config {
-                        system::set_launch_at_login(old)?;
-                    }
+                system::set_launch_at_login(enabled)?;
+                if let Err(e) =
+                    self.apply_immediate("launch_at_login", json!(enabled), OperationPurpose::Login)
+                {
+                    system::set_launch_at_login(old)?;
+                    self.settings.refresh_immediate(&self.controller.config());
+                    return Err(e);
                 }
-                self.settings.refresh_immediate(&self.controller.config());
-                self.welcome.config_changed(&self.controller.config());
-                result?;
             }
             UiAction::History(enabled) => {
                 if !enabled
@@ -399,8 +538,11 @@ impl Shell {
                         "Record eligible authored writing in OS-backed encrypted storage? No plaintext fallback, upload or model-weight training. App recording overrides remain independent.",
                     )
                 {
-                    self.send(Command::SetHistoryEnabled { enabled });
-                    self.events();
+                    self.apply_immediate(
+                        "record_history",
+                        json!(enabled),
+                        OperationPurpose::Immediate,
+                    )?;
                 }
                 self.settings.refresh_immediate(&self.controller.config());
             }
@@ -480,16 +622,12 @@ impl Shell {
             UiAction::WelcomeNext => {
                 if self.welcome.can_continue(&self.controller.config()) {
                     if self.welcome.step() == 4 {
-                        let mut c = self.controller.config();
-                        c.setup_completed = true;
-                        self.send(Command::ApplyConfig {
-                            config: c,
-                            persist: true,
-                        });
-                        self.events();
-                        if !self.controller.config().setup_completed {
-                            return Ok(());
-                        }
+                        self.apply_immediate(
+                            "setup_completed",
+                            json!(true),
+                            OperationPurpose::Setup,
+                        )?;
+                        return Ok(());
                     }
                     if self.welcome.step() == 5 {
                         self.welcome.hide();
@@ -504,6 +642,44 @@ impl Shell {
             UiAction::WelcomeBack => self.welcome.select(self.welcome.step().saturating_sub(1)),
             UiAction::PreviewChanged => self.welcome.update_preview(&self.controller)?,
             UiAction::PreviewKey(chord) => self.welcome.accept(&chord, &self.controller)?,
+            UiAction::SelectModel {
+                path,
+                prompt_style,
+                model_id,
+            } => {
+                self.welcome.close_preview();
+                match self.controller.select_model(path, prompt_style, model_id) {
+                    Ok(pending) => {
+                        #[cfg(feature = "native-smoke")]
+                        self.smoke_receipt.started(pending.operation_id());
+                        self.operations.push(ConfigOperation {
+                            pending,
+                            purpose: OperationPurpose::Model,
+                        });
+                        self.models.selection_pending();
+                    }
+                    Err(error) => {
+                        let message = format!("Model selection could not start: {error}");
+                        self.models.selection_finished(&message);
+                        self.settings.operation_notice(&message);
+                    }
+                }
+            }
+            UiAction::CancelModelSelection => {
+                for operation in &self.operations {
+                    if matches!(operation.purpose, OperationPurpose::Model) {
+                        self.controller
+                            .cancel_config_apply(operation.pending.operation_id())?;
+                    }
+                }
+            }
+            UiAction::ExportDiagnostics => {
+                let path = self.controller.export_diagnostics()?;
+                self.settings.operation_notice(&format!(
+                    "Content-free session diagnostics exported to {}",
+                    path.display()
+                ));
+            }
         }
         Ok(())
     }
@@ -635,12 +811,12 @@ impl Shell {
             "quit" => self.action(UiAction::Quit)?,
             "updates" => self.action(UiAction::UpdateCheck)?,
             "toggle" => {
-                let mut c = self.controller.config();
-                c.global_enabled = !c.global_enabled;
-                self.send(Command::ApplyConfig {
-                    config: c,
-                    persist: true,
-                });
+                let enabled = !self.controller.config().global_enabled;
+                self.apply_immediate(
+                    "global_enabled",
+                    json!(enabled),
+                    OperationPurpose::Immediate,
+                )?;
             }
             "resume" => self.send(Command::Resume),
             "pause5" => self.send(Command::Pause { minutes: 5 }),
@@ -718,8 +894,8 @@ impl Shell {
                         continue;
                     }
                     if self.controller.uses_native_presentation() {
-                        // Native preedit authority is deliberately distinct from the
-                        // overlay's rendered-pixel acknowledgment.
+                        // Ordinary Wayland completion has no supported presentation.
+                        // Only explicit manual choice panels use this transport.
                         let offered = (|| -> Option<bool> {
                             let key: SnapshotKey =
                                 serde_json::from_value(event["key"].clone()).ok()?;
@@ -728,21 +904,13 @@ impl Shell {
                             let revision = event["revision"].as_u64()?;
                             let anchor = event["native_anchor"].as_str()?;
                             let mode = event["mode"].as_str()?;
-                            let preedit = mode == "completion"
-                                && self
-                                    .controller
-                                    .present_preedit(
-                                        &key,
-                                        &authority,
-                                        revision,
-                                        anchor,
-                                        event["text"].as_str()?,
-                                    )
-                                    .ok()?;
+                            if mode == "completion" {
+                                return Some(false);
+                            }
                             let values: Vec<String> =
                                 serde_json::from_value(event["choices"].clone()).ok()?;
                             if values.is_empty() {
-                                return Some(preedit);
+                                return Some(false);
                             }
                             // A native panel has no global caret geometry. Use the
                             // smallest actual work-area so it fits whichever output
@@ -770,7 +938,7 @@ impl Shell {
                                     &values,
                                 )
                                 .ok()?;
-                            Some(preedit || choices)
+                            Some(choices)
                         })()
                         .unwrap_or(false);
                         if !offered {
@@ -799,7 +967,7 @@ impl Shell {
                             );
                         }
                         // Disabling the accessory is handled by configure/clear. A
-                        // later caret event must not erase the owned preedit/choices.
+                        // later caret event must not erase the owned choices.
                     } else {
                         self.overlay
                             .caret(&event, self.controller.config().show_accessory);
@@ -807,10 +975,6 @@ impl Shell {
                 }
                 "config" => {
                     let current = self.controller.config();
-                    if self.pending_save.as_ref() == Some(&current) {
-                        let _ = self.settings.reset(&current);
-                        self.pending_save = None;
-                    }
                     self.welcome.config_changed(&current);
                     let _ = self.settings.refresh(&current);
                     self.last_config = current;
@@ -818,7 +982,6 @@ impl Shell {
                 "statistics" | "statistics_cleared" | "history_info" | "history_counts"
                 | "history_deleted" => self.settings.service_event(&event),
                 "error" => {
-                    self.pending_save = None;
                     self.settings.notice.set_text(&text(&event, "message"));
                 }
                 _ => {}
@@ -856,7 +1019,13 @@ impl Shell {
             }
         }
         self.events();
+        self.config_receipts();
         self.welcome.tick(&self.controller);
+        // The fixture observes this boundary; it never drains actions itself.
+        #[cfg(feature = "native-smoke")]
+        {
+            self.smoke_owner_turn_completed = true;
+        }
         if self.quitting {
             self.welcome.hide();
             if let Some(tray) = &self.tray {
@@ -886,6 +1055,7 @@ impl Shell {
                         }
                     }
                     self.controller.bind_native_ui(None);
+                    self.controller.set_wakeup(None);
                     self.tray.take();
                     self.overlay.clear();
                     self.clipboard.take();
@@ -907,6 +1077,9 @@ impl Shell {
             let status = self.controller.status();
             let c = self.controller.config();
             self.settings.status(&status, &c, &self.updates.snapshot());
+            if self.settings.diagnostics_visible() {
+                self.settings.diagnostics(&self.controller.diagnostics());
+            }
             self.models.refresh(&status, &c);
             if let Some(tray) = &self.tray {
                 tray.update(&status, &c);
@@ -961,6 +1134,7 @@ fn create_shell(config: Config, options: LaunchOptions) -> Result<Rc<RefCell<She
     let welcome = welcome::WelcomeWindow::new(&config, &sender);
     let models = models::ModelWindow::new(&sender);
     let overlay = overlay::Presentation::new(&sender);
+    overlay.set_paint_reporter(Some(controller.paint_reporter()));
     let tray = if options.no_tray {
         None
     } else {
@@ -981,7 +1155,11 @@ fn create_shell(config: Config, options: LaunchOptions) -> Result<Rc<RefCell<She
         clipboard: Some(clipboard),
         power: Some(power),
         last_config: config.clone(),
-        pending_save: None,
+        operations: Vec::new(),
+        #[cfg(feature = "native-smoke")]
+        smoke_receipt: native_smoke::ReceiptObservation::default(),
+        #[cfg(feature = "native-smoke")]
+        smoke_owner_turn_completed: false,
         quitting: false,
         stopped: false,
         install: None,
@@ -1026,6 +1204,42 @@ fn create_shell(config: Config, options: LaunchOptions) -> Result<Rc<RefCell<She
     Ok(shell)
 }
 fn run_shell(shell: Rc<RefCell<Shell>>) -> Result<i32> {
+    // Worker notifications only signal this owned nonblocking socket. GTK remains
+    // the sole controller/capture owner; the timer is a defensive fallback.
+    use std::io::{Read, Write};
+    use std::os::{fd::AsRawFd, unix::net::UnixStream};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let (mut wake_reader, wake_writer) = UnixStream::pair()?;
+    wake_reader.set_nonblocking(true)?;
+    wake_writer.set_nonblocking(true)?;
+    let wake_pending = Arc::new(AtomicBool::new(false));
+    let pending = wake_pending.clone();
+    shell.borrow().controller.set_wakeup(Some(Arc::new(move || {
+        if !pending.swap(true, Ordering::AcqRel) {
+            let mut writer = &wake_writer;
+            if writer.write(&[1]).is_err() {
+                pending.store(false, Ordering::Release);
+            }
+        }
+    })));
+    let weak = Rc::downgrade(&shell);
+    let wake_source = glib::source::unix_fd_add_local(
+        wake_reader.as_raw_fd(),
+        glib::IOCondition::IN,
+        move |_, _| {
+            let Some(shell) = weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            let mut bytes = [0; 64];
+            while wake_reader.read(&mut bytes).is_ok_and(|n| n > 0) {}
+            wake_pending.store(false, Ordering::Release);
+            let Ok(mut shell) = shell.try_borrow_mut() else {
+                return glib::ControlFlow::Continue;
+            };
+            shell.tick();
+            glib::ControlFlow::Continue
+        },
+    );
     // Readiness watching borrows the transport's fd; never dup, close or create a second owner.
     let watched = Rc::new(RefCell::new(None::<(i32, bool, glib::SourceId)>));
     let weak = Rc::downgrade(&shell);
@@ -1040,7 +1254,7 @@ fn run_shell(shell: Rc<RefCell<Shell>>) -> Result<i32> {
             };
             s.tick();
             if s.stopped {
-                return glib::ControlFlow::Break;
+                return glib::ControlFlow::Continue;
             }
             s.controller.native_event_source()
         };
@@ -1089,10 +1303,9 @@ fn run_shell(shell: Rc<RefCell<Shell>>) -> Result<i32> {
         let _ = crate::update_install::acknowledge_startup();
     });
     gtk::main();
-    // The timer may have removed itself on completed shutdown.
-    if !shell.borrow().stopped {
-        timer.remove();
-    }
+    shell.borrow().controller.set_wakeup(None);
+    wake_source.remove();
+    timer.remove();
     if let Some((_, _, source)) = watched.borrow_mut().take() {
         source.remove();
     }

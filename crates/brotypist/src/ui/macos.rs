@@ -1,8 +1,9 @@
 //! Main-thread-owned AppKit resident shell. Native callbacks only enqueue captured intents.
 use super::LaunchOptions;
+use super::settings::SettingsDraft;
 use crate::{
     config::Config,
-    runtime::{Command, Controller},
+    runtime::{Command, ConfigApplyReceipt, Controller, PendingConfigApply},
     updates::UpdateService,
 };
 use anyhow::{Context, Result, ensure};
@@ -20,6 +21,9 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+#[cfg(feature = "native-smoke")]
+#[path = "macos_ax_smoke.rs"]
+mod macos_ax_smoke;
 #[path = "macos_settings.rs"]
 mod macos_settings;
 #[path = "macos_settings_contract.rs"]
@@ -36,6 +40,7 @@ use macos_overlay::OverlayOwner;
 use macos_power::PowerUi;
 use macos_settings::Settings;
 use macos_settings_contract::{Binding, ReadValue, UiAction, UiQueue};
+use macos_wake::AppKitWake;
 use macos_welcome::Welcome;
 pub(super) type Obj = Retained<AnyObject>;
 fn activate_app(app: &AnyObject) {
@@ -61,6 +66,41 @@ pub fn smoke(output: &std::path::Path) -> Result<i32> {
 #[cfg(feature = "native-smoke")]
 pub fn capture_layout(output: &std::path::Path) -> Result<i32> {
     objc2::rc::autoreleasepool(|_| macos_smoke::capture_layout(output))
+}
+/// Explicitly authorized, isolated owned-widget acceptance using a loopback model fixture.
+/// Unlike `smoke`, this never starts the resident shell or a global native bridge.
+#[cfg(feature = "native-smoke")]
+pub fn owned_choices(output: &std::path::Path) -> Result<i32> {
+    objc2::rc::autoreleasepool(|_| macos_smoke::owned_choices(output))
+}
+/// Explicit existing local GGUF through the isolated owned-widget lifecycle.
+#[cfg(feature = "native-smoke")]
+pub fn owned_model(output: &std::path::Path) -> Result<i32> {
+    objc2::rc::autoreleasepool(|_| macos_smoke::owned_model(output))
+}
+/// Canonical Welcome navigation and PreviewSession with actual prerequisite gates.
+#[cfg(feature = "native-smoke")]
+pub fn owned_welcome(output: &std::path::Path) -> Result<i32> {
+    objc2::rc::autoreleasepool(|_| macos_smoke::owned_welcome(output))
+}
+/// Actual external AX, strictly fenced to an authenticated disposable child.
+#[cfg(feature = "native-smoke")]
+pub fn owned_ax(output: &std::path::Path) -> Result<i32> {
+    objc2::rc::autoreleasepool(|_| macos_ax_smoke::run(output))
+}
+/// Opt-in process-targeted emoji transaction against an authenticated child only.
+#[cfg(feature = "native-smoke")]
+pub fn owned_emoji(output: &std::path::Path) -> Result<i32> {
+    objc2::rc::autoreleasepool(|_| macos_ax_smoke::run_emoji(output))
+}
+/// Source-only native Tab-row geometry against the authenticated owned child.
+#[cfg(feature = "native-smoke")]
+pub fn owned_tab_row(output: &std::path::Path) -> Result<i32> {
+    objc2::rc::autoreleasepool(|_| macos_ax_smoke::run_tab_row(output))
+}
+#[cfg(feature = "native-smoke")]
+pub fn owned_ax_child() -> Result<i32> {
+    objc2::rc::autoreleasepool(|_| macos_ax_smoke::child())
 }
 pub(super) fn rect(x: f64, y: f64, w: f64, h: f64) -> NSRect {
     NSRect::new(NSPoint::new(x, y), NSSize::new(w, h))
@@ -178,8 +218,6 @@ struct DelegateIvars {
     suspend: RefCell<Option<Box<dyn Fn(bool)>>>,
     menu_notice: RefCell<Option<Box<dyn Fn(bool)>>>,
     diagnostic_requested: Cell<bool>,
-    #[cfg(feature = "native-smoke")]
-    native_stage_requested: Cell<bool>,
 }
 define_class!(
  #[unsafe(super=NSObject)] #[thread_kind=MainThreadOnly] #[ivars=DelegateIvars]
@@ -205,18 +243,7 @@ define_class!(
   #[unsafe(method(menuWillOpen:))] fn menu_open(&self,_menu:&AnyObject){let first={let mut queue=self.ivars().queue.borrow_mut();queue.tracking+=1;queue.tracking==1};if first{if let Some(suspend)=self.ivars().suspend.borrow().as_ref(){suspend(true);}if let Some(notice)=self.ivars().menu_notice.borrow().as_ref(){notice(true);}}}
   #[unsafe(method(menuDidClose:))] fn menu_close(&self,_menu:&AnyObject){let remaining={let mut q=self.ivars().queue.borrow_mut();q.tracking=q.tracking.saturating_sub(1);if q.tracking==0{q.resume_shortcuts=true;}q.tracking};if remaining==0{if let Some(notice)=self.ivars().menu_notice.borrow().as_ref(){notice(false);}}}
   #[unsafe(method(windowDidResize:))] fn resized(&self,_notification:&AnyObject){self.ivars().queue.borrow_mut().pending.push_back(UiAction::Resized);}
-  #[unsafe(method(exportWhatsAppDiagnostic:))]
-  fn export_diagnostic(&self,_notification:&AnyObject){
-   #[cfg(feature = "native-smoke")]
-   unsafe {
-    let name:*mut NSString=msg_send![_notification,name];
-    if !name.is_null() && (&*name).to_string()=="BroTypistExportNativeStages" {
-     self.ivars().native_stage_requested.set(true);
-     return;
-    }
-   }
-   self.ivars().diagnostic_requested.set(true);
-  }
+  #[unsafe(method(exportWhatsAppDiagnostic:))] fn export_diagnostic(&self,_notification:&AnyObject){self.ivars().diagnostic_requested.set(true);}
   #[unsafe(method(windowDidResignKey:))] fn resigned(&self,notification:&AnyObject){unsafe{let window:*mut AnyObject=msg_send![notification,object];let id:*mut NSString=msg_send![window,identifier];if !id.is_null(){self.ivars().queue.borrow_mut().pending.push_back(UiAction::Deactivated((&*id).to_string()));}}}
   #[unsafe(method(windowWillClose:))] fn closed(&self,notification:&AnyObject){unsafe{let window:*mut AnyObject=msg_send![notification,object];let id:*mut NSString=msg_send![window,identifier];if !id.is_null(){self.ivars().queue.borrow_mut().pending.push_back(UiAction::Closed((&*id).to_string()));}}}
   #[unsafe(method(windowShouldClose:))] fn should_close(&self,_window:&AnyObject)->bool{if self.ivars().no_tray.get(){self.ivars().queue.borrow_mut().pending.push_back(UiAction::Quit);false}else{true}}
@@ -243,8 +270,6 @@ impl Kit {
             suspend: RefCell::new(None),
             menu_notice: RefCell::new(None),
             diagnostic_requested: Cell::new(false),
-            #[cfg(feature = "native-smoke")]
-            native_stage_requested: Cell::new(false),
         });
         let target = unsafe { msg_send![super(this), init] };
         Self { target, queue }
@@ -496,8 +521,8 @@ fn confirm(title: &str, message: &str) -> bool {
 }
 fn history_consent() -> bool {
     confirm(
-        "Enable encrypted local learning?",
-        "Eligible writing will be stored encrypted on this Mac. New observed edits can teach local style and vocabulary; existing drafts, bulk pastes and BroTypist-generated suggestions do not establish authorship. Your OS secure storage must be available. Nothing is uploaded and there is no plaintext fallback.",
+        "Allow local writing history?",
+        "Recording stores eligible observed writing encrypted on this Mac. Use independently allows eligible records and derived style to influence suggestions. Existing drafts, bulk pastes and BroTypist-generated text never establish authorship. Secure storage must be available; nothing is uploaded and there is no plaintext fallback. Turning either permission off does not delete existing records; use Forget to delete them.",
     )
 }
 fn context_consent(field: &str) -> bool {
@@ -1010,8 +1035,20 @@ fn bundle_id(path: &str) -> Result<String> {
     }
 }
 
+struct PendingSettings {
+    operation: PendingConfigApply,
+    instructions: BTreeMap<String, String>,
+    controls: BTreeMap<String, Value>,
+    rules: BTreeMap<String, BTreeMap<String, Option<Value>>>,
+    login_rollback: Option<bool>,
+    quit_after_save: bool,
+    install_after_save: bool,
+    rule_navigation: Option<String>,
+    removed_rule: Option<(String, String)>,
+    model: bool,
+}
+
 struct Shell {
-    wake: macos_wake::AppKitWake,
     kit: Kit,
     app: Obj,
     controller: Rc<RefCell<Controller>>,
@@ -1039,9 +1076,12 @@ struct Shell {
     shutdown_error: String,
     acknowledged: bool,
     images: BTreeMap<String, Obj>,
+    pending_settings: Vec<PendingSettings>,
+    wakeup: AppKitWake,
 }
 impl Drop for Shell {
     fn drop(&mut self) {
+        self.controller.borrow().set_wakeup(None);
         unsafe {
             let center: *mut AnyObject = msg_send![
                 AnyClass::get(c"NSDistributedNotificationCenter").unwrap(),
@@ -1050,11 +1090,6 @@ impl Drop for Shell {
             let _: () = msg_send![center,
                 removeObserver: &*self.kit.target,
                 name: &*NSString::from_str("BroTypistExportWhatsAppDiagnostic"),
-                object: std::ptr::null::<AnyObject>()];
-            #[cfg(feature = "native-smoke")]
-            let _: () = msg_send![center,
-                removeObserver: &*self.kit.target,
-                name: &*NSString::from_str("BroTypistExportNativeStages"),
                 object: std::ptr::null::<AnyObject>()];
         }
     }
@@ -1075,11 +1110,9 @@ impl Shell {
         let kit = Kit::new(mtm, options.no_tray);
         let clipboard = crate::system::ClipboardService::install()?;
         let sampler = crate::power::PowerSampler::start()?;
-        let wake = macos_wake::AppKitWake::new(mtm)?;
-        let controller = Rc::new(RefCell::new(Controller::start_with_wake(
-            config.clone(),
-            wake.notifier.clone(),
-        )?));
+        let controller = Rc::new(RefCell::new(Controller::start(config.clone())?));
+        let wakeup = AppKitWake::new(mtm)?;
+        controller.borrow().set_wakeup(Some(wakeup.callback()));
         let weak = Rc::downgrade(&controller);
         kit.target
             .ivars()
@@ -1093,6 +1126,7 @@ impl Shell {
         let menus = Menus::new(&kit);
         let main = main_menu(&kit, &app);
         let mut overlay = OverlayOwner::new()?;
+        overlay.set_paint_reporter(Some(controller.borrow().paint_reporter()));
         let menu_ref =
             unsafe { &*(&*menus.field as *const AnyObject as *const objc2_app_kit::NSMenu) };
         overlay.set_field_menu(menu_ref);
@@ -1147,7 +1181,6 @@ impl Shell {
                 }
             })));
         let mut this = Self {
-            wake,
             kit,
             app,
             controller,
@@ -1175,6 +1208,8 @@ impl Shell {
             shutdown_error: String::new(),
             acknowledged: false,
             images: BTreeMap::new(),
+            pending_settings: Vec::new(),
+            wakeup,
         };
         unsafe {
             let _: () = msg_send![&*this.app,setDelegate:&*this.kit.target];
@@ -1205,12 +1240,6 @@ impl Shell {
                 selector: sel!(exportWhatsAppDiagnostic:),
                 name: &*NSString::from_str("BroTypistExportWhatsAppDiagnostic"),
                 object: std::ptr::null::<AnyObject>()];
-            #[cfg(feature = "native-smoke")]
-            let _: () = msg_send![center,
-                addObserver: &*this.kit.target,
-                selector: sel!(exportWhatsAppDiagnostic:),
-                name: &*NSString::from_str("BroTypistExportNativeStages"),
-                object: std::ptr::null::<AnyObject>()];
         }
         Ok(this)
     }
@@ -1231,18 +1260,19 @@ impl Shell {
         for event in events {
             self.event(event)?;
         }
+        self.poll_settings()?;
         Ok(())
     }
     fn finish_rendering(&mut self) -> Result<()> {
         let commands = self.overlay.tick()?;
         self.commands(commands)?;
-        // Exactly one command-only pass. A fresh native capture fences each
-        // presentation receipt; no recursive controller tick or drain loop.
+        // One bounded command-only acknowledgment pass, not a recursive full
+        // tick. Do not consume or clear an unrelated publisher notification.
         let events = self.controller.borrow().flush_commands();
         for event in events {
             self.event(event)?;
         }
-        Ok(())
+        self.poll_settings()
     }
     fn ready(&mut self) -> Result<()> {
         if self.kit.queue.borrow().tracking > 0 || self.quitting || self.shutdown_started {
@@ -1252,6 +1282,7 @@ impl Shell {
         for event in events {
             self.event(event)?;
         }
+        self.poll_settings()?;
         self.finish_rendering()
     }
     fn event(&mut self, event: Value) -> Result<()> {
@@ -1312,14 +1343,14 @@ impl Shell {
                 if event["state"] == "complete" {
                     let id = event["id"].as_str().unwrap_or("");
                     if self.settings.model_selection.as_deref() == Some(id) {
-                        self.send(Command::SetModel {
-                            path: event["path"].as_str().unwrap_or("").into(),
-                            prompt_style: event["prompt_style"]
+                        self.begin_model(
+                            event["path"].as_str().unwrap_or("").into(),
+                            event["prompt_style"]
                                 .as_str()
                                 .unwrap_or("continuation")
                                 .into(),
-                            model_id: Some(id.into()),
-                        })?;
+                            Some(id.into()),
+                        )?;
                     }
                     self.send(Command::Models)?;
                 } else if event["state"] == "error" {
@@ -1342,19 +1373,175 @@ impl Shell {
         Ok(())
     }
     fn error(&mut self, message: &str) {
+        self.status["settings_operation"] = json!(message);
         alert("BroTypist couldn’t complete that change", message, &["OK"]);
     }
-    fn apply(&mut self, mut config: Config) -> Result<()> {
+    fn apply(&mut self, config: Config) -> Result<()> {
+        self.submit_settings(config, BTreeMap::new(), None, false)
+    }
+    fn submit_settings(
+        &mut self,
+        mut config: Config,
+        instructions: BTreeMap<String, String>,
+        login_rollback: Option<bool>,
+        quit_after_save: bool,
+    ) -> Result<()> {
         config.validate()?;
-        self.send(Command::ApplyConfig {
-            config: config.clone(),
-            persist: true,
-        })?;
-        self.poll_controller()?;
-        ensure!(
-            self.config() == config,
-            "The preference was not saved. Your previous setting is unchanged."
-        );
+        let draft = SettingsDraft::from_configs(&self.config(), &config)?;
+        self.submit_draft_settings(draft, instructions, login_rollback, quit_after_save)
+    }
+    fn submit_draft_settings(
+        &mut self,
+        draft: SettingsDraft,
+        instructions: BTreeMap<String, String>,
+        login_rollback: Option<bool>,
+        quit_after_save: bool,
+    ) -> Result<()> {
+        let model = draft.has_model_intent();
+        let operation = self.controller.borrow().apply_settings(draft, true)?;
+        self.pending_settings.push(PendingSettings {
+            operation,
+            instructions,
+            login_rollback,
+            quit_after_save,
+            model,
+            controls: BTreeMap::new(),
+            rules: BTreeMap::new(),
+            install_after_save: false,
+            rule_navigation: None,
+            removed_rule: None,
+        });
+        Ok(())
+    }
+    fn begin_model(
+        &mut self,
+        path: String,
+        prompt_style: String,
+        model_id: Option<String>,
+    ) -> Result<()> {
+        let operation = self
+            .controller
+            .borrow()
+            .select_model(path, prompt_style, model_id)?;
+        self.pending_settings.push(PendingSettings {
+            operation,
+            instructions: BTreeMap::new(),
+            login_rollback: None,
+            quit_after_save: false,
+            model: true,
+            controls: BTreeMap::new(),
+            rules: BTreeMap::new(),
+            install_after_save: false,
+            rule_navigation: None,
+            removed_rule: None,
+        });
+        Ok(())
+    }
+    fn poll_settings(&mut self) -> Result<()> {
+        let mut index = 0;
+        while index < self.pending_settings.len() {
+            let Some(receipt) = self.pending_settings[index].operation.try_recv()? else {
+                index += 1;
+                continue;
+            };
+            let pending = self.pending_settings.remove(index);
+            match receipt {
+                ConfigApplyReceipt::Saved { config } => {
+                    self.status["settings_operation"] = json!(if pending.model
+                        && config.backend == "gguf"
+                    {
+                        "GGUF configuration saved. New selections are validated before saving; catalogue selections require pinned integrity and custom paths remain user-owned. Language quality and speed are not measured."
+                    } else if pending.model {
+                        "Local server configuration saved. Server availability is unverified; generation quality has not been checked."
+                    } else {
+                        "Settings saved."
+                    });
+                    for (key, submitted) in &pending.instructions {
+                        if self.settings.drafts().get(key) == Some(submitted)
+                            && saved_instructions(&config, key) == *submitted
+                        {
+                            self.settings.saved(key);
+                        }
+                    }
+                    for (field, submitted) in &pending.controls {
+                        if self.settings.control_drafts.get(field) == Some(submitted) {
+                            self.settings.control_drafts.remove(field);
+                        }
+                    }
+                    for (key, fields) in &pending.rules {
+                        if let Some(drafts) = self.settings.rule_drafts.get_mut(key) {
+                            for (field, submitted) in fields {
+                                if drafts.get(field) == Some(submitted) {
+                                    drafts.remove(field);
+                                }
+                            }
+                        }
+                    }
+                    self.settings
+                        .rule_drafts
+                        .retain(|_, fields| !fields.is_empty());
+                    if let Some((key, submitted)) = &pending.removed_rule {
+                        let editor_key = format!("rule:{key}");
+                        if !config.app_rules.contains_key(key)
+                            && self.settings.drafts().get(&editor_key) == Some(submitted)
+                        {
+                            self.settings.set_draft(&editor_key, "");
+                            self.settings.saved(&editor_key);
+                        }
+                    }
+                    if let Some(key) = pending.rule_navigation {
+                        self.settings.selected_rule = key;
+                        if self.settings.visible() && self.settings.pane() == "appSettings" {
+                            self.navigate("appSettings")?;
+                        }
+                    }
+                    if pending.quit_after_save {
+                        // Edits made while persistence was pending still need consent.
+                        if self.settings.control_drafts.is_empty()
+                            && self.settings.rule_drafts.is_empty()
+                            && self
+                                .settings
+                                .drafts()
+                                .iter()
+                                .all(|(key, draft)| *draft == saved_instructions(&config, key))
+                        {
+                            if pending.install_after_save {
+                                match self.updates.prepare_install() {
+                                    Ok(handoff) => self.handoff = Some(handoff),
+                                    Err(error) => {
+                                        self.error(&error.to_string());
+                                        continue;
+                                    }
+                                }
+                            }
+                            self.request_quit(true)?;
+                        }
+                    }
+                }
+                outcome => {
+                    let failed = matches!(&outcome, ConfigApplyReceipt::Failed { .. });
+                    if let Some(previous) = pending.login_rollback {
+                        ensure!(
+                            crate::system::set_launch_at_login(previous)?,
+                            "The preference was not saved and macOS could not restore login startup."
+                        );
+                    }
+                    let message = match outcome {
+                        ConfigApplyReceipt::Failed { stage, message } =>
+                            format!("Settings were not saved ({stage:?}): {message}"),
+                        ConfigApplyReceipt::Cancelled => "Change cancelled. Unsaved instructions are preserved.".into(),
+                        ConfigApplyReceipt::Superseded => "A newer change replaced this operation. Unsaved instructions are preserved.".into(),
+                        ConfigApplyReceipt::Stopped => "Change stopped before saving. Unsaved instructions are preserved.".into(),
+                        ConfigApplyReceipt::Applied { .. } => "Change applied but not saved. Unsaved instructions are preserved.".into(),
+                        ConfigApplyReceipt::Saved { .. } => unreachable!(),
+                    };
+                    self.status["settings_operation"] = json!(message);
+                    if failed {
+                        self.error(&message);
+                    }
+                }
+            }
+        }
         Ok(())
     }
     fn set(&mut self, field: &str, value: Value) -> Result<()> {
@@ -1374,27 +1561,15 @@ impl Shell {
         {
             return Ok(());
         }
-        if field == "record_history" {
-            if value == true && !history_consent() {
-                return Ok(());
-            }
-            self.send(Command::SetHistoryEnabled {
-                enabled: value
-                    .as_bool()
-                    .context("History requires a boolean choice.")?,
-            })?;
-            self.poll_controller()?;
-            self.send(Command::HistoryInfo)?;
+        if matches!(field, "record_history" | "use_history") && value == true && !history_consent()
+        {
             return Ok(());
         }
-        let mut replacement = serde_json::to_value(self.config())?;
-        ensure!(
-            replacement.get(field).is_some(),
-            "Unknown preference: {field}"
-        );
-        replacement[field] = value.clone();
-        let mut candidate: Config = serde_json::from_value(replacement)?;
-        candidate.validate()?;
+        let mut draft = SettingsDraft::new(&self.config())?;
+        draft.set(field, value.clone())?;
+        self.settings
+            .control_drafts
+            .insert(field.into(), value.clone());
         if field == "launch_at_login" {
             let old = crate::system::launch_at_login_state()?;
             ensure!(
@@ -1405,7 +1580,8 @@ impl Shell {
                 )?,
                 "macOS could not change login startup."
             );
-            if let Err(error) = self.apply(candidate) {
+            if let Err(error) = self.submit_draft_settings(draft, BTreeMap::new(), Some(old), false)
+            {
                 let rollback = crate::system::set_launch_at_login(old);
                 return match rollback {
                     Ok(_) => Err(error),
@@ -1415,7 +1591,10 @@ impl Shell {
                 };
             }
         } else {
-            self.apply(candidate)?;
+            self.submit_draft_settings(draft, BTreeMap::new(), None, false)?;
+        }
+        if let Some(pending) = self.pending_settings.last_mut() {
+            pending.controls.insert(field.into(), value.clone());
         }
         if value == true
             && matches!(field, "screenshot_context" | "screenshot_appearance")
@@ -1488,11 +1667,31 @@ impl Shell {
         let current = self.controller.borrow().status();
         let mut previous = std::mem::replace(&mut self.status, current);
         if let Some(previous) = previous.as_object_mut() {
-            for field in ["history_info", "history_counts", "statistics"] {
+            for field in [
+                "history_info",
+                "history_counts",
+                "statistics",
+                "settings_operation",
+            ] {
                 if let Some(value) = previous.remove(field) {
                     self.status[field] = value;
                 }
             }
+        }
+        let verification = self
+            .pending_settings
+            .iter()
+            .rev()
+            .find(|pending| pending.model)
+            .map(|pending| pending.operation.operation_id());
+        self.settings.verification_operation = verification;
+        self.welcome.verification_operation = verification;
+        self.status["model_verification_pending"] = json!(verification.is_some());
+        if self.settings.visible() && self.settings.pane() == "statistics" {
+            self.status["session_diagnostics"] = json!(session_diagnostics(
+                &self.controller.borrow().diagnostics(),
+                &self.status["inference"]
+            ));
         }
         self.status["permissions"] = permission_status();
         self.status["inline_prediction_enabled"] =
@@ -1656,18 +1855,18 @@ impl Shell {
         }
         Ok(())
     }
-    fn use_model(&self, model: &Value) -> Result<()> {
-        self.send(Command::SetModel {
-            path: model["path"]
+    fn use_model(&mut self, model: &Value) -> Result<()> {
+        self.begin_model(
+            model["path"]
                 .as_str()
                 .context("Model file path is missing.")?
                 .into(),
-            prompt_style: model["prompt_style"]
+            model["prompt_style"]
                 .as_str()
                 .unwrap_or("continuation")
                 .into(),
-            model_id: model["id"].as_str().map(str::to_owned),
-        })
+            model["id"].as_str().map(str::to_owned),
+        )
     }
     fn download_model(&mut self, id: &str) -> Result<()> {
         ensure!(
@@ -1731,23 +1930,45 @@ impl Shell {
         }
         self.apply(config)?;
         if let Some(key) = selected {
+            if let Some(pending) = self.pending_settings.last_mut() {
+                pending.rule_navigation = Some(key.clone());
+            }
             self.settings.selected_rule = key;
         }
         self.navigate("appSettings")
     }
     fn rule(&mut self, key: &str, field: &str, value: Option<Value>) -> Result<()> {
         ensure!(!key.is_empty(), "Switch to an app or website first.");
-        if field == "record_history" && value == Some(json!(true)) && !history_consent() {
+        if matches!(field, "record_history" | "use_history")
+            && value == Some(json!(true))
+            && !history_consent()
+        {
             return Ok(());
         }
+        if value == Some(json!(true)) && !context_consent(field) {
+            return Ok(());
+        }
+        self.settings
+            .rule_drafts
+            .entry(key.into())
+            .or_default()
+            .insert(field.into(), value.clone());
         let mut config = self.config();
         let rule = config.app_rules.entry(key.into()).or_default();
-        if let Some(value) = value {
-            rule.insert(field.into(), value);
+        if let Some(value) = &value {
+            rule.insert(field.into(), value.clone());
         } else {
             rule.remove(field);
         }
-        self.apply(config)
+        self.apply(config)?;
+        if let Some(pending) = self.pending_settings.last_mut() {
+            pending
+                .rules
+                .entry(key.into())
+                .or_default()
+                .insert(field.into(), value);
+        }
+        Ok(())
     }
     fn instructions(&mut self, key: &str, save: bool, reset: bool) -> Result<()> {
         self.settings.remember_drafts();
@@ -1774,9 +1995,7 @@ impl Shell {
         );
         let mut config = self.config();
         set_instructions(&mut config, key, &value)?;
-        self.apply(config)?;
-        self.settings.saved(key);
-        Ok(())
+        self.submit_settings(config, BTreeMap::from([(key.into(), value)]), None, false)
     }
     fn dispatch(&mut self, action: UiAction) -> Result<()> {
         let local = self.settings.apply_ui_action(&action);
@@ -1820,18 +2039,60 @@ impl Shell {
             UiAction::RemoveRule(key) => {
                 if confirm(
                     &format!("Remove settings for {}?", key),
-                    "This app or website will inherit general settings. Recorded texts are not deleted.",
+                    "This app or website will inherit general settings. Its unchanged local preference and instruction drafts are discarded only after the removal is saved. Recorded texts are not deleted.",
                 ) {
                     let mut config = self.config();
                     config.app_rules.remove(&key);
                     self.apply(config)?;
+                    let editor_key = format!("rule:{key}");
+                    let captured = self
+                        .settings
+                        .drafts()
+                        .get(&editor_key)
+                        .cloned()
+                        .unwrap_or_else(|| saved_instructions(&self.config(), &editor_key));
+                    if let Some(pending) = self.pending_settings.last_mut() {
+                        pending.rule_navigation = Some(String::new());
+                        pending.removed_rule = Some((key.clone(), captured));
+                        if let Some(fields) = self.settings.rule_drafts.get(&key) {
+                            pending.rules.insert(key.clone(), fields.clone());
+                        }
+                    }
                     self.navigate("appSettings")?;
+                }
+            }
+            UiAction::AddExclusion => {
+                if let Some(value) = input_dialog(
+                    "Add a hard app exclusion",
+                    "Enter an app identifier or name fragment (1–512 characters). Matching is case-insensitive and uses substrings, not exact app rules or website hostnames.",
+                ) {
+                    let value = value.trim();
+                    ensure!(
+                        !value.is_empty() && value.chars().count() <= 512,
+                        "Enter an app identifier or name fragment from 1 to 512 characters."
+                    );
+                    let mut config = self.config();
+                    if !config
+                        .excluded_apps
+                        .iter()
+                        .any(|existing| existing == value)
+                    {
+                        config.excluded_apps.push(value.into());
+                        self.apply(config)?;
+                        if let Some(pending) = self.pending_settings.last_mut() {
+                            pending.rule_navigation = Some(self.settings.selected_rule.clone());
+                        }
+                        self.navigate("appSettings")?;
+                    }
                 }
             }
             UiAction::RemoveExclusion(value) => {
                 let mut config = self.config();
                 config.excluded_apps.retain(|s| s != &value);
                 self.apply(config)?;
+                if let Some(pending) = self.pending_settings.last_mut() {
+                    pending.rule_navigation = Some(self.settings.selected_rule.clone());
+                }
                 self.navigate("appSettings")?;
             }
             UiAction::ModelSelect(id) => self.select_model(&id)?,
@@ -1861,15 +2122,21 @@ impl Shell {
                             .is_some_and(|e| e.eq_ignore_ascii_case("gguf")),
                         "Choose a GGUF model file."
                     );
-                    self.send(Command::SetModel {
-                        path,
-                        prompt_style: self.config().prompt_style,
-                        model_id: Some(String::new()),
-                    })?;
+                    self.begin_model(path, self.config().prompt_style, Some(String::new()))?;
                     self.settings.model_selection = None;
                 }
             }
             UiAction::ModelCancel => self.send(Command::CancelDownload)?,
+            UiAction::ModelVerificationCancel(operation) => {
+                // The callback captured its operation, never "whatever is current".
+                if self
+                    .pending_settings
+                    .iter()
+                    .any(|pending| pending.model && pending.operation.operation_id() == operation)
+                {
+                    self.controller.borrow().cancel_config_apply(operation)?;
+                }
+            }
             UiAction::RevealModels => crate::system::reveal_models()?,
             UiAction::Permission(kind) => {
                 if kind == "automation" {
@@ -1922,6 +2189,17 @@ impl Shell {
                 }
             }
             UiAction::Statistics { .. } => self.request_statistics()?,
+            UiAction::DiagnosticsExport => {
+                let path = self.controller.borrow().export_diagnostics()?;
+                alert(
+                    "Diagnostics exported",
+                    &format!(
+                        "Content-free session diagnostics were saved privately to:\n{}",
+                        path.display()
+                    ),
+                    &["OK"],
+                );
+            }
             UiAction::SaveInstructions(key) => self.instructions(&key, true, false)?,
             UiAction::RevertInstructions(key) => self.instructions(&key, false, false)?,
             UiAction::ResetInstructions(key) => self.instructions(&key, false, true)?,
@@ -1971,10 +2249,17 @@ impl Shell {
                         "Install update and relaunch?",
                         "BroTypist will stop local activity, quit, replace this app with the verified update and relaunch. Your models, history and settings are not replaced. This free-signed app is not notarized; macOS may require per-app approval. Never disable Gatekeeper.",
                     )
-                    && self.allow_drafts()?
                 {
-                    self.handoff = Some(self.updates.prepare_install()?);
-                    self.request_quit(true)?;
+                    let pending_before = self.pending_settings.len();
+                    if self.allow_drafts()? {
+                        self.handoff = Some(self.updates.prepare_install()?);
+                        self.request_quit(true)?;
+                    } else if self.pending_settings.len() > pending_before {
+                        // Resume the approved install, not an unrelated plain Quit.
+                        if let Some(pending) = self.pending_settings.last_mut() {
+                            pending.install_after_save = true;
+                        }
+                    }
                 }
             }
             UiAction::Pause(minutes) => self.send(Command::Pause { minutes })?,
@@ -2038,21 +2323,73 @@ impl Shell {
             .iter()
             .filter(|(key, text)| **text != saved_instructions(&config, key))
             .collect();
-        if dirty.is_empty() {
+        if dirty.is_empty()
+            && self.settings.control_drafts.is_empty()
+            && self.settings.rule_drafts.is_empty()
+        {
             return Ok(true);
         }
         match alert(
-            "Unsaved custom instructions",
-            "Save all changed instruction drafts before quitting, discard them, or cancel and keep editing.",
+            "Unsaved settings",
+            "Save all unsaved preferences and instruction drafts before quitting, discard them, or cancel and keep editing.",
             &["Save Changes", "Cancel", "Discard Changes"],
         ) {
             1000 => {
-                let mut config = config;
-                for (key, text) in dirty {
+                let mut draft = SettingsDraft::new(&config)?;
+                for (field, value) in &self.settings.control_drafts {
+                    draft.set(field, value.clone())?;
+                }
+                let mut rules = config.app_rules.clone();
+                for (key, fields) in &self.settings.rule_drafts {
+                    let rule = rules.entry(key.clone()).or_default();
+                    for (field, value) in fields {
+                        if let Some(value) = value {
+                            rule.insert(field.clone(), value.clone());
+                        } else {
+                            rule.remove(field);
+                        }
+                    }
+                }
+                draft.set("app_rules", serde_json::to_value(rules)?)?;
+                let mut config = draft.apply_to(&config)?;
+                let submitted = dirty
+                    .into_iter()
+                    .map(|(key, text)| (key.clone(), text.clone()))
+                    .collect::<BTreeMap<_, _>>();
+                for (key, text) in &submitted {
                     set_instructions(&mut config, key, text)?;
                 }
-                self.apply(config)?;
-                Ok(true)
+                if submitted.contains_key("global") {
+                    draft.set("custom_instructions", json!(config.custom_instructions))?;
+                }
+                if submitted.keys().any(|key| key.starts_with("rule:")) {
+                    draft.set("app_rules", serde_json::to_value(&config.app_rules)?)?;
+                }
+                let login_rollback = if self.settings.control_drafts.contains_key("launch_at_login")
+                {
+                    let old = crate::system::launch_at_login_state()?;
+                    ensure!(
+                        crate::system::set_launch_at_login(config.launch_at_login)?,
+                        "macOS could not change login startup."
+                    );
+                    Some(old)
+                } else {
+                    None
+                };
+                if let Err(error) =
+                    self.submit_draft_settings(draft, submitted, login_rollback, true)
+                {
+                    if let Some(previous) = login_rollback {
+                        crate::system::set_launch_at_login(previous)?;
+                    }
+                    return Err(error);
+                }
+                if let Some(pending) = self.pending_settings.last_mut() {
+                    pending.controls = self.settings.control_drafts.clone();
+                    pending.rules = self.settings.rule_drafts.clone();
+                }
+                // The matching Saved receipt, not a config broadcast, resumes Quit.
+                Ok(false)
             }
             1002 => Ok(true),
             _ => Ok(false),
@@ -2179,19 +2516,6 @@ impl Shell {
             self.poll_controller()?;
             self.finish_rendering()?;
         }
-        #[cfg(feature = "native-smoke")]
-        if self
-            .kit
-            .target
-            .ivars()
-            .native_stage_requested
-            .replace(false)
-            && !self.shutdown_started
-        {
-            if crate::runtime::stage_diagnostics::export().is_err() {
-                eprintln!("BroTypist: native stage diagnostic export refused or failed.");
-            }
-        }
         if self.kit.target.ivars().diagnostic_requested.replace(false) && !self.shutdown_started {
             if let Err(error) = self.controller.borrow().export_whatsapp_diagnostic() {
                 eprintln!("BroTypist: runtime diagnostic export failed: {error}");
@@ -2219,6 +2543,92 @@ impl Shell {
         Ok(())
     }
 }
+fn session_diagnostics(
+    snapshot: &crate::diagnostics::DiagnosticSnapshot,
+    inference: &Value,
+) -> String {
+    use crate::diagnostics::{Outcome, WorkKind};
+    let mut kinds = [0usize; 5];
+    let mut suppressed = [0usize; 5];
+    for trace in &snapshot.traces {
+        kinds[match trace.kind {
+            WorkKind::Generated => 0,
+            WorkKind::RetainedGhost => 1,
+            WorkKind::Regenerated => 2,
+            WorkKind::Alternative => 3,
+            WorkKind::Preparation => continue,
+            WorkKind::LocalTool => 4,
+        }] += 1;
+        let reason = match trace.outcome {
+            Some(Outcome::AuthorityDenied) => Some(0),
+            Some(Outcome::PrivacyDenied) => Some(1),
+            Some(Outcome::Ineligible) => Some(2),
+            Some(Outcome::StaleView) => Some(3),
+            Some(Outcome::ProviderFailed) => Some(4),
+            _ => None,
+        };
+        if let Some(reason) = reason {
+            suppressed[reason] += 1;
+        }
+    }
+    let count = |key: &str| {
+        inference[key]
+            .as_u64()
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "unavailable".into())
+    };
+    let work = |kind: &str, key: &str| {
+        inference[kind][key]
+            .as_u64()
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "unavailable".into())
+    };
+    let decoded = inference["work"]["prompt"]["completed_tokens"]
+        .as_u64()
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| "unavailable".into());
+    let stage = |value: Option<u64>| {
+        value
+            .map(|us| format!("{:.2} ms", us as f64 / 1000.))
+            .unwrap_or_else(|| "unavailable".into())
+    };
+    let latest = snapshot.traces.last().map(|trace| format!(
+        "\nLatest {:?}/{:?}: input wait {}; capture {}; publication {}; actual draw {}; outcome {:?}. Stage offsets from capture start (capture/preparation/ready/proceed/provider publication/native draw): {}",
+        trace.kind, trace.lane, stage(trace.input_wait_us), stage(Some(trace.first_capture_us)),
+        stage(trace.first_publication_us), stage(trace.first_draw_us), trace.outcome,
+        trace.stage_us.iter().map(|time| stage(*time)).collect::<Vec<_>>().join(" / ")
+    )).unwrap_or_else(|| "\nNo guarded request trace yet.".into());
+    format!(
+        "Observed session requests: {} finished · {} measured · {} cancelled · {} unreported · {} no offer. Counts and work may be incomplete when terminal reports are lost.\nReported work: {} reused input tokens · {} prompt tokens decoded · {} sampled tokens. Cancelled work: {} reported input tokens (already included in reported work).\nGuarded writing trace buffer: {} retained · {} evicted · {} lost reports · {} unmatched reports · {} rejected draws.\nRetained writing work: {} generated · {} retained ghost · {} regenerated · {} alternatives · {} local tools. Retained suppression: {} authority · {} privacy · {} ineligible · {} stale · {} provider failure. Retained counts are not session totals.{}\n{}",
+        count("finished_requests"),
+        count("measured_requests"),
+        count("cancelled_requests"),
+        count("unreported_requests"),
+        count("no_offer_requests"),
+        work("work", "reused_tokens"),
+        decoded,
+        work("work", "sampled_tokens"),
+        work("cancelled_work", "input_tokens"),
+        snapshot.traces.len(),
+        snapshot.evicted_traces,
+        snapshot.lost_reports,
+        snapshot.unmatched_reports,
+        snapshot.rejected_draws,
+        kinds[0],
+        kinds[1],
+        kinds[2],
+        kinds[3],
+        kinds[4],
+        suppressed[0],
+        suppressed[1],
+        suppressed[2],
+        suppressed[3],
+        suppressed[4],
+        latest,
+        crate::ui::settings::preparation_diagnostics(snapshot)
+    )
+}
+
 fn model_ready(config: &Config) -> bool {
     config.backend != "gguf"
         || (!config.model_path.is_empty() && std::path::Path::new(&config.model_path).is_file())
@@ -2293,6 +2703,7 @@ fn input_dialog(title: &str, message: &str) -> Option<String> {
     let dialog = obj("NSAlert");
     let field = obj("NSTextField");
     frame(&field, &rect(0., 0., 360., 26.));
+    identify(&field, "inklow.settings.addEntry", title);
     unsafe {
         let _: () = msg_send![&*dialog,setMessageText:&*NSString::from_str(title)];
         let _: () = msg_send![&*dialog,setInformativeText:&*NSString::from_str(message)];
@@ -2488,7 +2899,7 @@ pub fn launch(config: Config, options: LaunchOptions) -> Result<i32> {
                 let date: *mut AnyObject =
                     msg_send![AnyClass::get(c"NSDate").unwrap(),dateWithTimeIntervalSinceNow:wait];
                 let event: *mut AnyObject = msg_send![&*shell.app,nextEventMatchingMask:usize::MAX,untilDate:date,inMode:&*NSString::from_str("kCFRunLoopDefaultMode"),dequeue:true];
-                if !event.is_null() && !shell.wake.consume(&*event) {
+                if !event.is_null() && !shell.wakeup.consume(&*event) {
                     native_event = true;
                     let kind: usize = msg_send![event, type];
                     let recording = shell.kit.queue.borrow().recording.clone();
@@ -2525,8 +2936,8 @@ pub fn launch(config: Config, options: LaunchOptions) -> Result<i32> {
                 next_tick = Instant::now() + Duration::from_millis(25);
                 Ok(())
             } else {
-                // Publications do not advance routine capture, debounce or
-                // housekeeping, nor reset their existing periodic deadline.
+                // Ready publications do not advance routine capture, debounce
+                // or housekeeping, or postpone their existing periodic deadline.
                 shell.ready()
             }
         });

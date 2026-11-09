@@ -1,8 +1,6 @@
 //! Single-thread private KWin connection, XKB grab, and compositor-owned SHM buffers.
 #![allow(unsafe_op_in_unsafe_fn)]
-use super::super::{
-    Action, NativeChoices, NativePreedit, ShortcutHandler, policy::ObservationPolicy,
-};
+use super::super::{Action, NativeChoices, ShortcutHandler, policy::ObservationPolicy};
 use super::{
     panel::{MenuItem, Panel},
     protocol::*,
@@ -258,33 +256,6 @@ impl PendingInput {
         self.dispatched || (accepted && self.valid && now < self.expires_at && !self.requires_edit)
     }
 }
-struct PreeditLayout {
-    length: u32,
-    cursor: i32,
-    style: u32,
-    reset_commit: &'static CStr,
-}
-fn preedit_layout(text: &str) -> Option<PreeditLayout> {
-    // Protocol offsets are UTF-8 bytes, not Unicode scalar or grapheme indices.
-    (!text.is_empty() && text.len() <= 4079 && !text.contains('\0')).then_some(PreeditLayout {
-        length: text.len() as u32,
-        cursor: 0,
-        style: 3,
-        reset_commit: c"",
-    })
-}
-fn preedit_scope_valid(
-    receipt: &NativePreedit,
-    owned: Option<&NativePreedit>,
-    state: Option<(u32, u32)>,
-    user_revision: u64,
-    now: Instant,
-) -> bool {
-    now < receipt.expires_at
-        && receipt.revision == user_revision
-        && owned == Some(receipt)
-        && state.is_some_and(|state| anchor(state) == receipt.anchor)
-}
 fn native_choice_index(id: &str, generation: u64, visible: usize) -> Option<usize> {
     let mut fields = id.strip_prefix("native-choice:")?.split(':');
     let offered_generation = fields.next()?.parse::<u64>().ok()?;
@@ -420,7 +391,6 @@ pub(super) struct Wire {
     pub last_bootstrap: (u64, u32),
     bootstrap_identity: (u64, u32),
     pub diagnostic: &'static str,
-    preedit: Option<NativePreedit>,
     pending_input: Option<PendingInput>,
     finished_claim_valid: bool,
     #[cfg(test)]
@@ -475,8 +445,7 @@ impl Wire {
             bootstrap_token: Arc::new(AtomicU64::new(1)),
             last_bootstrap: (0, 0),
             bootstrap_identity: (0, 0),
-            diagnostic: "KWin private input method; guarded native preedit is a protocol capability, not a pixel acknowledgment",
-            preedit: None,
+            diagnostic: "KWin private input method; manual controls only, ordinary inline completion unavailable",
             pending_input: None,
             finished_claim_valid: true,
             #[cfg(test)]
@@ -583,13 +552,6 @@ impl Wire {
             self.bootstrap_identity = identity;
             self.bootstrap_token.fetch_add(1, Ordering::AcqRel);
         }
-        if self
-            .preedit
-            .as_ref()
-            .is_some_and(|p| !self.preedit_valid(p))
-        {
-            self.clear_preedit();
-        }
         if self.pending_input.as_ref().is_some_and(|p| {
             p.valid
                 && !p.dispatched
@@ -609,20 +571,6 @@ impl Wire {
             self.ui("context_changed");
         }
     }
-    pub fn preedit_valid(&self, receipt: &NativePreedit) -> bool {
-        !self.failed
-            && !self.stopped
-            && preedit_scope_valid(
-                receipt,
-                self.preedit.as_ref(),
-                self.state.state(),
-                self.user_revision,
-                Instant::now(),
-            )
-    }
-    pub fn owns_preedit(&self) -> bool {
-        self.preedit.as_ref().is_some_and(|p| self.preedit_valid(p))
-    }
     pub fn choices_valid(&self, receipt: &NativeChoices) -> bool {
         !self.failed
             && !self.stopped
@@ -639,8 +587,9 @@ impl Wire {
                 .is_some_and(|state| anchor(state) == receipt.anchor)
             && receipt.values.len() == self.panel.visible_choices
             && self.panel.menu.as_ref().is_some_and(|rows| {
-                rows.iter()
-                    .take(receipt.values.len())
+                self.panel.visible_choice_indices[..self.panel.visible_choices]
+                    .iter()
+                    .filter_map(|index| rows.get(*index))
                     .map(|row| &row.label)
                     .eq(receipt.values.iter())
             })
@@ -650,6 +599,12 @@ impl Wire {
             for text in &mut receipt.values {
                 text.zeroize();
             }
+        }
+        self.panel.visible_choices = 0;
+        self.panel.visible_choice_indices = [0; 32];
+        if self.panel.choice_mode {
+            self.panel.regions.clear();
+            self.panel.pressed = None;
         }
         self.menu_generation = self.menu_generation.wrapping_add(1).max(1);
     }
@@ -692,12 +647,13 @@ impl Wire {
         self.hide_choices();
         self.panel.snapshot = Some(snapshot);
         self.panel.choice_mode = true;
+        self.panel.choice_generation = self.menu_generation;
         self.panel.menu = Some(
             values
                 .iter()
-                .enumerate()
-                .map(|(index, value)| MenuItem {
-                    action: format!("native-choice:{}:{index}", self.menu_generation),
+                .map(|value| MenuItem {
+                    // Choice actions are assigned to dense ordinals only after layout.
+                    action: String::new(),
                     label: value.clone(),
                     enabled: true,
                 })
@@ -716,7 +672,10 @@ impl Wire {
                 .expect("owned choice snapshot")
                 .native_anchor
                 .clone(),
-            values: values[..self.panel.visible_choices].to_vec(),
+            values: self.panel.visible_choice_indices[..self.panel.visible_choices]
+                .iter()
+                .map(|index| values[*index].clone())
+                .collect(),
             revision: self.user_revision,
             expires_at: Instant::now() + Duration::from_secs(2),
         };
@@ -742,94 +701,10 @@ impl Wire {
             self.hide();
         }
     }
-    pub fn present_preedit(
-        &mut self,
-        state: (u32, u32),
-        text: &str,
-    ) -> Result<Option<NativePreedit>> {
-        let Some(layout) = preedit_layout(text) else {
-            self.clear_preedit();
-            return Ok(None);
-        };
-        if self.failed
-            || self.stopped
-            || self.context.is_null()
-            || !self.state.can_commit(state, text)
-        {
-            self.clear_preedit();
-            return Ok(None);
-        }
-        if let Some(receipt) = &self.preedit {
-            if receipt.anchor == anchor(state)
-                && receipt.text == text
-                && self.preedit_valid(receipt)
-            {
-                return Ok(Some(receipt.clone()));
-            }
-        }
-        let text_c = CString::new(text)?;
-        self.clear_preedit();
-        unsafe {
-            // INACTIVE styling distinguishes prediction from committed input. Cursor stays
-            // at the insertion point; the reset-commit string MUST remain empty.
-            wl_proxy_marshal_flags(
-                self.context,
-                3,
-                ptr::null(),
-                1,
-                0,
-                0u32,
-                layout.length,
-                layout.style,
-            );
-            wl_proxy_marshal_flags(self.context, 4, ptr::null(), 1, 0, layout.cursor);
-            wl_proxy_marshal_flags(
-                self.context,
-                2,
-                ptr::null(),
-                1,
-                0,
-                state.1,
-                text_c.as_ptr(),
-                layout.reset_commit.as_ptr(),
-            );
-        }
-        self.flush()?;
-        let receipt = NativePreedit {
-            anchor: anchor(state),
-            text: text.into(),
-            revision: self.user_revision,
-            expires_at: Instant::now() + Duration::from_secs(2),
-        };
-        self.preedit = Some(receipt.clone());
-        Ok(Some(receipt))
-    }
-    fn clear_preedit(&mut self) {
-        let Some(mut owned) = self.preedit.take() else {
-            return;
-        };
-        owned.text.zeroize();
-        if !self.context.is_null() {
-            unsafe {
-                wl_proxy_marshal_flags(self.context, 4, ptr::null(), 1, 0, 0i32);
-                wl_proxy_marshal_flags(
-                    self.context,
-                    2,
-                    ptr::null(),
-                    1,
-                    0,
-                    self.state.serial,
-                    c"".as_ptr(),
-                    c"".as_ptr(),
-                );
-            }
-        }
-    }
     pub fn set_shortcuts_enabled(&mut self, enabled: bool) {
         self.enabled = enabled && !self.stopped && !self.failed;
         self.panel.pressed = None;
         if !self.enabled {
-            self.clear_preedit();
             self.clear_choices();
             if self.panel.choice_mode {
                 // A manual accessory click suspends shortcuts before requesting its
@@ -903,7 +778,6 @@ impl Wire {
     }
     pub fn hide(&mut self) {
         self.clear_choices();
-        self.clear_preedit();
         let had_menu = self.panel.clear();
         self.hide_surface();
         if had_menu {
@@ -933,14 +807,14 @@ impl Wire {
         }
     }
     fn invalidate(&mut self, erase: bool) {
-        self.clear_preedit();
         self.state.invalidate(erase);
         self.hide_surface();
     }
-    // KWin owns a release-capable keyboard resource even though the v1 constructor
-    // proxy inherits version 1. Send release (opcode 0); local destroy leaves its grab alive.
+    // Do not send wl_keyboard.release for this version-1 proxy. The context
+    // owns the server grab, which KWin may remove before delivering deactivation.
+    // Destroy the local proxy; release_context destroys the owning context.
     unsafe fn drop_keyboard(&mut self) {
-        destroy(&mut self.keyboard, Some(0));
+        destroy(&mut self.keyboard, None);
         if !self.keys.is_null() {
             xkb_state_unref(self.keys);
             self.keys = ptr::null_mut();
@@ -1003,14 +877,6 @@ impl Wire {
     pub fn pump(&mut self) -> Result<()> {
         if self.failed || self.stopped {
             bail!("Private KWin connection is unavailable");
-        }
-        if self
-            .preedit
-            .as_ref()
-            .is_some_and(|p| !self.preedit_valid(p))
-        {
-            self.clear_preedit();
-            self.note(false);
         }
         if self
             .choices
@@ -1122,6 +988,8 @@ impl Wire {
             self.panel.pending = true;
             self.panel.regions.clear();
             self.panel.pressed = None;
+            self.panel.visible_choices = 0;
+            self.panel.visible_choice_indices = [0; 32];
             return Ok(true);
         };
         if !self.buffers[slot].matches(width, height, stride) {
@@ -1166,12 +1034,22 @@ impl Wire {
         }
         self.panel.pending = false;
         self.render_generation = self.render_generation.wrapping_add(1).max(1);
+        if self.panel.visible_choices != frame.choice_count
+            || self.panel.visible_choice_indices != frame.choice_indices
+        {
+            self.panel.pressed = None;
+        }
         self.panel.visible_choices = frame.choice_count;
+        self.panel.visible_choice_indices = frame.choice_indices;
+        if self.panel.choice_mode && self.panel.selected.is_some_and(|i| i >= frame.choice_count) {
+            self.panel.selected = frame.choice_count.checked_sub(1);
+        }
         if self.choices.as_ref().is_some_and(|receipt| {
             receipt.values.len() == frame.choice_count
                 && self.panel.menu.as_ref().is_some_and(|rows| {
-                    rows.iter()
-                        .take(frame.choice_count)
+                    frame.choice_indices[..frame.choice_count]
+                        .iter()
+                        .filter_map(|index| rows.get(*index))
                         .map(|row| &row.label)
                         .eq(receipt.values.iter())
                 })
@@ -1262,7 +1140,6 @@ impl Wire {
         }
     }
     fn prepare_menu(&mut self, actions: Vec<(String, String, bool)>) {
-        self.clear_preedit();
         self.clear_choices();
         if self.panel.choice_mode {
             let snapshot = self.panel.snapshot.take();
@@ -1498,7 +1375,7 @@ impl Wire {
             let action = if self.panel.choice_mode && key_name == "Return" && self.modifiers == 0 {
                 self.panel
                     .selected
-                    .and_then(|index| self.panel.menu.as_ref()?.get(index))
+                    .and_then(|index| self.panel.regions.get(index))
                     .and_then(|row| self.choice_action(&row.action))
             } else {
                 self.policy
@@ -1581,7 +1458,7 @@ impl Wire {
             {
                 sym = *base;
             }
-            let mut name = [0i8; 128];
+            let mut name = [0 as std::ffi::c_char; 128];
             if xkb_keysym_get_name(sym, name.as_mut_ptr(), name.len()) > 0 {
                 let raw = CStr::from_ptr(name.as_ptr()).to_str().unwrap_or("");
                 let mut one = [0u8; 1];
@@ -1600,8 +1477,6 @@ impl Wire {
             } else {
                 if self.panel.choice_mode {
                     self.hide();
-                } else {
-                    self.clear_preedit();
                 }
                 self.note(true);
             }
@@ -1670,7 +1545,7 @@ impl Wire {
             },
             METHOD_TAG => match opcode {
                 0 => {
-                    // Retire the OLD owned preedit/held key against its own context
+                    // Retire the OLD held key against its own context
                     // before changing the generation or installing the new object.
                     self.release_context();
                     self.state.activate();
@@ -1779,8 +1654,6 @@ impl Wire {
                     self.reject_pending();
                     if self.panel.choice_mode {
                         self.hide();
-                    } else {
-                        self.clear_preedit();
                     }
                     self.note(true);
                     if !self.keys.is_null() {
@@ -1935,12 +1808,6 @@ mod tests {
             action: "menu".into(),
             enabled: true,
         });
-        wire.preedit = Some(NativePreedit {
-            anchor: origin.native_anchor.clone(),
-            text: " prediction".into(),
-            revision: wire.user_revision,
-            expires_at: Instant::now() + Duration::from_secs(2),
-        });
         let actions = Arc::new(std::sync::Mutex::new(Vec::new()));
         let received = actions.clone();
         wire.ui_callback = Some(Arc::new(move |action| {
@@ -1954,7 +1821,7 @@ mod tests {
         assert_eq!(*actions.lock().unwrap(), ["menu"]);
         wire.set_shortcuts_enabled(false);
         assert!(!wire.enabled);
-        assert!(wire.preedit.is_none() && wire.choices.is_none());
+        assert!(wire.choices.is_none());
         assert!(wire.panel.snapshot.as_ref().unwrap().same_key(&origin));
         // show_native_menu performs its unchanged fresh native recapture before
         // calling this same menu-construction consumer.
@@ -2046,7 +1913,7 @@ mod tests {
         }
     }
     #[test]
-    fn native_choice_actions_bind_original_indices_to_current_menu_and_visible_prefix() {
+    fn native_choice_actions_bind_displayed_ordinals_to_current_generation() {
         assert_eq!(native_choice_index("native-choice:7:0", 7, 3), Some(0));
         assert_eq!(native_choice_index("native-choice:7:2", 7, 3), Some(2));
         for id in [
@@ -2062,84 +1929,70 @@ mod tests {
         assert_eq!(native_choice_index("native-choice:7:0", 7, 0), None);
     }
     #[test]
-    fn prediction_plan_styles_utf8_bytes_and_never_commits_on_focus_reset() {
-        let text = "é😀e\u{301}";
-        let layout = preedit_layout(text).unwrap();
-        assert_eq!(layout.length, 9);
-        assert_eq!(layout.cursor, 0);
-        assert_eq!(layout.style, 3);
-        assert!(layout.reset_commit.to_bytes().is_empty());
-        assert!(preedit_layout("").is_none());
-        assert!(preedit_layout("a\0b").is_none());
-        assert!(preedit_layout(&"é".repeat(2040)).is_none());
-        assert_eq!(
-            preedit_layout(&format!("{}x", "é".repeat(2039)))
-                .unwrap()
-                .length,
-            4079
+    fn compacted_choice_receipt_enter_and_revocation_share_displayed_ordinals() {
+        let mut wire = consumer_wire();
+        wire.visible = true;
+        wire.panel.choice_mode = true;
+        wire.panel.choice_generation = 7;
+        wire.menu_generation = 7;
+        wire.render_generation = 11;
+        wire.choices_generation = (7, 11);
+        wire.panel.bounds_known = true;
+        wire.panel.bounds = [400, 240];
+        wire.panel.menu = Some(
+            [
+                "  first  ".into(),
+                "too tall\n".repeat(1000),
+                " e\u{301} last ".into(),
+            ]
+            .into_iter()
+            .map(|label| MenuItem {
+                action: String::new(),
+                label,
+                enabled: true,
+            })
+            .collect(),
         );
-    }
-    #[test]
-    fn preedit_capability_is_exact_revocable_and_bounded_not_a_pixel_receipt() {
-        let now = Instant::now();
-        let receipt = NativePreedit {
-            anchor: anchor((4, 7)),
-            text: " model text".into(),
-            revision: 19,
-            expires_at: now + Duration::from_secs(2),
+        let frame = wire.panel.frame().unwrap();
+        wire.panel.visible_choices = frame.choice_count;
+        wire.panel.visible_choice_indices = frame.choice_indices;
+        wire.panel.regions = frame.regions.clone();
+        let receipt = NativeChoices {
+            anchor: anchor(wire.state.state().unwrap()),
+            values: vec!["  first  ".into(), " e\u{301} last ".into()],
+            revision: wire.user_revision,
+            expires_at: Instant::now() + Duration::from_secs(2),
         };
-        assert!(preedit_scope_valid(
-            &receipt,
-            Some(&receipt),
-            Some((4, 7)),
-            19,
-            now
+        wire.choices = Some(receipt.clone());
+        assert!(wire.choices_valid(&receipt));
+        assert!(matches!(
+            wire.choice_action("native-choice:7:1"),
+            Some(Action::Choice(1))
         ));
-        assert!(!preedit_scope_valid(
-            &receipt,
-            Some(&receipt),
-            Some((4, 8)),
-            19,
-            now
-        ));
-        assert!(!preedit_scope_valid(
-            &receipt,
-            Some(&receipt),
-            Some((5, 7)),
-            19,
-            now
-        ));
-        assert!(!preedit_scope_valid(
-            &receipt,
-            Some(&receipt),
-            Some((4, 7)),
-            20,
-            now
-        ));
-        assert!(!preedit_scope_valid(&receipt, None, Some((4, 7)), 19, now));
-        assert!(!preedit_scope_valid(
-            &receipt,
-            Some(&receipt),
-            None,
-            19,
-            now
-        ));
-        assert!(!preedit_scope_valid(
-            &receipt,
-            Some(&receipt),
-            Some((4, 7)),
-            19,
-            receipt.expires_at
-        ));
-        let mut changed = receipt.clone();
-        changed.text.push('!');
-        assert!(!preedit_scope_valid(
-            &changed,
-            Some(&receipt),
-            Some((4, 7)),
-            19,
-            now
-        ));
+        assert!(wire.choice_action("native-choice:7:2").is_none());
+        assert!(wire.choice_action("native-choice:6:1").is_none());
+        assert!(wire.panel.navigate("End"));
+        let selected = Arc::new(std::sync::atomic::AtomicUsize::new(usize::MAX));
+        let observed = selected.clone();
+        wire.callback = Some(Arc::new(move |action| {
+            if let Action::Choice(index) = action {
+                observed.store(index, Ordering::SeqCst);
+                true
+            } else {
+                false
+            }
+        }));
+        assert!(wire.recognize_key("Return", edge(21, 1)));
+        assert_eq!(selected.load(Ordering::SeqCst), 1);
+        wire.render_generation += 1;
+        assert!(!wire.choices_valid(&receipt));
+        wire.render_generation -= 1;
+        wire.choices.as_mut().unwrap().expires_at = Instant::now() - Duration::from_secs(1);
+        assert!(wire.choice_action("native-choice:7:1").is_none());
+        wire.clear_choices();
+        assert!(wire.choices.is_none() && wire.panel.regions.is_empty());
+        assert_eq!(wire.panel.visible_choices, 0);
+        assert_eq!(wire.panel.visible_choice_indices, [0; 32]);
     }
     fn edge(serial: u32, state: u32) -> KeyEdge {
         KeyEdge {

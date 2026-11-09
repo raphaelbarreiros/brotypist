@@ -95,6 +95,10 @@ pub(super) struct SettingsWindow {
     sender: Sender,
     login_status: gtk::Label,
     statistics_query: Rc<RefCell<(String, String)>>,
+    current_config: Rc<RefCell<Config>>,
+    pending: Cell<bool>,
+    operation_status: gtk::Label,
+    diagnostics_label: gtk::Label,
 }
 fn section(page: &gtk::Box, title: &str) -> gtk::Box {
     let frame = gtk::Frame::new(Some(title));
@@ -188,9 +192,9 @@ impl SettingsWindow {
         root.pack_end(&footer, false, false, 0);
         let login = gtk::CheckButton::with_label("Launch at login");
         login.set_tooltip_text(Some("Changes apply immediately."));
-        let history = gtk::CheckButton::with_label("Learn from my writing");
+        let history = gtk::CheckButton::with_label("Record eligible authored writing");
         history.set_tooltip_text(Some(
-            "Changes apply immediately. Recorded writing stays on this device.",
+            "Recording consent is independent of using existing history. Changes apply immediately.",
         ));
         let login_status = label("");
         let status_label = label("");
@@ -241,7 +245,12 @@ impl SettingsWindow {
             sender: sender.clone(),
             statistics_query: Rc::new(RefCell::new(("week".into(), "day".into()))),
             login_status,
+            current_config: Rc::new(RefCell::new(config.clone())),
+            pending: Cell::new(false),
+            operation_status: label(""),
+            diagnostics_label: label("No session diagnostics observed yet."),
         };
+        root.pack_start(&s.operation_status, false, false, 0);
         let p = &pages["General"];
         let app = section(p, "Application");
         app.pack_start(&s.login, false, false, 0);
@@ -271,6 +280,7 @@ impl SettingsWindow {
             ("day", "Today"),
             ("week", "Past week"),
             ("month", "Past month"),
+            ("year", "Past year"),
             ("all", "All time"),
         ] {
             period.append(Some(id), title);
@@ -279,6 +289,7 @@ impl SettingsWindow {
         row(&stats_section, "Period", &period);
         let group = gtk::ComboBoxText::new();
         group.append(Some("day"), "By day");
+        group.append(Some("month"), "By month");
         group.append(Some("app"), "By application");
         group.set_active_id(Some("day"));
         row(&stats_section, "Group", &group);
@@ -298,6 +309,19 @@ impl SettingsWindow {
         stats_section.pack_start(&s.stats_rows, false, false, 0);
         stats_section.pack_start(
             &button("Clear statistics…", sender, UiAction::ClearStatistics),
+            false,
+            false,
+            0,
+        );
+        let diagnostics = section(p, "Session diagnostics");
+        diagnostics.pack_start(&s.diagnostics_label, false, false, 0);
+        diagnostics.pack_start(&label("Content-free observations only. Missing input, native work or paint timestamps stay unavailable; native client receipts are not compositor paint proof."), false, false, 0);
+        diagnostics.pack_start(
+            &button(
+                "Export session diagnostics…",
+                sender,
+                UiAction::ExportDiagnostics,
+            ),
             false,
             false,
             0,
@@ -377,13 +401,13 @@ impl SettingsWindow {
             &power,
             "battery_shorter",
             "Prefer shorter completions",
-            "Alternate models must already be installed. Battery mode never downloads one.",
+            "Any selected alternate must already be installed; it need not be smaller. Battery mode never downloads one.",
         );
         power.pack_start(&s.battery, false, false, 0);
         s.spin(
             &power,
             "idle_release_seconds",
-            "Release model after inactivity (seconds; 0 keeps ready)",
+            "Release model after inactivity (seconds; 0 keeps resident)",
             0.,
             3600.,
         );
@@ -494,6 +518,7 @@ impl SettingsWindow {
         );
         emoji.set_sensitive(false);
         emoji.set_tooltip_text(Some("AT-SPI cannot atomically replace a typed suffix. Preferences are preserved, but native emoji and emoticon rewrites remain disabled."));
+        p.pack_start(&label("Word Tools on Linux: alternative continuations are available in supported fields. Selected-text synonyms, dictionary typo tools, emoji and emoticon replacement are unavailable; their saved preferences are preserved, not activated by a fallback."), false, false, 0);
         let alternatives = section(p, "Alternative words");
         s.check(
             &alternatives,
@@ -539,16 +564,24 @@ impl SettingsWindow {
         );
         synonyms.set_sensitive(false);
         let p = &pages["Languages"];
-        p.pack_start(
-            &label(
-                "Your model determines language support; use instructions to request a language.",
-            ),
-            false,
-            false,
-            0,
+        let language = section(p, "Writing language");
+        s.entry(
+            &language,
+            "writing_language",
+            "Default language (auto or language tag)",
         );
+        language.pack_start(&label("auto follows surrounding writing; for example pt-BR or en-GB requests a default, while the model's actual language support still applies."), false, false, 0);
+        // Regional spelling also contributes to the model's instructions. Native
+        // dictionary lookup and atomic correction remain explicitly unavailable.
+        s.entry(
+            &language,
+            "spelling_language",
+            "Regional spelling (auto or language tag)",
+        );
+        language.pack_start(&label("Regional spelling guides generated text. Native Linux dictionaries and correction replacement are unavailable; no fallback to English or delete-then-insert rewrite."), false, false, 0);
         let instructions = section(p, "Custom instructions");
         s.multiline(&instructions, "custom_instructions", false);
+        instructions.pack_start(&label("Instructions accumulate: language and regional-spelling defaults first, then nonempty global, application and exact-host instructions. Empty instructions add nothing; they do not erase inherited text. Linux cannot verify website hosts, so website instructions are not applied here."), false, false, 0);
         let spelling = section(p, "Spelling");
         s.check(&spelling,"typo_suppression","Suppress completion for likely typos","Requires an available native dictionary. Unavailable languages never silently become English.");
         s.check(
@@ -634,6 +667,15 @@ impl SettingsWindow {
         history.pack_start(&s.history, false, false, 0);
         history.pack_start(&label("Off by default; encrypted locally with no plaintext fallback, and app recording rules override the default."), false, false, 0);
         history.set_tooltip_text(Some("Requires OS-backed encryption. Learning uses bounded authored style and vocabulary, not raw sentence replay or model-weight training."));
+        s.check(&history, "use_history", "Use recorded writing for personalization", "Independent consent to use authenticated local history. Turning this off does not delete records.");
+        s.spin(
+            &history,
+            "history_retention_days",
+            "Retention days (0 keeps records indefinitely)",
+            0.,
+            u32::MAX as f64,
+        );
+        history.pack_start(&label("Retention deletes only authenticated dated records while storage is unlocked; locked or unknown-date records are not silently unlocked or guessed. Forget controls remain available."), false, false, 0);
         s.check(
             &history,
             "record_unaccepted",
@@ -643,10 +685,11 @@ impl SettingsWindow {
         s.spin(
             &history,
             "personalization_strength",
-            "Style and vocabulary strength (%)",
+            "Style and vocabulary evidence strength (0–100)",
             0.,
             100.,
         );
+        history.pack_start(&label("Strength selects how much aggregate authored-style and vocabulary evidence is used; it is not a training or quality percentage. Zero suppresses that evidence without changing recording/use consent or deleting history."), false, false, 0);
         history.pack_start(&s.history_info, false, false, 0);
         history.pack_start(
             &button(
@@ -679,7 +722,7 @@ impl SettingsWindow {
             0,
         );
         let rules = section(p, "App and website rules");
-        rules.pack_start(&label("Use exact app IDs; website detection is unavailable, so existing website exclusions block unknown browser URLs."), false, false, 0);
+        rules.pack_start(&label("Rules use exact app IDs and exact website hostnames, unlike substring exclusions below. Website detection is unavailable on Linux: website rules cannot grant access to an unknown browser URL, and existing website exclusions still block it."), false, false, 0);
         rules.set_tooltip_text(Some("Editing website rules does not enable per-site support. Rule changes apply only after Save."));
         rules.pack_start(&s.rules, false, false, 0);
         let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -688,6 +731,7 @@ impl SettingsWindow {
             let list = s.rules.clone();
             let draft = s.draft.clone();
             let window = s.window.clone();
+            let current_config = s.current_config.clone();
             b.connect_clicked(move |_| {
                 let key = if edit { selected_rule(&list) } else { None };
                 if edit && key.is_none() {
@@ -712,7 +756,7 @@ impl SettingsWindow {
                     match stage_rule(all, key.as_deref(), new_key, &initial, rule) {
                         Ok(all) => {
                             let _ = draft.borrow_mut().set("app_rules", Value::Object(all));
-                            refresh_rules(&list, &draft.borrow());
+                            refresh_rules(&list, &draft.borrow(), &current_config.borrow());
                         }
                         Err(e) => error(Some(&window), e),
                     }
@@ -723,6 +767,7 @@ impl SettingsWindow {
         let remove = gtk::Button::with_label("Remove");
         let list = s.rules.clone();
         let draft = s.draft.clone();
+        let current_config = s.current_config.clone();
         remove.connect_clicked(move |_| {
             if let Some(k) = selected_rule(&list) {
                 let mut rules = draft
@@ -733,7 +778,7 @@ impl SettingsWindow {
                     .unwrap_or_default();
                 rules.remove(&k);
                 let _ = draft.borrow_mut().set("app_rules", Value::Object(rules));
-                refresh_rules(&list, &draft.borrow());
+                refresh_rules(&list, &draft.borrow(), &current_config.borrow());
             }
         });
         actions.pack_start(&remove, false, false, 0);
@@ -748,7 +793,7 @@ impl SettingsWindow {
         actions.pack_start(&delete, false, false, 0);
         rules.pack_start(&actions, false, false, 0);
         rules.pack_start(
-            &label("Excluded applications: one exact identifier per line"),
+            &label("Hard application exclusions: one case-insensitive substring per line, not an exact rule ID"),
             false,
             false,
             0,
@@ -879,7 +924,28 @@ impl SettingsWindow {
         let l = self.loading.clone();
         let f = field.to_owned();
         let parent = self.window.clone();
-        c.connect_toggled(move |c|{if !l.get()&&c.is_active()&&matches!(f.as_str(),"clipboard_context"|"screen_context"|"screenshot_context"|"screenshot_appearance"){if !confirm(Some(&parent),"Allow optional local context?",&format!("Enable {}? Read only for eligible requests, never saved as an image or uploaded. You can revoke this independent consent at any time.",f.replace('_'," "))){l.set(true);c.set_active(false);l.set(false);return;}}Self::changed(&d,&l,&f,json!(c.is_active()));});
+        let rules = self.rules.clone();
+        let current_config = self.current_config.clone();
+        c.connect_toggled(move |c| {
+            if !l.get() && c.is_active() && matches!(f.as_str(), "clipboard_context" | "screen_context" | "screenshot_context" | "screenshot_appearance" | "use_history") {
+                let message = if f == "use_history" {
+                    "Use authenticated locally recorded writing for style and vocabulary? This does not enable recording, upload text or train model weights.".to_owned()
+                } else {
+                    format!("Enable {}? Read only for eligible requests, never saved as an image or uploaded. You can revoke this independent consent at any time.", f.replace('_', " "))
+                };
+                let title = if f == "use_history" { "Allow local personalization?" } else { "Allow optional local context?" };
+                if !confirm(Some(&parent), title, &message) {
+                    l.set(true);
+                    c.set_active(false);
+                    l.set(false);
+                    return;
+                }
+            }
+            Self::changed(&d, &l, &f, json!(c.is_active()));
+            if !l.get() && matches!(f.as_str(), "clipboard_context" | "screen_context" | "screenshot_context" | "screenshot_appearance" | "use_history") {
+                refresh_rules(&rules, &d.borrow(), &current_config.borrow());
+            }
+        });
         self.bindings.insert(field.into(), Control::Check(c));
     }
     fn spin(&mut self, parent: &gtk::Box, field: &str, title: &str, low: f64, high: f64) {
@@ -889,7 +955,7 @@ impl SettingsWindow {
         let d = self.draft.clone();
         let l = self.loading.clone();
         let f = field.to_owned();
-        c.connect_value_changed(move |c| Self::changed(&d, &l, &f, json!(c.value_as_int())));
+        c.connect_value_changed(move |c| Self::changed(&d, &l, &f, json!(c.value() as u32)));
         self.bindings.insert(field.into(), Control::Spin(c));
     }
     fn entry(&mut self, parent: &gtk::Box, field: &str, title: &str) {
@@ -1060,20 +1126,23 @@ impl SettingsWindow {
             .iter()
             .find(|p| p.eq_ignore_ascii_case(pane))
             .unwrap_or(&PANES[0]);
-        self.stack.set_visible_child_name(pane);
         self.window.show_all();
+        // GtkStack cannot select a hidden child on the first window opening.
+        self.stack.set_visible_child_name(pane);
         self.window.present();
         let (period, group) = self.statistics_query.borrow().clone();
         let _ = self.sender.send(UiAction::Statistics(period, group));
         let _ = self.sender.send(UiAction::Command(Command::HistoryInfo));
     }
     pub fn reset(&self, c: &Config) -> Result<()> {
+        *self.current_config.borrow_mut() = c.clone();
         self.draft.borrow_mut().reset(c)?;
         self.write_controls();
         self.refresh_immediate(c);
         Ok(())
     }
     pub fn refresh(&self, c: &Config) -> Result<()> {
+        *self.current_config.borrow_mut() = c.clone();
         self.draft.borrow_mut().refresh(c)?;
         self.write_controls();
         self.refresh_immediate(c);
@@ -1097,7 +1166,7 @@ impl SettingsWindow {
                 b.set_label(if v.is_empty() { "Unassigned" } else { v });
             }
         }
-        refresh_rules(&self.rules, &d);
+        refresh_rules(&self.rules, &d, &self.current_config.borrow());
         self.loading.set(false);
     }
     pub fn refresh_immediate(&self, c: &Config) {
@@ -1132,19 +1201,119 @@ impl SettingsWindow {
             "Keep Settings open for access, or choose Quit to stop BroTypist.",
         ));
     }
+    pub fn set_pending(&self, pending: bool) {
+        self.pending.set(pending);
+        // Freeze the submitted draft, including IME text buffers, until its
+        // terminal receipt. Refresh still merges untouched external fields.
+        self.stack.set_sensitive(!pending);
+        self.save
+            .set_sensitive(!pending && self.draft.borrow().is_dirty());
+        self.revert
+            .set_sensitive(!pending && self.draft.borrow().is_dirty());
+        if pending {
+            self.operation_status
+                .set_text("Validating and saving settings…");
+        }
+    }
+    pub fn operation_notice(&self, message: &str) {
+        self.operation_status.set_text(message);
+    }
+    pub fn diagnostics_visible(&self) -> bool {
+        self.window.is_visible() && self.stack.visible_child_name().as_deref() == Some("General")
+    }
+    pub fn diagnostics(&self, snapshot: &crate::diagnostics::DiagnosticSnapshot) {
+        let mut summary = format!(
+            "Guarded writing trace buffer: {} retained · {} evicted · {} lost terminal reports · {} unmatched · {} rejected draws. Retained counts and work are not session totals.",
+            snapshot.traces.len(),
+            snapshot.evicted_traces,
+            snapshot.lost_reports,
+            snapshot.unmatched_reports,
+            snapshot.rejected_draws
+        );
+        let mut measured = 0usize;
+        let mut cancelled = 0usize;
+        let mut work = crate::inference_native::NativeWork::default();
+        for trace in &snapshot.traces {
+            if let Some(terminal) = &trace.terminal {
+                cancelled += usize::from(terminal.cancelled);
+                if let Some(metrics) = terminal.metrics {
+                    measured += 1;
+                    work += metrics.native;
+                }
+            }
+        }
+        summary.push_str(&format!(
+            "\nRetained writing observations: {measured} measured requests · {cancelled} cancelled"
+        ));
+        if measured == 0 {
+            summary.push_str("\nNative token work unavailable: no measured retained requests.");
+        } else {
+            summary.push_str(&format!("\nRetained writing work — Reported input: {} · Reused: {} · Prompt decoded: {}/{} submitted · Generation decoded: {}/{} submitted · Sampled: {}",
+                work.input_tokens, work.reused_tokens, work.prompt.completed_tokens, work.prompt.submitted_tokens,
+                work.generation.completed_tokens, work.generation.submitted_tokens, work.sampled_tokens));
+        }
+        if let Some(trace) = snapshot.traces.last() {
+            let duration = |value: Option<u64>| {
+                value
+                    .map(|n| format!("{n} µs"))
+                    .unwrap_or_else(|| "unavailable".into())
+            };
+            summary.push_str(&format!(
+                "\nLatest {:?} / {:?}: {:?}\nInput wait: {} · First capture: {} µs · Total capture: {} µs\nStage offsets from capture start: capture {}, preparation {}, ready {}, proceed {}, publication {}, native draw {}",
+                trace.kind, trace.lane, trace.outcome, duration(trace.input_wait_us),
+                trace.first_capture_us, trace.total_capture_us,
+                duration(trace.stage_us[0]), duration(trace.stage_us[1]), duration(trace.stage_us[2]),
+                duration(trace.stage_us[3]), duration(trace.stage_us[4]), duration(trace.stage_us[5])
+            ));
+            if let Some(terminal) = &trace.terminal {
+                summary.push_str(&format!(
+                    "\nTerminal {:?} · Cancelled: {} · Native work: {}",
+                    terminal.reason,
+                    terminal.cancelled,
+                    if terminal.metrics.is_some() {
+                        "reported"
+                    } else {
+                        "unavailable"
+                    }
+                ));
+            }
+        }
+        summary.push('\n');
+        summary.push_str(&crate::ui::settings::preparation_diagnostics(snapshot));
+        if self.diagnostics_label.text().as_str() != summary {
+            self.diagnostics_label.set_text(&summary);
+        }
+    }
     pub fn status(&self, status: &Value, c: &Config, update: &Value) {
         let dirty = self.draft.borrow().is_dirty();
-        self.save.set_sensitive(dirty);
-        self.revert.set_sensitive(dirty);
-        self.dirty.set_text(if dirty {
+        self.save.set_sensitive(dirty && !self.pending.get());
+        self.revert.set_sensitive(dirty && !self.pending.get());
+        self.dirty.set_text(if self.pending.get() {
+            "Saving frozen draft"
+        } else if dirty {
             "Unsaved changes"
         } else {
             "All changes saved"
         });
+        let hook = &status["native_status"]["hook"];
+        let hook_conflict = hook["conflict"] == true;
+        let hook_status = if hook_conflict {
+            format!(
+                "\nX11 shortcut conflict · interception disabled\n{}",
+                text(hook, "message")
+            )
+        } else if hook["stopped"] == true {
+            format!("\nX11 interception stopped\n{}", text(hook, "message"))
+        } else if hook["enabled"] == false {
+            "\nX11 interception disabled.".into()
+        } else {
+            String::new()
+        };
         self.status_label.set_text(&format!(
-            "{}\n{}",
+            "{}\n{}{}",
             text(status, "native_status"),
-            text(status, "inline_message")
+            text(status, "inline_message"),
+            hook_status
         ));
         self.status_label.set_tooltip_text(Some(&format!(
             "Application: {}\nWebsite: {}\nSession predictions: {} · Tab: {} · Recording: {}",
@@ -1154,7 +1323,9 @@ impl SettingsWindow {
             status["current_tab_enabled"],
             status["current_recording"]
         )));
-        let field_state = if !c.global_enabled {
+        let field_state = if hook_conflict {
+            "X11 shortcut conflict · interception disabled"
+        } else if !c.global_enabled {
             "Disabled"
         } else if status["state"] == "paused" {
             "Paused"
@@ -1179,7 +1350,10 @@ impl SettingsWindow {
             text(status, "message")
         };
         let summary = format!("{field_state} · {model}");
-        if c.global_enabled
+        if hook_conflict {
+            self.notice
+                .set_text(&format!("{summary}\n{}", text(hook, "message")));
+        } else if c.global_enabled
             && !matches!(
                 status["state"].as_str(),
                 Some("idle" | "ready" | "paused" | "disabled")
@@ -1200,7 +1374,37 @@ impl SettingsWindow {
             },
             text(status, "message")
         ));
-        self.context.set_text(&text(status, "context_message"));
+        let active_preferences = [
+            ("record_history", "Recording"),
+            ("use_history", "Personalization use"),
+            ("clipboard_context", "Clipboard context"),
+            ("screen_context", "Focused-window text"),
+            (
+                "screenshot_context",
+                "Screenshot context (unavailable on Linux)",
+            ),
+            (
+                "screenshot_appearance",
+                "Screenshot appearance (unavailable on Linux)",
+            ),
+        ]
+        .into_iter()
+        .map(|(field, title)| {
+            let preference = &status["current_preferences"][field];
+            let value = match preference["value"].as_bool() {
+                Some(true) => "allowed by saved policy",
+                Some(false) => "denied by saved policy",
+                None => "unavailable",
+            };
+            let origin = preference["origin"]
+                .as_str()
+                .unwrap_or("unavailable")
+                .replace('_', " ");
+            format!("{title}: {value} · {origin}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+        self.context.set_text(&format!("{}\nActive field saved preferences (native capability and authority gates still apply):\n{active_preferences}", text(status, "context_message")));
         let power = system::power_status();
         self.battery.set_text(if !power.available {
             "Battery state unavailable."
@@ -1254,14 +1458,14 @@ impl SettingsWindow {
                 let today = &result["today"];
                 let average = &result["daily_average"];
                 self.stats.set_text(&format!(
-                    "{} predictions · {} words · {} characters\nEstimated time saved: {} seconds",
+                    "{} accepted predictions · {} words · {} characters\nEstimated time saved: {} seconds (accepted characters ÷ 5 per second)",
                     totals["completions"],
                     totals["words"],
                     totals["characters"],
                     result["estimated_seconds"]
                 ));
                 self.stats.set_tooltip_text(Some(&format!(
-                    "{} active days\nToday: {} predictions · {} words · {} characters\nDaily average: {} predictions · {} words · {} characters",
+                    "{} active days\nToday: {} predictions · {} words · {} characters\nAverage per active day: {} predictions · {} words · {} characters",
                     result["active_days"], today["completions"], today["words"], today["characters"],
                     average["completions"], average["words"], average["characters"]
                 )));
@@ -1356,10 +1560,11 @@ fn selected_rule(list: &gtk::ListBox) -> Option<String> {
     let row = list.selected_row()?;
     Some(row.widget_name().into())
 }
-fn refresh_rules(list: &gtk::ListBox, draft: &SettingsDraft) {
+fn refresh_rules(list: &gtk::ListBox, draft: &SettingsDraft, current: &Config) {
     for child in list.children() {
         list.remove(&child);
     }
+    let candidate = draft.apply_to(current);
     if let Some(rules) = draft.value("app_rules").and_then(Value::as_object) {
         for (key, rule) in rules {
             let row = gtk::ListBoxRow::new();
@@ -1370,17 +1575,59 @@ fn refresh_rules(list: &gtk::ListBox, draft: &SettingsDraft) {
                 None => "Use default",
             };
             row.add(&label(&format!(
-                "{}\nCompletions: {} · Tab: {} · History: {}",
+                "{}\nCompletions: {} · Tab: {} · Recording: {} · Use: {}\nScoped policy (native authority and browser-domain gates still apply):\n{}",
                 key,
                 state("enabled"),
                 state("tab_enabled"),
-                state("record_history")
+                state("record_history"),
+                state("use_history"),
+                candidate.as_ref().map(|config| scope_summary(config, key)).unwrap_or_else(|_| "Effective policy unavailable until draft validation succeeds.".into())
             )));
             list.add(&row);
         }
     }
     list.show_all();
 }
+fn scope_summary(config: &Config, key: &str) -> String {
+    use crate::config::ScopedPreference;
+    let (app, domain, require_domain) = if let Some(app) = key.strip_prefix("app:") {
+        (app, "", false)
+    } else {
+        // Linux cannot establish an active hostname: do not display a configured
+        // domain grant as effective in an unproved browser field.
+        ("", "", true)
+    };
+    [
+        ScopedPreference::RecordHistory,
+        ScopedPreference::UseHistory,
+        ScopedPreference::ClipboardContext,
+        ScopedPreference::ScreenContext,
+        ScopedPreference::ScreenshotContext,
+        ScopedPreference::ScreenshotAppearance,
+    ]
+    .into_iter()
+    .map(|preference| {
+        let resolved = config.resolve_preference(preference, app, domain, require_domain);
+        let unavailable = matches!(
+            preference,
+            ScopedPreference::ScreenshotContext | ScopedPreference::ScreenshotAppearance
+        );
+        format!(
+            "{}: {} ({:?}){}",
+            preference.field(),
+            resolved.value,
+            resolved.origin,
+            if unavailable {
+                " · source unavailable on Linux"
+            } else {
+                ""
+            }
+        )
+    })
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
 fn stage_rule(
     mut all: serde_json::Map<String, Value>,
     old: Option<&str>,
@@ -1419,8 +1666,12 @@ fn rule_dialog(parent: &gtk::Window, key: &str, initial: &Value) -> Option<(Stri
             ("Save rule draft", gtk::ResponseType::Accept),
         ],
     );
-    dialog.set_default_size(560, 480);
-    let body = dialog.content_area();
+    dialog.set_default_size(640, 600);
+    let scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
+    scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    dialog.content_area().pack_start(&scroll, true, true, 0);
+    let body = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    scroll.add(&body);
     let kind = gtk::ComboBoxText::new();
     kind.append(Some("app"), "Application identifier");
     if key.starts_with("domain:") {
@@ -1439,9 +1690,23 @@ fn rule_dialog(parent: &gtk::Window, key: &str, initial: &Value) -> Option<(Stri
     for (field, title) in [
         ("enabled", "Completions"),
         ("tab_enabled", "Accept with Tab"),
-        ("record_history", "Personalization history"),
-        ("improve_compatibility", "Compatibility mode"),
-        ("complete_in_code_editors", "Code editor"),
+        ("record_history", "Record authored writing"),
+        ("use_history", "Use recorded writing"),
+        ("clipboard_context", "Clipboard context"),
+        ("screen_context", "Focused-window text context"),
+        ("screenshot_context", "Screenshot context (unavailable)"),
+        (
+            "screenshot_appearance",
+            "Screenshot appearance (unavailable)",
+        ),
+        (
+            "improve_compatibility",
+            "Compatibility mode (macOS only; unavailable)",
+        ),
+        (
+            "complete_in_code_editors",
+            "Allow completion in code editors",
+        ),
     ] {
         let c = gtk::ComboBoxText::new();
         for (id, title) in [
@@ -1456,16 +1721,20 @@ fn rule_dialog(parent: &gtk::Window, key: &str, initial: &Value) -> Option<(Stri
             Some(false) => "false",
             None => "inherit",
         }));
+        c.set_sensitive(!matches!(
+            field,
+            "screenshot_context" | "screenshot_appearance" | "improve_compatibility"
+        ));
         row(&body, title, &c);
         controls.push((field, c));
     }
     body.pack_start(
-        &label("Website exclusions block unknown URLs; recording requires OS-backed encryption."),
+        &label("Website detection is unavailable. Context scopes never override denied global consent. Screenshot sources and macOS compatibility mode remain unavailable; their stored values are preserved. Code-editor permission is independent and remains available. Recording and use are independent and require authenticated local storage."),
         false,
         false,
         0,
     );
-    body.pack_start(&label("Application-specific instructions"), false, false, 0);
+    body.pack_start(&label("Scoped instructions (appended after inherited instructions; empty adds nothing and never clears inherited text)"), false, false, 0);
     let instructions = text_view(&body, 120);
     instructions
         .buffer()
@@ -1524,6 +1793,17 @@ fn rule_dialog(parent: &gtk::Window, key: &str, initial: &Value) -> Option<(Stri
                 Some(parent),
                 "Enable recording for this scope?",
                 "Record eligible authored writing in OS-backed encrypted storage for this scope, even when global history is off? No plaintext fallback, upload or model-weight training.",
+            )
+        {
+            continue;
+        }
+        if ["use_history", "clipboard_context", "screen_context"]
+            .into_iter()
+            .any(|field| initial[field] != true && rule.get(field) == Some(&json!(true)))
+            && !confirm(
+                Some(parent),
+                "Allow scoped local data use?",
+                "Enable the selected local data sources for this scope? Context still requires independent global consent. History use does not enable recording or upload text.",
             )
         {
             continue;
@@ -1589,25 +1869,11 @@ mod native_widget_tests {
         let (tx, rx) = mpsc::channel();
         let config = Config::default();
         let settings = SettingsWindow::new(&config, &tx).unwrap();
-        let service_fields = [
-            "model_path",
-            "model_id",
-            "launch_at_login",
-            "record_history",
-            "shortcuts",
-            "app_rules",
-        ];
-        for field in serde_json::to_value(&config)
-            .unwrap()
-            .as_object()
-            .unwrap()
-            .keys()
-        {
-            assert!(
-                settings.bindings.contains_key(field) || service_fields.contains(&field.as_str()),
-                "Missing functional field control: {field}"
-            );
-        }
+        settings.show_pane("models");
+        assert_eq!(
+            settings.stack.visible_child_name().as_deref(),
+            Some("AI Models")
+        );
         for pane in PANES {
             settings.show_pane(pane);
             assert_eq!(settings.stack.visible_child_name().as_deref(), Some(pane));
@@ -1623,11 +1889,38 @@ mod native_widget_tests {
         let mut concurrent = config.clone();
         concurrent.clipboard_context = true;
         concurrent.model_path = "/owned/synthetic-selected.gguf".into();
+        concurrent.app_rules.insert(
+            "app:owned-editor".into(),
+            BTreeMap::from([
+                ("record_history".into(), json!(false)),
+                ("use_history".into(), json!(true)),
+                ("clipboard_context".into(), json!(true)),
+                ("screen_context".into(), json!(true)),
+            ]),
+        );
         settings.refresh(&concurrent).unwrap();
+        settings.bindings["writing_language"].write(&json!("pt-BR"));
+        settings.bindings["spelling_language"].write(&json!("en-GB"));
+        settings.bindings["history_retention_days"].write(&json!(30));
         let candidate = settings.draft.borrow().apply_to(&concurrent).unwrap();
         assert_eq!(candidate.custom_instructions, "Use concise Portuguese.");
         assert!(candidate.clipboard_context);
         assert_eq!(candidate.model_path, concurrent.model_path);
+        assert_eq!(candidate.writing_language, "pt-BR");
+        assert_eq!(candidate.spelling_language, "en-GB");
+        assert_eq!(candidate.history_retention_days, 30);
+        assert!(!candidate.record_history);
+        assert!(!candidate.use_history);
+        settings.set_pending(true);
+        assert!(!settings.stack.is_sensitive());
+        assert!(!settings.save.is_sensitive());
+        settings.operation_notice("Configuration failed (Persistence): read-only profile");
+        settings.set_pending(false);
+        assert!(settings.draft.borrow().is_dirty());
+        assert_eq!(
+            settings.draft.borrow().value("custom_instructions"),
+            Some(&json!("Use concise Portuguese."))
+        );
         settings.reset(&concurrent).unwrap();
         assert!(!settings.draft.borrow().is_dirty());
         settings.window.close();
@@ -1654,6 +1947,47 @@ impl SettingsWindow {
             .write(&value);
         Ok(())
     }
+    pub(super) fn smoke_control_matches(&self, field: &str, expected: &Value) -> Result<bool> {
+        let control = self
+            .bindings
+            .get(field)
+            .context("Smoke requested an unknown native control.")?;
+        Ok(match control {
+            Control::Check(c) => expected.as_bool() == Some(c.is_active()),
+            Control::Spin(c) => expected.as_f64() == Some(c.value()),
+            Control::Entry(c) => expected.as_str() == Some(c.text().as_str()),
+            Control::Combo(c) => expected.as_str() == c.active_id().as_deref(),
+            Control::Text(c) => {
+                expected.as_str() == c.text(&c.start_iter(), &c.end_iter(), false).as_deref()
+            }
+            Control::Lines(_) => {
+                anyhow::bail!("Smoke value comparison requires a scalar native control.")
+            }
+        })
+    }
+    pub(super) fn smoke_check_active(&self, field: &str) -> Result<bool> {
+        self.bindings
+            .get(field)
+            .and_then(|control| match control {
+                Control::Check(check) => Some(check.is_active()),
+                _ => None,
+            })
+            .context("Smoke requested an unknown native checkbox.")
+    }
+    pub(super) fn smoke_unsaved_controls_ready(&self) -> bool {
+        !self.pending.get()
+            && self.save.is_sensitive()
+            && self.revert.is_sensitive()
+            && self.stack.is_sensitive()
+            && self.draft.borrow().is_dirty()
+    }
+    pub(super) fn smoke_saved_controls_ready(&self) -> bool {
+        !self.pending.get()
+            && !self.save.is_sensitive()
+            && !self.revert.is_sensitive()
+            && self.stack.is_sensitive()
+            && !self.draft.borrow().is_dirty()
+    }
     pub(super) fn smoke_save(&self) {
         self.save.clicked();
     }
@@ -1662,6 +1996,15 @@ impl SettingsWindow {
     }
     pub(super) fn smoke_pane(&self) -> String {
         self.stack.visible_child_name().unwrap_or_default().into()
+    }
+    pub(super) fn smoke_pane_ready(&self, pane: &str) -> bool {
+        self.window.is_visible()
+            && self.window.is_mapped()
+            && self.stack.visible_child_name().as_deref() == Some(pane)
+            && self
+                .stack
+                .visible_child()
+                .is_some_and(|child| child.is_visible() && child.is_mapped())
     }
     pub(super) fn smoke_inventory(&self) -> bool {
         serde_json::to_value(Config::default())

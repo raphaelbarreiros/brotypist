@@ -1,6 +1,6 @@
 //! Child-only inference protocol. No authored text is ever written to diagnostics.
 use crate::config::Config;
-use crate::providers::{GenerationOptions, Provider, create_provider};
+use crate::providers::{GenerationOptions, Provider, RequestMetrics, create_provider};
 use anyhow::{Context, Result, bail, ensure};
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,7 @@ pub struct WorkerEvent {
     pub final_: bool,
     pub model_loaded: bool,
     pub message: String,
+    pub metrics: Option<RequestMetrics>,
 }
 
 impl WorkerEvent {
@@ -299,7 +300,8 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<WorkerEvent> {
         .context("Invalid worker response")?;
     match kind {
         "loading" => exact_fields(data, &["type", "id"], &["model_loaded"])?,
-        "prepared" | "ready" | "done" => exact_fields(data, &["type", "id"], &["model_loaded"])?,
+        "prepared" | "ready" => exact_fields(data, &["type", "id"], &["model_loaded"])?,
+        "done" => exact_fields(data, &["type", "id"], &["model_loaded", "metrics"])?,
         "result" => exact_fields(data, &["type", "id", "text", "final"], &[])?,
         "error" => exact_fields(data, &["type", "id", "message"], &[])?,
         _ => bail!("Invalid worker response kind"),
@@ -310,6 +312,35 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<WorkerEvent> {
         event.text.chars().take(MAX_RESULT_CHARS + 1).count() <= MAX_RESULT_CHARS,
         "Invalid worker response bound"
     );
+    if let Some(metrics) = event.metrics {
+        let work = metrics.native;
+        // A request has at most five native samples and a 4096-token context.
+        // Reject impossible work rather than corrupting session diagnostics.
+        ensure!(
+            work.evaluations <= 5
+                && work.input_tokens <= work.evaluations * 4096
+                && work.sampled_tokens <= work.evaluations * 4096
+                && work.reused_tokens <= work.input_tokens
+                && work.prompt.submitted_tokens <= work.input_tokens - work.reused_tokens
+                && work.generation.submitted_tokens <= work.sampled_tokens
+                && work.cold_evaluations <= work.evaluations
+                && work.exact_reuses <= work.evaluations
+                && work.prefix_reuses <= work.evaluations
+                && work.prefix_misses <= work.evaluations
+                && work.trim_failures <= work.evaluations
+                && work.cache_resets <= work.evaluations * 2,
+            "Invalid worker work accounting"
+        );
+        for decode in [work.prompt, work.generation] {
+            ensure!(
+                decode.completed_tokens <= decode.submitted_tokens
+                    && decode.completed_batches <= decode.submitted_batches
+                    && decode.submitted_batches <= decode.submitted_tokens
+                    && decode.completed_batches <= decode.completed_tokens,
+                "Invalid worker decode accounting"
+            );
+        }
+    }
     // The supervisor never propagates arbitrary backend/child diagnostics.
     if event.kind == "error" {
         event.message = INFERENCE_ERROR.into();
@@ -334,6 +365,8 @@ enum WireEvent<'a> {
     Done {
         id: u64,
         model_loaded: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        metrics: Option<RequestMetrics>,
     },
     Result {
         id: u64,
@@ -353,7 +386,11 @@ fn encode_event(event: &WorkerEvent) -> Result<Vec<u8>> {
         "loading" => WireEvent::Loading { id },
         "prepared" => WireEvent::Prepared { id, model_loaded },
         "ready" => WireEvent::Ready { id, model_loaded },
-        "done" => WireEvent::Done { id, model_loaded },
+        "done" => WireEvent::Done {
+            id,
+            model_loaded,
+            metrics: event.metrics,
+        },
         "result" => WireEvent::Result {
             id,
             text: &event.text,
@@ -547,6 +584,7 @@ where
                 (request, Arc::clone(&state.cancel))
             };
             let id = request.id;
+            let mut metrics = None;
             let generated = (|| -> Result<()> {
                 let identity = request.config.provider_identity();
                 if configured.as_ref() != Some(&identity) {
@@ -562,13 +600,7 @@ where
                 provider.reconfigure(request.config.clone())?;
                 if request.config.backend == "gguf" && !provider_ready {
                     output.send(WorkerEvent::new("loading", id))?;
-                    #[cfg(feature = "native-smoke")]
-                    let preparation =
-                        crate::runtime::stage_diagnostics::PreparationTrace::start(id);
-                    let prepared = provider.prepare();
-                    #[cfg(feature = "native-smoke")]
-                    preparation.finish(prepared.is_ok());
-                    prepared?;
+                    provider.prepare()?;
                     provider_ready = true;
                 }
                 if request.writing.is_none() {
@@ -603,7 +635,7 @@ where
                 }
                 let writing = request.writing.as_ref().expect("writing checked");
                 let mut text = String::new();
-                provider.stream(
+                let streamed = provider.stream(
                     &writing.prefix,
                     &writing.suffix,
                     &writing.options,
@@ -623,7 +655,9 @@ where
                         event.text.push_str(&text);
                         output.send(event)
                     },
-                )?;
+                );
+                metrics = provider.take_metrics();
+                streamed?;
                 if !cancel.load(Ordering::Acquire) {
                     let mut event = WorkerEvent::new("result", id);
                     event.text = text;
@@ -644,6 +678,10 @@ where
             }
             let mut event = WorkerEvent::new("done", id);
             event.model_loaded = provider_ready;
+            if let Some(metrics) = &mut metrics {
+                metrics.cancelled |= cancel.load(Ordering::Acquire);
+            }
+            event.metrics = metrics;
             output.send(event)?;
         }
     })();
@@ -883,6 +921,48 @@ mod tests {
                 .unwrap();
         assert_eq!(error.message, INFERENCE_ERROR);
         assert_eq!(decode_event(&encode_frame(&serde_json::json!({"type":"result","id":1,"text":"🦀".repeat(4096),"final":true})).unwrap()).unwrap().text.chars().count(), 4096);
+    }
+
+    #[test]
+    fn request_work_rejects_text_and_malformed_nested_counters() {
+        let mut report = serde_json::json!({
+            "type": "done", "id": 1, "metrics": RequestMetrics::default()
+        });
+        report["metrics"]["native"]["prompt"]["text"] = "private draft".into();
+        assert!(decode_event(&encode_frame(&report).unwrap()).is_err());
+        report["metrics"]["native"]["prompt"]
+            .as_object_mut()
+            .unwrap()
+            .remove("text");
+        for invalid in [
+            Value::from(-1),
+            Value::from(1.5),
+            Value::from("12"),
+            Value::Bool(true),
+        ] {
+            report["metrics"]["native"]["prompt"]["completed_tokens"] = invalid;
+            assert!(decode_event(&encode_frame(&report).unwrap()).is_err());
+        }
+        report["metrics"]["native"]["prompt"]["completed_tokens"] = 0.into();
+        report["type"] = "result".into();
+        report["text"] = "".into();
+        report["final"] = true.into();
+        assert!(decode_event(&encode_frame(&report).unwrap()).is_err());
+    }
+
+    #[test]
+    fn request_work_rejects_impossible_decode_accounting() {
+        let mut report = serde_json::json!({
+            "type": "done", "id": 1, "metrics": RequestMetrics::default()
+        });
+        report["metrics"]["native"]["prompt"]["completed_tokens"] = 1.into();
+        assert!(decode_event(&encode_frame(&report).unwrap()).is_err());
+        report["metrics"]["native"]["prompt"]["completed_tokens"] = 0.into();
+        report["metrics"]["native"]["reused_tokens"] = 1.into();
+        assert!(decode_event(&encode_frame(&report).unwrap()).is_err());
+        report["metrics"]["native"]["reused_tokens"] = 0.into();
+        report["metrics"]["native"]["generation"]["submitted_tokens"] = 1.into();
+        assert!(decode_event(&encode_frame(&report).unwrap()).is_err());
     }
 
     #[test]
