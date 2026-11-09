@@ -1623,12 +1623,15 @@ fn capture(hwnd: HWND, path: &Path) -> Result<()> {
             PrintWindow(hwnd, dc, PRINT_WINDOW_FLAGS(PW_RENDERFULLCONTENT)).as_bool(),
             "The actual owned Shell could not render its screenshot."
         );
+        // Direct DIB access must wait for the calling thread's GDI batch.
+        // https://learn.microsoft.com/windows/win32/api/wingdi/nf-wingdi-createdibsection
+        ensure!(
+            GdiFlush().as_bool(),
+            "Owned screenshot drawing did not complete successfully."
+        );
         let bytes =
             std::slice::from_raw_parts_mut(bits.cast::<u8>(), width as usize * height as usize * 4);
-        ensure!(
-            bytes.chunks_exact(4).any(|pixel| pixel[..3] != bytes[..3]),
-            "The native screenshot is blank; no UI rendering proof is recorded."
-        );
+        let nonblank = bytes.chunks_exact(4).any(|pixel| pixel[..3] != bytes[..3]);
         // PrintWindow's BI_RGB DIB has BGRA color bytes with unspecified alpha.
         // Convert this owned offscreen bitmap in place; no desktop pixels are read.
         for pixel in bytes.chunks_exact_mut(4) {
@@ -1643,6 +1646,11 @@ fn capture(hwnd: HWND, path: &Path) -> Result<()> {
         let mut writer = encoder.write_header()?;
         writer.write_image_data(bytes)?;
         writer.finish()?;
+        // Preserve the actual failed bitmap for diagnosis; it is not UI proof.
+        ensure!(
+            nonblank,
+            "The native screenshot is blank; failed pixels were retained, not UI rendering proof."
+        );
         Ok(())
     }
 }
