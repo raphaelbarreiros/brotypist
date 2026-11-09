@@ -37,7 +37,7 @@ use std::{
     },
     time::Instant,
 };
-use windows::Win32::System::SystemServices::SS_NOTIFY;
+use windows::Win32::System::SystemServices::{SS_NOPREFIX, SS_NOTIFY};
 use windows::{
     Win32::{
         Foundation::*,

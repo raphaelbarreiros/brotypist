@@ -6399,17 +6399,42 @@ fn settings_operations(shell: &mut Shell, receipt: &mut Value) -> Result<()> {
             replacement_receipt = replacement.try_recv()?;
         }
     }
+    // Terminal receipts can arrive on a ready-only turn before the independent
+    // settings refresh. Observe the rendered draft controls before pressing them.
+    settle(shell)?;
+    let save = control(shell, "inklow.personalization.global.saveInstructions")?;
+    let revert = control(shell, "inklow.personalization.global.revertInstructions")?;
+    let persisted = crate::config::load_config()?;
     assert_record(
         receipt,
         "receipts.supersession_and_cancellation_preserve_unsaved_native_draft",
         matches!(first_receipt, Some(ConfigApplyReceipt::Superseded))
             && matches!(replacement_receipt, Some(ConfigApplyReceipt::Cancelled))
             && shell.config() == before_model
-            && string(&retained_editor) == unsaved,
+            && persisted == before_model
+            && string(&retained_editor) == unsaved
+            && is_enabled(&save)
+            && is_enabled(&revert),
         json!({"distinct_operations":true,"saved_config_preserved":shell.config()==before_model,
-            "native_draft_preserved":string(&retained_editor)==unsaved}),
+            "persisted_config_preserved":persisted==before_model,
+            "native_draft_preserved":string(&retained_editor)==unsaved,
+            "save_enabled":is_enabled(&save),"revert_enabled":is_enabled(&revert)}),
     )?;
     action(shell, "inklow.personalization.global.revertInstructions")?;
+    let persisted = crate::config::load_config()?;
+    assert_record(
+        receipt,
+        "receipts.revert_after_cancellation_restores_saved_draft_without_writing",
+        string(&retained_editor) == before_model.custom_instructions
+            && !is_enabled(&save)
+            && !is_enabled(&revert)
+            && shell.config() == before_model
+            && persisted == before_model,
+        json!({"native_matches_saved":string(&retained_editor)==before_model.custom_instructions,
+            "save_enabled":is_enabled(&save),"revert_enabled":is_enabled(&revert),
+            "saved_config_preserved":shell.config()==before_model,
+            "persisted_config_preserved":persisted==before_model}),
+    )?;
 
     navigate(shell, "statistics")?;
     ensure!(

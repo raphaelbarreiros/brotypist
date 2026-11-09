@@ -106,7 +106,7 @@ pub(super) fn paint_covers(dc: HDC, rect: RECT) -> bool {
         // this common-DC contract. It must not turn into a diagnostic receipt.
         GetClipRgn(dc, clip.0) == 0
             && GetRandomRgn(dc, clip.0, SYSRGN as i32) == 1
-            && CombineRgn(required.0, required.0, clip.0, RGN_DIFF) == NULLREGION
+            && CombineRgn(Some(required.0), Some(required.0), Some(clip.0), RGN_DIFF) == NULLREGION
     }
 }
 struct Paint {
@@ -554,11 +554,11 @@ mod tests {
             // A queued native repaint must not turn a refusal or a hidden view
             // into an observation, even though WM_PAINT is actually dispatched.
             unsafe {
-                SendMessageW(overlay.window, WM_PAINT, WPARAM(0), LPARAM(0));
+                SendMessageW(overlay.window, WM_PAINT, Some(WPARAM(0)), Some(LPARAM(0)));
             }
             let _ = overlay.hide();
             unsafe {
-                SendMessageW(overlay.window, WM_PAINT, WPARAM(0), LPARAM(0));
+                SendMessageW(overlay.window, WM_PAINT, Some(WPARAM(0)), Some(LPARAM(0)));
             }
         }
         assert!(observations.lock().unwrap().is_empty());
