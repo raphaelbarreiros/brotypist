@@ -1,0 +1,233 @@
+{
+  "schema": "brotypist-native-state-policy-evaluation/1",
+  "status": "completed_negative_evaluation",
+  "decision": {
+    "saved_state_adopted": false,
+    "alternate_policy_adopted": false,
+    "production_full_swa": true,
+    "production_flash_attention": false,
+    "diagnostic_only": true
+  },
+  "provenance": {
+    "policy_receipt_sha256": "d90b245bd1442aec314a660c142ae31509c0bea96ba464d5e1cd438d00066685",
+    "live_cache_receipt_sha256": "fe1aa67307705daea84a1592b1a830e905aa01867b7c0367927be44c971f3fb1",
+    "executed_source_sha256": null,
+    "policy_executable_sha256": null,
+    "provenance_limit": "No frozen policy executable or executed-source hash supplied; current source hashes are not substituted."
+  },
+  "acceptance": {
+    "absolute_tolerance": 0.0001,
+    "relative_tolerance": 0,
+    "tolerance_unchanged": true,
+    "passed": false,
+    "control": "Independent cleared matching retained-prefix and final decode schedules; reset cases use cleared full evaluation.",
+    "failure_cause": "Not established; kernel-rounding causality not demonstrated."
+  },
+  "arms": [
+    {
+      "full_swa_requested": true,
+      "flash_attention_requested": false,
+      "executed": true,
+      "passed": false,
+      "scenario_count": 20,
+      "failed_comparisons": [
+        {
+          "scenario": "long_checkpoint",
+          "saved_tokens": 513,
+          "target_tokens": 513,
+          "comparison": {
+            "absolute_tolerance": 0.0001,
+            "compared_logits": 262144,
+            "maximum_absolute_error": 0.00012111663818359375,
+            "mismatched_logits": 11,
+            "relative_tolerance": 0.0,
+            "rms_error": 4.902151467755967e-05
+          }
+        }
+      ],
+      "final_owned_context_drain_us": 1
+    },
+    {
+      "full_swa_requested": false,
+      "flash_attention_requested": false,
+      "executed": true,
+      "passed": false,
+      "scenario_count": 22,
+      "failed_comparisons": [
+        {
+          "scenario": "long_checkpoint",
+          "saved_tokens": 1024,
+          "target_tokens": 1025,
+          "comparison": {
+            "absolute_tolerance": 0.0001,
+            "compared_logits": 262144,
+            "maximum_absolute_error": 0.000148773193359375,
+            "mismatched_logits": 798,
+            "relative_tolerance": 0.0,
+            "rms_error": 5.217686264790868e-05
+          }
+        },
+        {
+          "scenario": "long_checkpoint",
+          "saved_tokens": 513,
+          "target_tokens": 513,
+          "comparison": {
+            "absolute_tolerance": 0.0001,
+            "compared_logits": 262144,
+            "maximum_absolute_error": 0.00012111663818359375,
+            "mismatched_logits": 11,
+            "relative_tolerance": 0.0,
+            "rms_error": 4.902151467755967e-05
+          }
+        }
+      ],
+      "final_owned_context_drain_us": 2
+    },
+    {
+      "full_swa_requested": true,
+      "flash_attention_requested": true,
+      "executed": true,
+      "passed": false,
+      "scenario_count": 21,
+      "failed_comparisons": [
+        {
+          "scenario": "long_checkpoint",
+          "saved_tokens": 513,
+          "target_tokens": 513,
+          "comparison": {
+            "absolute_tolerance": 0.0001,
+            "compared_logits": 262144,
+            "maximum_absolute_error": 0.0007970333099365234,
+            "mismatched_logits": 156676,
+            "relative_tolerance": 0.0,
+            "rms_error": 0.00017389398530106965
+          }
+        },
+        {
+          "scenario": "long_checkpoint",
+          "saved_tokens": 513,
+          "target_tokens": 514,
+          "comparison": {
+            "absolute_tolerance": 0.0001,
+            "compared_logits": 262144,
+            "maximum_absolute_error": 0.0014491081237792969,
+            "mismatched_logits": 180883,
+            "relative_tolerance": 0.0,
+            "rms_error": 0.00025034939150283007
+          }
+        }
+      ],
+      "final_owned_context_drain_us": 2
+    },
+    {
+      "full_swa_requested": false,
+      "flash_attention_requested": true,
+      "executed": true,
+      "passed": false,
+      "scenario_count": 22,
+      "failed_comparisons": [
+        {
+          "scenario": "long_checkpoint",
+          "saved_tokens": 1024,
+          "target_tokens": 1025,
+          "comparison": {
+            "absolute_tolerance": 0.0001,
+            "compared_logits": 262144,
+            "maximum_absolute_error": 0.0008420944213867188,
+            "mismatched_logits": 169552,
+            "relative_tolerance": 0.0,
+            "rms_error": 0.0001876801010742003
+          }
+        },
+        {
+          "scenario": "long_checkpoint",
+          "saved_tokens": 513,
+          "target_tokens": 513,
+          "comparison": {
+            "absolute_tolerance": 0.0001,
+            "compared_logits": 262144,
+            "maximum_absolute_error": 0.0007970333099365234,
+            "mismatched_logits": 156676,
+            "relative_tolerance": 0.0,
+            "rms_error": 0.00017389398530106965
+          }
+        },
+        {
+          "scenario": "long_checkpoint",
+          "saved_tokens": 513,
+          "target_tokens": 514,
+          "comparison": {
+            "absolute_tolerance": 0.0001,
+            "compared_logits": 262144,
+            "maximum_absolute_error": 0.0014491081237792969,
+            "mismatched_logits": 180883,
+            "relative_tolerance": 0.0,
+            "rms_error": 0.00025034939150283007
+          }
+        }
+      ],
+      "final_owned_context_drain_us": 0
+    }
+  ],
+  "guard_1024_to_1000": {
+    "before": {
+      "reused_tokens": 999,
+      "decoded_tokens": 1,
+      "exit_code": 101
+    },
+    "after": {
+      "reused_tokens": 0,
+      "decoded_tokens": 1000,
+      "exit_code": 0
+    },
+    "all_four_policy_arms_after": {
+      "reused_tokens": 0,
+      "decoded_tokens": 1000,
+      "trim_failures": 1,
+      "cache_resets": 1,
+      "maximum_absolute_error": 0
+    },
+    "attention_window": 512,
+    "required_history_start": 488,
+    "restored_history_start": 512
+  },
+  "bounds": {
+    "checkpoint_slots": 2,
+    "aggregate_payload_cap_bytes": 268435456,
+    "includes_saved_token_storage": true,
+    "process_or_device_memory_bound": false,
+    "measured_128_token_save_native_bytes": 7343720,
+    "measured_128_token_save_token_bytes": 512,
+    "measured_128_token_save_total_bytes": 7344232,
+    "measured_two_short_checkpoints_total_bytes": 22032080,
+    "size_only_4032_token_serialization_bytes": 87086952,
+    "size_only_is_written_payload": false,
+    "device_allocated_bytes": null
+  },
+  "live_cache_safety": {
+    "passed": true,
+    "batch_invariance_passed": false,
+    "matched_rewind_maximum_absolute_error": 0,
+    "matched_cancellation_recovery_maximum_absolute_error": 0,
+    "replay_boundary_cases": 13,
+    "replay_boundary_maximum_absolute_error": 0,
+    "compact_eviction_fallback": {
+      "reused_tokens": 0,
+      "decoded_tokens": 128,
+      "cache_resets": 1,
+      "maximum_absolute_error": 0
+    },
+    "unmatched_schedule_diagnostics": {
+      "rewind_maximum_absolute_error": 0.004161834716796875,
+      "cancellation_recovery_maximum_absolute_error": 0.006578564643859863
+    }
+  },
+  "measurement_limits": [
+    "llama_synchronize drains only the owned context, not the system/device.",
+    "Flash configuration is requested, not instrumented kernel selection.",
+    "Parent compilation overlapped runs; timings are observational, not comparative performance evidence.",
+    "No power, energy, physical-input latency, device idle, universal batch equivalence, quality, native acceptance or roadmap completion claim.",
+    "Full-SWA allocation does not make snapshots retain SWA-masked history."
+  ],
+  "public_content": "Counts, fixed scenario IDs and checksums only; no raw completions, token IDs, keys, arbitrary errors or user/profile paths."
+}

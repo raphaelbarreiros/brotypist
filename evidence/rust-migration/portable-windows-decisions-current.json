@@ -1,0 +1,198 @@
+{
+  "schema": "brotypist-portable-windows-decisions-evidence/1",
+  "scope": "Host-executed Windows pure decision logic and generic runtime regressions; not native Windows execution.",
+  "module_exposure": {
+    "canonical_module": "platform::windows_decisions",
+    "source": "crates/brotypist/src/platform/windows_decisions.rs",
+    "declaration": "#[cfg(any(target_os = \"windows\", test))] mod windows_decisions;",
+    "native_import": "platform/windows.rs imports windows_decisions as decisions; native hook callers use the same implementation.",
+    "prior_gap": "Previously the module was included only beneath cfg(Windows) platform/windows.rs, so Mac/Linux test graphs excluded its twelve pure decision tests. Generic runtime selected-replacement/readback tests already ran; this is not a claim that all previous readback coverage was absent.",
+    "cutover": "One implementation, no compatibility module or duplicate. Action and ObservationPolicy imports no longer depend on the nested Windows hierarchy. Existing tests strengthened without widening production behavior."
+  },
+  "source_gates": {
+    "commands": [
+      "cargo test --offline --locked --workspace --all-targets --features brotypist/native-smoke",
+      "cargo build --offline --locked --workspace --bins --examples --features brotypist/native-smoke"
+    ],
+    "toolchain": "Rust 1.99.1, explicitly selected by parent PATH",
+    "provenance": "Completed parent executions; raw output digests below. These commands were not rerun to prepare this receipt.",
+    "macos": {
+      "platform": "macOS ARM64 (aarch64-apple-darwin)",
+      "passed": true,
+      "passed_tests": 733,
+      "suites": 26,
+      "ignored": 1,
+      "library": {
+        "passed": 606,
+        "ignored": 0
+      },
+      "other_nonempty_suites": {
+        "benchmark_writing": {
+          "passed": 9,
+          "ignored": 0
+        },
+        "updater": {
+          "passed": 50,
+          "ignored": 0
+        },
+        "review_predictions": {
+          "passed": 13,
+          "ignored": 0
+        },
+        "xtask": {
+          "passed": 50,
+          "ignored": 1
+        }
+      },
+      "counting": "733 includes five successful isolated child-test invocations; parent suites alone have 728 passed. 26 result summaries include child invocations.",
+      "bins_examples_build": "passed",
+      "raw_output": {
+        "sha256": "8836d1529ea5472b2e045bd35977476aa9eb8d3fc48c4f555fcb8da215c26069",
+        "bytes": 75394
+      }
+    },
+    "linux": {
+      "platform": "Ubuntu 24.04 ARM64 (aarch64-unknown-linux-gnu), pinned snapshot 20261102T000000Z, private offline QA image",
+      "passed": true,
+      "library": {
+        "total": 568,
+        "passed": 567,
+        "ignored": 1
+      },
+      "other_nonempty_suites": {
+        "benchmark_writing": {
+          "passed": 9,
+          "ignored": 0
+        },
+        "updater": {
+          "passed": 49,
+          "ignored": 0
+        },
+        "review_predictions": {
+          "passed": 13,
+          "ignored": 0
+        },
+        "xtask": {
+          "passed": 51,
+          "ignored": 1
+        }
+      },
+      "counting": "No aggregate claimed; child-test result summaries are not added to library totals.",
+      "bins_examples_build": "passed",
+      "raw_output_including_native_shell": {
+        "sha256": "f8f8a1aad072f915588834d63bf36851473d6ca18c593a95ed5f692ec13cce60",
+        "bytes": 86009
+      }
+    }
+  },
+  "portable_tests": [
+    {
+      "name": "platform::windows_decisions::tests::actual_hook_decision_preserves_altgr_injection_os_switching_and_exact_modifiers",
+      "macos": "ok",
+      "linux": "ok"
+    },
+    {
+      "name": "platform::windows_decisions::tests::collapsed_generic_uia_refuses_rewrites_but_preserves_caret_insertion",
+      "macos": "ok",
+      "linux": "ok"
+    },
+    {
+      "name": "platform::windows_decisions::tests::constrained_host_applies_only_exact_nonempty_prefix_with_matching_authority_and_caret",
+      "macos": "ok",
+      "linux": "ok"
+    },
+    {
+      "name": "platform::windows_decisions::tests::consumed_press_repeat_and_release_remain_paired_after_disable",
+      "macos": "ok",
+      "linux": "ok"
+    },
+    {
+      "name": "platform::windows_decisions::tests::generic_uia_preserves_only_exact_existing_selection_replacement",
+      "macos": "ok",
+      "linux": "ok"
+    },
+    {
+      "name": "platform::windows_decisions::tests::native_edit_preserves_checked_suffix_and_selection_replacement",
+      "macos": "ok",
+      "linux": "ok"
+    },
+    {
+      "name": "platform::windows_decisions::tests::native_metadata_gates_precede_any_text_capability",
+      "macos": "ok",
+      "linux": "ok"
+    },
+    {
+      "name": "platform::windows_decisions::tests::native_replacement_offsets_are_checked_utf16_not_bytes_or_scalars",
+      "macos": "ok",
+      "linux": "ok"
+    },
+    {
+      "name": "platform::windows_decisions::tests::physical_above_tab_does_not_depend_on_keyboard_glyph",
+      "macos": "ok",
+      "linux": "ok"
+    },
+    {
+      "name": "platform::windows_decisions::tests::provider_ranges_measure_actual_prefixes_without_character_unit_assumptions",
+      "macos": "ok",
+      "linux": "ok"
+    },
+    {
+      "name": "platform::windows_decisions::tests::replacement_capability_requires_native_edit_or_existing_selection",
+      "macos": "ok",
+      "linux": "ok"
+    },
+    {
+      "name": "platform::windows_decisions::tests::replacement_refuses_changed_selection_text_or_authority_before_effects",
+      "macos": "ok",
+      "linux": "ok"
+    }
+  ],
+  "generic_runtime_tests": [
+    {
+      "name": "runtime::tests::selected_replacement_capability_loss_counts_once_only_for_exact_readback",
+      "macos": "ok",
+      "linux": "ok"
+    },
+    {
+      "name": "runtime::tests::insertion_capability_changes_and_arbitrary_replacement_loss_never_count_or_retry",
+      "macos": "ok",
+      "linux": "ok"
+    },
+    {
+      "name": "runtime::tests::selection_synonyms_replace_only_selected_range_and_alternatives_do_not_steal_tab",
+      "macos": "ok",
+      "linux": "ok"
+    }
+  ],
+  "source_capture": {
+    "timing": "Post-run working-tree capture; not frozen prelaunch identity or signed release attestation.",
+    "files": [
+      {
+        "path": "crates/brotypist/src/platform/mod.rs",
+        "sha256": "db7a956f00547e54bebe3fb01f0d5fac41bedf92043581731af307e1350a8122",
+        "bytes": 10417
+      },
+      {
+        "path": "crates/brotypist/src/platform/windows.rs",
+        "sha256": "7a717f7a96d2a7a0d0636899d86c11b0988af46866c89057077e50ff95503a89",
+        "bytes": 57076
+      },
+      {
+        "path": "crates/brotypist/src/platform/windows_decisions.rs",
+        "sha256": "2cba6e4c74a8af51811eca4064084974f7c159fb30ea23a34d8cd2f34c05dfdc",
+        "bytes": 16933
+      },
+      {
+        "path": "crates/brotypist/src/runtime.rs",
+        "sha256": "847e4435607a19cf4d1912b315f1c51ed0a25a500977fa93990ce90a640ace93",
+        "bytes": 459746
+      }
+    ]
+  },
+  "limits": [
+    "No native Windows/MSVC/Windows SDK typecheck or build is established by these host gates.",
+    "No native Win32 hook installation, lifecycle, physical keyboard, UIA provider or desktop event execution is established by pure module tests, including tests named actual_hook_decision.",
+    "Local uncommitted-source checks are not signing, release acceptance or publication.",
+    "Previous 721-test, 96-assertion and NFC evidence remains historically scoped and unchanged."
+  ]
+}

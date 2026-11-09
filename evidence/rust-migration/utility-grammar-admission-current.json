@@ -1,0 +1,1262 @@
+{
+  "schema": "brotypist-native-utility-grammar-admission-v1",
+  "passed": true,
+  "fixture_count": 10,
+  "model_sha256_previously_verified": "a555b900214b477d8880e7832e0b8925e139b0159640036b09fe472b6f2097f2",
+  "canonical_grammar_sha256": "8dc6ecf24ccdaf2823dcec56d5e4d0a75ae6ed47101ccaf4bd80b9f79bf7e65e",
+  "grammar_source": "Actual projection.grammar from completed current-primary-grammar-parity.json, not a copied source literal.",
+  "raw_report_sha256": "9672043244cca1fef9fc67ed0cfce169a859692a52b5d27724ebccab5bc9f660",
+  "helper_source_sha256": "422f37572727a31889d900e511a9c14a2b0252f7d57078319d3295aa360f5300",
+  "observations": [
+    {
+      "type": "configuration",
+      "grammar_root": "root",
+      "requested_model_params": {
+        "vocab_only": true,
+        "n_gpu_layers": 0
+      },
+      "context_created": false,
+      "inference_calls": 0,
+      "requested_limits": {
+        "cpu_threads": null,
+        "memory_bytes": null,
+        "wall_seconds": null
+      },
+      "hard_resource_limits_enforced_by_helper": false,
+      "scope": "native grammar and real vocabulary token-mask admission only; not end-to-end model abstention or semantic quality",
+      "fixtures_fixed_before_execution": [
+        {
+          "name": "empty_array",
+          "input": "[]",
+          "expected_acceptance": true
+        },
+        {
+          "name": "three_strings",
+          "input": "[\"alpha\",\"beta\",\"gamma\"]",
+          "expected_acceptance": true
+        },
+        {
+          "name": "four_strings",
+          "input": "[\"alpha\",\"beta\",\"gamma\",\"delta\"]",
+          "expected_acceptance": true
+        },
+        {
+          "name": "five_strings",
+          "input": "[\"alpha\",\"beta\",\"gamma\",\"delta\",\"epsilon\"]",
+          "expected_acceptance": true
+        },
+        {
+          "name": "three_unicode_strings",
+          "input": "[\"ação\",\"東京\",\"𐍈\"]",
+          "expected_acceptance": true
+        },
+        {
+          "name": "one_string",
+          "input": "[\"alpha\"]",
+          "expected_acceptance": false
+        },
+        {
+          "name": "two_strings",
+          "input": "[\"alpha\",\"beta\"]",
+          "expected_acceptance": false
+        },
+        {
+          "name": "six_strings",
+          "input": "[\"alpha\",\"beta\",\"gamma\",\"delta\",\"epsilon\",\"zeta\"]",
+          "expected_acceptance": false
+        },
+        {
+          "name": "incomplete_array",
+          "input": "[\"alpha\",\"beta\",\"gamma\"",
+          "expected_acceptance": false
+        },
+        {
+          "name": "trailing_non_json",
+          "input": "[\"alpha\",\"beta\",\"gamma\"]x",
+          "expected_acceptance": false
+        }
+      ]
+    },
+    {
+      "type": "grammar_input",
+      "grammar_utf8": "root ::= \"[\" ws (\"]\" ws | string \",\" ws string \",\" ws string (\",\" ws string (\",\" ws string)?)? \"]\" ws)\nstring ::= \"\\\"\" char+ \"\\\"\" ws\nchar ::= [^\"\\\\\\x7F\\x00-\\x1F] | \"\\\\\" ([\"\\\\/bfnrt] | \"u\" [0-9a-fA-F]{4})\nws ::= [ \\t\\n\\r]*\n"
+    },
+    {
+      "type": "vocabulary",
+      "token_count": 262144,
+      "eog_count": 3
+    },
+    {
+      "type": "fixture",
+      "name": "empty_array",
+      "input": "[]",
+      "expected_acceptance": true,
+      "actual_acceptance": true,
+      "tokenizer_add_special": false,
+      "tokenizer_parse_special": false,
+      "roundtrip_exact": true,
+      "decoded_hex": "5b5d",
+      "tokens_accepted": 1,
+      "all_fixture_tokens_admitted": true,
+      "tokens": [
+        {
+          "index": 0,
+          "id": 3805,
+          "piece_hex": "5b5d",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        }
+      ],
+      "eog_scope": "last_admitted_prefix",
+      "eog_prefix_token_count": 1,
+      "eog_masks": [
+        {
+          "id": 1,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "id": 50,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "id": 106,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        }
+      ],
+      "passed": true,
+      "error": null
+    },
+    {
+      "type": "fixture",
+      "name": "three_strings",
+      "input": "[\"alpha\",\"beta\",\"gamma\"]",
+      "expected_acceptance": true,
+      "actual_acceptance": true,
+      "tokenizer_add_special": false,
+      "tokenizer_parse_special": false,
+      "roundtrip_exact": true,
+      "decoded_hex": "5b22616c706861222c2262657461222c2267616d6d61225d",
+      "tokens_accepted": 7,
+      "all_fixture_tokens_admitted": true,
+      "tokens": [
+        {
+          "index": 0,
+          "id": 4119,
+          "piece_hex": "5b22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 1,
+          "id": 2482,
+          "piece_hex": "616c706861",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 2,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 3,
+          "id": 3357,
+          "piece_hex": "62657461",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 4,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 5,
+          "id": 4223,
+          "piece_hex": "67616d6d61",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 6,
+          "id": 1935,
+          "piece_hex": "225d",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        }
+      ],
+      "eog_scope": "last_admitted_prefix",
+      "eog_prefix_token_count": 7,
+      "eog_masks": [
+        {
+          "id": 1,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "id": 50,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "id": 106,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        }
+      ],
+      "passed": true,
+      "error": null
+    },
+    {
+      "type": "fixture",
+      "name": "four_strings",
+      "input": "[\"alpha\",\"beta\",\"gamma\",\"delta\"]",
+      "expected_acceptance": true,
+      "actual_acceptance": true,
+      "tokenizer_add_special": false,
+      "tokenizer_parse_special": false,
+      "roundtrip_exact": true,
+      "decoded_hex": "5b22616c706861222c2262657461222c2267616d6d61222c2264656c7461225d",
+      "tokens_accepted": 9,
+      "all_fixture_tokens_admitted": true,
+      "tokens": [
+        {
+          "index": 0,
+          "id": 4119,
+          "piece_hex": "5b22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 1,
+          "id": 2482,
+          "piece_hex": "616c706861",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 2,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 3,
+          "id": 3357,
+          "piece_hex": "62657461",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 4,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 5,
+          "id": 4223,
+          "piece_hex": "67616d6d61",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 6,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 7,
+          "id": 4792,
+          "piece_hex": "64656c7461",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 8,
+          "id": 1935,
+          "piece_hex": "225d",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        }
+      ],
+      "eog_scope": "last_admitted_prefix",
+      "eog_prefix_token_count": 9,
+      "eog_masks": [
+        {
+          "id": 1,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "id": 50,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "id": 106,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        }
+      ],
+      "passed": true,
+      "error": null
+    },
+    {
+      "type": "fixture",
+      "name": "five_strings",
+      "input": "[\"alpha\",\"beta\",\"gamma\",\"delta\",\"epsilon\"]",
+      "expected_acceptance": true,
+      "actual_acceptance": true,
+      "tokenizer_add_special": false,
+      "tokenizer_parse_special": false,
+      "roundtrip_exact": true,
+      "decoded_hex": "5b22616c706861222c2262657461222c2267616d6d61222c2264656c7461222c22657073696c6f6e225d",
+      "tokens_accepted": 11,
+      "all_fixture_tokens_admitted": true,
+      "tokens": [
+        {
+          "index": 0,
+          "id": 4119,
+          "piece_hex": "5b22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 1,
+          "id": 2482,
+          "piece_hex": "616c706861",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 2,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 3,
+          "id": 3357,
+          "piece_hex": "62657461",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 4,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 5,
+          "id": 4223,
+          "piece_hex": "67616d6d61",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 6,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 7,
+          "id": 4792,
+          "piece_hex": "64656c7461",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 8,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 9,
+          "id": 7954,
+          "piece_hex": "657073696c6f6e",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 10,
+          "id": 1935,
+          "piece_hex": "225d",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        }
+      ],
+      "eog_scope": "last_admitted_prefix",
+      "eog_prefix_token_count": 11,
+      "eog_masks": [
+        {
+          "id": 1,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "id": 50,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "id": 106,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        }
+      ],
+      "passed": true,
+      "error": null
+    },
+    {
+      "type": "fixture",
+      "name": "three_unicode_strings",
+      "input": "[\"ação\",\"東京\",\"𐍈\"]",
+      "expected_acceptance": true,
+      "actual_acceptance": true,
+      "tokenizer_add_special": false,
+      "tokenizer_parse_special": false,
+      "roundtrip_exact": true,
+      "decoded_hex": "5b2261c3a7c3a36f222c22e69db1e4baac222c22f0908d88225d",
+      "tokens_accepted": 10,
+      "all_fixture_tokens_admitted": true,
+      "tokens": [
+        {
+          "index": 0,
+          "id": 4119,
+          "piece_hex": "5b22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 1,
+          "id": 6447,
+          "piece_hex": "61c3a7c3a36f",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 2,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 3,
+          "id": 31414,
+          "piece_hex": "e69db1e4baac",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 4,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 5,
+          "id": 478,
+          "piece_hex": "f0",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 6,
+          "id": 382,
+          "piece_hex": "90",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 7,
+          "id": 379,
+          "piece_hex": "8d",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 8,
+          "id": 374,
+          "piece_hex": "88",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 9,
+          "id": 1935,
+          "piece_hex": "225d",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        }
+      ],
+      "eog_scope": "last_admitted_prefix",
+      "eog_prefix_token_count": 10,
+      "eog_masks": [
+        {
+          "id": 1,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "id": 50,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "id": 106,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        }
+      ],
+      "passed": true,
+      "error": null
+    },
+    {
+      "type": "fixture",
+      "name": "one_string",
+      "input": "[\"alpha\"]",
+      "expected_acceptance": false,
+      "actual_acceptance": false,
+      "tokenizer_add_special": false,
+      "tokenizer_parse_special": false,
+      "roundtrip_exact": true,
+      "decoded_hex": "5b22616c706861225d",
+      "tokens_accepted": 2,
+      "all_fixture_tokens_admitted": false,
+      "tokens": [
+        {
+          "index": 0,
+          "id": 4119,
+          "piece_hex": "5b22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 1,
+          "id": 2482,
+          "piece_hex": "616c706861",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 2,
+          "id": 1935,
+          "piece_hex": "225d",
+          "applied": true,
+          "accepted": false,
+          "admitted": false,
+          "masked_logit": "-inf",
+          "error": null
+        }
+      ],
+      "eog_scope": "last_admitted_prefix",
+      "eog_prefix_token_count": 2,
+      "eog_masks": [
+        {
+          "id": 1,
+          "applied": true,
+          "admitted": false,
+          "masked_logit": "-inf",
+          "error": null
+        },
+        {
+          "id": 50,
+          "applied": true,
+          "admitted": false,
+          "masked_logit": "-inf",
+          "error": null
+        },
+        {
+          "id": 106,
+          "applied": true,
+          "admitted": false,
+          "masked_logit": "-inf",
+          "error": null
+        }
+      ],
+      "passed": true,
+      "error": null
+    },
+    {
+      "type": "fixture",
+      "name": "two_strings",
+      "input": "[\"alpha\",\"beta\"]",
+      "expected_acceptance": false,
+      "actual_acceptance": false,
+      "tokenizer_add_special": false,
+      "tokenizer_parse_special": false,
+      "roundtrip_exact": true,
+      "decoded_hex": "5b22616c706861222c2262657461225d",
+      "tokens_accepted": 4,
+      "all_fixture_tokens_admitted": false,
+      "tokens": [
+        {
+          "index": 0,
+          "id": 4119,
+          "piece_hex": "5b22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 1,
+          "id": 2482,
+          "piece_hex": "616c706861",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 2,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 3,
+          "id": 3357,
+          "piece_hex": "62657461",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 4,
+          "id": 1935,
+          "piece_hex": "225d",
+          "applied": true,
+          "accepted": false,
+          "admitted": false,
+          "masked_logit": "-inf",
+          "error": null
+        }
+      ],
+      "eog_scope": "last_admitted_prefix",
+      "eog_prefix_token_count": 4,
+      "eog_masks": [
+        {
+          "id": 1,
+          "applied": true,
+          "admitted": false,
+          "masked_logit": "-inf",
+          "error": null
+        },
+        {
+          "id": 50,
+          "applied": true,
+          "admitted": false,
+          "masked_logit": "-inf",
+          "error": null
+        },
+        {
+          "id": 106,
+          "applied": true,
+          "admitted": false,
+          "masked_logit": "-inf",
+          "error": null
+        }
+      ],
+      "passed": true,
+      "error": null
+    },
+    {
+      "type": "fixture",
+      "name": "six_strings",
+      "input": "[\"alpha\",\"beta\",\"gamma\",\"delta\",\"epsilon\",\"zeta\"]",
+      "expected_acceptance": false,
+      "actual_acceptance": false,
+      "tokenizer_add_special": false,
+      "tokenizer_parse_special": false,
+      "roundtrip_exact": true,
+      "decoded_hex": "5b22616c706861222c2262657461222c2267616d6d61222c2264656c7461222c22657073696c6f6e222c227a657461225d",
+      "tokens_accepted": 10,
+      "all_fixture_tokens_admitted": false,
+      "tokens": [
+        {
+          "index": 0,
+          "id": 4119,
+          "piece_hex": "5b22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 1,
+          "id": 2482,
+          "piece_hex": "616c706861",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 2,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 3,
+          "id": 3357,
+          "piece_hex": "62657461",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 4,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 5,
+          "id": 4223,
+          "piece_hex": "67616d6d61",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 6,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 7,
+          "id": 4792,
+          "piece_hex": "64656c7461",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 8,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 9,
+          "id": 7954,
+          "piece_hex": "657073696c6f6e",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 10,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": false,
+          "admitted": false,
+          "masked_logit": "-inf",
+          "error": null
+        },
+        {
+          "index": 11,
+          "id": 11357,
+          "piece_hex": "7a657461",
+          "applied": false,
+          "accepted": false,
+          "admitted": null,
+          "masked_logit": null,
+          "error": null
+        },
+        {
+          "index": 12,
+          "id": 1935,
+          "piece_hex": "225d",
+          "applied": false,
+          "accepted": false,
+          "admitted": null,
+          "masked_logit": null,
+          "error": null
+        }
+      ],
+      "eog_scope": "last_admitted_prefix",
+      "eog_prefix_token_count": 10,
+      "eog_masks": [
+        {
+          "id": 1,
+          "applied": true,
+          "admitted": false,
+          "masked_logit": "-inf",
+          "error": null
+        },
+        {
+          "id": 50,
+          "applied": true,
+          "admitted": false,
+          "masked_logit": "-inf",
+          "error": null
+        },
+        {
+          "id": 106,
+          "applied": true,
+          "admitted": false,
+          "masked_logit": "-inf",
+          "error": null
+        }
+      ],
+      "passed": true,
+      "error": null
+    },
+    {
+      "type": "fixture",
+      "name": "incomplete_array",
+      "input": "[\"alpha\",\"beta\",\"gamma\"",
+      "expected_acceptance": false,
+      "actual_acceptance": false,
+      "tokenizer_add_special": false,
+      "tokenizer_parse_special": false,
+      "roundtrip_exact": true,
+      "decoded_hex": "5b22616c706861222c2262657461222c2267616d6d6122",
+      "tokens_accepted": 7,
+      "all_fixture_tokens_admitted": true,
+      "tokens": [
+        {
+          "index": 0,
+          "id": 4119,
+          "piece_hex": "5b22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 1,
+          "id": 2482,
+          "piece_hex": "616c706861",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 2,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 3,
+          "id": 3357,
+          "piece_hex": "62657461",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 4,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 5,
+          "id": 4223,
+          "piece_hex": "67616d6d61",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 6,
+          "id": 236775,
+          "piece_hex": "22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        }
+      ],
+      "eog_scope": "last_admitted_prefix",
+      "eog_prefix_token_count": 7,
+      "eog_masks": [
+        {
+          "id": 1,
+          "applied": true,
+          "admitted": false,
+          "masked_logit": "-inf",
+          "error": null
+        },
+        {
+          "id": 50,
+          "applied": true,
+          "admitted": false,
+          "masked_logit": "-inf",
+          "error": null
+        },
+        {
+          "id": 106,
+          "applied": true,
+          "admitted": false,
+          "masked_logit": "-inf",
+          "error": null
+        }
+      ],
+      "passed": true,
+      "error": null
+    },
+    {
+      "type": "fixture",
+      "name": "trailing_non_json",
+      "input": "[\"alpha\",\"beta\",\"gamma\"]x",
+      "expected_acceptance": false,
+      "actual_acceptance": false,
+      "tokenizer_add_special": false,
+      "tokenizer_parse_special": false,
+      "roundtrip_exact": true,
+      "decoded_hex": "5b22616c706861222c2262657461222c2267616d6d61225d78",
+      "tokens_accepted": 7,
+      "all_fixture_tokens_admitted": false,
+      "tokens": [
+        {
+          "index": 0,
+          "id": 4119,
+          "piece_hex": "5b22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 1,
+          "id": 2482,
+          "piece_hex": "616c706861",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 2,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 3,
+          "id": 3357,
+          "piece_hex": "62657461",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 4,
+          "id": 4337,
+          "piece_hex": "222c22",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 5,
+          "id": 4223,
+          "piece_hex": "67616d6d61",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 6,
+          "id": 1935,
+          "piece_hex": "225d",
+          "applied": true,
+          "accepted": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "index": 7,
+          "id": 236781,
+          "piece_hex": "78",
+          "applied": true,
+          "accepted": false,
+          "admitted": false,
+          "masked_logit": "-inf",
+          "error": null
+        }
+      ],
+      "eog_scope": "last_admitted_prefix",
+      "eog_prefix_token_count": 7,
+      "eog_masks": [
+        {
+          "id": 1,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "id": 50,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        },
+        {
+          "id": 106,
+          "applied": true,
+          "admitted": true,
+          "masked_logit": "0",
+          "error": null
+        }
+      ],
+      "passed": true,
+      "error": null
+    },
+    {
+      "type": "summary",
+      "fixture_count": 10,
+      "failures": 0,
+      "all_gates_passed": true
+    }
+  ],
+  "limits": [
+    "Vocabulary-only load, no context and no inference; tensors were skipped.",
+    "Native backend discovery still initialized Metal and compiled embedded libraries despite n_gpu_layers=0; no GPU-idle or no-backend-work claim.",
+    "Mechanical admission/rejection and EOG masks, not evidence that the language model chooses abstention or produces semantically good synonyms.",
+    "No normal profiles or credential APIs."
+  ]
+}

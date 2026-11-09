@@ -1,0 +1,4779 @@
+{
+  "schema": "grammar-shortlist-paired-v1",
+  "status": "passed",
+  "summary": {
+    "ordinary_replay_units": 110,
+    "ordinary_wrapper_default_restored": true,
+    "passed": true,
+    "passed_units": 114,
+    "repeat_count_per_policy": 2,
+    "row_sampler_units": 114,
+    "utility_units": 4
+  },
+  "compiled_source_sha256": {
+    "corpus.rs": "b8917dc7c72f394a372579f289f2859f338875945f53bc8a03849d1d6c23f20d",
+    "grammar_sampler.h": "b021a2348ea0ac1d474f3dda8b0f8686aee4ce73fc8796c46263e4b66bd7b137",
+    "grammar_shortlist_smoke.rs": "0278d338bd39ac025790ec7b071c6356d754e05a647df546e4e491c4f8db5ac2",
+    "inference_native.rs": "2f8082193823735a0c0bffb18cebec7123fb89ef7a2bc3bcd0aba42dbe57e92e",
+    "llama_bridge.c": "e7d434d7fd26041d2b002534611f4044852cdca93974a5db41bf78f07270c421",
+    "providers.rs": "3def756d1011db404a090f0d14e753811d51721ad3425500a7118abdb4d6ff38",
+    "providers_diagnostics.rs": "4e9d58fc91e42a7d2f99d991d1d74a9dd9d02fe4053e6037906c5b1857a4c63b",
+    "writing.rs": "ef2d0e67a4f32a6df36272dcff19e67e2d38c02eb0fb6dadba79c57ee71726b6"
+  },
+  "corpus": {
+    "contextual_sha256": "aaa04b4afaeedd9726faad12dc697610b8042c21bf66a499e9474e25e6494512",
+    "excluded": [
+      {
+        "id": "alternatives-json",
+        "reason": "Alternatives multi-sample, conditioned-choice, diverse sampling and deduplication algorithm NOT exercised"
+      },
+      {
+        "id": "alternatives-partial-word",
+        "reason": "Alternatives multi-sample, conditioned-choice, diverse sampling and deduplication algorithm NOT exercised"
+      },
+      {
+        "id": "alternatives-trailing-space",
+        "reason": "Alternatives multi-sample, conditioned-choice, diverse sampling and deduplication algorithm NOT exercised"
+      },
+      {
+        "id": "alternatives-punctuation",
+        "reason": "Alternatives multi-sample, conditioned-choice, diverse sampling and deduplication algorithm NOT exercised"
+      },
+      {
+        "id": "alternatives-ja",
+        "reason": "Alternatives multi-sample, conditioned-choice, diverse sampling and deduplication algorithm NOT exercised"
+      },
+      {
+        "id": "alternatives-pt-partial",
+        "reason": "Alternatives multi-sample, conditioned-choice, diverse sampling and deduplication algorithm NOT exercised"
+      },
+      {
+        "id": "alternatives-suffix-pt",
+        "reason": "Alternatives multi-sample, conditioned-choice, diverse sampling and deduplication algorithm NOT exercised"
+      }
+    ],
+    "quality_sha256": "384defd052ec86a38cb934fdfd1eb083c8f43e5b5538496117d058a55c1efbf9",
+    "rows": 64,
+    "serialized_cases_sha256": "a72e115a5f2a9d7d663c058a648293b62e0ed01234fe3fc1d7a4ef9904e2e186"
+  },
+  "coverage_limits": [
+    "Finite authored corpus and fixed greedy/normal-family seeds on one loaded model/backend only",
+    "No universal distribution, semantic quality or latency equivalence claim; not the owned semantic matrix",
+    "Raw UTF-8 is after native stop/UTF-8 fencing, before provider healing/display filters; not raw token pieces",
+    "Alternatives search/conditioned-choice algorithm and diverse sampling NOT exercised",
+    "No instrumentation of shortlist fast-path versus fallback hit counts; wrapper execution alone does not establish fast-path coverage",
+    "Prompt logits hashes must agree for attribution; mismatch fails closed, never excused as backend noise"
+  ],
+  "native_identity": {
+    "arch": "aarch64",
+    "architecture": "gemma4",
+    "backend_identity_scope": "Production policy and requested offload, not runtime-attested physical kernels",
+    "batch": 64,
+    "context_chars": 2000,
+    "context_size": 4096,
+    "flash_attention": false,
+    "full_swa": true,
+    "gpu_layers_requested": -1,
+    "llama_revision": "0c1e57098bba43ac29e6e3b677cdceebdd22334f",
+    "microbatch": 32,
+    "model_name": "gemma-4-E4B-it",
+    "os": "macos",
+    "requested_acceleration": "auto",
+    "schedule": "Independent destructive clear, complete prompt chunks(64), exact prompt reuse, single-token generation",
+    "threads_requested": 14,
+    "weight_owners": 1
+  },
+  "receipt_durability": "Synced after each phase and before gates; ordinary failures retain observations, rewrites are not power-loss atomic",
+  "model": {
+    "canonical_path": "<private-model-directory>/gemma-4-E4B-it-Q4_0.gguf",
+    "file_bytes": 4590807392,
+    "requested_path": "<private-model-directory>/gemma-4-E4B-it-Q4_0.gguf",
+    "sha256": "a555b900214b477d8880e7832e0b8925e139b0159640036b09fe472b6f2097f2"
+  },
+  "units": [
+    {
+      "id": "email-en",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "6720cfe42124cf4440f4f3b0f4247aaa7aa0c240bd49588ff554dd927cef599f",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "email-en",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "6720cfe42124cf4440f4f3b0f4247aaa7aa0c240bd49588ff554dd927cef599f",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "email-pt",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "1fe4ead66b2db5c78efe5ba9fc9cb0172eab98cca317d02170f201f3da7603a5",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "email-pt",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "1fe4ead66b2db5c78efe5ba9fc9cb0172eab98cca317d02170f201f3da7603a5",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "email-es",
+      "kind": "completion",
+      "language": "Spanish",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "56293bdfdf22e10dcd094640f89a4016dc88797ef3a5a9c7090d965844e27ca1",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "email-es",
+      "kind": "completion",
+      "language": "Spanish",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "56293bdfdf22e10dcd094640f89a4016dc88797ef3a5a9c7090d965844e27ca1",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "email-fr",
+      "kind": "completion",
+      "language": "French",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "fa705721bcd005e0ead335654328e98e8d464aa63a8e05e308e0f48752d105ed",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "email-fr",
+      "kind": "completion",
+      "language": "French",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "fa705721bcd005e0ead335654328e98e8d464aa63a8e05e308e0f48752d105ed",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "email-de",
+      "kind": "completion",
+      "language": "German",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "9880a6b3307a95fa49c230e83807aa1567862e5d046d9e6d7fa0cb2bff694434",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "email-de",
+      "kind": "completion",
+      "language": "German",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "9880a6b3307a95fa49c230e83807aa1567862e5d046d9e6d7fa0cb2bff694434",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "email-ja",
+      "kind": "completion",
+      "language": "Japanese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "d04e1cb3d83692df353ecf992ac13a98efeab7fa9a7fb60bf8f3805527a5e9c3",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "email-ja",
+      "kind": "completion",
+      "language": "Japanese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "d04e1cb3d83692df353ecf992ac13a98efeab7fa9a7fb60bf8f3805527a5e9c3",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "email-zh",
+      "kind": "completion",
+      "language": "Chinese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "75f93809dc0124841eba89db1ba1746297205300809f7187cebbd78b77e79093",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "email-zh",
+      "kind": "completion",
+      "language": "Chinese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "75f93809dc0124841eba89db1ba1746297205300809f7187cebbd78b77e79093",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "same-window-facts",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "1a41dcc7e88c15e76a42433188da752e44246ab24b69d82676d0a79451c9fc48",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "same-window-facts",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "1a41dcc7e88c15e76a42433188da752e44246ab24b69d82676d0a79451c9fc48",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "suffix",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "10407e390f923389a769f3d68a8c8801b235fe58bc822dea58beef30fdb6b110",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "suffix",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "10407e390f923389a769f3d68a8c8801b235fe58bc822dea58beef30fdb6b110",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "partial-word",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "ac81fcb81efe0f60ea8d583938f371765951552970444b0bf87a3c1653cc1dcd",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "partial-word",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "ac81fcb81efe0f60ea8d583938f371765951552970444b0bf87a3c1653cc1dcd",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "trailing-space",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "054987bc3150ad0c6393981ea16f0617e90d7acb4f2d91ac58c74db16d850959",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "trailing-space",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "054987bc3150ad0c6393981ea16f0617e90d7acb4f2d91ac58c74db16d850959",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "long-optional-reference",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "1a41dcc7e88c15e76a42433188da752e44246ab24b69d82676d0a79451c9fc48",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "long-optional-reference",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "1a41dcc7e88c15e76a42433188da752e44246ab24b69d82676d0a79451c9fc48",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "literal-gemma-control-tokens",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "44693df1d3d79cd27b16cf548f2589cf6ca485195bc49280d70927ee72c4b0b3",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "literal-gemma-control-tokens",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "44693df1d3d79cd27b16cf548f2589cf6ca485195bc49280d70927ee72c4b0b3",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "synonyms-json",
+      "kind": "synonyms",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "existing_utility_json",
+      "grammar_sha256": "8dc6ecf24ccdaf2823dcec56d5e4d0a75ae6ed47101ccaf4bd80b9f79bf7e65e",
+      "base_cap": 128,
+      "native_cap_with_exact_replay": 128,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "synonyms-json",
+      "kind": "synonyms",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "existing_utility_json",
+      "grammar_sha256": "8dc6ecf24ccdaf2823dcec56d5e4d0a75ae6ed47101ccaf4bd80b9f79bf7e65e",
+      "base_cap": 128,
+      "native_cap_with_exact_replay": 128,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "grammar-en-plural",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "2349d51489965b87e09ea10d6a089fdc890eb3de7d2bc6d908859993eaafd189",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "grammar-en-plural",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "2349d51489965b87e09ea10d6a089fdc890eb3de7d2bc6d908859993eaafd189",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "grammar-en-relative",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "406a730afe2cdbeac22caf6eb0191c90efa3ba20a8b3057c56a20f58ab582e57",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "grammar-en-relative",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "406a730afe2cdbeac22caf6eb0191c90efa3ba20a8b3057c56a20f58ab582e57",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "grammar-pt-plural",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "cce6106e5772a2a90353d3ed37930713cc5088f6aa00fdc627dc400c6039389f",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "grammar-pt-plural",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "cce6106e5772a2a90353d3ed37930713cc5088f6aa00fdc627dc400c6039389f",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "grammar-pt-singular",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "cf4b2af9f29147fae044da9a415a55dd92a25a398c6f6a41691e7d5a5ff59c63",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "grammar-pt-singular",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "cf4b2af9f29147fae044da9a415a55dd92a25a398c6f6a41691e7d5a5ff59c63",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "grammar-pt-subjunctive",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "5847bc4a144869b33809c4bbabb799ac07acbffc55e9ec6de90cb5375ee4d64b",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "grammar-pt-subjunctive",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "5847bc4a144869b33809c4bbabb799ac07acbffc55e9ec6de90cb5375ee4d64b",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "grammar-de-case",
+      "kind": "completion",
+      "language": "German",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "9880a6b3307a95fa49c230e83807aa1567862e5d046d9e6d7fa0cb2bff694434",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "grammar-de-case",
+      "kind": "completion",
+      "language": "German",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "9880a6b3307a95fa49c230e83807aa1567862e5d046d9e6d7fa0cb2bff694434",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "language-pt-english-reference",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "da92a18224cf7859c519ad2e612f95eaae1c0b3d12a1915eb43d92b779b4504a",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "language-pt-english-reference",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "da92a18224cf7859c519ad2e612f95eaae1c0b3d12a1915eb43d92b779b4504a",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "language-en-portuguese-reference",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "1a41dcc7e88c15e76a42433188da752e44246ab24b69d82676d0a79451c9fc48",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "language-en-portuguese-reference",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "1a41dcc7e88c15e76a42433188da752e44246ab24b69d82676d0a79451c9fc48",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "language-pt-region",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "2e0edffa0656cf03500e63d97191f6232a9aa61db04f3809c04b117b8c99beeb",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "language-pt-region",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "2e0edffa0656cf03500e63d97191f6232a9aa61db04f3809c04b117b8c99beeb",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "language-en-locale-preference",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "930fb4b9e494eb0e0efdbd57252f45c00a1bd4f5e3cab27e8d9be203c66c29e3",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "language-en-locale-preference",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "930fb4b9e494eb0e0efdbd57252f45c00a1bd4f5e3cab27e8d9be203c66c29e3",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "partial-pt-accent",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "2235021f27ed311a49c17d58a6dc00661de2df0094eb8a3f1494dea7b088d71c",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "partial-pt-accent",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "2235021f27ed311a49c17d58a6dc00661de2df0094eb8a3f1494dea7b088d71c",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "partial-pt-combining",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "2787c572e83b85173f44f0083f64cff7da11a86e37934b70b76c498ae0d7ec80",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 69,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "partial-pt-combining",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "2787c572e83b85173f44f0083f64cff7da11a86e37934b70b76c498ae0d7ec80",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 69,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "partial-en-long-word",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "d105a6339079ac92b0bdb4103c9551dd6c5519edea55024764ac25c0049afd5c",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 66,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "partial-en-long-word",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "d105a6339079ac92b0bdb4103c9551dd6c5519edea55024764ac25c0049afd5c",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 66,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "partial-fr-accent",
+      "kind": "completion",
+      "language": "French",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "75338f5409867b74894b71bbf19f198a66dfcf102b9bffe5626d1fc13a988de0",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 66,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "partial-fr-accent",
+      "kind": "completion",
+      "language": "French",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "75338f5409867b74894b71bbf19f198a66dfcf102b9bffe5626d1fc13a988de0",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 66,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "trailing-space-pt",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "054987bc3150ad0c6393981ea16f0617e90d7acb4f2d91ac58c74db16d850959",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "trailing-space-pt",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "054987bc3150ad0c6393981ea16f0617e90d7acb4f2d91ac58c74db16d850959",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "suffix-pt-agreement",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "cce6106e5772a2a90353d3ed37930713cc5088f6aa00fdc627dc400c6039389f",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "suffix-pt-agreement",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "cce6106e5772a2a90353d3ed37930713cc5088f6aa00fdc627dc400c6039389f",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "suffix-en-time",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "68b9c3bce9939610e547256462c91ca14dba47b747dea82de591146182c9a0f2",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "suffix-en-time",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "68b9c3bce9939610e547256462c91ca14dba47b747dea82de591146182c9a0f2",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "suffix-en-midword",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "3f0ca1edadce7eac99d03ddddc0e23823abd0baa1143ea273724a56dfd46f832",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "suffix-en-midword",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "3f0ca1edadce7eac99d03ddddc0e23823abd0baa1143ea273724a56dfd46f832",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "suffix-pt-punctuation",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "1fe4ead66b2db5c78efe5ba9fc9cb0172eab98cca317d02170f201f3da7603a5",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "suffix-pt-punctuation",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "1fe4ead66b2db5c78efe5ba9fc9cb0172eab98cca317d02170f201f3da7603a5",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "fact-room-en",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "44693df1d3d79cd27b16cf548f2589cf6ca485195bc49280d70927ee72c4b0b3",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "fact-room-en",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "44693df1d3d79cd27b16cf548f2589cf6ca485195bc49280d70927ee72c4b0b3",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "fact-room-counterfactual-en",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "44693df1d3d79cd27b16cf548f2589cf6ca485195bc49280d70927ee72c4b0b3",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "fact-room-counterfactual-en",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "44693df1d3d79cd27b16cf548f2589cf6ca485195bc49280d70927ee72c4b0b3",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "fact-room-pt",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "7e252f103728cc090fc389951f9fbdc989f249d57aa9f70ebb76e16e5bf02ebf",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "fact-room-pt",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "7e252f103728cc090fc389951f9fbdc989f249d57aa9f70ebb76e16e5bf02ebf",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "fact-time-en",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "bf73c5a9a93e7cdb2daba83a602d5bece82c74ededf8dd4575eb94d911183793",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "fact-time-en",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "bf73c5a9a93e7cdb2daba83a602d5bece82c74ededf8dd4575eb94d911183793",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "fact-unknown-time",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "1b1ab9c9b31bd5a1327dfe77771e9d7ce9bffb993b9af58399af6a358876ca82",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "fact-unknown-time",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "1b1ab9c9b31bd5a1327dfe77771e9d7ce9bffb993b9af58399af6a358876ca82",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "fact-draft-preserved",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "8fd0da291b490d3e6522d1f06c5e6a0475b87cccbbec1c7a101f56497827e569",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "fact-draft-preserved",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "8fd0da291b490d3e6522d1f06c5e6a0475b87cccbbec1c7a101f56497827e569",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "decimal-en",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "44693df1d3d79cd27b16cf548f2589cf6ca485195bc49280d70927ee72c4b0b3",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "decimal-en",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "44693df1d3d79cd27b16cf548f2589cf6ca485195bc49280d70927ee72c4b0b3",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "decimal-pt",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "a0af7cda91045c5da84a53883c58e5d2ad41db5ddcc7b158f9edda0e46b6a10c",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "decimal-pt",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "a0af7cda91045c5da84a53883c58e5d2ad41db5ddcc7b158f9edda0e46b6a10c",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "grammar-fr-agreement",
+      "kind": "completion",
+      "language": "French",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "f4481f6d485a8b5088f02a1347ff539e724727f5e497b52e946403aa556fcf84",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "grammar-fr-agreement",
+      "kind": "completion",
+      "language": "French",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "f4481f6d485a8b5088f02a1347ff539e724727f5e497b52e946403aa556fcf84",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "suffix-ja-unspaced",
+      "kind": "completion",
+      "language": "Japanese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "a6216fb83d0a0cd35b5ffd7fa655bd4d0fa400bc637989d2fbf4ce5a4f2a2cc7",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "suffix-ja-unspaced",
+      "kind": "completion",
+      "language": "Japanese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "a6216fb83d0a0cd35b5ffd7fa655bd4d0fa400bc637989d2fbf4ce5a4f2a2cc7",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "synonyms-pt-agreement",
+      "kind": "synonyms",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "existing_utility_json",
+      "grammar_sha256": "8dc6ecf24ccdaf2823dcec56d5e4d0a75ae6ed47101ccaf4bd80b9f79bf7e65e",
+      "base_cap": 128,
+      "native_cap_with_exact_replay": 128,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "synonyms-pt-agreement",
+      "kind": "synonyms",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "existing_utility_json",
+      "grammar_sha256": "8dc6ecf24ccdaf2823dcec56d5e4d0a75ae6ed47101ccaf4bd80b9f79bf7e65e",
+      "base_cap": 128,
+      "native_cap_with_exact_replay": 128,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-pt-short-focused",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "4842774199f7fb80c27ecf66217e1de0cba4a4e5c30abd7a1cf9d7aecd17b885",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-pt-short-focused",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "4842774199f7fb80c27ecf66217e1de0cba4a4e5c30abd7a1cf9d7aecd17b885",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-pt-linked-focused",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "a49cda23ef50525850ff9cd0b80d58fb74721cf86125f210a5265c5fd7036de8",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-pt-linked-focused",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "a49cda23ef50525850ff9cd0b80d58fb74721cf86125f210a5265c5fd7036de8",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-pt-cake-focused",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "a49cda23ef50525850ff9cd0b80d58fb74721cf86125f210a5265c5fd7036de8",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-pt-cake-focused",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "a49cda23ef50525850ff9cd0b80d58fb74721cf86125f210a5265c5fd7036de8",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-pt-unrelated",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "a49cda23ef50525850ff9cd0b80d58fb74721cf86125f210a5265c5fd7036de8",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-pt-unrelated",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "a49cda23ef50525850ff9cd0b80d58fb74721cf86125f210a5265c5fd7036de8",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-pt-empty",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "a49cda23ef50525850ff9cd0b80d58fb74721cf86125f210a5265c5fd7036de8",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-pt-empty",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "a49cda23ef50525850ff9cd0b80d58fb74721cf86125f210a5265c5fd7036de8",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-en-short-focused",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "e101708eb4852e89044b418fe36f56a6517bb1cca7b1bd4ecbedfddbc2248f34",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-en-short-focused",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "e101708eb4852e89044b418fe36f56a6517bb1cca7b1bd4ecbedfddbc2248f34",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-en-focused",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "c8e0954ae39a09ce6ff4ccb47c13b73c1b683fc216d9655912d8ef10e35bd859",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-en-focused",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "c8e0954ae39a09ce6ff4ccb47c13b73c1b683fc216d9655912d8ef10e35bd859",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-en-unrelated",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "c8e0954ae39a09ce6ff4ccb47c13b73c1b683fc216d9655912d8ef10e35bd859",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-en-unrelated",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "c8e0954ae39a09ce6ff4ccb47c13b73c1b683fc216d9655912d8ef10e35bd859",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-en-empty",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "c8e0954ae39a09ce6ff4ccb47c13b73c1b683fc216d9655912d8ef10e35bd859",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-en-empty",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "c8e0954ae39a09ce6ff4ccb47c13b73c1b683fc216d9655912d8ef10e35bd859",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-pt-suffix",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "3a2540dc7959c366eb29358cfe3d25e9796d4de72f87bd8c384f30f0a63ea2b4",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-pt-suffix",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "3a2540dc7959c366eb29358cfe3d25e9796d4de72f87bd8c384f30f0a63ea2b4",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-en-suffix",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "47b3560ee8da69bda79603926575c5ecd6c6314c19e540a5a0b8222621a55925",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-en-suffix",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "47b3560ee8da69bda79603926575c5ecd6c6314c19e540a5a0b8222621a55925",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-en-transfer",
+      "kind": "completion",
+      "language": "English",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "c8e0954ae39a09ce6ff4ccb47c13b73c1b683fc216d9655912d8ef10e35bd859",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-en-transfer",
+      "kind": "completion",
+      "language": "English",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "c8e0954ae39a09ce6ff4ccb47c13b73c1b683fc216d9655912d8ef10e35bd859",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-pt-uncertain",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "greedy",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "a49cda23ef50525850ff9cd0b80d58fb74721cf86125f210a5265c5fd7036de8",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    },
+    {
+      "id": "context-pt-uncertain",
+      "kind": "completion",
+      "language": "Portuguese",
+      "mode": "normal_family",
+      "grammar_path": "ordinary_exact_healing_replay",
+      "grammar_sha256": "a49cda23ef50525850ff9cd0b80d58fb74721cf86125f210a5265c5fd7036de8",
+      "base_cap": 64,
+      "native_cap_with_exact_replay": 65,
+      "status": "passed",
+      "comparisons": {
+        "pair_1": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "pair_2": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "reference_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        },
+        "wrapper_repeatability": {
+          "all_native_counts_exact": true,
+          "finish_exact": true,
+          "passed": true,
+          "prompt_logit_bits_sha256_exact": true,
+          "raw_utf8_exact": true
+        }
+      }
+    }
+  ],
+  "generation_trajectories": 456,
+  "cross_policy_pairs": 228,
+  "replay_only_is_not_useful_output": [
+    "suffix-pt-agreement",
+    "grammar-fr-agreement",
+    "suffix-ja-unspaced",
+    "context-pt-suffix"
+  ],
+  "empty_array_admission_exercised_by_this_run": false,
+  "raw_report_sha256": "e47f5945eb9a133b05a1961d5a8477325803aeb76e2a3caf734038d1505568f3"
+}

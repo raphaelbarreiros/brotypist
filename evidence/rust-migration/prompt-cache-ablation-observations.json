@@ -1,0 +1,2772 @@
+{
+  "schema": "brotypist-completed-prompt-ablation-observations-v1",
+  "scope": "All requested single-variable prompt/cache experiments plus the fixed-reminder alternative, completed in isolated scratch copies. No production prompt/state policy adoption.",
+  "model_sha256": "a555b900214b477d8880e7832e0b8925e139b0159640036b09fe472b6f2097f2",
+  "fixed_native_policy": {
+    "batch": 64,
+    "microbatch": 32,
+    "full_swa": true,
+    "flash_attention": "off"
+  },
+  "runtime_trace_contract": {
+    "rows": 523,
+    "warm_rows": 519,
+    "context_chars": 2000,
+    "worker_scalar_cap": 8000,
+    "reference_max_bytes": 8000,
+    "reference_selection": "canonical reference_context on full synthetic field and realistic labelled sources every event",
+    "seed": 1729,
+    "token_cap": 24,
+    "boundary": "mirrors caller scalar bounds; does not execute native authority, Runtime or IPC"
+  },
+  "baseline_warm_decoded_tokens": 186410,
+  "experiments": [
+    {
+      "change": "Remove replay JSON note only",
+      "adoption": "rejected",
+      "warm_decoded_tokens": 179152,
+      "reason": "New malformed English feedback nde and early Portuguese period in paired52 long controls.",
+      "semantic_gate": "failed",
+      "full64": "not_run_after_failure"
+    },
+    {
+      "change": "Replace replay JSON note with fixed native reminder",
+      "adoption": "rejected",
+      "reason": "Same feedback nde and premature Portuguese period in strict matched v4 long controls.",
+      "long_control_rows": 52,
+      "semantic_gate": "failed",
+      "decoded_work": "not_claimed",
+      "full64": "not_run_after_failure"
+    },
+    {
+      "change": "Move variable policy text out of system span",
+      "adoption": "rejected",
+      "warm_decoded_tokens": 186057,
+      "median_groups": {
+        "lower": 4,
+        "equal": 34,
+        "higher": 6
+      },
+      "long_controls": "No new objective text corruption found; four Portuguese offers lost.",
+      "reason": "Caret savings do not satisfy per-transition work gate; source-revision and English punctuation-backspace medians worsen.",
+      "full64": "not_run_after_work_failure",
+      "per_transition": [
+        {
+          "class": "en/long_window/backspace_across_word_boundary",
+          "count": 3,
+          "baseline_median": 433.0,
+          "candidate_median": 433.0,
+          "baseline_p90": 442,
+          "candidate_p90": 442,
+          "baseline_sum": 1308,
+          "candidate_sum": 1308
+        },
+        {
+          "class": "en/long_window/backspace_punctuation",
+          "count": 1,
+          "baseline_median": 890.0,
+          "candidate_median": 925.0,
+          "baseline_p90": 890,
+          "candidate_p90": 925,
+          "baseline_sum": 890,
+          "candidate_sum": 925
+        },
+        {
+          "class": "en/long_window/backspace_within_word",
+          "count": 10,
+          "baseline_median": 446.0,
+          "candidate_median": 446.0,
+          "baseline_p90": 842,
+          "candidate_p90": 877,
+          "baseline_sum": 5233,
+          "candidate_sum": 5303
+        },
+        {
+          "class": "en/long_window/caret_move",
+          "count": 4,
+          "baseline_median": 950.5,
+          "candidate_median": 496.0,
+          "baseline_p90": 1042,
+          "candidate_p90": 967,
+          "baseline_sum": 3395,
+          "candidate_sum": 2432
+        },
+        {
+          "class": "en/long_window/exact_repeat",
+          "count": 1,
+          "baseline_median": 1.0,
+          "candidate_median": 1.0,
+          "baseline_p90": 1,
+          "candidate_p90": 1,
+          "baseline_sum": 1,
+          "candidate_sum": 1
+        },
+        {
+          "class": "en/long_window/in_word_letter",
+          "count": 82,
+          "baseline_median": 441.0,
+          "candidate_median": 441.0,
+          "baseline_p90": 838,
+          "candidate_p90": 873,
+          "baseline_sum": 40706,
+          "candidate_sum": 41161
+        },
+        {
+          "class": "en/long_window/mid_line_typing",
+          "count": 13,
+          "baseline_median": 434.0,
+          "candidate_median": 434.0,
+          "baseline_p90": 434,
+          "candidate_p90": 434,
+          "baseline_sum": 5636,
+          "candidate_sum": 5636
+        },
+        {
+          "class": "en/long_window/punctuation_or_unicode",
+          "count": 19,
+          "baseline_median": 441.0,
+          "candidate_median": 441.0,
+          "baseline_p90": 898,
+          "candidate_p90": 933,
+          "baseline_sum": 9246,
+          "candidate_sum": 9316
+        },
+        {
+          "class": "en/long_window/source_revision",
+          "count": 2,
+          "baseline_median": 683.5,
+          "candidate_median": 731.5,
+          "baseline_p90": 729,
+          "candidate_p90": 764,
+          "baseline_sum": 1367,
+          "candidate_sum": 1463
+        },
+        {
+          "class": "en/long_window/space_after_punctuation_or_unicode",
+          "count": 16,
+          "baseline_median": 456.0,
+          "candidate_median": 456.0,
+          "baseline_p90": 462,
+          "candidate_p90": 462,
+          "baseline_sum": 7291,
+          "candidate_sum": 7291
+        },
+        {
+          "class": "en/long_window/word_completing_space",
+          "count": 14,
+          "baseline_median": 435.0,
+          "candidate_median": 435.0,
+          "baseline_p90": 446,
+          "candidate_p90": 446,
+          "baseline_sum": 6119,
+          "candidate_sum": 6119
+        },
+        {
+          "class": "en/short_window/backspace_across_word_boundary",
+          "count": 2,
+          "baseline_median": 31.0,
+          "candidate_median": 31.0,
+          "baseline_p90": 32,
+          "candidate_p90": 32,
+          "baseline_sum": 62,
+          "candidate_sum": 62
+        },
+        {
+          "class": "en/short_window/backspace_punctuation",
+          "count": 1,
+          "baseline_median": 487.0,
+          "candidate_median": 522.0,
+          "baseline_p90": 487,
+          "candidate_p90": 522,
+          "baseline_sum": 487,
+          "candidate_sum": 522
+        },
+        {
+          "class": "en/short_window/backspace_within_word",
+          "count": 3,
+          "baseline_median": 32.0,
+          "candidate_median": 32.0,
+          "baseline_p90": 440,
+          "candidate_p90": 475,
+          "baseline_sum": 503,
+          "candidate_sum": 538
+        },
+        {
+          "class": "en/short_window/caret_move",
+          "count": 4,
+          "baseline_median": 543.5,
+          "candidate_median": 93.5,
+          "baseline_p90": 639,
+          "candidate_p90": 554,
+          "baseline_sum": 1776,
+          "candidate_sum": 813
+        },
+        {
+          "class": "en/short_window/exact_repeat",
+          "count": 1,
+          "baseline_median": 1.0,
+          "candidate_median": 1.0,
+          "baseline_p90": 1,
+          "candidate_p90": 1,
+          "baseline_sum": 1,
+          "candidate_sum": 1
+        },
+        {
+          "class": "en/short_window/in_word_letter",
+          "count": 49,
+          "baseline_median": 22.0,
+          "candidate_median": 22.0,
+          "baseline_p90": 440,
+          "candidate_p90": 475,
+          "baseline_sum": 5401,
+          "candidate_sum": 5786
+        },
+        {
+          "class": "en/short_window/mid_line_typing",
+          "count": 13,
+          "baseline_median": 32.0,
+          "candidate_median": 32.0,
+          "baseline_p90": 32,
+          "candidate_p90": 32,
+          "baseline_sum": 357,
+          "candidate_sum": 357
+        },
+        {
+          "class": "en/short_window/punctuation_or_unicode",
+          "count": 7,
+          "baseline_median": 18.0,
+          "candidate_median": 18.0,
+          "baseline_p90": 495,
+          "candidate_p90": 530,
+          "baseline_sum": 1036,
+          "candidate_sum": 1106
+        },
+        {
+          "class": "en/short_window/source_revision",
+          "count": 2,
+          "baseline_median": 274.0,
+          "candidate_median": 322.0,
+          "baseline_p90": 312,
+          "candidate_p90": 347,
+          "baseline_sum": 548,
+          "candidate_sum": 644
+        },
+        {
+          "class": "en/short_window/space_after_punctuation_or_unicode",
+          "count": 4,
+          "baseline_median": 45.0,
+          "candidate_median": 45.0,
+          "baseline_p90": 46,
+          "candidate_p90": 46,
+          "baseline_sum": 170,
+          "candidate_sum": 170
+        },
+        {
+          "class": "en/short_window/word_completing_space",
+          "count": 9,
+          "baseline_median": 21.0,
+          "candidate_median": 21.0,
+          "baseline_p90": 32,
+          "candidate_p90": 32,
+          "baseline_sum": 199,
+          "candidate_sum": 199
+        },
+        {
+          "class": "pt-BR/long_window/backspace_across_word_boundary",
+          "count": 4,
+          "baseline_median": 464.0,
+          "candidate_median": 464.0,
+          "baseline_p90": 466,
+          "candidate_p90": 466,
+          "baseline_sum": 1856,
+          "candidate_sum": 1856
+        },
+        {
+          "class": "pt-BR/long_window/backspace_punctuation",
+          "count": 1,
+          "baseline_median": 479.0,
+          "candidate_median": 479.0,
+          "baseline_p90": 479,
+          "candidate_p90": 479,
+          "baseline_sum": 479,
+          "candidate_sum": 479
+        },
+        {
+          "class": "pt-BR/long_window/backspace_within_word",
+          "count": 9,
+          "baseline_median": 466.0,
+          "candidate_median": 466.0,
+          "baseline_p90": 877,
+          "candidate_p90": 912,
+          "baseline_sum": 5005,
+          "candidate_sum": 5075
+        },
+        {
+          "class": "pt-BR/long_window/caret_move",
+          "count": 4,
+          "baseline_median": 953.5,
+          "candidate_median": 735.5,
+          "baseline_p90": 1073,
+          "candidate_p90": 957,
+          "baseline_sum": 3461,
+          "candidate_sum": 2953
+        },
+        {
+          "class": "pt-BR/long_window/exact_repeat",
+          "count": 1,
+          "baseline_median": 1.0,
+          "candidate_median": 1.0,
+          "baseline_p90": 1,
+          "candidate_p90": 1,
+          "baseline_sum": 1,
+          "candidate_sum": 1
+        },
+        {
+          "class": "pt-BR/long_window/in_word_letter",
+          "count": 83,
+          "baseline_median": 465.0,
+          "candidate_median": 465.0,
+          "baseline_p90": 873,
+          "candidate_p90": 908,
+          "baseline_sum": 44429,
+          "candidate_sum": 44954
+        },
+        {
+          "class": "pt-BR/long_window/mid_line_typing",
+          "count": 12,
+          "baseline_median": 462.5,
+          "candidate_median": 462.5,
+          "baseline_p90": 463,
+          "candidate_p90": 463,
+          "baseline_sum": 5530,
+          "candidate_sum": 5530
+        },
+        {
+          "class": "pt-BR/long_window/punctuation_or_unicode",
+          "count": 19,
+          "baseline_median": 465.0,
+          "candidate_median": 465.0,
+          "baseline_p90": 469,
+          "candidate_p90": 469,
+          "baseline_sum": 8805,
+          "candidate_sum": 8805
+        },
+        {
+          "class": "pt-BR/long_window/source_revision",
+          "count": 2,
+          "baseline_median": 781.0,
+          "candidate_median": 829.0,
+          "baseline_p90": 783,
+          "candidate_p90": 844,
+          "baseline_sum": 1562,
+          "candidate_sum": 1658
+        },
+        {
+          "class": "pt-BR/long_window/space_after_punctuation_or_unicode",
+          "count": 16,
+          "baseline_median": 482.0,
+          "candidate_median": 482.0,
+          "baseline_p90": 485,
+          "candidate_p90": 485,
+          "baseline_sum": 7699,
+          "candidate_sum": 7699
+        },
+        {
+          "class": "pt-BR/long_window/word_completing_space",
+          "count": 13,
+          "baseline_median": 463.0,
+          "candidate_median": 463.0,
+          "baseline_p90": 466,
+          "candidate_p90": 466,
+          "baseline_sum": 6007,
+          "candidate_sum": 6007
+        },
+        {
+          "class": "pt-BR/short_window/backspace_across_word_boundary",
+          "count": 2,
+          "baseline_median": 34.0,
+          "candidate_median": 34.0,
+          "baseline_p90": 35,
+          "candidate_p90": 35,
+          "baseline_sum": 68,
+          "candidate_sum": 68
+        },
+        {
+          "class": "pt-BR/short_window/backspace_punctuation",
+          "count": 1,
+          "baseline_median": 49.0,
+          "candidate_median": 49.0,
+          "baseline_p90": 49,
+          "candidate_p90": 49,
+          "baseline_sum": 49,
+          "candidate_sum": 49
+        },
+        {
+          "class": "pt-BR/short_window/backspace_within_word",
+          "count": 3,
+          "baseline_median": 35.0,
+          "candidate_median": 35.0,
+          "baseline_p90": 445,
+          "candidate_p90": 480,
+          "baseline_sum": 514,
+          "candidate_sum": 549
+        },
+        {
+          "class": "pt-BR/short_window/caret_move",
+          "count": 4,
+          "baseline_median": 523.5,
+          "candidate_median": 304.0,
+          "baseline_p90": 644,
+          "candidate_p90": 532,
+          "baseline_sum": 1744,
+          "candidate_sum": 1236
+        },
+        {
+          "class": "pt-BR/short_window/exact_repeat",
+          "count": 1,
+          "baseline_median": 1.0,
+          "candidate_median": 1.0,
+          "baseline_p90": 1,
+          "candidate_p90": 1,
+          "baseline_sum": 1,
+          "candidate_sum": 1
+        },
+        {
+          "class": "pt-BR/short_window/in_word_letter",
+          "count": 51,
+          "baseline_median": 24.0,
+          "candidate_median": 24.0,
+          "baseline_p90": 450,
+          "candidate_p90": 485,
+          "baseline_sum": 5904,
+          "candidate_sum": 6324
+        },
+        {
+          "class": "pt-BR/short_window/mid_line_typing",
+          "count": 12,
+          "baseline_median": 35.0,
+          "candidate_median": 35.0,
+          "baseline_p90": 35,
+          "candidate_p90": 35,
+          "baseline_sum": 366,
+          "candidate_sum": 366
+        },
+        {
+          "class": "pt-BR/short_window/punctuation_or_unicode",
+          "count": 7,
+          "baseline_median": 20.0,
+          "candidate_median": 20.0,
+          "baseline_p90": 33,
+          "candidate_p90": 33,
+          "baseline_sum": 117,
+          "candidate_sum": 117
+        },
+        {
+          "class": "pt-BR/short_window/source_revision",
+          "count": 2,
+          "baseline_median": 347.5,
+          "candidate_median": 395.5,
+          "baseline_p90": 355,
+          "candidate_p90": 416,
+          "baseline_sum": 695,
+          "candidate_sum": 791
+        },
+        {
+          "class": "pt-BR/short_window/space_after_punctuation_or_unicode",
+          "count": 4,
+          "baseline_median": 48.0,
+          "candidate_median": 48.0,
+          "baseline_p90": 49,
+          "candidate_p90": 49,
+          "baseline_sum": 181,
+          "candidate_sum": 181
+        },
+        {
+          "class": "pt-BR/short_window/word_completing_space",
+          "count": 8,
+          "baseline_median": 24.5,
+          "candidate_median": 24.5,
+          "baseline_p90": 35,
+          "candidate_p90": 35,
+          "baseline_sum": 205,
+          "candidate_sum": 205
+        }
+      ]
+    },
+    {
+      "change": "Anchor caller long-draft start with85percent occupancy",
+      "adoption": "rejected",
+      "warm_decoded_tokens": 155254,
+      "median_groups": {
+        "lower": 20,
+        "equal": 24,
+        "higher": 0
+      },
+      "objective_regressions": [
+        {
+          "trace": "en-long",
+          "event": 13,
+          "joined": "confirmation of the bf"
+        },
+        {
+          "trace": "en-long",
+          "event": 68,
+          "joined": "nonumber"
+        },
+        {
+          "trace": "en-long",
+          "event": 127,
+          "joined": "Quartz dfunding"
+        },
+        {
+          "trace": "pt-long",
+          "event": 27,
+          "joined": "Quartz lında"
+        },
+        {
+          "trace": "pt-long",
+          "event": 138,
+          "joined": "faturna pendente."
+        },
+        {
+          "trace": "pt-long",
+          "event": 144,
+          "joined": "faturna pendente."
+        }
+      ],
+      "reason": "Decoded-work reduction introduces new malformed word joins despite retained current clause and relevant references.",
+      "named52_long_and_full64": "not_run_after_trace_semantic_failure",
+      "per_transition": [
+        {
+          "class": "en/long_window/backspace_across_word_boundary",
+          "baseline_median": 433.0,
+          "candidate_median": 327.0,
+          "baseline_p90": 442,
+          "candidate_p90": 348,
+          "baseline_sum": 1308,
+          "candidate_sum": 1000
+        },
+        {
+          "class": "en/long_window/backspace_punctuation",
+          "baseline_median": 890.0,
+          "candidate_median": 782.0,
+          "baseline_p90": 890,
+          "candidate_p90": 782,
+          "baseline_sum": 890,
+          "candidate_sum": 782
+        },
+        {
+          "class": "en/long_window/backspace_within_word",
+          "baseline_median": 446.0,
+          "candidate_median": 348.0,
+          "baseline_p90": 842,
+          "candidate_p90": 735,
+          "baseline_sum": 5233,
+          "candidate_sum": 4230
+        },
+        {
+          "class": "en/long_window/caret_move",
+          "baseline_median": 950.5,
+          "candidate_median": 855.0,
+          "baseline_p90": 1042,
+          "candidate_p90": 934,
+          "baseline_sum": 3395,
+          "candidate_sum": 2989
+        },
+        {
+          "class": "en/long_window/exact_repeat",
+          "baseline_median": 1.0,
+          "candidate_median": 1.0,
+          "baseline_p90": 1,
+          "candidate_p90": 1,
+          "baseline_sum": 1,
+          "candidate_sum": 1
+        },
+        {
+          "class": "en/long_window/in_word_letter",
+          "baseline_median": 441.0,
+          "candidate_median": 348.5,
+          "baseline_p90": 838,
+          "candidate_p90": 735,
+          "baseline_sum": 40706,
+          "candidate_sum": 33154
+        },
+        {
+          "class": "en/long_window/mid_line_typing",
+          "baseline_median": 434.0,
+          "candidate_median": 327.0,
+          "baseline_p90": 434,
+          "candidate_p90": 350,
+          "baseline_sum": 5636,
+          "candidate_sum": 4390
+        },
+        {
+          "class": "en/long_window/punctuation_or_unicode",
+          "baseline_median": 441.0,
+          "candidate_median": 339.0,
+          "baseline_p90": 898,
+          "candidate_p90": 790,
+          "baseline_sum": 9246,
+          "candidate_sum": 6377
+        },
+        {
+          "class": "en/long_window/source_revision",
+          "baseline_median": 683.5,
+          "candidate_median": 585.5,
+          "baseline_p90": 729,
+          "candidate_p90": 640,
+          "baseline_sum": 1367,
+          "candidate_sum": 1171
+        },
+        {
+          "class": "en/long_window/space_after_punctuation_or_unicode",
+          "baseline_median": 456.0,
+          "candidate_median": 355.5,
+          "baseline_p90": 462,
+          "candidate_p90": 372,
+          "baseline_sum": 7291,
+          "candidate_sum": 5703
+        },
+        {
+          "class": "en/long_window/word_completing_space",
+          "baseline_median": 435.0,
+          "candidate_median": 347.5,
+          "baseline_p90": 446,
+          "candidate_p90": 350,
+          "baseline_sum": 6119,
+          "candidate_sum": 4823
+        },
+        {
+          "class": "en/short_window/backspace_across_word_boundary",
+          "baseline_median": 31.0,
+          "candidate_median": 31.0,
+          "baseline_p90": 32,
+          "candidate_p90": 32,
+          "baseline_sum": 62,
+          "candidate_sum": 62
+        },
+        {
+          "class": "en/short_window/backspace_punctuation",
+          "baseline_median": 487.0,
+          "candidate_median": 487.0,
+          "baseline_p90": 487,
+          "candidate_p90": 487,
+          "baseline_sum": 487,
+          "candidate_sum": 487
+        },
+        {
+          "class": "en/short_window/backspace_within_word",
+          "baseline_median": 32.0,
+          "candidate_median": 32.0,
+          "baseline_p90": 440,
+          "candidate_p90": 440,
+          "baseline_sum": 503,
+          "candidate_sum": 503
+        },
+        {
+          "class": "en/short_window/caret_move",
+          "baseline_median": 543.5,
+          "candidate_median": 543.5,
+          "baseline_p90": 639,
+          "candidate_p90": 639,
+          "baseline_sum": 1776,
+          "candidate_sum": 1776
+        },
+        {
+          "class": "en/short_window/exact_repeat",
+          "baseline_median": 1.0,
+          "candidate_median": 1.0,
+          "baseline_p90": 1,
+          "candidate_p90": 1,
+          "baseline_sum": 1,
+          "candidate_sum": 1
+        },
+        {
+          "class": "en/short_window/in_word_letter",
+          "baseline_median": 22.0,
+          "candidate_median": 22.0,
+          "baseline_p90": 440,
+          "candidate_p90": 440,
+          "baseline_sum": 5401,
+          "candidate_sum": 5401
+        },
+        {
+          "class": "en/short_window/mid_line_typing",
+          "baseline_median": 32.0,
+          "candidate_median": 32.0,
+          "baseline_p90": 32,
+          "candidate_p90": 32,
+          "baseline_sum": 357,
+          "candidate_sum": 357
+        },
+        {
+          "class": "en/short_window/punctuation_or_unicode",
+          "baseline_median": 18.0,
+          "candidate_median": 18.0,
+          "baseline_p90": 495,
+          "candidate_p90": 495,
+          "baseline_sum": 1036,
+          "candidate_sum": 1036
+        },
+        {
+          "class": "en/short_window/source_revision",
+          "baseline_median": 274.0,
+          "candidate_median": 274.0,
+          "baseline_p90": 312,
+          "candidate_p90": 312,
+          "baseline_sum": 548,
+          "candidate_sum": 548
+        },
+        {
+          "class": "en/short_window/space_after_punctuation_or_unicode",
+          "baseline_median": 45.0,
+          "candidate_median": 45.0,
+          "baseline_p90": 46,
+          "candidate_p90": 46,
+          "baseline_sum": 170,
+          "candidate_sum": 170
+        },
+        {
+          "class": "en/short_window/word_completing_space",
+          "baseline_median": 21.0,
+          "candidate_median": 21.0,
+          "baseline_p90": 32,
+          "candidate_p90": 32,
+          "baseline_sum": 199,
+          "candidate_sum": 199
+        },
+        {
+          "class": "pt-BR/long_window/backspace_across_word_boundary",
+          "baseline_median": 464.0,
+          "candidate_median": 377.0,
+          "baseline_p90": 466,
+          "candidate_p90": 388,
+          "baseline_sum": 1856,
+          "candidate_sum": 1508
+        },
+        {
+          "class": "pt-BR/long_window/backspace_punctuation",
+          "baseline_median": 479.0,
+          "candidate_median": 382.0,
+          "baseline_p90": 479,
+          "candidate_p90": 382,
+          "baseline_sum": 479,
+          "candidate_sum": 382
+        },
+        {
+          "class": "pt-BR/long_window/backspace_within_word",
+          "baseline_median": 466.0,
+          "candidate_median": 387.0,
+          "baseline_p90": 877,
+          "candidate_p90": 798,
+          "baseline_sum": 5005,
+          "candidate_sum": 4245
+        },
+        {
+          "class": "pt-BR/long_window/caret_move",
+          "baseline_median": 953.5,
+          "candidate_median": 856.5,
+          "baseline_p90": 1073,
+          "candidate_p90": 977,
+          "baseline_sum": 3461,
+          "candidate_sum": 3076
+        },
+        {
+          "class": "pt-BR/long_window/exact_repeat",
+          "baseline_median": 1.0,
+          "candidate_median": 1.0,
+          "baseline_p90": 1,
+          "candidate_p90": 1,
+          "baseline_sum": 1,
+          "candidate_sum": 1
+        },
+        {
+          "class": "pt-BR/long_window/in_word_letter",
+          "baseline_median": 465.0,
+          "candidate_median": 386.0,
+          "baseline_p90": 873,
+          "candidate_p90": 778,
+          "baseline_sum": 44429,
+          "candidate_sum": 37921
+        },
+        {
+          "class": "pt-BR/long_window/mid_line_typing",
+          "baseline_median": 462.5,
+          "candidate_median": 368.0,
+          "baseline_p90": 463,
+          "candidate_p90": 368,
+          "baseline_sum": 5530,
+          "candidate_sum": 4362
+        },
+        {
+          "class": "pt-BR/long_window/punctuation_or_unicode",
+          "baseline_median": 465.0,
+          "candidate_median": 377.0,
+          "baseline_p90": 469,
+          "candidate_p90": 390,
+          "baseline_sum": 8805,
+          "candidate_sum": 6066
+        },
+        {
+          "class": "pt-BR/long_window/source_revision",
+          "baseline_median": 781.0,
+          "candidate_median": 695.0,
+          "baseline_p90": 783,
+          "candidate_p90": 702,
+          "baseline_sum": 1562,
+          "candidate_sum": 1390
+        },
+        {
+          "class": "pt-BR/long_window/space_after_punctuation_or_unicode",
+          "baseline_median": 482.0,
+          "candidate_median": 394.5,
+          "baseline_p90": 485,
+          "candidate_p90": 409,
+          "baseline_sum": 7699,
+          "candidate_sum": 6322
+        },
+        {
+          "class": "pt-BR/long_window/word_completing_space",
+          "baseline_median": 463.0,
+          "candidate_median": 385.0,
+          "baseline_p90": 466,
+          "candidate_p90": 388,
+          "baseline_sum": 6007,
+          "candidate_sum": 4977
+        },
+        {
+          "class": "pt-BR/short_window/backspace_across_word_boundary",
+          "baseline_median": 34.0,
+          "candidate_median": 34.0,
+          "baseline_p90": 35,
+          "candidate_p90": 35,
+          "baseline_sum": 68,
+          "candidate_sum": 68
+        },
+        {
+          "class": "pt-BR/short_window/backspace_punctuation",
+          "baseline_median": 49.0,
+          "candidate_median": 49.0,
+          "baseline_p90": 49,
+          "candidate_p90": 49,
+          "baseline_sum": 49,
+          "candidate_sum": 49
+        },
+        {
+          "class": "pt-BR/short_window/backspace_within_word",
+          "baseline_median": 35.0,
+          "candidate_median": 35.0,
+          "baseline_p90": 445,
+          "candidate_p90": 445,
+          "baseline_sum": 514,
+          "candidate_sum": 514
+        },
+        {
+          "class": "pt-BR/short_window/caret_move",
+          "baseline_median": 523.5,
+          "candidate_median": 523.5,
+          "baseline_p90": 644,
+          "candidate_p90": 644,
+          "baseline_sum": 1744,
+          "candidate_sum": 1744
+        },
+        {
+          "class": "pt-BR/short_window/exact_repeat",
+          "baseline_median": 1.0,
+          "candidate_median": 1.0,
+          "baseline_p90": 1,
+          "candidate_p90": 1,
+          "baseline_sum": 1,
+          "candidate_sum": 1
+        },
+        {
+          "class": "pt-BR/short_window/in_word_letter",
+          "baseline_median": 24.0,
+          "candidate_median": 24.0,
+          "baseline_p90": 450,
+          "candidate_p90": 450,
+          "baseline_sum": 5904,
+          "candidate_sum": 5904
+        },
+        {
+          "class": "pt-BR/short_window/mid_line_typing",
+          "baseline_median": 35.0,
+          "candidate_median": 35.0,
+          "baseline_p90": 35,
+          "candidate_p90": 35,
+          "baseline_sum": 366,
+          "candidate_sum": 366
+        },
+        {
+          "class": "pt-BR/short_window/punctuation_or_unicode",
+          "baseline_median": 20.0,
+          "candidate_median": 20.0,
+          "baseline_p90": 33,
+          "candidate_p90": 33,
+          "baseline_sum": 117,
+          "candidate_sum": 117
+        },
+        {
+          "class": "pt-BR/short_window/source_revision",
+          "baseline_median": 347.5,
+          "candidate_median": 347.5,
+          "baseline_p90": 355,
+          "candidate_p90": 355,
+          "baseline_sum": 695,
+          "candidate_sum": 695
+        },
+        {
+          "class": "pt-BR/short_window/space_after_punctuation_or_unicode",
+          "baseline_median": 48.0,
+          "candidate_median": 48.0,
+          "baseline_p90": 49,
+          "candidate_p90": 49,
+          "baseline_sum": 181,
+          "candidate_sum": 181
+        },
+        {
+          "class": "pt-BR/short_window/word_completing_space",
+          "baseline_median": 24.5,
+          "candidate_median": 24.5,
+          "baseline_p90": 35,
+          "candidate_p90": 35,
+          "baseline_sum": 205,
+          "candidate_sum": 205
+        }
+      ]
+    },
+    {
+      "change": "Sticky field language hint only",
+      "adoption": "rejected",
+      "warm_decoded_tokens": 179820,
+      "median_groups": {
+        "lower": 3,
+        "equal": 41,
+        "higher": 0
+      },
+      "objective_regressions": [
+        {
+          "trace": "pt-short",
+          "event": 28,
+          "baseline": "lançamento",
+          "candidate": "lansamento"
+        },
+        {
+          "trace": "pt-short",
+          "event": 41,
+          "baseline": "protótipo está pronto",
+          "candidate": "prototype ready"
+        }
+      ],
+      "reason": "Portuguese spelling/language regressions; English review did not establish a new unequivocal objective insertion error.",
+      "named52_long_and_full64": "not_run_after_trace_semantic_failure",
+      "per_transition": [
+        {
+          "class": "en/long_window/backspace_across_word_boundary",
+          "baseline_median": 433.0,
+          "candidate_median": 433.0,
+          "baseline_p90": 442,
+          "candidate_p90": 442,
+          "baseline_sum": 1308,
+          "candidate_sum": 1308
+        },
+        {
+          "class": "en/long_window/backspace_punctuation",
+          "baseline_median": 890.0,
+          "candidate_median": 890.0,
+          "baseline_p90": 890,
+          "candidate_p90": 890,
+          "baseline_sum": 890,
+          "candidate_sum": 890
+        },
+        {
+          "class": "en/long_window/backspace_within_word",
+          "baseline_median": 446.0,
+          "candidate_median": 446.0,
+          "baseline_p90": 842,
+          "candidate_p90": 842,
+          "baseline_sum": 5233,
+          "candidate_sum": 5233
+        },
+        {
+          "class": "en/long_window/caret_move",
+          "baseline_median": 950.5,
+          "candidate_median": 950.5,
+          "baseline_p90": 1042,
+          "candidate_p90": 1042,
+          "baseline_sum": 3395,
+          "candidate_sum": 3395
+        },
+        {
+          "class": "en/long_window/exact_repeat",
+          "baseline_median": 1.0,
+          "candidate_median": 1.0,
+          "baseline_p90": 1,
+          "candidate_p90": 1,
+          "baseline_sum": 1,
+          "candidate_sum": 1
+        },
+        {
+          "class": "en/long_window/in_word_letter",
+          "baseline_median": 441.0,
+          "candidate_median": 440.0,
+          "baseline_p90": 838,
+          "candidate_p90": 709,
+          "baseline_sum": 40706,
+          "candidate_sum": 39757
+        },
+        {
+          "class": "en/long_window/mid_line_typing",
+          "baseline_median": 434.0,
+          "candidate_median": 434.0,
+          "baseline_p90": 434,
+          "candidate_p90": 434,
+          "baseline_sum": 5636,
+          "candidate_sum": 5636
+        },
+        {
+          "class": "en/long_window/punctuation_or_unicode",
+          "baseline_median": 441.0,
+          "candidate_median": 440.0,
+          "baseline_p90": 898,
+          "candidate_p90": 446,
+          "baseline_sum": 9246,
+          "candidate_sum": 8781
+        },
+        {
+          "class": "en/long_window/source_revision",
+          "baseline_median": 683.5,
+          "candidate_median": 683.5,
+          "baseline_p90": 729,
+          "candidate_p90": 729,
+          "baseline_sum": 1367,
+          "candidate_sum": 1367
+        },
+        {
+          "class": "en/long_window/space_after_punctuation_or_unicode",
+          "baseline_median": 456.0,
+          "candidate_median": 456.0,
+          "baseline_p90": 462,
+          "candidate_p90": 462,
+          "baseline_sum": 7291,
+          "candidate_sum": 7291
+        },
+        {
+          "class": "en/long_window/word_completing_space",
+          "baseline_median": 435.0,
+          "candidate_median": 435.0,
+          "baseline_p90": 446,
+          "candidate_p90": 446,
+          "baseline_sum": 6119,
+          "candidate_sum": 6119
+        },
+        {
+          "class": "en/short_window/backspace_across_word_boundary",
+          "baseline_median": 31.0,
+          "candidate_median": 31.0,
+          "baseline_p90": 32,
+          "candidate_p90": 32,
+          "baseline_sum": 62,
+          "candidate_sum": 62
+        },
+        {
+          "class": "en/short_window/backspace_punctuation",
+          "baseline_median": 487.0,
+          "candidate_median": 487.0,
+          "baseline_p90": 487,
+          "candidate_p90": 487,
+          "baseline_sum": 487,
+          "candidate_sum": 487
+        },
+        {
+          "class": "en/short_window/backspace_within_word",
+          "baseline_median": 32.0,
+          "candidate_median": 32.0,
+          "baseline_p90": 440,
+          "candidate_p90": 440,
+          "baseline_sum": 503,
+          "candidate_sum": 503
+        },
+        {
+          "class": "en/short_window/caret_move",
+          "baseline_median": 543.5,
+          "candidate_median": 543.5,
+          "baseline_p90": 639,
+          "candidate_p90": 639,
+          "baseline_sum": 1776,
+          "candidate_sum": 1776
+        },
+        {
+          "class": "en/short_window/exact_repeat",
+          "baseline_median": 1.0,
+          "candidate_median": 1.0,
+          "baseline_p90": 1,
+          "candidate_p90": 1,
+          "baseline_sum": 1,
+          "candidate_sum": 1
+        },
+        {
+          "class": "en/short_window/in_word_letter",
+          "baseline_median": 22.0,
+          "candidate_median": 22.0,
+          "baseline_p90": 440,
+          "candidate_p90": 427,
+          "baseline_sum": 5401,
+          "candidate_sum": 4452
+        },
+        {
+          "class": "en/short_window/mid_line_typing",
+          "baseline_median": 32.0,
+          "candidate_median": 32.0,
+          "baseline_p90": 32,
+          "candidate_p90": 32,
+          "baseline_sum": 357,
+          "candidate_sum": 357
+        },
+        {
+          "class": "en/short_window/punctuation_or_unicode",
+          "baseline_median": 18.0,
+          "candidate_median": 18.0,
+          "baseline_p90": 495,
+          "candidate_p90": 495,
+          "baseline_sum": 1036,
+          "candidate_sum": 571
+        },
+        {
+          "class": "en/short_window/source_revision",
+          "baseline_median": 274.0,
+          "candidate_median": 274.0,
+          "baseline_p90": 312,
+          "candidate_p90": 312,
+          "baseline_sum": 548,
+          "candidate_sum": 548
+        },
+        {
+          "class": "en/short_window/space_after_punctuation_or_unicode",
+          "baseline_median": 45.0,
+          "candidate_median": 45.0,
+          "baseline_p90": 46,
+          "candidate_p90": 46,
+          "baseline_sum": 170,
+          "candidate_sum": 170
+        },
+        {
+          "class": "en/short_window/word_completing_space",
+          "baseline_median": 21.0,
+          "candidate_median": 21.0,
+          "baseline_p90": 32,
+          "candidate_p90": 32,
+          "baseline_sum": 199,
+          "candidate_sum": 199
+        },
+        {
+          "class": "pt-BR/long_window/backspace_across_word_boundary",
+          "baseline_median": 464.0,
+          "candidate_median": 464.0,
+          "baseline_p90": 466,
+          "candidate_p90": 466,
+          "baseline_sum": 1856,
+          "candidate_sum": 1856
+        },
+        {
+          "class": "pt-BR/long_window/backspace_punctuation",
+          "baseline_median": 479.0,
+          "candidate_median": 479.0,
+          "baseline_p90": 479,
+          "candidate_p90": 479,
+          "baseline_sum": 479,
+          "candidate_sum": 479
+        },
+        {
+          "class": "pt-BR/long_window/backspace_within_word",
+          "baseline_median": 466.0,
+          "candidate_median": 466.0,
+          "baseline_p90": 877,
+          "candidate_p90": 877,
+          "baseline_sum": 5005,
+          "candidate_sum": 5005
+        },
+        {
+          "class": "pt-BR/long_window/caret_move",
+          "baseline_median": 953.5,
+          "candidate_median": 953.5,
+          "baseline_p90": 1073,
+          "candidate_p90": 1073,
+          "baseline_sum": 3461,
+          "candidate_sum": 3461
+        },
+        {
+          "class": "pt-BR/long_window/exact_repeat",
+          "baseline_median": 1.0,
+          "candidate_median": 1.0,
+          "baseline_p90": 1,
+          "candidate_p90": 1,
+          "baseline_sum": 1,
+          "candidate_sum": 1
+        },
+        {
+          "class": "pt-BR/long_window/in_word_letter",
+          "baseline_median": 465.0,
+          "candidate_median": 464.0,
+          "baseline_p90": 873,
+          "candidate_p90": 838,
+          "baseline_sum": 44429,
+          "candidate_sum": 42548
+        },
+        {
+          "class": "pt-BR/long_window/mid_line_typing",
+          "baseline_median": 462.5,
+          "candidate_median": 462.5,
+          "baseline_p90": 463,
+          "candidate_p90": 463,
+          "baseline_sum": 5530,
+          "candidate_sum": 5530
+        },
+        {
+          "class": "pt-BR/long_window/punctuation_or_unicode",
+          "baseline_median": 465.0,
+          "candidate_median": 465.0,
+          "baseline_p90": 469,
+          "candidate_p90": 469,
+          "baseline_sum": 8805,
+          "candidate_sum": 8805
+        },
+        {
+          "class": "pt-BR/long_window/source_revision",
+          "baseline_median": 781.0,
+          "candidate_median": 781.0,
+          "baseline_p90": 783,
+          "candidate_p90": 783,
+          "baseline_sum": 1562,
+          "candidate_sum": 1562
+        },
+        {
+          "class": "pt-BR/long_window/space_after_punctuation_or_unicode",
+          "baseline_median": 482.0,
+          "candidate_median": 482.0,
+          "baseline_p90": 485,
+          "candidate_p90": 485,
+          "baseline_sum": 7699,
+          "candidate_sum": 7699
+        },
+        {
+          "class": "pt-BR/long_window/word_completing_space",
+          "baseline_median": 463.0,
+          "candidate_median": 463.0,
+          "baseline_p90": 466,
+          "candidate_p90": 466,
+          "baseline_sum": 6007,
+          "candidate_sum": 6007
+        },
+        {
+          "class": "pt-BR/short_window/backspace_across_word_boundary",
+          "baseline_median": 34.0,
+          "candidate_median": 34.0,
+          "baseline_p90": 35,
+          "candidate_p90": 35,
+          "baseline_sum": 68,
+          "candidate_sum": 68
+        },
+        {
+          "class": "pt-BR/short_window/backspace_punctuation",
+          "baseline_median": 49.0,
+          "candidate_median": 49.0,
+          "baseline_p90": 49,
+          "candidate_p90": 49,
+          "baseline_sum": 49,
+          "candidate_sum": 49
+        },
+        {
+          "class": "pt-BR/short_window/backspace_within_word",
+          "baseline_median": 35.0,
+          "candidate_median": 35.0,
+          "baseline_p90": 445,
+          "candidate_p90": 445,
+          "baseline_sum": 514,
+          "candidate_sum": 514
+        },
+        {
+          "class": "pt-BR/short_window/caret_move",
+          "baseline_median": 523.5,
+          "candidate_median": 523.5,
+          "baseline_p90": 644,
+          "candidate_p90": 644,
+          "baseline_sum": 1744,
+          "candidate_sum": 1744
+        },
+        {
+          "class": "pt-BR/short_window/exact_repeat",
+          "baseline_median": 1.0,
+          "candidate_median": 1.0,
+          "baseline_p90": 1,
+          "candidate_p90": 1,
+          "baseline_sum": 1,
+          "candidate_sum": 1
+        },
+        {
+          "class": "pt-BR/short_window/in_word_letter",
+          "baseline_median": 24.0,
+          "candidate_median": 24.0,
+          "baseline_p90": 450,
+          "candidate_p90": 373,
+          "baseline_sum": 5904,
+          "candidate_sum": 4023
+        },
+        {
+          "class": "pt-BR/short_window/mid_line_typing",
+          "baseline_median": 35.0,
+          "candidate_median": 35.0,
+          "baseline_p90": 35,
+          "candidate_p90": 35,
+          "baseline_sum": 366,
+          "candidate_sum": 366
+        },
+        {
+          "class": "pt-BR/short_window/punctuation_or_unicode",
+          "baseline_median": 20.0,
+          "candidate_median": 20.0,
+          "baseline_p90": 33,
+          "candidate_p90": 33,
+          "baseline_sum": 117,
+          "candidate_sum": 117
+        },
+        {
+          "class": "pt-BR/short_window/source_revision",
+          "baseline_median": 347.5,
+          "candidate_median": 347.5,
+          "baseline_p90": 355,
+          "candidate_p90": 355,
+          "baseline_sum": 695,
+          "candidate_sum": 695
+        },
+        {
+          "class": "pt-BR/short_window/space_after_punctuation_or_unicode",
+          "baseline_median": 48.0,
+          "candidate_median": 48.0,
+          "baseline_p90": 49,
+          "candidate_p90": 49,
+          "baseline_sum": 181,
+          "candidate_sum": 181
+        },
+        {
+          "class": "pt-BR/short_window/word_completing_space",
+          "baseline_median": 24.5,
+          "candidate_median": 24.5,
+          "baseline_p90": 35,
+          "candidate_p90": 35,
+          "baseline_sum": 205,
+          "candidate_sum": 205
+        }
+      ]
+    },
+    {
+      "change": "Fixed draft allowance and reference selection frozen by explicit source/authority/window epochs",
+      "adoption": "rejected",
+      "fixed_draft_tokens": 2048,
+      "paired_rows_per_arm": 611,
+      "ordinary_rows_per_arm": 523,
+      "extra_authority_rows_per_arm": 88,
+      "allocation_control": {
+        "warm_decoded_tokens": 186410,
+        "context_differences_vs_original": 0,
+        "output_differences_vs_original": 0
+      },
+      "frozen_warm_decoded_tokens": 178991,
+      "median_groups": {
+        "lower": 4,
+        "equal": 34,
+        "higher": 6
+      },
+      "selection_hits": 196,
+      "denied_admission_rows_per_arm": 32,
+      "denied_used_context_empty": true,
+      "objective_regressions": [
+        {
+          "trace": "en-short",
+          "events": [
+            42,
+            43,
+            44
+          ],
+          "finding": "Assigns Tokyo prototype exploratory status to Quartz prototype; frozen selection omits the Quartz-ready checklist retained by the live selector."
+        }
+      ],
+      "reason": "Per-transition work regressions and new unsupported entity/status attribution. Portuguese review found no new definite join or fact contradiction, but lost offers and weaker qualification remain.",
+      "named52_long_and_full64": "not_run_after_work_and_grounding_failure",
+      "per_transition": [
+        {
+          "class": "en/short_window/in_word_letter",
+          "count": 49,
+          "baseline_median": 22.0,
+          "candidate_median": 22,
+          "baseline_sum": 5401,
+          "candidate_sum": 2650,
+          "candidate_p90": 32,
+          "baseline_p90": 440
+        },
+        {
+          "class": "en/short_window/word_completing_space",
+          "count": 9,
+          "baseline_median": 21.0,
+          "candidate_median": 21,
+          "baseline_sum": 199,
+          "candidate_sum": 199,
+          "candidate_p90": 32,
+          "baseline_p90": 32
+        },
+        {
+          "class": "en/short_window/punctuation_or_unicode",
+          "count": 7,
+          "baseline_median": 18.0,
+          "candidate_median": 18,
+          "baseline_sum": 1036,
+          "candidate_sum": 977,
+          "candidate_p90": 495,
+          "baseline_p90": 495
+        },
+        {
+          "class": "en/short_window/space_after_punctuation_or_unicode",
+          "count": 4,
+          "baseline_median": 45.0,
+          "candidate_median": 45.0,
+          "baseline_sum": 170,
+          "candidate_sum": 170,
+          "candidate_p90": 46,
+          "baseline_p90": 46
+        },
+        {
+          "class": "en/short_window/source_revision",
+          "count": 2,
+          "baseline_median": 274.0,
+          "candidate_median": 303.5,
+          "baseline_sum": 548,
+          "candidate_sum": 607,
+          "candidate_p90": 371,
+          "baseline_p90": 312
+        },
+        {
+          "class": "en/short_window/backspace_across_word_boundary",
+          "count": 2,
+          "baseline_median": 31.0,
+          "candidate_median": 237.5,
+          "baseline_sum": 62,
+          "candidate_sum": 475,
+          "candidate_p90": 443,
+          "baseline_p90": 32
+        },
+        {
+          "class": "en/short_window/backspace_punctuation",
+          "count": 1,
+          "baseline_median": 487.0,
+          "candidate_median": 487,
+          "baseline_sum": 487,
+          "candidate_sum": 487,
+          "candidate_p90": 487,
+          "baseline_p90": 487
+        },
+        {
+          "class": "en/short_window/backspace_within_word",
+          "count": 3,
+          "baseline_median": 32.0,
+          "candidate_median": 32,
+          "baseline_sum": 503,
+          "candidate_sum": 95,
+          "candidate_p90": 32,
+          "baseline_p90": 440
+        },
+        {
+          "class": "en/short_window/caret_move",
+          "count": 4,
+          "baseline_median": 543.5,
+          "candidate_median": 543.5,
+          "baseline_sum": 1776,
+          "candidate_sum": 1776,
+          "candidate_p90": 639,
+          "baseline_p90": 639
+        },
+        {
+          "class": "en/short_window/mid_line_typing",
+          "count": 13,
+          "baseline_median": 32.0,
+          "candidate_median": 32,
+          "baseline_sum": 357,
+          "candidate_sum": 357,
+          "candidate_p90": 32,
+          "baseline_p90": 32
+        },
+        {
+          "class": "en/short_window/exact_repeat",
+          "count": 1,
+          "baseline_median": 1.0,
+          "candidate_median": 1,
+          "baseline_sum": 1,
+          "candidate_sum": 1,
+          "candidate_p90": 1,
+          "baseline_p90": 1
+        },
+        {
+          "class": "pt-BR/short_window/in_word_letter",
+          "count": 51,
+          "baseline_median": 24.0,
+          "candidate_median": 24,
+          "baseline_sum": 5904,
+          "candidate_sum": 3524,
+          "candidate_p90": 391,
+          "baseline_p90": 450
+        },
+        {
+          "class": "pt-BR/short_window/word_completing_space",
+          "count": 8,
+          "baseline_median": 24.5,
+          "candidate_median": 24.5,
+          "baseline_sum": 205,
+          "candidate_sum": 205,
+          "candidate_p90": 35,
+          "baseline_p90": 35
+        },
+        {
+          "class": "pt-BR/short_window/punctuation_or_unicode",
+          "count": 7,
+          "baseline_median": 20.0,
+          "candidate_median": 20,
+          "baseline_sum": 117,
+          "candidate_sum": 117,
+          "candidate_p90": 33,
+          "baseline_p90": 33
+        },
+        {
+          "class": "pt-BR/short_window/space_after_punctuation_or_unicode",
+          "count": 4,
+          "baseline_median": 48.0,
+          "candidate_median": 48.0,
+          "baseline_sum": 181,
+          "candidate_sum": 181,
+          "candidate_p90": 49,
+          "baseline_p90": 49
+        },
+        {
+          "class": "pt-BR/short_window/source_revision",
+          "count": 2,
+          "baseline_median": 347.5,
+          "candidate_median": 347.5,
+          "baseline_sum": 695,
+          "candidate_sum": 695,
+          "candidate_p90": 355,
+          "baseline_p90": 355
+        },
+        {
+          "class": "pt-BR/short_window/backspace_across_word_boundary",
+          "count": 2,
+          "baseline_median": 34.0,
+          "candidate_median": 246.5,
+          "baseline_sum": 68,
+          "candidate_sum": 493,
+          "candidate_p90": 458,
+          "baseline_p90": 35
+        },
+        {
+          "class": "pt-BR/short_window/backspace_punctuation",
+          "count": 1,
+          "baseline_median": 49.0,
+          "candidate_median": 49,
+          "baseline_sum": 49,
+          "candidate_sum": 49,
+          "candidate_p90": 49,
+          "baseline_p90": 49
+        },
+        {
+          "class": "pt-BR/short_window/backspace_within_word",
+          "count": 3,
+          "baseline_median": 35.0,
+          "candidate_median": 35,
+          "baseline_sum": 514,
+          "candidate_sum": 104,
+          "candidate_p90": 35,
+          "baseline_p90": 445
+        },
+        {
+          "class": "pt-BR/short_window/caret_move",
+          "count": 4,
+          "baseline_median": 523.5,
+          "candidate_median": 523.5,
+          "baseline_sum": 1744,
+          "candidate_sum": 1744,
+          "candidate_p90": 644,
+          "baseline_p90": 644
+        },
+        {
+          "class": "pt-BR/short_window/mid_line_typing",
+          "count": 12,
+          "baseline_median": 35.0,
+          "candidate_median": 35.0,
+          "baseline_sum": 366,
+          "candidate_sum": 366,
+          "candidate_p90": 35,
+          "baseline_p90": 35
+        },
+        {
+          "class": "pt-BR/short_window/exact_repeat",
+          "count": 1,
+          "baseline_median": 1.0,
+          "candidate_median": 1,
+          "baseline_sum": 1,
+          "candidate_sum": 1,
+          "candidate_p90": 1,
+          "baseline_p90": 1
+        },
+        {
+          "class": "en/long_window/in_word_letter",
+          "count": 82,
+          "baseline_median": 441.0,
+          "candidate_median": 436.5,
+          "baseline_sum": 40706,
+          "candidate_sum": 37636,
+          "candidate_p90": 447,
+          "baseline_p90": 838
+        },
+        {
+          "class": "en/long_window/word_completing_space",
+          "count": 14,
+          "baseline_median": 435.0,
+          "candidate_median": 500.5,
+          "baseline_sum": 6119,
+          "candidate_sum": 8230,
+          "candidate_p90": 846,
+          "baseline_p90": 446
+        },
+        {
+          "class": "en/long_window/punctuation_or_unicode",
+          "count": 19,
+          "baseline_median": 441.0,
+          "candidate_median": 441,
+          "baseline_sum": 9246,
+          "candidate_sum": 9246,
+          "candidate_p90": 898,
+          "baseline_p90": 898
+        },
+        {
+          "class": "en/long_window/space_after_punctuation_or_unicode",
+          "count": 16,
+          "baseline_median": 456.0,
+          "candidate_median": 456.0,
+          "baseline_sum": 7291,
+          "candidate_sum": 7291,
+          "candidate_p90": 462,
+          "baseline_p90": 462
+        },
+        {
+          "class": "en/long_window/source_revision",
+          "count": 2,
+          "baseline_median": 683.5,
+          "candidate_median": 683.5,
+          "baseline_sum": 1367,
+          "candidate_sum": 1367,
+          "candidate_p90": 729,
+          "baseline_p90": 729
+        },
+        {
+          "class": "en/long_window/backspace_across_word_boundary",
+          "count": 3,
+          "baseline_median": 433.0,
+          "candidate_median": 433,
+          "baseline_sum": 1308,
+          "candidate_sum": 1713,
+          "candidate_p90": 847,
+          "baseline_p90": 442
+        },
+        {
+          "class": "en/long_window/backspace_punctuation",
+          "count": 1,
+          "baseline_median": 890.0,
+          "candidate_median": 890,
+          "baseline_sum": 890,
+          "candidate_sum": 890,
+          "candidate_p90": 890,
+          "baseline_p90": 890
+        },
+        {
+          "class": "en/long_window/backspace_within_word",
+          "count": 10,
+          "baseline_median": 446.0,
+          "candidate_median": 445.0,
+          "baseline_sum": 5233,
+          "candidate_sum": 4420,
+          "candidate_p90": 446,
+          "baseline_p90": 842
+        },
+        {
+          "class": "en/long_window/caret_move",
+          "count": 4,
+          "baseline_median": 950.5,
+          "candidate_median": 950.5,
+          "baseline_sum": 3395,
+          "candidate_sum": 3395,
+          "candidate_p90": 1042,
+          "baseline_p90": 1042
+        },
+        {
+          "class": "en/long_window/mid_line_typing",
+          "count": 13,
+          "baseline_median": 434.0,
+          "candidate_median": 434,
+          "baseline_sum": 5636,
+          "candidate_sum": 5636,
+          "candidate_p90": 434,
+          "baseline_p90": 434
+        },
+        {
+          "class": "en/long_window/exact_repeat",
+          "count": 1,
+          "baseline_median": 1.0,
+          "candidate_median": 1,
+          "baseline_sum": 1,
+          "candidate_sum": 1,
+          "candidate_p90": 1,
+          "baseline_p90": 1
+        },
+        {
+          "class": "pt-BR/long_window/in_word_letter",
+          "count": 83,
+          "baseline_median": 465.0,
+          "candidate_median": 463,
+          "baseline_sum": 44429,
+          "candidate_sum": 41467,
+          "candidate_p90": 471,
+          "baseline_p90": 873
+        },
+        {
+          "class": "pt-BR/long_window/word_completing_space",
+          "count": 13,
+          "baseline_median": 463.0,
+          "candidate_median": 470,
+          "baseline_sum": 6007,
+          "candidate_sum": 8059,
+          "candidate_p90": 869,
+          "baseline_p90": 466
+        },
+        {
+          "class": "pt-BR/long_window/punctuation_or_unicode",
+          "count": 19,
+          "baseline_median": 465.0,
+          "candidate_median": 465,
+          "baseline_sum": 8805,
+          "candidate_sum": 8805,
+          "candidate_p90": 469,
+          "baseline_p90": 469
+        },
+        {
+          "class": "pt-BR/long_window/space_after_punctuation_or_unicode",
+          "count": 16,
+          "baseline_median": 482.0,
+          "candidate_median": 482.0,
+          "baseline_sum": 7699,
+          "candidate_sum": 7699,
+          "candidate_p90": 485,
+          "baseline_p90": 485
+        },
+        {
+          "class": "pt-BR/long_window/source_revision",
+          "count": 2,
+          "baseline_median": 781.0,
+          "candidate_median": 781.0,
+          "baseline_sum": 1562,
+          "candidate_sum": 1562,
+          "candidate_p90": 783,
+          "baseline_p90": 783
+        },
+        {
+          "class": "pt-BR/long_window/backspace_across_word_boundary",
+          "count": 4,
+          "baseline_median": 464.0,
+          "candidate_median": 653.5,
+          "baseline_sum": 1856,
+          "candidate_sum": 2645,
+          "candidate_p90": 876,
+          "baseline_p90": 466
+        },
+        {
+          "class": "pt-BR/long_window/backspace_punctuation",
+          "count": 1,
+          "baseline_median": 479.0,
+          "candidate_median": 479,
+          "baseline_sum": 479,
+          "candidate_sum": 479,
+          "candidate_p90": 479,
+          "baseline_p90": 479
+        },
+        {
+          "class": "pt-BR/long_window/backspace_within_word",
+          "count": 9,
+          "baseline_median": 466.0,
+          "candidate_median": 465,
+          "baseline_sum": 5005,
+          "candidate_sum": 4185,
+          "candidate_p90": 467,
+          "baseline_p90": 877
+        },
+        {
+          "class": "pt-BR/long_window/caret_move",
+          "count": 4,
+          "baseline_median": 953.5,
+          "candidate_median": 953.5,
+          "baseline_sum": 3461,
+          "candidate_sum": 3461,
+          "candidate_p90": 1073,
+          "baseline_p90": 1073
+        },
+        {
+          "class": "pt-BR/long_window/mid_line_typing",
+          "count": 12,
+          "baseline_median": 462.5,
+          "candidate_median": 462.5,
+          "baseline_sum": 5530,
+          "candidate_sum": 5530,
+          "candidate_p90": 463,
+          "baseline_p90": 463
+        },
+        {
+          "class": "pt-BR/long_window/exact_repeat",
+          "count": 1,
+          "baseline_median": 1.0,
+          "candidate_median": 1,
+          "baseline_sum": 1,
+          "candidate_sum": 1,
+          "candidate_p90": 1,
+          "baseline_p90": 1
+        }
+      ],
+      "limits": [
+        "All authority and source revisions are declared synthetic fixture state, not native continuity evidence.",
+        "reference_context still runs on every event; no selector CPU-saving claim."
+      ]
+    },
+    {
+      "change": "Freeze learned evidence within explicit session/scope/language/store epochs",
+      "adoption": "not_adopted_for_requested_decode_optimization",
+      "paired_ordinary_rows_per_arm": 523,
+      "ordinary_summary": {
+        "store-recompute": {
+          "warm_prompt_decoded": 191141,
+          "personalization_calls": 523,
+          "calls_by_trace": {
+            "en-short": 96,
+            "pt-short": 96,
+            "en-long": 166,
+            "pt-long": 165
+          },
+          "cache_hits": 0,
+          "nonempty_evidence_rows": 512,
+          "failures": 0,
+          "no_offers": 168,
+          "cache_resets": 4,
+          "trim_failures": 0
+        },
+        "store-freeze": {
+          "warm_prompt_decoded": 191141,
+          "personalization_calls": 5,
+          "calls_by_trace": {
+            "en-short": 2,
+            "pt-short": 1,
+            "en-long": 1,
+            "pt-long": 1
+          },
+          "cache_hits": 518,
+          "nonempty_evidence_rows": 512,
+          "failures": 0,
+          "no_offers": 168,
+          "cache_resets": 4,
+          "trim_failures": 0
+        }
+      },
+      "canonical_prompt_projections_equal": true,
+      "evidence_and_offered_text_equal": true,
+      "transition_work_distributions_equal": true,
+      "transition_groups": 44,
+      "per_transition": [
+        {
+          "class": "en/long_window/backspace_across_word_boundary",
+          "recompute": {
+            "count": 3,
+            "maximum": 442,
+            "median": 433.0,
+            "minimum": 433,
+            "p90": 442,
+            "sum": 1308
+          },
+          "freeze": {
+            "count": 3,
+            "maximum": 442,
+            "median": 433.0,
+            "minimum": 433,
+            "p90": 442,
+            "sum": 1308
+          }
+        },
+        {
+          "class": "en/long_window/backspace_punctuation",
+          "recompute": {
+            "count": 1,
+            "maximum": 943,
+            "median": 943.0,
+            "minimum": 943,
+            "p90": 943,
+            "sum": 943
+          },
+          "freeze": {
+            "count": 1,
+            "maximum": 943,
+            "median": 943.0,
+            "minimum": 943,
+            "p90": 943,
+            "sum": 943
+          }
+        },
+        {
+          "class": "en/long_window/backspace_within_word",
+          "recompute": {
+            "count": 10,
+            "maximum": 902,
+            "median": 446.0,
+            "minimum": 434,
+            "p90": 895,
+            "sum": 5339
+          },
+          "freeze": {
+            "count": 10,
+            "maximum": 902,
+            "median": 446.0,
+            "minimum": 434,
+            "p90": 895,
+            "sum": 5339
+          }
+        },
+        {
+          "class": "en/long_window/caret_move",
+          "recompute": {
+            "count": 4,
+            "maximum": 1095,
+            "median": 1003.5,
+            "minimum": 452,
+            "p90": 1095,
+            "sum": 3554
+          },
+          "freeze": {
+            "count": 4,
+            "maximum": 1095,
+            "median": 1003.5,
+            "minimum": 452,
+            "p90": 1095,
+            "sum": 3554
+          }
+        },
+        {
+          "class": "en/long_window/exact_repeat",
+          "recompute": {
+            "count": 1,
+            "maximum": 1,
+            "median": 1.0,
+            "minimum": 1,
+            "p90": 1,
+            "sum": 1
+          },
+          "freeze": {
+            "count": 1,
+            "maximum": 1,
+            "median": 1.0,
+            "minimum": 1,
+            "p90": 1,
+            "sum": 1
+          }
+        },
+        {
+          "class": "en/long_window/in_word_letter",
+          "recompute": {
+            "count": 82,
+            "maximum": 944,
+            "median": 441.0,
+            "minimum": 429,
+            "p90": 891,
+            "sum": 41395
+          },
+          "freeze": {
+            "count": 82,
+            "maximum": 944,
+            "median": 441.0,
+            "minimum": 429,
+            "p90": 891,
+            "sum": 41395
+          }
+        },
+        {
+          "class": "en/long_window/mid_line_typing",
+          "recompute": {
+            "count": 13,
+            "maximum": 434,
+            "median": 434.0,
+            "minimum": 433,
+            "p90": 434,
+            "sum": 5636
+          },
+          "freeze": {
+            "count": 13,
+            "maximum": 434,
+            "median": 434.0,
+            "minimum": 433,
+            "p90": 434,
+            "sum": 5636
+          }
+        },
+        {
+          "class": "en/long_window/punctuation_or_unicode",
+          "recompute": {
+            "count": 19,
+            "maximum": 951,
+            "median": 441.0,
+            "minimum": 426,
+            "p90": 951,
+            "sum": 9352
+          },
+          "freeze": {
+            "count": 19,
+            "maximum": 951,
+            "median": 441.0,
+            "minimum": 426,
+            "p90": 951,
+            "sum": 9352
+          }
+        },
+        {
+          "class": "en/long_window/source_revision",
+          "recompute": {
+            "count": 2,
+            "maximum": 782,
+            "median": 736.5,
+            "minimum": 691,
+            "p90": 782,
+            "sum": 1473
+          },
+          "freeze": {
+            "count": 2,
+            "maximum": 782,
+            "median": 736.5,
+            "minimum": 691,
+            "p90": 782,
+            "sum": 1473
+          }
+        },
+        {
+          "class": "en/long_window/space_after_punctuation_or_unicode",
+          "recompute": {
+            "count": 16,
+            "maximum": 462,
+            "median": 456.0,
+            "minimum": 448,
+            "p90": 462,
+            "sum": 7291
+          },
+          "freeze": {
+            "count": 16,
+            "maximum": 462,
+            "median": 456.0,
+            "minimum": 448,
+            "p90": 462,
+            "sum": 7291
+          }
+        },
+        {
+          "class": "en/long_window/word_completing_space",
+          "recompute": {
+            "count": 14,
+            "maximum": 446,
+            "median": 435.0,
+            "minimum": 429,
+            "p90": 446,
+            "sum": 6119
+          },
+          "freeze": {
+            "count": 14,
+            "maximum": 446,
+            "median": 435.0,
+            "minimum": 429,
+            "p90": 446,
+            "sum": 6119
+          }
+        },
+        {
+          "class": "en/short_window/backspace_across_word_boundary",
+          "recompute": {
+            "count": 2,
+            "maximum": 32,
+            "median": 31.0,
+            "minimum": 30,
+            "p90": 32,
+            "sum": 62
+          },
+          "freeze": {
+            "count": 2,
+            "maximum": 32,
+            "median": 31.0,
+            "minimum": 30,
+            "p90": 32,
+            "sum": 62
+          }
+        },
+        {
+          "class": "en/short_window/backspace_punctuation",
+          "recompute": {
+            "count": 1,
+            "maximum": 540,
+            "median": 540.0,
+            "minimum": 540,
+            "p90": 540,
+            "sum": 540
+          },
+          "freeze": {
+            "count": 1,
+            "maximum": 540,
+            "median": 540.0,
+            "minimum": 540,
+            "p90": 540,
+            "sum": 540
+          }
+        },
+        {
+          "class": "en/short_window/backspace_within_word",
+          "recompute": {
+            "count": 3,
+            "maximum": 493,
+            "median": 32.0,
+            "minimum": 31,
+            "p90": 493,
+            "sum": 556
+          },
+          "freeze": {
+            "count": 3,
+            "maximum": 493,
+            "median": 32.0,
+            "minimum": 31,
+            "p90": 493,
+            "sum": 556
+          }
+        },
+        {
+          "class": "en/short_window/caret_move",
+          "recompute": {
+            "count": 4,
+            "maximum": 692,
+            "median": 596.5,
+            "minimum": 50,
+            "p90": 692,
+            "sum": 1935
+          },
+          "freeze": {
+            "count": 4,
+            "maximum": 692,
+            "median": 596.5,
+            "minimum": 50,
+            "p90": 692,
+            "sum": 1935
+          }
+        },
+        {
+          "class": "en/short_window/exact_repeat",
+          "recompute": {
+            "count": 1,
+            "maximum": 1,
+            "median": 1.0,
+            "minimum": 1,
+            "p90": 1,
+            "sum": 1
+          },
+          "freeze": {
+            "count": 1,
+            "maximum": 1,
+            "median": 1.0,
+            "minimum": 1,
+            "p90": 1,
+            "sum": 1
+          }
+        },
+        {
+          "class": "en/short_window/in_word_letter",
+          "recompute": {
+            "count": 49,
+            "maximum": 529,
+            "median": 22.0,
+            "minimum": 15,
+            "p90": 493,
+            "sum": 6316
+          },
+          "freeze": {
+            "count": 49,
+            "maximum": 529,
+            "median": 22.0,
+            "minimum": 15,
+            "p90": 493,
+            "sum": 6316
+          }
+        },
+        {
+          "class": "en/short_window/mid_line_typing",
+          "recompute": {
+            "count": 13,
+            "maximum": 32,
+            "median": 32.0,
+            "minimum": 22,
+            "p90": 32,
+            "sum": 357
+          },
+          "freeze": {
+            "count": 13,
+            "maximum": 32,
+            "median": 32.0,
+            "minimum": 22,
+            "p90": 32,
+            "sum": 357
+          }
+        },
+        {
+          "class": "en/short_window/punctuation_or_unicode",
+          "recompute": {
+            "count": 7,
+            "maximum": 548,
+            "median": 18.0,
+            "minimum": 1,
+            "p90": 548,
+            "sum": 1142
+          },
+          "freeze": {
+            "count": 7,
+            "maximum": 548,
+            "median": 18.0,
+            "minimum": 1,
+            "p90": 548,
+            "sum": 1142
+          }
+        },
+        {
+          "class": "en/short_window/source_revision",
+          "recompute": {
+            "count": 2,
+            "maximum": 365,
+            "median": 327.0,
+            "minimum": 289,
+            "p90": 365,
+            "sum": 654
+          },
+          "freeze": {
+            "count": 2,
+            "maximum": 365,
+            "median": 327.0,
+            "minimum": 289,
+            "p90": 365,
+            "sum": 654
+          }
+        },
+        {
+          "class": "en/short_window/space_after_punctuation_or_unicode",
+          "recompute": {
+            "count": 4,
+            "maximum": 46,
+            "median": 45.0,
+            "minimum": 34,
+            "p90": 46,
+            "sum": 170
+          },
+          "freeze": {
+            "count": 4,
+            "maximum": 46,
+            "median": 45.0,
+            "minimum": 34,
+            "p90": 46,
+            "sum": 170
+          }
+        },
+        {
+          "class": "en/short_window/word_completing_space",
+          "recompute": {
+            "count": 9,
+            "maximum": 32,
+            "median": 21.0,
+            "minimum": 15,
+            "p90": 32,
+            "sum": 199
+          },
+          "freeze": {
+            "count": 9,
+            "maximum": 32,
+            "median": 21.0,
+            "minimum": 15,
+            "p90": 32,
+            "sum": 199
+          }
+        },
+        {
+          "class": "pt-BR/long_window/backspace_across_word_boundary",
+          "recompute": {
+            "count": 4,
+            "maximum": 466,
+            "median": 464.0,
+            "minimum": 462,
+            "p90": 466,
+            "sum": 1856
+          },
+          "freeze": {
+            "count": 4,
+            "maximum": 466,
+            "median": 464.0,
+            "minimum": 462,
+            "p90": 466,
+            "sum": 1856
+          }
+        },
+        {
+          "class": "pt-BR/long_window/backspace_punctuation",
+          "recompute": {
+            "count": 1,
+            "maximum": 479,
+            "median": 479.0,
+            "minimum": 479,
+            "p90": 479,
+            "sum": 479
+          },
+          "freeze": {
+            "count": 1,
+            "maximum": 479,
+            "median": 479.0,
+            "minimum": 479,
+            "p90": 479,
+            "sum": 479
+          }
+        },
+        {
+          "class": "pt-BR/long_window/backspace_within_word",
+          "recompute": {
+            "count": 9,
+            "maximum": 930,
+            "median": 466.0,
+            "minimum": 463,
+            "p90": 930,
+            "sum": 5111
+          },
+          "freeze": {
+            "count": 9,
+            "maximum": 930,
+            "median": 466.0,
+            "minimum": 463,
+            "p90": 930,
+            "sum": 5111
+          }
+        },
+        {
+          "class": "pt-BR/long_window/caret_move",
+          "recompute": {
+            "count": 4,
+            "maximum": 1126,
+            "median": 1006.5,
+            "minimum": 481,
+            "p90": 1126,
+            "sum": 3620
+          },
+          "freeze": {
+            "count": 4,
+            "maximum": 1126,
+            "median": 1006.5,
+            "minimum": 481,
+            "p90": 1126,
+            "sum": 3620
+          }
+        },
+        {
+          "class": "pt-BR/long_window/exact_repeat",
+          "recompute": {
+            "count": 1,
+            "maximum": 1,
+            "median": 1.0,
+            "minimum": 1,
+            "p90": 1,
+            "sum": 1
+          },
+          "freeze": {
+            "count": 1,
+            "maximum": 1,
+            "median": 1.0,
+            "minimum": 1,
+            "p90": 1,
+            "sum": 1
+          }
+        },
+        {
+          "class": "pt-BR/long_window/in_word_letter",
+          "recompute": {
+            "count": 83,
+            "maximum": 1000,
+            "median": 465.0,
+            "minimum": 457,
+            "p90": 926,
+            "sum": 45224
+          },
+          "freeze": {
+            "count": 83,
+            "maximum": 1000,
+            "median": 465.0,
+            "minimum": 457,
+            "p90": 926,
+            "sum": 45224
+          }
+        },
+        {
+          "class": "pt-BR/long_window/mid_line_typing",
+          "recompute": {
+            "count": 12,
+            "maximum": 463,
+            "median": 462.5,
+            "minimum": 457,
+            "p90": 463,
+            "sum": 5530
+          },
+          "freeze": {
+            "count": 12,
+            "maximum": 463,
+            "median": 462.5,
+            "minimum": 457,
+            "p90": 463,
+            "sum": 5530
+          }
+        },
+        {
+          "class": "pt-BR/long_window/punctuation_or_unicode",
+          "recompute": {
+            "count": 19,
+            "maximum": 469,
+            "median": 465.0,
+            "minimum": 453,
+            "p90": 469,
+            "sum": 8805
+          },
+          "freeze": {
+            "count": 19,
+            "maximum": 469,
+            "median": 465.0,
+            "minimum": 453,
+            "p90": 469,
+            "sum": 8805
+          }
+        },
+        {
+          "class": "pt-BR/long_window/source_revision",
+          "recompute": {
+            "count": 2,
+            "maximum": 836,
+            "median": 834.0,
+            "minimum": 832,
+            "p90": 836,
+            "sum": 1668
+          },
+          "freeze": {
+            "count": 2,
+            "maximum": 836,
+            "median": 834.0,
+            "minimum": 832,
+            "p90": 836,
+            "sum": 1668
+          }
+        },
+        {
+          "class": "pt-BR/long_window/space_after_punctuation_or_unicode",
+          "recompute": {
+            "count": 16,
+            "maximum": 486,
+            "median": 482.0,
+            "minimum": 475,
+            "p90": 485,
+            "sum": 7699
+          },
+          "freeze": {
+            "count": 16,
+            "maximum": 486,
+            "median": 482.0,
+            "minimum": 475,
+            "p90": 485,
+            "sum": 7699
+          }
+        },
+        {
+          "class": "pt-BR/long_window/word_completing_space",
+          "recompute": {
+            "count": 13,
+            "maximum": 470,
+            "median": 463.0,
+            "minimum": 457,
+            "p90": 466,
+            "sum": 6007
+          },
+          "freeze": {
+            "count": 13,
+            "maximum": 470,
+            "median": 463.0,
+            "minimum": 457,
+            "p90": 466,
+            "sum": 6007
+          }
+        },
+        {
+          "class": "pt-BR/short_window/backspace_across_word_boundary",
+          "recompute": {
+            "count": 2,
+            "maximum": 35,
+            "median": 34.0,
+            "minimum": 33,
+            "p90": 35,
+            "sum": 68
+          },
+          "freeze": {
+            "count": 2,
+            "maximum": 35,
+            "median": 34.0,
+            "minimum": 33,
+            "p90": 35,
+            "sum": 68
+          }
+        },
+        {
+          "class": "pt-BR/short_window/backspace_punctuation",
+          "recompute": {
+            "count": 1,
+            "maximum": 49,
+            "median": 49.0,
+            "minimum": 49,
+            "p90": 49,
+            "sum": 49
+          },
+          "freeze": {
+            "count": 1,
+            "maximum": 49,
+            "median": 49.0,
+            "minimum": 49,
+            "p90": 49,
+            "sum": 49
+          }
+        },
+        {
+          "class": "pt-BR/short_window/backspace_within_word",
+          "recompute": {
+            "count": 3,
+            "maximum": 498,
+            "median": 35.0,
+            "minimum": 34,
+            "p90": 498,
+            "sum": 567
+          },
+          "freeze": {
+            "count": 3,
+            "maximum": 498,
+            "median": 35.0,
+            "minimum": 34,
+            "p90": 498,
+            "sum": 567
+          }
+        },
+        {
+          "class": "pt-BR/short_window/caret_move",
+          "recompute": {
+            "count": 4,
+            "maximum": 697,
+            "median": 576.5,
+            "minimum": 53,
+            "p90": 697,
+            "sum": 1903
+          },
+          "freeze": {
+            "count": 4,
+            "maximum": 697,
+            "median": 576.5,
+            "minimum": 53,
+            "p90": 697,
+            "sum": 1903
+          }
+        },
+        {
+          "class": "pt-BR/short_window/exact_repeat",
+          "recompute": {
+            "count": 1,
+            "maximum": 1,
+            "median": 1.0,
+            "minimum": 1,
+            "p90": 1,
+            "sum": 1
+          },
+          "freeze": {
+            "count": 1,
+            "maximum": 1,
+            "median": 1.0,
+            "minimum": 1,
+            "p90": 1,
+            "sum": 1
+          }
+        },
+        {
+          "class": "pt-BR/short_window/in_word_letter",
+          "recompute": {
+            "count": 51,
+            "maximum": 530,
+            "median": 24.0,
+            "minimum": 17,
+            "p90": 503,
+            "sum": 6540
+          },
+          "freeze": {
+            "count": 51,
+            "maximum": 530,
+            "median": 24.0,
+            "minimum": 17,
+            "p90": 503,
+            "sum": 6540
+          }
+        },
+        {
+          "class": "pt-BR/short_window/mid_line_typing",
+          "recompute": {
+            "count": 12,
+            "maximum": 35,
+            "median": 35.0,
+            "minimum": 24,
+            "p90": 35,
+            "sum": 366
+          },
+          "freeze": {
+            "count": 12,
+            "maximum": 35,
+            "median": 35.0,
+            "minimum": 24,
+            "p90": 35,
+            "sum": 366
+          }
+        },
+        {
+          "class": "pt-BR/short_window/punctuation_or_unicode",
+          "recompute": {
+            "count": 7,
+            "maximum": 33,
+            "median": 20.0,
+            "minimum": 1,
+            "p90": 33,
+            "sum": 117
+          },
+          "freeze": {
+            "count": 7,
+            "maximum": 33,
+            "median": 20.0,
+            "minimum": 1,
+            "p90": 33,
+            "sum": 117
+          }
+        },
+        {
+          "class": "pt-BR/short_window/source_revision",
+          "recompute": {
+            "count": 2,
+            "maximum": 408,
+            "median": 400.5,
+            "minimum": 393,
+            "p90": 408,
+            "sum": 801
+          },
+          "freeze": {
+            "count": 2,
+            "maximum": 408,
+            "median": 400.5,
+            "minimum": 393,
+            "p90": 408,
+            "sum": 801
+          }
+        },
+        {
+          "class": "pt-BR/short_window/space_after_punctuation_or_unicode",
+          "recompute": {
+            "count": 4,
+            "maximum": 49,
+            "median": 48.0,
+            "minimum": 36,
+            "p90": 49,
+            "sum": 181
+          },
+          "freeze": {
+            "count": 4,
+            "maximum": 49,
+            "median": 48.0,
+            "minimum": 36,
+            "p90": 49,
+            "sum": 181
+          }
+        },
+        {
+          "class": "pt-BR/short_window/word_completing_space",
+          "recompute": {
+            "count": 8,
+            "maximum": 35,
+            "median": 24.5,
+            "minimum": 18,
+            "p90": 35,
+            "sum": 205
+          },
+          "freeze": {
+            "count": 8,
+            "maximum": 35,
+            "median": 24.5,
+            "minimum": 18,
+            "p90": 35,
+            "sum": 205
+          }
+        }
+      ],
+      "boundary_pair": {
+        "rows_per_arm": 112,
+        "warm_prompt_tokens_each": 9216,
+        "total_prompt_tokens_each": 9873,
+        "generation_tokens_each": 747,
+        "personalization_calls": {
+          "recompute": 88,
+          "freeze": 20
+        },
+        "cache_hits": 68,
+        "boundary_misses": 25,
+        "ineligible_rows_without_evidence_or_hits": 24,
+        "failures_each": 0,
+        "no_offers_each": 93,
+        "evidence_prompt_raw_and_offered_text_and_nontiming_work_equal": true
+      },
+      "reason": "Reduces personalization API calls, but every prompt/output and decoded-work distribution remains unchanged. No measured CPU-time benefit or native field/store epoch integration was demonstrated.",
+      "full64": "not_run_because_the_requested_decoded_work_improvement_gate_did_not_pass",
+      "limits": [
+        "Both arms use the same real private encrypted synthetic HistoryStore and declared authored spans.",
+        "Compare recompute versus freeze only; the earlier static learned-style string is not a matched baseline for this experiment.",
+        "No OS credential, native authorship/authority or universal performance claim."
+      ]
+    }
+  ],
+  "raw_report_sha256": {
+    "v19-v22-runtime-decode.json": "1276094b59b19ede48fc61a6cc364c10ad29c2a088f683cfdf317a83f1e4bc71",
+    "remove-replay-note-runtime-decode.json": "8b5354c5879ef64597627d1aa79223df9d84ec66dd47031d90123adc04248253",
+    "baseline-long-controls.json": "962dad9a85857697801079fd3e3eb7329f63d20bc8cdb46bd35b2fb74eccbbf2",
+    "no-replay-note-long-controls.json": "739a6c05b55af8b7fe81ba442d14f948b8ccc43d3d8e758dd926d424f1443eb7",
+    "baseline-long-v4.json": "c5ae5df3cd02ab45641fd5973e2044e03a76772a1adf07440aaa284b9d2c78bf",
+    "constant-reminder-long-v4.json": "ccd7e99c98ac5ea1ea6fa081bfc01e4a808c0397f28142e11f5846e6844842b6",
+    "policy-placement-long-v4.json": "6a9be5b704cce9bcd4dd8140970febe4693ed427464870e1ce9e2465f05e6df4",
+    "policy-placement-runtime-decode.json": "3e26899a2eda0d313c9294e409a2f7b4850af483272bd9f23b9d4ef8e7506707",
+    "anchored-window-runtime-decode.json": "ed2d2982a0df9b15a392e54d6d5c07670f2dc10c1e2df704cb9d5d7e5b69002a",
+    "sticky-language-runtime-decode.json": "25f66ed392ad977c552c3e07bf614c52cef3a7cc1f3ad353c11d584c53d733f3",
+    "reference-dynamic-fixed-allocation-decode.json": "5ca3d4676cd2a7c095c3361c7be77fbcc5eba79364eb789d22ab61b0894aa5fe",
+    "reference-frozen-fixed-allocation-decode.json": "5b3e93b12764eb63e51fcc70d5702e182cfb4632049424502721a1e16797a18d",
+    "learned-store-recompute-runtime-decode.json": "0a98eeb3f1ca15ded0d31d7fed8c4ac438c64390a2a8d3faed2a8e2a725bc391",
+    "learned-store-freeze-runtime-decode.json": "2b103e838ae0ab63f9af4948f20e2b0e7539b98b568a010bfaa4e39caccdec6b",
+    "learned-store-recompute-boundaries-decode.json": "ca4505976c9641282710e03a0fd911edeb7356c5f60c6168f190d4d8bb39ec08",
+    "learned-store-freeze-boundaries-decode.json": "ab4f50a2af37221f755a90221d45ca0a9f037fc9dc9b72999b502114f331e696"
+  },
+  "limits": [
+    "No token-savings result is a latency claim.",
+    "No-offer frequency is separate from text correctness and grounding.",
+    "Rejected variants remain scratch-only; production keeps original full-prefill layout and exact grammar/cleaner/privacy fences.",
+    "The fixed-reminder and policy long reports use regenerated strict v4 contracts; earlier raw reports are not overwritten."
+  ]
+}

@@ -1,0 +1,150 @@
+{
+  "schema": "brotypist-target-owned-client-acceptance/1",
+  "evaluation_date": "2026-11-06",
+  "scope": "private target-owned patched GTK3 and Qt6 native client fixtures",
+  "result": "passed",
+  "requested": "both",
+  "canonical_both": true,
+  "coverage": ["gtk3-patched-plugin", "qt6.12-patched-plugin"],
+  "observed_duration_seconds": 19.51,
+  "duration_is_performance_claim": false,
+  "environment": {
+    "os": "Ubuntu 24.04",
+    "architecture": "ARM64",
+    "display": "private X11 Xvfb",
+    "window_manager": "Openbox",
+    "gtk": "3.24.41",
+    "fcitx5_gtk": "5.1.7",
+    "gtk_source_commit": "3b18d2ab7401d4233daf38bbc5896f1703685a43",
+    "gclient": "reviewed patched source-owned static GClient",
+    "qt": "6.12.0",
+    "qt_sdk": "official exact-version SDK",
+    "fcitx5_qt": "5.1.16",
+    "qt_source_commit": "115750044f3d0db16ca5859808c7da830fd1ff52"
+  },
+  "input": "owned synthetic widget dispatch; Qt key scenarios use private-X11 XTest with exact focus checks",
+  "physical_input": false,
+  "model": false,
+  "normal_ime_activation": false,
+  "production_installation": false,
+  "linux_status": "alpha; explicit opt-in",
+  "earlier_diagnostic_subsets": {
+    "gtk": {"result": "passed", "canonical_both": false},
+    "qt_after_fix": {"result": "passed", "canonical_both": false},
+    "subsets_establish_canonical_acceptance": false
+  },
+  "shared_compact_choice": {
+    "toolkits": ["gtk", "qt"],
+    "nonfitting_middle_row_skipped": true,
+    "later_fitting_row_retained": true,
+    "displayed_choice": 2,
+    "original_choice": 3,
+    "native_edits_per_toolkit": 1,
+    "completion_reports_per_toolkit": 1,
+    "exact_native_readback": true
+  },
+  "gtk": {
+    "pre_paint_cancellation": ["focus", "layout", "row-destroy"],
+    "cancellation_native_edits": 0,
+    "cancellation_completion_reports": 0,
+    "cancellation_terminal_replies_per_case": 1,
+    "refusals": ["expired", "superseded", "hidden", "focus", "policy", "target-destroyed"]
+  },
+  "qt": {
+    "refusals": ["expired", "superseded", "hidden", "focus", "policy", "geometry"],
+    "unicode_replacement": {
+      "cases": ["selected-synonyms", "collapsed-alternatives"],
+      "non_bmp_replacement": true,
+      "nfd_preserved": true,
+      "exact_replacement": true,
+      "native_commits_per_case": 1,
+      "validated_applied_reports_per_case": 1,
+      "native_utf16_caret": 6,
+      "broker_scalar_caret": 5,
+      "collapsed_selection": true,
+      "native_undo_per_case": true,
+      "selected_snapshot_caret_is_range_start": true,
+      "selected_before_native_utf16_caret": 3,
+      "selected_before_native_utf16_selection": 2,
+      "selected_before_broker_scalar_caret": 1,
+      "selected_before_broker_scalar_selection": 1
+    },
+    "live_query_withdrawal": {
+      "actions": ["arm", "down", "return"],
+      "withdrawals": ["query-hide", "query-destroy"],
+      "native_commits": 0,
+      "completion_reports": 0,
+      "native_readback_unchanged": true,
+      "remaining_rows": 0
+    },
+    "unowned_key_cases": ["unmatched-release", "held-return-repeat", "focus-roundtrip-release"],
+    "unowned_keys_native_commits": 0,
+    "unowned_keys_completion_reports": 0,
+    "unowned_keys_native_readback_unchanged": true,
+    "modifier_release_ownership": {
+      "fix": "physical-scan release matching",
+      "before_fix_result": "failed",
+      "before_fix_widget_press_release_counts": {
+        "after_consumed_shortcut": [1, 2],
+        "after_ordinary_press": [2, 2],
+        "final": [3, 3]
+      },
+      "after_fix_result": "passed in Qt subset and canonical both-client run",
+      "after_fix_widget_press_release_counts": {
+        "after_consumed_shortcut": [1, 1],
+        "after_ordinary_press": [2, 1],
+        "final": [3, 3]
+      },
+      "broker_toggle_actions": 1,
+      "core_toggle_invoked": false,
+      "persistent_config_written": false,
+      "ordinary_native_text_and_caret": true,
+      "shortcut_native_readback_unchanged": true,
+      "native_commits": 0,
+      "completion_reports": 0
+    },
+    "widget_key_metadata": {
+      "scope": "post-Fcitx widget delivery",
+      "counter_limit": 4096,
+      "zero_timestamps_observed": true,
+      "zero_timestamps_origin": "reviewed upstream Fcitx event reconstruction omits original timestamps",
+      "timestamps_or_repeat_flags_establish_injection_provenance": false
+    },
+    "pending_presentation_cases": [
+      "resume-paint", "withheld-paint-expiry", "inline-preserves-pending",
+      "stale-preserves-pending", "superseded", "hide", "focus2", "move",
+      "minimize", "policy", "query-paint-hide", "query-paint-destroy",
+      "query-final-hide", "query-final-destroy", "destroy"
+    ],
+    "armed_before_owner_paint": false,
+    "withheld_paint_popup_observed_exposed": true,
+    "minimized_target_observed_unexposed": true,
+    "popup_observed_unexposed": false,
+    "disconnect_case": "orderly-broker-disconnect",
+    "disconnect_native_commits": 0,
+    "isolated_abrupt_owner_loss_exercised": false
+  },
+  "not_established": [
+    "physical keyboard typing",
+    "normal IME activation and normal/dead-key/Compose/AltGr/hex input coverage",
+    "full adapter or arbitrary-host coverage",
+    "genuinely unexposed popup behavior",
+    "isolated abrupt broker owner loss",
+    "compositor-visible pixels or physical display proof",
+    "Wayland transient placement or ordinary Wayland inline completion",
+    "Qt5 or GTK4 support",
+    "original CachyOS payload or x86-64 release validation",
+    "Windows acceptance",
+    "production installation or release acceptance",
+    "Linux standalone popup acceptance",
+    "full Settings acceptance",
+    "model prompt quality; prompt/healing remains under repair",
+    "performance advantage or physical-input-to-paint latency"
+  ],
+  "privacy": {
+    "writing_content_included": false,
+    "raw_process_ids_included": false,
+    "private_paths_included": false
+  },
+  "source_and_license_boundary": "Reviewed source pins, upstream licenses and symlinks remain required and unchanged; GTK 3.24.41 execution does not extend the separate GTK 3.24.52 Simple branch proof."
+}

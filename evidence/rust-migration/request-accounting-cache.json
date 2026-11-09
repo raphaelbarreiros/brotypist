@@ -1,0 +1,339 @@
+{
+  "schema": 1,
+  "scope": "Native request accounting and bounded cache safety; not Phase 0/1 completion or a release acceptance record",
+  "platform": "macOS arm64",
+  "rust": "1.99.1",
+  "xcode": "27.2",
+  "llama_revision": "0c1e57098bba43ac29e6e3b677cdceebdd22334f",
+  "model": {
+    "catalog_id": "gemma4-e4b",
+    "quantization": "Q4_0",
+    "size_bytes": 4590807392,
+    "acceleration_requested": "auto"
+  },
+  "source_sha256": {
+    "crates/brotypist/src/inference_native.rs": "70695607dcc6155e71b3a7ac2e90d189c65602249c711e8625627e596095a555",
+    "crates/brotypist/native/llama_bridge.c": "65e50b2991615a952e635c9bf777324539a18e425464b6fc9812cd52f49cb289",
+    "crates/brotypist/src/providers.rs": "546b1af10d4e9cb90eaea0bc999771928c2a5d03f704e41f165b616a8f6f7aea",
+    "crates/brotypist/src/providers_diagnostics.rs": "b2c79cfea55c3d30553747d1a6416c9590a13133fea8722b44a8b76fd01cdb13",
+    "crates/brotypist/src/worker.rs": "0cb10a3f7914bd9cc11a4a5842c37c48a7e7770fb3656f70123fe0ac8f69dd86",
+    "crates/brotypist/src/process_client.rs": "8c0aeb9b85c0c898fa380b2e93e076fdb716b0ba9134851ec622fcefd940fd14",
+    "crates/brotypist/examples/cache_reuse_smoke.rs": "c70b4eee734812bfad21808ad10459f1afb844583b05def3fe19dd7efdbe0c8a"
+  },
+  "workspace_verification": {
+    "library_tests_passed": 421,
+    "offline_review_tests_passed": 13,
+    "xtask_tests_passed": 48,
+    "isolated_subprocess_rechecks_passed": 4,
+    "workspace_bins_built": true,
+    "rustfmt_applied": true,
+    "build_warning": "Updater includes unused legacy_model_dir; unchanged paths.rs"
+  },
+  "baseline": {
+    "corpus_cases": 64,
+    "repetitions": 1,
+    "mechanical_passes": 57,
+    "supported_reference_literals": 4,
+    "literal_contradictions_observed": 0,
+    "semantic_acceptance": false,
+    "exit_code": 1
+  },
+  "direct_worker_followup": {
+    "direct_cases_passed": 5,
+    "worker_cases_passed": 5,
+    "direct_cancellation_passed": true,
+    "before_proceed_cancellation_passed": true,
+    "worker_after_result_cancellation": "inconclusive_request_already_completed",
+    "exit_code": 1
+  },
+  "final_worker_accounting": {
+    "cancelled_request": {
+      "native": {
+        "evaluations": 1,
+        "input_tokens": 1294,
+        "reused_tokens": 159,
+        "prompt": {
+          "submitted_tokens": 64,
+          "completed_tokens": 64,
+          "submitted_batches": 1,
+          "completed_batches": 1,
+          "elapsed_us": 123853
+        },
+        "generation": {
+          "submitted_tokens": 0,
+          "completed_tokens": 0,
+          "submitted_batches": 0,
+          "completed_batches": 0,
+          "elapsed_us": 0
+        },
+        "sampled_tokens": 0,
+        "cold_evaluations": 0,
+        "exact_reuses": 0,
+        "prefix_reuses": 1,
+        "prefix_misses": 0,
+        "trim_failures": 0,
+        "cache_resets": 0
+      },
+      "alternatives": false,
+      "utility": false,
+      "cancelled": true,
+      "failed": false,
+      "no_offer": true,
+      "provider_elapsed_us": 131188
+    },
+    "following_request": {
+      "native": {
+        "evaluations": 1,
+        "input_tokens": 228,
+        "reused_tokens": 159,
+        "prompt": {
+          "submitted_tokens": 69,
+          "completed_tokens": 69,
+          "submitted_batches": 2,
+          "completed_batches": 2,
+          "elapsed_us": 186404
+        },
+        "generation": {
+          "submitted_tokens": 5,
+          "completed_tokens": 5,
+          "submitted_batches": 5,
+          "completed_batches": 5,
+          "elapsed_us": 9872
+        },
+        "sampled_tokens": 6,
+        "cold_evaluations": 0,
+        "exact_reuses": 0,
+        "prefix_reuses": 1,
+        "prefix_misses": 0,
+        "trim_failures": 0,
+        "cache_resets": 0
+      },
+      "alternatives": false,
+      "utility": false,
+      "cancelled": false,
+      "failed": false,
+      "no_offer": false,
+      "provider_elapsed_us": 484553
+    },
+    "clean_exit": true
+  },
+  "final_cache_smoke": {
+    "compact": {
+      "cache_policy": "diagnostic_compact",
+      "cached_tokens": 4032,
+      "fresh_comparison": {
+        "absolute_tolerance": 9.999999747378752e-05,
+        "compared_logits": 262144,
+        "maximum_absolute_error": 0.0,
+        "mismatched_logits": 0,
+        "relative_tolerance": 0.0,
+        "rms_error": 0.0
+      },
+      "passed": true,
+      "retained_maximum": 4031,
+      "retained_minimum": 3264,
+      "return_tokens": 128,
+      "sliding_window": 512,
+      "work": {
+        "cache_resets": 1,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 0,
+          "completed_tokens": 0,
+          "elapsed_us": 0,
+          "submitted_batches": 0,
+          "submitted_tokens": 0
+        },
+        "input_tokens": 128,
+        "prefix_misses": 0,
+        "prefix_reuses": 0,
+        "prompt": {
+          "completed_batches": 2,
+          "completed_tokens": 128,
+          "elapsed_us": 258221,
+          "submitted_batches": 2,
+          "submitted_tokens": 128
+        },
+        "reused_tokens": 0,
+        "sampled_tokens": 0,
+        "trim_failures": 1
+      }
+    },
+    "passed": false,
+    "production": {
+      "batch_invariance_passed": false,
+      "cache_policy": "production_full",
+      "cache_safety_passed": true,
+      "cached_tokens": 4032,
+      "cancellation_matched_schedule": {
+        "absolute_tolerance": 9.999999747378752e-05,
+        "compared_logits": 262144,
+        "maximum_absolute_error": 0.0,
+        "mismatched_logits": 0,
+        "relative_tolerance": 0.0,
+        "rms_error": 0.0
+      },
+      "cancellation_recovery": {
+        "absolute_tolerance": 0.0010000000474974513,
+        "compared_logits": 262144,
+        "maximum_absolute_error": 0.006578564643859863,
+        "mismatched_logits": 193354,
+        "relative_tolerance": 9.999999747378752e-05,
+        "rms_error": 0.002746952584312069
+      },
+      "cancellation_recovery_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 0,
+          "completed_tokens": 0,
+          "elapsed_us": 0,
+          "submitted_batches": 0,
+          "submitted_tokens": 0
+        },
+        "input_tokens": 63,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 1,
+          "completed_tokens": 1,
+          "elapsed_us": 3082,
+          "submitted_batches": 1,
+          "submitted_tokens": 1
+        },
+        "reused_tokens": 62,
+        "sampled_tokens": 0,
+        "trim_failures": 0
+      },
+      "exact": {
+        "absolute_tolerance": 0.0,
+        "compared_logits": 262144,
+        "maximum_absolute_error": 0.0,
+        "mismatched_logits": 0,
+        "relative_tolerance": 0.0,
+        "rms_error": 0.0
+      },
+      "exact_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 1,
+        "generation": {
+          "completed_batches": 0,
+          "completed_tokens": 0,
+          "elapsed_us": 0,
+          "submitted_batches": 0,
+          "submitted_tokens": 0
+        },
+        "input_tokens": 3968,
+        "prefix_misses": 0,
+        "prefix_reuses": 0,
+        "prompt": {
+          "completed_batches": 0,
+          "completed_tokens": 0,
+          "elapsed_us": 0,
+          "submitted_batches": 0,
+          "submitted_tokens": 0
+        },
+        "reused_tokens": 3968,
+        "sampled_tokens": 0,
+        "trim_failures": 0
+      },
+      "extension": {
+        "absolute_tolerance": 0.0010000000474974513,
+        "compared_logits": 262144,
+        "maximum_absolute_error": 0.0,
+        "mismatched_logits": 0,
+        "relative_tolerance": 9.999999747378752e-05,
+        "rms_error": 0.0
+      },
+      "extension_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 0,
+          "completed_tokens": 0,
+          "elapsed_us": 0,
+          "submitted_batches": 0,
+          "submitted_tokens": 0
+        },
+        "input_tokens": 4032,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 1,
+          "completed_tokens": 64,
+          "elapsed_us": 73778,
+          "submitted_batches": 1,
+          "submitted_tokens": 64
+        },
+        "reused_tokens": 3968,
+        "sampled_tokens": 0,
+        "trim_failures": 0
+      },
+      "passed": false,
+      "retained_maximum": 4031,
+      "retained_minimum": 0,
+      "rewind": {
+        "absolute_tolerance": 0.0010000000474974513,
+        "compared_logits": 262144,
+        "maximum_absolute_error": 0.004161834716796875,
+        "mismatched_logits": 21318,
+        "relative_tolerance": 9.999999747378752e-05,
+        "rms_error": 0.001307894097678788
+      },
+      "rewind_matched_schedule": {
+        "absolute_tolerance": 9.999999747378752e-05,
+        "compared_logits": 262144,
+        "maximum_absolute_error": 0.0,
+        "mismatched_logits": 0,
+        "relative_tolerance": 0.0,
+        "rms_error": 0.0
+      },
+      "rewind_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 0,
+          "completed_tokens": 0,
+          "elapsed_us": 0,
+          "submitted_batches": 0,
+          "submitted_tokens": 0
+        },
+        "input_tokens": 128,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 1,
+          "completed_tokens": 1,
+          "elapsed_us": 3617,
+          "submitted_batches": 1,
+          "submitted_tokens": 1
+        },
+        "reused_tokens": 127,
+        "sampled_tokens": 0,
+        "trim_failures": 0
+      },
+      "sliding_window": 512
+    }
+  },
+  "final_cache_smoke_exit_code": 1,
+  "limitations": [
+    "No input-to-paint or physical host typing measurement",
+    "No GPUI native execution or screen-reader acceptance",
+    "No Windows/Linux runtime verification",
+    "No model/template selection-time verification or prompt-layout cutover",
+    "Batch-schedule numerical gate remains open; no tolerances widened",
+    "One model and bounded synthetic fixtures only",
+    "Inference jobs issued by this session were serialized; other system GPU load was not quantified, so no timing speedup is claimed",
+    "No production profile, credentials, permission grants, installer, or release changes"
+  ]
+}

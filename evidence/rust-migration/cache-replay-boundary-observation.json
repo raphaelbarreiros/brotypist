@@ -1,0 +1,591 @@
+{
+  "schema": 1,
+  "scope": "Observed pre-correction cache diagnostic with additional replay boundaries; not a release acceptance result",
+  "platform": "macOS arm64",
+  "model": "Gemma 4 E4B Q4_0",
+  "acceleration_requested": "auto",
+  "exit_code": 1,
+  "observations": {
+    "compact": {
+      "cache_policy": "diagnostic_compact",
+      "cached_tokens": 4032,
+      "fresh_comparison": {
+        "absolute_tolerance": 9.999999747378752e-05,
+        "compared_logits": 262144,
+        "maximum_absolute_error": 0.0,
+        "mismatched_logits": 0,
+        "relative_tolerance": 0.0,
+        "rms_error": 0.0
+      },
+      "passed": true,
+      "retained_maximum": 4031,
+      "retained_minimum": 3264,
+      "return_tokens": 128,
+      "sliding_window": 512,
+      "work": {
+        "cache_resets": 1,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 0,
+          "completed_tokens": 0,
+          "elapsed_us": 0,
+          "submitted_batches": 0,
+          "submitted_tokens": 0
+        },
+        "input_tokens": 128,
+        "prefix_misses": 0,
+        "prefix_reuses": 0,
+        "prompt": {
+          "completed_batches": 2,
+          "completed_tokens": 128,
+          "elapsed_us": 272160,
+          "submitted_batches": 2,
+          "submitted_tokens": 128
+        },
+        "reused_tokens": 0,
+        "sampled_tokens": 0,
+        "trim_failures": 1
+      }
+    },
+    "historical_across_batch_failures": {
+      "absolute_tolerance": 0.0010000000474974513,
+      "acceleration": "auto",
+      "cancellation_recovery": {
+        "maximum_absolute_error": 0.006578564643859863,
+        "mismatched_logits": 193354,
+        "rms_error": 0.002746952584312069
+      },
+      "compared_logits": 262144,
+      "historical_exit_code": 1,
+      "interpretation": "Recorded failed cross-batch assertions, not current-run results; tolerances unchanged",
+      "model": "gemma4-e4b Q4_0",
+      "record": "final_cache_smoke",
+      "relative_tolerance": 9.999999747378752e-05,
+      "rewind": {
+        "maximum_absolute_error": 0.004161834716796875,
+        "mismatched_logits": 21318,
+        "rms_error": 0.001307894097678788
+      },
+      "source": "evidence/rust-migration/request-accounting-cache.json"
+    },
+    "passed": false,
+    "production": {
+      "acceptance": "cold_reference_with_matching_final_decode_shape_and_verified_cache_work",
+      "batch_invariance_passed": false,
+      "cache_policy": "production_full",
+      "cache_safety_passed": true,
+      "cached_tokens": 4032,
+      "cancellation_append_only_vs_batched_cold": {
+        "absolute_tolerance": 0.0010000000474974513,
+        "compared_logits": 262144,
+        "maximum_absolute_error": 0.006578564643859863,
+        "mismatched_logits": 193354,
+        "relative_tolerance": 9.999999747378752e-05,
+        "rms_error": 0.002746952584312069
+      },
+      "cancellation_matched_schedule": {
+        "absolute_tolerance": 9.999999747378752e-05,
+        "compared_logits": 262144,
+        "maximum_absolute_error": 0.0,
+        "mismatched_logits": 0,
+        "relative_tolerance": 0.0,
+        "rms_error": 0.0
+      },
+      "cancellation_recovery": {
+        "absolute_tolerance": 0.0010000000474974513,
+        "compared_logits": 262144,
+        "maximum_absolute_error": 0.006578564643859863,
+        "mismatched_logits": 193354,
+        "relative_tolerance": 9.999999747378752e-05,
+        "rms_error": 0.002746952584312069
+      },
+      "cancellation_recovery_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 0,
+          "completed_tokens": 0,
+          "elapsed_us": 0,
+          "submitted_batches": 0,
+          "submitted_tokens": 0
+        },
+        "input_tokens": 63,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 1,
+          "completed_tokens": 1,
+          "elapsed_us": 3042,
+          "submitted_batches": 1,
+          "submitted_tokens": 1
+        },
+        "reused_tokens": 62,
+        "sampled_tokens": 0,
+        "trim_failures": 0
+      },
+      "cancelled_trim_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 0,
+          "completed_tokens": 0,
+          "elapsed_us": 0,
+          "submitted_batches": 0,
+          "submitted_tokens": 0
+        },
+        "input_tokens": 64,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 0,
+          "completed_tokens": 0,
+          "elapsed_us": 0,
+          "submitted_batches": 0,
+          "submitted_tokens": 0
+        },
+        "reused_tokens": 63,
+        "sampled_tokens": 0,
+        "trim_failures": 0
+      },
+      "cross_batch_equality_required": false,
+      "exact": {
+        "absolute_tolerance": 0.0,
+        "compared_logits": 262144,
+        "maximum_absolute_error": 0.0,
+        "mismatched_logits": 0,
+        "relative_tolerance": 0.0,
+        "rms_error": 0.0
+      },
+      "exact_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 1,
+        "generation": {
+          "completed_batches": 0,
+          "completed_tokens": 0,
+          "elapsed_us": 0,
+          "submitted_batches": 0,
+          "submitted_tokens": 0
+        },
+        "input_tokens": 3968,
+        "prefix_misses": 0,
+        "prefix_reuses": 0,
+        "prompt": {
+          "completed_batches": 0,
+          "completed_tokens": 0,
+          "elapsed_us": 0,
+          "submitted_batches": 0,
+          "submitted_tokens": 0
+        },
+        "reused_tokens": 3968,
+        "sampled_tokens": 0,
+        "trim_failures": 0
+      },
+      "extension": {
+        "absolute_tolerance": 0.0010000000474974513,
+        "compared_logits": 262144,
+        "maximum_absolute_error": 0.0,
+        "mismatched_logits": 0,
+        "relative_tolerance": 9.999999747378752e-05,
+        "rms_error": 0.0
+      },
+      "extension_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 0,
+          "completed_tokens": 0,
+          "elapsed_us": 0,
+          "submitted_batches": 0,
+          "submitted_tokens": 0
+        },
+        "input_tokens": 4032,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 1,
+          "completed_tokens": 64,
+          "elapsed_us": 72552,
+          "submitted_batches": 1,
+          "submitted_tokens": 64
+        },
+        "reused_tokens": 3968,
+        "sampled_tokens": 0,
+        "trim_failures": 0
+      },
+      "passed": false,
+      "replay_boundaries": {
+        "cases": [
+          {
+            "cold_append_only_comparison": {
+              "absolute_tolerance": 9.999999747378752e-05,
+              "compared_logits": 262144,
+              "maximum_absolute_error": 0.0,
+              "mismatched_logits": 0,
+              "relative_tolerance": 0.0,
+              "rms_error": 0.0
+            },
+            "replay_position": 0,
+            "tokens": 1,
+            "work": {
+              "cache_resets": 1,
+              "cold_evaluations": 0,
+              "evaluations": 1,
+              "exact_reuses": 0,
+              "generation": {
+                "completed_batches": 0,
+                "completed_tokens": 0,
+                "elapsed_us": 0,
+                "submitted_batches": 0,
+                "submitted_tokens": 0
+              },
+              "input_tokens": 1,
+              "prefix_misses": 1,
+              "prefix_reuses": 0,
+              "prompt": {
+                "completed_batches": 1,
+                "completed_tokens": 1,
+                "elapsed_us": 21705,
+                "submitted_batches": 1,
+                "submitted_tokens": 1
+              },
+              "reused_tokens": 0,
+              "sampled_tokens": 0,
+              "trim_failures": 0
+            }
+          },
+          {
+            "cold_append_only_comparison": {
+              "absolute_tolerance": 9.999999747378752e-05,
+              "compared_logits": 262144,
+              "maximum_absolute_error": 0.015041887760162354,
+              "mismatched_logits": 255266,
+              "relative_tolerance": 0.0,
+              "rms_error": 0.0029534704181786156
+            },
+            "replay_position": 1,
+            "tokens": 2,
+            "work": {
+              "cache_resets": 0,
+              "cold_evaluations": 0,
+              "evaluations": 1,
+              "exact_reuses": 0,
+              "generation": {
+                "completed_batches": 0,
+                "completed_tokens": 0,
+                "elapsed_us": 0,
+                "submitted_batches": 0,
+                "submitted_tokens": 0
+              },
+              "input_tokens": 2,
+              "prefix_misses": 0,
+              "prefix_reuses": 1,
+              "prompt": {
+                "completed_batches": 1,
+                "completed_tokens": 1,
+                "elapsed_us": 22702,
+                "submitted_batches": 1,
+                "submitted_tokens": 1
+              },
+              "reused_tokens": 1,
+              "sampled_tokens": 0,
+              "trim_failures": 0
+            }
+          },
+          {
+            "cold_append_only_comparison": {
+              "absolute_tolerance": 9.999999747378752e-05,
+              "compared_logits": 262144,
+              "maximum_absolute_error": 0.0,
+              "mismatched_logits": 0,
+              "relative_tolerance": 0.0,
+              "rms_error": 0.0
+            },
+            "replay_position": 62,
+            "tokens": 63,
+            "work": {
+              "cache_resets": 0,
+              "cold_evaluations": 0,
+              "evaluations": 1,
+              "exact_reuses": 0,
+              "generation": {
+                "completed_batches": 0,
+                "completed_tokens": 0,
+                "elapsed_us": 0,
+                "submitted_batches": 0,
+                "submitted_tokens": 0
+              },
+              "input_tokens": 63,
+              "prefix_misses": 0,
+              "prefix_reuses": 1,
+              "prompt": {
+                "completed_batches": 1,
+                "completed_tokens": 1,
+                "elapsed_us": 22363,
+                "submitted_batches": 1,
+                "submitted_tokens": 1
+              },
+              "reused_tokens": 62,
+              "sampled_tokens": 0,
+              "trim_failures": 0
+            }
+          },
+          {
+            "cold_append_only_comparison": {
+              "absolute_tolerance": 9.999999747378752e-05,
+              "compared_logits": 262144,
+              "maximum_absolute_error": 0.0,
+              "mismatched_logits": 0,
+              "relative_tolerance": 0.0,
+              "rms_error": 0.0
+            },
+            "replay_position": 63,
+            "tokens": 64,
+            "work": {
+              "cache_resets": 0,
+              "cold_evaluations": 0,
+              "evaluations": 1,
+              "exact_reuses": 0,
+              "generation": {
+                "completed_batches": 0,
+                "completed_tokens": 0,
+                "elapsed_us": 0,
+                "submitted_batches": 0,
+                "submitted_tokens": 0
+              },
+              "input_tokens": 64,
+              "prefix_misses": 0,
+              "prefix_reuses": 1,
+              "prompt": {
+                "completed_batches": 1,
+                "completed_tokens": 1,
+                "elapsed_us": 24224,
+                "submitted_batches": 1,
+                "submitted_tokens": 1
+              },
+              "reused_tokens": 63,
+              "sampled_tokens": 0,
+              "trim_failures": 0
+            }
+          },
+          {
+            "cold_append_only_comparison": {
+              "absolute_tolerance": 9.999999747378752e-05,
+              "compared_logits": 262144,
+              "maximum_absolute_error": 0.0,
+              "mismatched_logits": 0,
+              "relative_tolerance": 0.0,
+              "rms_error": 0.0
+            },
+            "replay_position": 64,
+            "tokens": 65,
+            "work": {
+              "cache_resets": 0,
+              "cold_evaluations": 0,
+              "evaluations": 1,
+              "exact_reuses": 0,
+              "generation": {
+                "completed_batches": 0,
+                "completed_tokens": 0,
+                "elapsed_us": 0,
+                "submitted_batches": 0,
+                "submitted_tokens": 0
+              },
+              "input_tokens": 65,
+              "prefix_misses": 0,
+              "prefix_reuses": 1,
+              "prompt": {
+                "completed_batches": 1,
+                "completed_tokens": 1,
+                "elapsed_us": 22224,
+                "submitted_batches": 1,
+                "submitted_tokens": 1
+              },
+              "reused_tokens": 64,
+              "sampled_tokens": 0,
+              "trim_failures": 0
+            }
+          },
+          {
+            "cold_append_only_comparison": {
+              "absolute_tolerance": 9.999999747378752e-05,
+              "compared_logits": 262144,
+              "maximum_absolute_error": 0.0,
+              "mismatched_logits": 0,
+              "relative_tolerance": 0.0,
+              "rms_error": 0.0
+            },
+            "replay_position": 511,
+            "tokens": 512,
+            "work": {
+              "cache_resets": 0,
+              "cold_evaluations": 0,
+              "evaluations": 1,
+              "exact_reuses": 0,
+              "generation": {
+                "completed_batches": 0,
+                "completed_tokens": 0,
+                "elapsed_us": 0,
+                "submitted_batches": 0,
+                "submitted_tokens": 0
+              },
+              "input_tokens": 512,
+              "prefix_misses": 0,
+              "prefix_reuses": 1,
+              "prompt": {
+                "completed_batches": 1,
+                "completed_tokens": 1,
+                "elapsed_us": 22602,
+                "submitted_batches": 1,
+                "submitted_tokens": 1
+              },
+              "reused_tokens": 511,
+              "sampled_tokens": 0,
+              "trim_failures": 0
+            }
+          },
+          {
+            "cold_append_only_comparison": {
+              "absolute_tolerance": 9.999999747378752e-05,
+              "compared_logits": 262144,
+              "maximum_absolute_error": 0.0,
+              "mismatched_logits": 0,
+              "relative_tolerance": 0.0,
+              "rms_error": 0.0
+            },
+            "replay_position": 512,
+            "tokens": 513,
+            "work": {
+              "cache_resets": 0,
+              "cold_evaluations": 0,
+              "evaluations": 1,
+              "exact_reuses": 0,
+              "generation": {
+                "completed_batches": 0,
+                "completed_tokens": 0,
+                "elapsed_us": 0,
+                "submitted_batches": 0,
+                "submitted_tokens": 0
+              },
+              "input_tokens": 513,
+              "prefix_misses": 0,
+              "prefix_reuses": 1,
+              "prompt": {
+                "completed_batches": 1,
+                "completed_tokens": 1,
+                "elapsed_us": 23180,
+                "submitted_batches": 1,
+                "submitted_tokens": 1
+              },
+              "reused_tokens": 512,
+              "sampled_tokens": 0,
+              "trim_failures": 0
+            }
+          },
+          {
+            "cold_append_only_comparison": {
+              "absolute_tolerance": 9.999999747378752e-05,
+              "compared_logits": 262144,
+              "maximum_absolute_error": 0.0007642507553100586,
+              "mismatched_logits": 106762,
+              "relative_tolerance": 0.0,
+              "rms_error": 0.00012303828447508868
+            },
+            "replay_position": 513,
+            "tokens": 514,
+            "work": {
+              "cache_resets": 0,
+              "cold_evaluations": 0,
+              "evaluations": 1,
+              "exact_reuses": 0,
+              "generation": {
+                "completed_batches": 0,
+                "completed_tokens": 0,
+                "elapsed_us": 0,
+                "submitted_batches": 0,
+                "submitted_tokens": 0
+              },
+              "input_tokens": 514,
+              "prefix_misses": 0,
+              "prefix_reuses": 1,
+              "prompt": {
+                "completed_batches": 1,
+                "completed_tokens": 1,
+                "elapsed_us": 22173,
+                "submitted_batches": 1,
+                "submitted_tokens": 1
+              },
+              "reused_tokens": 513,
+              "sampled_tokens": 0,
+              "trim_failures": 0
+            }
+          }
+        ],
+        "empty_prompt_rejected": true,
+        "passed": false
+      },
+      "retained_maximum": 4031,
+      "retained_minimum": 0,
+      "rewind": {
+        "absolute_tolerance": 0.0010000000474974513,
+        "compared_logits": 262144,
+        "maximum_absolute_error": 0.004161834716796875,
+        "mismatched_logits": 21318,
+        "relative_tolerance": 9.999999747378752e-05,
+        "rms_error": 0.001307894097678788
+      },
+      "rewind_append_only_vs_batched_cold": {
+        "absolute_tolerance": 0.0010000000474974513,
+        "compared_logits": 262144,
+        "maximum_absolute_error": 0.004161834716796875,
+        "mismatched_logits": 21318,
+        "relative_tolerance": 9.999999747378752e-05,
+        "rms_error": 0.001307894097678788
+      },
+      "rewind_matched_schedule": {
+        "absolute_tolerance": 9.999999747378752e-05,
+        "compared_logits": 262144,
+        "maximum_absolute_error": 0.0,
+        "mismatched_logits": 0,
+        "relative_tolerance": 0.0,
+        "rms_error": 0.0
+      },
+      "rewind_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 0,
+          "completed_tokens": 0,
+          "elapsed_us": 0,
+          "submitted_batches": 0,
+          "submitted_tokens": 0
+        },
+        "input_tokens": 128,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 1,
+          "completed_tokens": 1,
+          "elapsed_us": 4277,
+          "submitted_batches": 1,
+          "submitted_tokens": 1
+        },
+        "reused_tokens": 127,
+        "sampled_tokens": 0,
+        "trim_failures": 0
+      },
+      "sliding_window": 512
+    }
+  }
+}

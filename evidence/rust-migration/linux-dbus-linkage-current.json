@@ -1,0 +1,35 @@
+{
+  "schema": "brotypist-linux-dbus-linkage-observation-v1",
+  "before": {
+    "binary_sha256": "8dff6ca3f6121ae9904408ead609c0f4b1faabbd91dc06607367d1b3344369bb",
+    "defined_dbus_dynamic_exports": 536,
+    "observed_system_library_bindings_to_executable": 126,
+    "native_gui_outcome": "SIGABRT before Settings; glibc __pthread_tpp_change_priority assertion",
+    "instrumented_attempt": "No abort stack captured; application remained alive but AT-SPI child-count query failed. Not acceptance."
+  },
+  "change": "Disable dbus crate vendored feature; use the system libdbus already required by GTK/AT-SPI. Keep credential API/identities and package versions/checksums.",
+  "system_development_version_observed": "1.14.10",
+  "dependency_versions_and_checksums_unchanged": true,
+  "libdbus_sys_lock_dependency_change": {
+    "before": [
+      "cc",
+      "pkg-config"
+    ],
+    "after": [
+      "pkg-config"
+    ]
+  },
+  "after_linkage_cutover": {
+    "binary_sha256": "ecafb6eede2707e5787f0c5bc796ea4de41785b2f185be1f2d1d63c1d30e9eb9",
+    "defined_dbus_dynamic_exports": 0,
+    "system_library_bindings_to_executable": 0,
+    "native_gui_outcome": "Uninstrumented Settings and Welcome windows appeared; independent first-open pane bug then identified."
+  },
+  "subsequent_pane_fix": "Show children before GtkStack selection; requested Models no longer defaults to General on first open.",
+  "final_native_acceptance": "linux-cli-models-current/receipt.json",
+  "limits": [
+    "Loader binding evidence establishes the duplicate native-runtime hazard; no kernel/device-wide guarantee.",
+    "Navigation-only actual GUI acceptance, not model inference or release installation.",
+    "Negative receipts remain unchanged outside the product tree."
+  ]
+}

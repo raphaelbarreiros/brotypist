@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "status": "bounded_proof_executed_adoption_rejected",
+  "product_gpui_dependency_added": false,
+  "normal_profiles_or_permissions_changed": false,
+  "normal_observers_stopped": false,
+  "dependency_audit": {
+    "registry_packages": 898,
+    "approved": 898,
+    "unresolved": 0,
+    "cutoff_utc": "2026-11-03T00:00:00Z",
+    "lock_sha256": "90a4d26a8c4477d15d389b48a2242206fb125282f3ba8c78c6d4582d1e195d49",
+    "kit": "0.9.0",
+    "gpui_snapshot": "0.3.11"
+  },
+  "source_sha256": {
+    "Cargo.toml": "524660158a51092bfff4fb4f7122df35c941de870d0cfbe5ccda7fba06cc5506",
+    "Cargo.lock": "90a4d26a8c4477d15d389b48a2242206fb125282f3ba8c78c6d4582d1e195d49",
+    "build.rs": "92b903bf604b8ce75a25388304bfd4d10086f94dc3516fe57480e76516c256de",
+    "src/main.rs": "0265c71a2c8e4b56b3857914d8e83f27666555f0e53fea29aa7f58f0f1d45063",
+    "src/app_owner.rs": "6abbf6307a3aa9bf99aaf57a765b5efaf93625a27b860f7996c6ae4a867b2176"
+  },
+  "build_evidence": {
+    "macos": "Compiled;3 draft/atomic-save tests passed; foreground launcher refused normal typing observer",
+    "linux": "Compiled and executed native X11 window in dedicated authenticated Xvfb PID1 namespace; ARM64 only"
+  },
+  "available_renderer": {
+    "device": "llvmpipe (LLVM20.1.2,128 bits)",
+    "type": "CPU software",
+    "mesa": "25.2.8-0ubuntu0.24.04.4",
+    "selected_gpui_backend_instrumented": false,
+    "hardware_gpu_performance_proof": false
+  },
+  "observed_native_actions": [
+    "Exact ASCII instructions with leading/trailing spaces and native LF persisted as expected",
+    "Concurrent debounce edit150\u2192450 survived draft refresh and exact save",
+    "Real atomic-rename persistence failure displayed Failed at Persistence and retained dirty draft",
+    "Successful Saved receipt cleared dirty state",
+    "Saved Settings view disposed and reopened with application/controller ownership retained",
+    "Supplied real GGUF selection displayed validating state then verified model true and matching Saved receipt",
+    "Owned preview accepted native field input and progressed waiting\u2192loading"
+  ],
+  "exact_saved_readback": {
+    "custom_instructions": "  Owned first line.\nSecond line.  ",
+    "debounce_ms": 450
+  },
+  "run_limits": {
+    "run1": "Parent command exceeded600s; later normal Save-and-Quit produced actual worker_shutdown_observed=true. Input contained operator command-chaining text, so no multiline claim from this run.",
+    "run2": "Native multiline/save/merge/model evidence captured; launcher600s watchdog terminated run before normal quit. Preview generation completion was not observed.",
+    "run3": "Automation blocked at local OCR deadline before workflow actions; no passing evidence inferred."
+  },
+  "unexercised": [
+    "Unchanged-clean-draft persistence failure in native UI",
+    "Missing-model-path refusal in native UI",
+    "Native resource observation/idle budget",
+    "Clean quit and worker shutdown in run2",
+    "Completed preview suggestion in run2",
+    "Native Unicode/IME input beyond ASCII+LF",
+    "Actual screen-reader operation",
+    "Hardware/mixed-DPI/multiple-display behavior",
+    "Genuine Windows execution",
+    "Native tray/overlay/external insertion integration"
+  ],
+  "adoption_decision": "Retain existing native presentation. Bounded workflow positives do not satisfy mandatory accessibility,platform,lifecycle,resource and native integration gates.",
+  "captures": [
+    {
+      "file": "run2-merge.png",
+      "sha256": "ebbd32bebb27f25a0253540395431e0e3ecea732de2a73cc9a783ec357d534e3"
+    },
+    {
+      "file": "run2-failed-save.png",
+      "sha256": "1a2415af323d2d1b1c197abc608647e547553eee99fe9f50eddbace41177a1f3"
+    },
+    {
+      "file": "run2-closed-settings.png",
+      "sha256": "43b49d4f26d46432820ecbd143181cb91c3beeec03dd65611b7ad4bf1c7d2bd3"
+    },
+    {
+      "file": "run2-expanded.png",
+      "sha256": "2106393415a2deffaf45a73cb63200fe2078164c83ed82a1647b7e6397753483"
+    },
+    {
+      "file": "run2-preview-request.png",
+      "sha256": "1ac834933b242023e7296bcd477700a15dce3b405571eb44fbef3a6847d8b971"
+    },
+    {
+      "file": "run2-preview-result.png",
+      "sha256": "b33b01d9daa2628bf0fe23bec7058db902e8c62884f71e5daa681ae6a7f1352b"
+    }
+  ]
+}

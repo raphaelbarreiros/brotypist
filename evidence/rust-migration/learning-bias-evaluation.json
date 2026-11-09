@@ -1,0 +1,184 @@
+{
+  "schema": "brotypist-learning-bias-evaluation/1",
+  "status": "completed_mechanism_and_semantic_evaluation",
+  "decision": {
+    "ngram_adopted": false,
+    "feature_learning_expansion_adopted": false,
+    "collection_threshold_relaxation_adopted": false,
+    "historical_sentence_retrieval_adopted": false,
+    "candidate_remains_diagnostic_only": true
+  },
+  "provenance": {
+    "receipt_sha256": "7b9c16127e04f5b72d718bba326994d862ff914b716d553d462fc8a00dd74960",
+    "binary": {
+      "name": "learning_bias_smoke",
+      "sha256": "34842152337e7a133cdce0453939d86365164a9c3f4763ca300cbd77c8db0920",
+      "build_evidence": "Observed native-smoke examples and ordinary CLI build; immutable copy before subsequent helper rebuilds; internal execution handle omitted"
+    },
+    "executed_source_sha256": null,
+    "source_provenance_limit": "No frozen executed-source hash supplied; changed current source hashes are not substituted."
+  },
+  "counts": {
+    "raw_native_outputs": 90,
+    "matched_case_seed_comparisons": 30,
+    "cases": 10,
+    "seeds": [
+      17,
+      41,
+      113
+    ],
+    "arms": [
+      "none",
+      "current_features",
+      "bounded_bigram"
+    ],
+    "current_features_different_from_none": 16,
+    "bounded_bigram_different_from_none": 2,
+    "outputs_with_repeated_whitespace_bigrams": 0,
+    "counts_are_success_rates": false
+  },
+  "method": {
+    "generation": "Raw NativeModel generation, not canonical offered output or accepted insertion.",
+    "feature_evidence": "Aggregated language, style, record count and vocabulary; not historical-sentence retrieval.",
+    "candidate": "Static initial-context successor bias with unigram backoff; same list throughout generation, not a dynamically advancing n-gram model.",
+    "production_difference": "Provider healing/replay, stop handling, short-writing limits and OutputStream cleaning were not exercised by these raw outputs.",
+    "offer_or_abstention_proven": false
+  },
+  "mechanisms": {
+    "stages": [
+      {
+        "broader_collection_proposed_only": true,
+        "language_feature_gate_checked": true,
+        "minimum_80_scalars_12_words_checked": true,
+        "short_authored_padded_row_stored": true,
+        "short_rejected": 4,
+        "stage": "current_collection_thresholds"
+      },
+      {
+        "passed": true,
+        "stage": "generated_legacy_negative_and_short_authored_excluded"
+      },
+      {
+        "model_matches_no_learning": true,
+        "passed": true,
+        "stage": "default_denied_and_source_consent_revoked"
+      },
+      {
+        "passed": true,
+        "stage": "stable_id_replacement_matches_fresh_evidence"
+      },
+      {
+        "model_matches_no_learning": true,
+        "passed": true,
+        "stage": "forget_clears_derived_bias_and_native_cache_before_generation"
+      },
+      {
+        "candidate_age_days": 30,
+        "passed": true,
+        "raw_rows": 202,
+        "stage": "recent_raw_row_window_and_experiment_age_bound"
+      },
+      {
+        "passed": true,
+        "stage": "locked_and_tampered_evidence_errors_not_empty_success"
+      }
+    ],
+    "temporary_storage_removed": true,
+    "limit": "Explicit synthetic harness operations and resets, not automatic production lifecycle integration. Baseline equality alone is not a sensitive proof of cleared bias when the biased output already equals baseline."
+  },
+  "bounds": {
+    "declared": {
+      "bias_tokens": 64,
+      "count_pairs": 4096,
+      "maximum_positive_bias": 0.5,
+      "rows": 200,
+      "tokens_per_row": 256
+    },
+    "observed_eligible_rows": [
+      1,
+      2
+    ],
+    "observed_training_tokens": [
+      30,
+      66
+    ],
+    "observed_count_entries": [
+      49,
+      86
+    ],
+    "observed_bias_tokens": [
+      1,
+      24
+    ],
+    "allocated_pair_vector_payload_bytes": 49152,
+    "raw_rows_in_recent_window_exercise": 202,
+    "positive_rows_at_cap_exercised": false,
+    "whole_process_or_device_memory_bound": false,
+    "exclusions": [
+      "Pre-cap normalization/tokenization",
+      "History and probe storage",
+      "Temporary vectors and allocator overhead",
+      "Model weights and inference caches",
+      "Accelerator allocations"
+    ]
+  },
+  "semantic_review": {
+    "verdict": "Mixed current-feature effects and almost no bounded-bigram benefit; no general relevance or quality acceptance.",
+    "case_findings": [
+      {
+        "scenario": "en-relevance",
+        "finding": "Current features add unsupported scheduling in all three comparisons; bigram unchanged."
+      },
+      {
+        "scenario": "pt-relevance",
+        "finding": "Fluent alternatives specialize an unspecified team; no demonstrated improvement."
+      },
+      {
+        "scenario": "short-en",
+        "finding": "All arms identical; no eligible evidence; cannot justify shorter-history collection."
+      },
+      {
+        "scenario": "short-pt",
+        "finding": "Identical punctuation-only closure; not demonstrated useful offer or product abstention."
+      },
+      {
+        "scenario": "mixed-script",
+        "finding": "Current features avoid unsupported specific deliverables; modest local positive, not insertion preservation proof."
+      },
+      {
+        "scenario": "unknown-date",
+        "finding": "Uncertainty retained, but unsupported meeting or contingency context remains; no consistent feature advantage."
+      },
+      {
+        "scenario": "unknown-pt",
+        "finding": "Features avoid some unsupported details; bigram changes two outputs, with one clear local improvement at seed 41 and no clear improvement at seed 17."
+      },
+      {
+        "scenario": "foreign-scope",
+        "finding": "Zero eligible evidence and unchanged outputs support exercised scope isolation only."
+      },
+      {
+        "scenario": "exact-domain",
+        "finding": "Permitted cross-app exact-host evidence yields one unsupported meeting/timing addition; not a quality win."
+      },
+      {
+        "scenario": "different-domain",
+        "finding": "Zero eligible evidence and unchanged outputs support exercised exact-host isolation only."
+      }
+    ],
+    "repetition_limit": "Exact adjacent whitespace pairs inside raw completion only; not semantic, prefix/history or long-generation repetition.",
+    "collection_limit": "Four short histories rejected; no relaxed-threshold training counterfactual executed."
+  },
+  "constraints_preserved": [
+    "Existing minimum 80 scalars and 12 words, language and authored-only collection gates",
+    "Default-denied recording/use consent and app-local/exact-host scope",
+    "Authenticated encryption with no plaintext fallback; locked/tampered evidence fails closed",
+    "Stable-ID replacement, retention and forgetting clear derived evidence/bias/cache",
+    "Collection disabled is not erasure; strength zero is not recording disabled"
+  ],
+  "measurement_limits": [
+    "No controlled latency, energy, allocator or device-memory advantage.",
+    "No quality, full-roadmap, native acceptance or production adoption claim."
+  ],
+  "public_content": "Raw completions, token IDs, keys, arbitrary errors and user/profile paths omitted; fixed scenario IDs, counts and checksums retained."
+}

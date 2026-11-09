@@ -1,0 +1,1314 @@
+{
+  "schema": "brotypist-writing-no-offer-analysis/1",
+  "evaluation_date": "2026-11-07",
+  "scope": "Read-only attribution of the fourteen unpermitted no-offers in fixed three-round native full64 reports; not new model execution or a semantic-quality pass.",
+  "privacy": {
+    "private_paths_included": false,
+    "account_identities_included": false,
+    "raw_process_ids_included": false,
+    "ephemeral_nonces_included": false,
+    "private_investigation_material_included": false,
+    "method": "Allowlisted public source-relative names, synthetic fixture/model text, counters and digests only. Raw report locations, model paths and owner identities omitted. No proprietary research source is reproduced."
+  },
+  "result": "All fourteen remain absolute-quality failures: ten replay-only stops and four replay-plus-comma stops. No useful insertion was removed; no additional production defect is established.",
+  "raw_reports_sha256": {
+    "pre_nfc_full64": "2e7bbcc67da6a1600ec56a2fad59db6b35d704d71c8070f8c3a5ce2d7af9e3c3",
+    "nfc_candidate_full64": "31f26b969d6fd97dd2785d310b26f086c03312d74fba63666cd724e06287c539"
+  },
+  "source_identity": {
+    "capture_phase": "Source digests embedded in measured scratch reports; not a claim of primary final-build or frozen prelaunch executable identity.",
+    "pre_nfc_full64_sha256": {
+      "crates/brotypist/examples/benchmark_writing.rs": "86896bcaeb33541b1c81d941ca397306acb967e48cc09340d78ee0cbbdf5b8ea",
+      "crates/brotypist/examples/benchmark_writing/contextual_quality.json": "aaa04b4afaeedd9726faad12dc697610b8042c21bf66a499e9474e25e6494512",
+      "crates/brotypist/examples/benchmark_writing/corpus.rs": "b8917dc7c72f394a372579f289f2859f338875945f53bc8a03849d1d6c23f20d",
+      "crates/brotypist/examples/benchmark_writing/direct.rs": "47567172da08cc60a1480f32367a15942a46f4c641cc91b6b302139795f392f0",
+      "crates/brotypist/examples/benchmark_writing/direct_checks.rs": "5c13f755ea03b02460435f120291bf0526507da589c55f89e169ea4dc51ee313",
+      "crates/brotypist/examples/benchmark_writing/direct_process.rs": "28223451ca0e2a275a2135ae3fb7dc4984eceb88403f297199a3cd1bc6712a3c",
+      "crates/brotypist/examples/benchmark_writing/evaluation.rs": "ed2268533cd4c64d99be7cba869602e5f16fb962b34fadcbc170dc6d65c443cc",
+      "crates/brotypist/examples/benchmark_writing/native_details.rs": "2c4598a1f5d34682d3bfbaf7d42c12d15c291ebc435fc36b9f37a7a607661f83",
+      "crates/brotypist/examples/benchmark_writing/runner.rs": "591d3c98245214fa13eede24fd483974cea408198df16918c3c1ed5678d0810f",
+      "crates/brotypist/examples/benchmark_writing/writing_quality.json": "384defd052ec86a38cb934fdfd1eb083c8f43e5b5538496117d058a55c1efbf9",
+      "crates/brotypist/native/llama_bridge.c": "e7d434d7fd26041d2b002534611f4044852cdca93974a5db41bf78f07270c421",
+      "crates/brotypist/src/features.rs": "7a3248c6b8d15c971558ca656db0be074dacb3e89f4b822e6551bb599571ecc2",
+      "crates/brotypist/src/inference_native.rs": "2f8082193823735a0c0bffb18cebec7123fb89ef7a2bc3bcd0aba42dbe57e92e",
+      "crates/brotypist/src/process_client.rs": "f7365cd8812ba1850a7df50e6fd139cee3109d3d08585dca5702aeda9b3bd450",
+      "crates/brotypist/src/providers.rs": "d2ec4207c533bb4fd483e10582a3b4687aed5cabe0412d243b721c83c92b32ef",
+      "crates/brotypist/src/providers_diagnostics.rs": "7eef1cd471341b4fd1fa338566ed0cdc9603a0b3396b5c873ed154539c8b86b5",
+      "crates/brotypist/src/worker.rs": "0cb10a3f7914bd9cc11a4a5842c37c48a7e7770fb3656f70123fe0ac8f69dd86",
+      "crates/brotypist/src/writing.rs": "ef2d0e67a4f32a6df36272dcff19e67e2d38c02eb0fb6dadba79c57ee71726b6"
+    },
+    "nfc_candidate_full64_sha256": {
+      "crates/brotypist/examples/benchmark_writing.rs": "86896bcaeb33541b1c81d941ca397306acb967e48cc09340d78ee0cbbdf5b8ea",
+      "crates/brotypist/examples/benchmark_writing/contextual_quality.json": "aaa04b4afaeedd9726faad12dc697610b8042c21bf66a499e9474e25e6494512",
+      "crates/brotypist/examples/benchmark_writing/corpus.rs": "b8917dc7c72f394a372579f289f2859f338875945f53bc8a03849d1d6c23f20d",
+      "crates/brotypist/examples/benchmark_writing/direct.rs": "47567172da08cc60a1480f32367a15942a46f4c641cc91b6b302139795f392f0",
+      "crates/brotypist/examples/benchmark_writing/direct_checks.rs": "5c13f755ea03b02460435f120291bf0526507da589c55f89e169ea4dc51ee313",
+      "crates/brotypist/examples/benchmark_writing/direct_process.rs": "28223451ca0e2a275a2135ae3fb7dc4984eceb88403f297199a3cd1bc6712a3c",
+      "crates/brotypist/examples/benchmark_writing/evaluation.rs": "ed2268533cd4c64d99be7cba869602e5f16fb962b34fadcbc170dc6d65c443cc",
+      "crates/brotypist/examples/benchmark_writing/native_details.rs": "2c4598a1f5d34682d3bfbaf7d42c12d15c291ebc435fc36b9f37a7a607661f83",
+      "crates/brotypist/examples/benchmark_writing/runner.rs": "591d3c98245214fa13eede24fd483974cea408198df16918c3c1ed5678d0810f",
+      "crates/brotypist/examples/benchmark_writing/writing_quality.json": "384defd052ec86a38cb934fdfd1eb083c8f43e5b5538496117d058a55c1efbf9",
+      "crates/brotypist/native/llama_bridge.c": "e7d434d7fd26041d2b002534611f4044852cdca93974a5db41bf78f07270c421",
+      "crates/brotypist/src/features.rs": "7a3248c6b8d15c971558ca656db0be074dacb3e89f4b822e6551bb599571ecc2",
+      "crates/brotypist/src/inference_native.rs": "2f8082193823735a0c0bffb18cebec7123fb89ef7a2bc3bcd0aba42dbe57e92e",
+      "crates/brotypist/src/process_client.rs": "f7365cd8812ba1850a7df50e6fd139cee3109d3d08585dca5702aeda9b3bd450",
+      "crates/brotypist/src/providers.rs": "9466a6e662f057600db918605fba573f855d7cd3375c1afd24547a705769a560",
+      "crates/brotypist/src/providers_diagnostics.rs": "05d2fdfab7813a2762fc9ccba80b865d95d6c9076ca986a8163ef881822e530e",
+      "crates/brotypist/src/worker.rs": "0cb10a3f7914bd9cc11a4a5842c37c48a7e7770fb3656f70123fe0ac8f69dd86",
+      "crates/brotypist/src/writing.rs": "ef2d0e67a4f32a6df36272dcff19e67e2d38c02eb0fb6dadba79c57ee71726b6"
+    },
+    "changed_reported_source_files": [
+      "crates/brotypist/src/providers.rs",
+      "crates/brotypist/src/providers_diagnostics.rs"
+    ]
+  },
+  "digest_convention": {
+    "raw_reports": "SHA-256 of original raw file bytes before any path removal; raw files are not republished.",
+    "derived_json_fields": "SHA-256 of UTF-8 JSON with sorted keys, compact separators and unescaped Unicode.",
+    "non_timing_native_calls": "All native-call fields retained except dictionary keys ending _ms or _us, recursively."
+  },
+  "historical_results": {
+    "pre_nfc_mechanical_passes": 175,
+    "nfc_candidate_mechanical_passes": 178,
+    "samples": 192,
+    "separate_corrected_nfc_samples": 3,
+    "remaining_absolute_failures": 14,
+    "older_175_of_192_receipts_unchanged": true
+  },
+  "classification_summary": {
+    "replay_only_stops": 10,
+    "replay_plus_comma_stops": 4,
+    "failed_samples_by_round": {
+      "1": 5,
+      "2": 5,
+      "3": 4
+    },
+    "sampled_tokens_total": 32,
+    "generation_decoded_tokens_total": 18,
+    "all_allow_no_offer_false": true,
+    "all_generated_text_empty": true,
+    "all_current_outputs_raw_seeds_non_timing_work_unchanged": true,
+    "all_finish_reasons_stop": true,
+    "no_recorded_execution_errors": true,
+    "no_length_or_context_exhaustion": "Each call sampled only 2–3 of 25 allowed native tokens, with 232–291 prompt tokens within 4096 context; recorded finish is stop, never length.",
+    "useful_insertion_lost": false
+  },
+  "source_attribution": [
+    {
+      "source": "crates/brotypist/src/providers.rs",
+      "symbol": "HealingReplay::push",
+      "evidence": "Exact required replay is stripped. Ten calls leave zero bytes, so suffix cleanup cannot remove a useful insertion."
+    },
+    {
+      "source": "crates/brotypist/src/providers.rs",
+      "symbol": "clean_completion",
+      "evidence": "The four remaining calls leave only comma and have an empty authored suffix. The existing alphanumeric displayability requirement suppresses punctuation-only text; there is no useful lexical continuation to lose."
+    },
+    {
+      "source": "crates/brotypist/src/providers.rs",
+      "symbol": "OutputStream::push / OutputStream::finish",
+      "evidence": "A known terminal callback closes the publication frontier; consumer false after closure is not by itself cancellation. Each trace observes finish called and one successful empty finish emission, with no nonempty offers during native generation."
+    },
+    {
+      "source": "crates/brotypist/examples/benchmark_writing/direct_checks.rs",
+      "symbol": "mechanical insertion checks",
+      "evidence": "Nonempty result remains required because all five affected fixtures have allow_no_offer=false. Safe filtering does not convert these samples to quality passes."
+    },
+    {
+      "source": "crates/brotypist/examples/benchmark_writing/corpus.rs",
+      "symbol": "case schema and corpus assembly",
+      "evidence": "Fixture expectations remain unchanged; no allow_no_offer relaxation is applied."
+    }
+  ],
+  "reference_context_scope": {
+    "context-pt-suffix": "Relevant synthetic charger reference.",
+    "context-pt-unrelated": "Unrelated synthetic car-battery/charger reference.",
+    "context-pt-empty": "No reference context."
+  },
+  "rows": [
+    {
+      "round": 1,
+      "case": "suffix-pt-agreement",
+      "allow_no_offer": false,
+      "authored_prefix": "As peças estão",
+      "authored_suffix": " para retirada amanhã.",
+      "required_replay": " estão",
+      "grammar": "root ::= \" estão\" [^\\n\\r]*",
+      "raw_native_text": " estão",
+      "text_after_replay": "",
+      "classification": "replay_only_stop",
+      "generated_text": "",
+      "mechanical_pass": false,
+      "failing_checks": [
+        "displayable_result_or_permitted_no_offer"
+      ],
+      "current_output_unchanged_from_pre_nfc": true,
+      "raw_seed_non_timing_native_unchanged_from_pre_nfc": true,
+      "before_native_non_timing_sha256": "94ebd5cb22342d03473332c3289ffcd5ad149e344941406cb2b9e81cdb864742",
+      "current_native_non_timing_sha256": "94ebd5cb22342d03473332c3289ffcd5ad149e344941406cb2b9e81cdb864742",
+      "native_calls": 1,
+      "native_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 1,
+          "completed_tokens": 1,
+          "submitted_batches": 1,
+          "submitted_tokens": 1
+        },
+        "input_tokens": 254,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 3,
+          "completed_tokens": 157,
+          "submitted_batches": 3,
+          "submitted_tokens": 157
+        },
+        "reused_tokens": 97,
+        "sampled_tokens": 2,
+        "trim_failures": 0
+      },
+      "sampler_seed": 2578026441,
+      "requested_seed_override": 2578026441,
+      "native_seed_state_after_call": 2578026441,
+      "native_max_tokens": 25,
+      "prompt_token_count": 254,
+      "context_size": 4096,
+      "finish_reasons": [
+        "stop"
+      ],
+      "request_error": null,
+      "native_error": null,
+      "protocol_completed": true,
+      "native_stream_closed": true,
+      "native_stream_exhausted": true,
+      "stopped_by_consumer": true,
+      "stream_updates": 1,
+      "first_displayable_text_observed": false,
+      "canonical_output_stream": {
+        "finish_called": true,
+        "finish_error": null,
+        "inside_native_generate": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 0,
+          "successful_emissions": 0
+        },
+        "known_terminal_callback_seen": true,
+        "known_terminal_callback_emitted": false,
+        "finish_after_native_return": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 1,
+          "successful_emissions": 1
+        }
+      }
+    },
+    {
+      "round": 1,
+      "case": "suffix-ja-unspaced",
+      "allow_no_offer": false,
+      "authored_prefix": "明日の会議は",
+      "authored_suffix": "から始まります。",
+      "required_replay": "は",
+      "grammar": "root ::= \"は\" [^\\n\\r]*",
+      "raw_native_text": "は",
+      "text_after_replay": "",
+      "classification": "replay_only_stop",
+      "generated_text": "",
+      "mechanical_pass": false,
+      "failing_checks": [
+        "displayable_result_or_permitted_no_offer"
+      ],
+      "current_output_unchanged_from_pre_nfc": true,
+      "raw_seed_non_timing_native_unchanged_from_pre_nfc": true,
+      "before_native_non_timing_sha256": "c22fb4fc24790a4113fcf013fe5bb309bfb2a3e16ae8261a83169feed09617de",
+      "current_native_non_timing_sha256": "c22fb4fc24790a4113fcf013fe5bb309bfb2a3e16ae8261a83169feed09617de",
+      "native_calls": 1,
+      "native_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 1,
+          "completed_tokens": 1,
+          "submitted_batches": 1,
+          "submitted_tokens": 1
+        },
+        "input_tokens": 253,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 3,
+          "completed_tokens": 156,
+          "submitted_batches": 3,
+          "submitted_tokens": 156
+        },
+        "reused_tokens": 97,
+        "sampled_tokens": 2,
+        "trim_failures": 0
+      },
+      "sampler_seed": 4263879586,
+      "requested_seed_override": 4263879586,
+      "native_seed_state_after_call": 4263879586,
+      "native_max_tokens": 25,
+      "prompt_token_count": 253,
+      "context_size": 4096,
+      "finish_reasons": [
+        "stop"
+      ],
+      "request_error": null,
+      "native_error": null,
+      "protocol_completed": true,
+      "native_stream_closed": true,
+      "native_stream_exhausted": true,
+      "stopped_by_consumer": true,
+      "stream_updates": 1,
+      "first_displayable_text_observed": false,
+      "canonical_output_stream": {
+        "finish_called": true,
+        "finish_error": null,
+        "inside_native_generate": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 0,
+          "successful_emissions": 0
+        },
+        "known_terminal_callback_seen": true,
+        "known_terminal_callback_emitted": false,
+        "finish_after_native_return": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 1,
+          "successful_emissions": 1
+        }
+      }
+    },
+    {
+      "round": 1,
+      "case": "context-pt-unrelated",
+      "allow_no_offer": false,
+      "authored_prefix": "O bolo ainda está cru e o forno esfriou. Então",
+      "authored_suffix": "",
+      "required_replay": " Então",
+      "grammar": "root ::= \" Então\" [^\\n\\r]*",
+      "raw_native_text": " Então,",
+      "text_after_replay": ",",
+      "classification": "replay_plus_comma_stop",
+      "generated_text": "",
+      "mechanical_pass": false,
+      "failing_checks": [
+        "displayable_result_or_permitted_no_offer"
+      ],
+      "current_output_unchanged_from_pre_nfc": true,
+      "raw_seed_non_timing_native_unchanged_from_pre_nfc": true,
+      "before_native_non_timing_sha256": "a501ccdcd29fec2aab7fea5ebefe6454ad1de57c9963d1014ac201fe684848e5",
+      "current_native_non_timing_sha256": "a501ccdcd29fec2aab7fea5ebefe6454ad1de57c9963d1014ac201fe684848e5",
+      "native_calls": 1,
+      "native_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 2,
+          "completed_tokens": 2,
+          "submitted_batches": 2,
+          "submitted_tokens": 2
+        },
+        "input_tokens": 271,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 1,
+          "completed_tokens": 58,
+          "submitted_batches": 1,
+          "submitted_tokens": 58
+        },
+        "reused_tokens": 213,
+        "sampled_tokens": 3,
+        "trim_failures": 0
+      },
+      "sampler_seed": 3321560627,
+      "requested_seed_override": 3321560627,
+      "native_seed_state_after_call": 3321560627,
+      "native_max_tokens": 25,
+      "prompt_token_count": 271,
+      "context_size": 4096,
+      "finish_reasons": [
+        "stop"
+      ],
+      "request_error": null,
+      "native_error": null,
+      "protocol_completed": true,
+      "native_stream_closed": true,
+      "native_stream_exhausted": true,
+      "stopped_by_consumer": true,
+      "stream_updates": 1,
+      "first_displayable_text_observed": false,
+      "canonical_output_stream": {
+        "finish_called": true,
+        "finish_error": null,
+        "inside_native_generate": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 0,
+          "successful_emissions": 0
+        },
+        "known_terminal_callback_seen": true,
+        "known_terminal_callback_emitted": false,
+        "finish_after_native_return": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 1,
+          "successful_emissions": 1
+        }
+      }
+    },
+    {
+      "round": 1,
+      "case": "context-pt-empty",
+      "allow_no_offer": false,
+      "authored_prefix": "O bolo ainda está cru e o forno esfriou. Então",
+      "authored_suffix": "",
+      "required_replay": " Então",
+      "grammar": "root ::= \" Então\" [^\\n\\r]*",
+      "raw_native_text": " Então,",
+      "text_after_replay": ",",
+      "classification": "replay_plus_comma_stop",
+      "generated_text": "",
+      "mechanical_pass": false,
+      "failing_checks": [
+        "displayable_result_or_permitted_no_offer"
+      ],
+      "current_output_unchanged_from_pre_nfc": true,
+      "raw_seed_non_timing_native_unchanged_from_pre_nfc": true,
+      "before_native_non_timing_sha256": "2ce29b3341ed4a06d72cf20cdce2f4f393769061bc981e317d24155fb45f27cd",
+      "current_native_non_timing_sha256": "2ce29b3341ed4a06d72cf20cdce2f4f393769061bc981e317d24155fb45f27cd",
+      "native_calls": 1,
+      "native_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 2,
+          "completed_tokens": 2,
+          "submitted_batches": 2,
+          "submitted_tokens": 2
+        },
+        "input_tokens": 232,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 2,
+          "completed_tokens": 105,
+          "submitted_batches": 2,
+          "submitted_tokens": 105
+        },
+        "reused_tokens": 127,
+        "sampled_tokens": 3,
+        "trim_failures": 0
+      },
+      "sampler_seed": 3976050380,
+      "requested_seed_override": 3976050380,
+      "native_seed_state_after_call": 3976050380,
+      "native_max_tokens": 25,
+      "prompt_token_count": 232,
+      "context_size": 4096,
+      "finish_reasons": [
+        "stop"
+      ],
+      "request_error": null,
+      "native_error": null,
+      "protocol_completed": true,
+      "native_stream_closed": true,
+      "native_stream_exhausted": true,
+      "stopped_by_consumer": true,
+      "stream_updates": 1,
+      "first_displayable_text_observed": false,
+      "canonical_output_stream": {
+        "finish_called": true,
+        "finish_error": null,
+        "inside_native_generate": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 0,
+          "successful_emissions": 0
+        },
+        "known_terminal_callback_seen": true,
+        "known_terminal_callback_emitted": false,
+        "finish_after_native_return": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 1,
+          "successful_emissions": 1
+        }
+      }
+    },
+    {
+      "round": 1,
+      "case": "context-pt-suffix",
+      "allow_no_offer": false,
+      "authored_prefix": "Vou buscar o",
+      "authored_suffix": " na garagem.",
+      "required_replay": " o",
+      "grammar": "root ::= \" o\" [^\\n\\r]*",
+      "raw_native_text": " o",
+      "text_after_replay": "",
+      "classification": "replay_only_stop",
+      "generated_text": "",
+      "mechanical_pass": false,
+      "failing_checks": [
+        "displayable_result_or_permitted_no_offer"
+      ],
+      "current_output_unchanged_from_pre_nfc": true,
+      "raw_seed_non_timing_native_unchanged_from_pre_nfc": true,
+      "before_native_non_timing_sha256": "4f2fd576d2aaefa15ae8dc9e9faa16363600e03a83ed3939a0b20ca8980b30a6",
+      "current_native_non_timing_sha256": "4f2fd576d2aaefa15ae8dc9e9faa16363600e03a83ed3939a0b20ca8980b30a6",
+      "native_calls": 1,
+      "native_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 1,
+          "completed_tokens": 1,
+          "submitted_batches": 1,
+          "submitted_tokens": 1
+        },
+        "input_tokens": 291,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 4,
+          "completed_tokens": 194,
+          "submitted_batches": 4,
+          "submitted_tokens": 194
+        },
+        "reused_tokens": 97,
+        "sampled_tokens": 2,
+        "trim_failures": 0
+      },
+      "sampler_seed": 1557355985,
+      "requested_seed_override": 1557355985,
+      "native_seed_state_after_call": 1557355985,
+      "native_max_tokens": 25,
+      "prompt_token_count": 291,
+      "context_size": 4096,
+      "finish_reasons": [
+        "stop"
+      ],
+      "request_error": null,
+      "native_error": null,
+      "protocol_completed": true,
+      "native_stream_closed": true,
+      "native_stream_exhausted": true,
+      "stopped_by_consumer": true,
+      "stream_updates": 1,
+      "first_displayable_text_observed": false,
+      "canonical_output_stream": {
+        "finish_called": true,
+        "finish_error": null,
+        "inside_native_generate": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 0,
+          "successful_emissions": 0
+        },
+        "known_terminal_callback_seen": true,
+        "known_terminal_callback_emitted": false,
+        "finish_after_native_return": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 1,
+          "successful_emissions": 1
+        }
+      }
+    },
+    {
+      "round": 2,
+      "case": "suffix-pt-agreement",
+      "allow_no_offer": false,
+      "authored_prefix": "As peças estão",
+      "authored_suffix": " para retirada amanhã.",
+      "required_replay": " estão",
+      "grammar": "root ::= \" estão\" [^\\n\\r]*",
+      "raw_native_text": " estão",
+      "text_after_replay": "",
+      "classification": "replay_only_stop",
+      "generated_text": "",
+      "mechanical_pass": false,
+      "failing_checks": [
+        "displayable_result_or_permitted_no_offer"
+      ],
+      "current_output_unchanged_from_pre_nfc": true,
+      "raw_seed_non_timing_native_unchanged_from_pre_nfc": true,
+      "before_native_non_timing_sha256": "06291d3b7e5d00399d04a4325ba306eb49baec537da507b1f1347b004fd552a3",
+      "current_native_non_timing_sha256": "06291d3b7e5d00399d04a4325ba306eb49baec537da507b1f1347b004fd552a3",
+      "native_calls": 1,
+      "native_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 1,
+          "completed_tokens": 1,
+          "submitted_batches": 1,
+          "submitted_tokens": 1
+        },
+        "input_tokens": 254,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 3,
+          "completed_tokens": 157,
+          "submitted_batches": 3,
+          "submitted_tokens": 157
+        },
+        "reused_tokens": 97,
+        "sampled_tokens": 2,
+        "trim_failures": 0
+      },
+      "sampler_seed": 3100721008,
+      "requested_seed_override": 3100721008,
+      "native_seed_state_after_call": 3100721008,
+      "native_max_tokens": 25,
+      "prompt_token_count": 254,
+      "context_size": 4096,
+      "finish_reasons": [
+        "stop"
+      ],
+      "request_error": null,
+      "native_error": null,
+      "protocol_completed": true,
+      "native_stream_closed": true,
+      "native_stream_exhausted": true,
+      "stopped_by_consumer": true,
+      "stream_updates": 1,
+      "first_displayable_text_observed": false,
+      "canonical_output_stream": {
+        "finish_called": true,
+        "finish_error": null,
+        "inside_native_generate": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 0,
+          "successful_emissions": 0
+        },
+        "known_terminal_callback_seen": true,
+        "known_terminal_callback_emitted": false,
+        "finish_after_native_return": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 1,
+          "successful_emissions": 1
+        }
+      }
+    },
+    {
+      "round": 2,
+      "case": "suffix-ja-unspaced",
+      "allow_no_offer": false,
+      "authored_prefix": "明日の会議は",
+      "authored_suffix": "から始まります。",
+      "required_replay": "は",
+      "grammar": "root ::= \"は\" [^\\n\\r]*",
+      "raw_native_text": "は",
+      "text_after_replay": "",
+      "classification": "replay_only_stop",
+      "generated_text": "",
+      "mechanical_pass": false,
+      "failing_checks": [
+        "displayable_result_or_permitted_no_offer"
+      ],
+      "current_output_unchanged_from_pre_nfc": true,
+      "raw_seed_non_timing_native_unchanged_from_pre_nfc": true,
+      "before_native_non_timing_sha256": "dda32fb999cd31755e3bdae703adf40de4df8b8328bb65e3277a2819dbf65ca3",
+      "current_native_non_timing_sha256": "dda32fb999cd31755e3bdae703adf40de4df8b8328bb65e3277a2819dbf65ca3",
+      "native_calls": 1,
+      "native_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 1,
+          "completed_tokens": 1,
+          "submitted_batches": 1,
+          "submitted_tokens": 1
+        },
+        "input_tokens": 253,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 3,
+          "completed_tokens": 156,
+          "submitted_batches": 3,
+          "submitted_tokens": 156
+        },
+        "reused_tokens": 97,
+        "sampled_tokens": 2,
+        "trim_failures": 0
+      },
+      "sampler_seed": 773690256,
+      "requested_seed_override": 773690256,
+      "native_seed_state_after_call": 773690256,
+      "native_max_tokens": 25,
+      "prompt_token_count": 253,
+      "context_size": 4096,
+      "finish_reasons": [
+        "stop"
+      ],
+      "request_error": null,
+      "native_error": null,
+      "protocol_completed": true,
+      "native_stream_closed": true,
+      "native_stream_exhausted": true,
+      "stopped_by_consumer": true,
+      "stream_updates": 1,
+      "first_displayable_text_observed": false,
+      "canonical_output_stream": {
+        "finish_called": true,
+        "finish_error": null,
+        "inside_native_generate": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 0,
+          "successful_emissions": 0
+        },
+        "known_terminal_callback_seen": true,
+        "known_terminal_callback_emitted": false,
+        "finish_after_native_return": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 1,
+          "successful_emissions": 1
+        }
+      }
+    },
+    {
+      "round": 2,
+      "case": "context-pt-unrelated",
+      "allow_no_offer": false,
+      "authored_prefix": "O bolo ainda está cru e o forno esfriou. Então",
+      "authored_suffix": "",
+      "required_replay": " Então",
+      "grammar": "root ::= \" Então\" [^\\n\\r]*",
+      "raw_native_text": " Então",
+      "text_after_replay": "",
+      "classification": "replay_only_stop",
+      "generated_text": "",
+      "mechanical_pass": false,
+      "failing_checks": [
+        "displayable_result_or_permitted_no_offer"
+      ],
+      "current_output_unchanged_from_pre_nfc": true,
+      "raw_seed_non_timing_native_unchanged_from_pre_nfc": true,
+      "before_native_non_timing_sha256": "697271ce93d484a842639e7c3ccd9505781f497feaa20672ff9c3dc455653f35",
+      "current_native_non_timing_sha256": "697271ce93d484a842639e7c3ccd9505781f497feaa20672ff9c3dc455653f35",
+      "native_calls": 1,
+      "native_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 1,
+          "completed_tokens": 1,
+          "submitted_batches": 1,
+          "submitted_tokens": 1
+        },
+        "input_tokens": 271,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 1,
+          "completed_tokens": 58,
+          "submitted_batches": 1,
+          "submitted_tokens": 58
+        },
+        "reused_tokens": 213,
+        "sampled_tokens": 2,
+        "trim_failures": 0
+      },
+      "sampler_seed": 3236188543,
+      "requested_seed_override": 3236188543,
+      "native_seed_state_after_call": 3236188543,
+      "native_max_tokens": 25,
+      "prompt_token_count": 271,
+      "context_size": 4096,
+      "finish_reasons": [
+        "stop"
+      ],
+      "request_error": null,
+      "native_error": null,
+      "protocol_completed": true,
+      "native_stream_closed": true,
+      "native_stream_exhausted": true,
+      "stopped_by_consumer": true,
+      "stream_updates": 1,
+      "first_displayable_text_observed": false,
+      "canonical_output_stream": {
+        "finish_called": true,
+        "finish_error": null,
+        "inside_native_generate": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 0,
+          "successful_emissions": 0
+        },
+        "known_terminal_callback_seen": true,
+        "known_terminal_callback_emitted": false,
+        "finish_after_native_return": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 1,
+          "successful_emissions": 1
+        }
+      }
+    },
+    {
+      "round": 2,
+      "case": "context-pt-empty",
+      "allow_no_offer": false,
+      "authored_prefix": "O bolo ainda está cru e o forno esfriou. Então",
+      "authored_suffix": "",
+      "required_replay": " Então",
+      "grammar": "root ::= \" Então\" [^\\n\\r]*",
+      "raw_native_text": " Então,",
+      "text_after_replay": ",",
+      "classification": "replay_plus_comma_stop",
+      "generated_text": "",
+      "mechanical_pass": false,
+      "failing_checks": [
+        "displayable_result_or_permitted_no_offer"
+      ],
+      "current_output_unchanged_from_pre_nfc": true,
+      "raw_seed_non_timing_native_unchanged_from_pre_nfc": true,
+      "before_native_non_timing_sha256": "20d1b5a48219cd0435fe1e87e76a7d6e8681f02427a8652609c57fc4affac382",
+      "current_native_non_timing_sha256": "20d1b5a48219cd0435fe1e87e76a7d6e8681f02427a8652609c57fc4affac382",
+      "native_calls": 1,
+      "native_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 2,
+          "completed_tokens": 2,
+          "submitted_batches": 2,
+          "submitted_tokens": 2
+        },
+        "input_tokens": 232,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 2,
+          "completed_tokens": 105,
+          "submitted_batches": 2,
+          "submitted_tokens": 105
+        },
+        "reused_tokens": 127,
+        "sampled_tokens": 3,
+        "trim_failures": 0
+      },
+      "sampler_seed": 426213443,
+      "requested_seed_override": 426213443,
+      "native_seed_state_after_call": 426213443,
+      "native_max_tokens": 25,
+      "prompt_token_count": 232,
+      "context_size": 4096,
+      "finish_reasons": [
+        "stop"
+      ],
+      "request_error": null,
+      "native_error": null,
+      "protocol_completed": true,
+      "native_stream_closed": true,
+      "native_stream_exhausted": true,
+      "stopped_by_consumer": true,
+      "stream_updates": 1,
+      "first_displayable_text_observed": false,
+      "canonical_output_stream": {
+        "finish_called": true,
+        "finish_error": null,
+        "inside_native_generate": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 0,
+          "successful_emissions": 0
+        },
+        "known_terminal_callback_seen": true,
+        "known_terminal_callback_emitted": false,
+        "finish_after_native_return": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 1,
+          "successful_emissions": 1
+        }
+      }
+    },
+    {
+      "round": 2,
+      "case": "context-pt-suffix",
+      "allow_no_offer": false,
+      "authored_prefix": "Vou buscar o",
+      "authored_suffix": " na garagem.",
+      "required_replay": " o",
+      "grammar": "root ::= \" o\" [^\\n\\r]*",
+      "raw_native_text": " o",
+      "text_after_replay": "",
+      "classification": "replay_only_stop",
+      "generated_text": "",
+      "mechanical_pass": false,
+      "failing_checks": [
+        "displayable_result_or_permitted_no_offer"
+      ],
+      "current_output_unchanged_from_pre_nfc": true,
+      "raw_seed_non_timing_native_unchanged_from_pre_nfc": true,
+      "before_native_non_timing_sha256": "0ecbc223155c4611a3a585d11cd67d05d56f6ec2e18fbdb4d5789d885aad70ec",
+      "current_native_non_timing_sha256": "0ecbc223155c4611a3a585d11cd67d05d56f6ec2e18fbdb4d5789d885aad70ec",
+      "native_calls": 1,
+      "native_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 1,
+          "completed_tokens": 1,
+          "submitted_batches": 1,
+          "submitted_tokens": 1
+        },
+        "input_tokens": 291,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 4,
+          "completed_tokens": 194,
+          "submitted_batches": 4,
+          "submitted_tokens": 194
+        },
+        "reused_tokens": 97,
+        "sampled_tokens": 2,
+        "trim_failures": 0
+      },
+      "sampler_seed": 1023901929,
+      "requested_seed_override": 1023901929,
+      "native_seed_state_after_call": 1023901929,
+      "native_max_tokens": 25,
+      "prompt_token_count": 291,
+      "context_size": 4096,
+      "finish_reasons": [
+        "stop"
+      ],
+      "request_error": null,
+      "native_error": null,
+      "protocol_completed": true,
+      "native_stream_closed": true,
+      "native_stream_exhausted": true,
+      "stopped_by_consumer": true,
+      "stream_updates": 1,
+      "first_displayable_text_observed": false,
+      "canonical_output_stream": {
+        "finish_called": true,
+        "finish_error": null,
+        "inside_native_generate": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 0,
+          "successful_emissions": 0
+        },
+        "known_terminal_callback_seen": true,
+        "known_terminal_callback_emitted": false,
+        "finish_after_native_return": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 1,
+          "successful_emissions": 1
+        }
+      }
+    },
+    {
+      "round": 3,
+      "case": "suffix-pt-agreement",
+      "allow_no_offer": false,
+      "authored_prefix": "As peças estão",
+      "authored_suffix": " para retirada amanhã.",
+      "required_replay": " estão",
+      "grammar": "root ::= \" estão\" [^\\n\\r]*",
+      "raw_native_text": " estão",
+      "text_after_replay": "",
+      "classification": "replay_only_stop",
+      "generated_text": "",
+      "mechanical_pass": false,
+      "failing_checks": [
+        "displayable_result_or_permitted_no_offer"
+      ],
+      "current_output_unchanged_from_pre_nfc": true,
+      "raw_seed_non_timing_native_unchanged_from_pre_nfc": true,
+      "before_native_non_timing_sha256": "8d909c60848bce8cbca0810d20732a66c96e553c19a8abf0294d7b9bb311bb5a",
+      "current_native_non_timing_sha256": "8d909c60848bce8cbca0810d20732a66c96e553c19a8abf0294d7b9bb311bb5a",
+      "native_calls": 1,
+      "native_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 1,
+          "completed_tokens": 1,
+          "submitted_batches": 1,
+          "submitted_tokens": 1
+        },
+        "input_tokens": 254,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 3,
+          "completed_tokens": 157,
+          "submitted_batches": 3,
+          "submitted_tokens": 157
+        },
+        "reused_tokens": 97,
+        "sampled_tokens": 2,
+        "trim_failures": 0
+      },
+      "sampler_seed": 2654566881,
+      "requested_seed_override": 2654566881,
+      "native_seed_state_after_call": 2654566881,
+      "native_max_tokens": 25,
+      "prompt_token_count": 254,
+      "context_size": 4096,
+      "finish_reasons": [
+        "stop"
+      ],
+      "request_error": null,
+      "native_error": null,
+      "protocol_completed": true,
+      "native_stream_closed": true,
+      "native_stream_exhausted": true,
+      "stopped_by_consumer": true,
+      "stream_updates": 1,
+      "first_displayable_text_observed": false,
+      "canonical_output_stream": {
+        "finish_called": true,
+        "finish_error": null,
+        "inside_native_generate": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 0,
+          "successful_emissions": 0
+        },
+        "known_terminal_callback_seen": true,
+        "known_terminal_callback_emitted": false,
+        "finish_after_native_return": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 1,
+          "successful_emissions": 1
+        }
+      }
+    },
+    {
+      "round": 3,
+      "case": "suffix-ja-unspaced",
+      "allow_no_offer": false,
+      "authored_prefix": "明日の会議は",
+      "authored_suffix": "から始まります。",
+      "required_replay": "は",
+      "grammar": "root ::= \"は\" [^\\n\\r]*",
+      "raw_native_text": "は",
+      "text_after_replay": "",
+      "classification": "replay_only_stop",
+      "generated_text": "",
+      "mechanical_pass": false,
+      "failing_checks": [
+        "displayable_result_or_permitted_no_offer"
+      ],
+      "current_output_unchanged_from_pre_nfc": true,
+      "raw_seed_non_timing_native_unchanged_from_pre_nfc": true,
+      "before_native_non_timing_sha256": "32e9ab62c8a75ec601bd94ce6f7ca35173f61d774f018cf9e5562a3e9c49b4fb",
+      "current_native_non_timing_sha256": "32e9ab62c8a75ec601bd94ce6f7ca35173f61d774f018cf9e5562a3e9c49b4fb",
+      "native_calls": 1,
+      "native_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 1,
+          "completed_tokens": 1,
+          "submitted_batches": 1,
+          "submitted_tokens": 1
+        },
+        "input_tokens": 253,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 3,
+          "completed_tokens": 156,
+          "submitted_batches": 3,
+          "submitted_tokens": 156
+        },
+        "reused_tokens": 97,
+        "sampled_tokens": 2,
+        "trim_failures": 0
+      },
+      "sampler_seed": 3270683594,
+      "requested_seed_override": 3270683594,
+      "native_seed_state_after_call": 3270683594,
+      "native_max_tokens": 25,
+      "prompt_token_count": 253,
+      "context_size": 4096,
+      "finish_reasons": [
+        "stop"
+      ],
+      "request_error": null,
+      "native_error": null,
+      "protocol_completed": true,
+      "native_stream_closed": true,
+      "native_stream_exhausted": true,
+      "stopped_by_consumer": true,
+      "stream_updates": 1,
+      "first_displayable_text_observed": false,
+      "canonical_output_stream": {
+        "finish_called": true,
+        "finish_error": null,
+        "inside_native_generate": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 0,
+          "successful_emissions": 0
+        },
+        "known_terminal_callback_seen": true,
+        "known_terminal_callback_emitted": false,
+        "finish_after_native_return": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 1,
+          "successful_emissions": 1
+        }
+      }
+    },
+    {
+      "round": 3,
+      "case": "context-pt-unrelated",
+      "allow_no_offer": false,
+      "authored_prefix": "O bolo ainda está cru e o forno esfriou. Então",
+      "authored_suffix": "",
+      "required_replay": " Então",
+      "grammar": "root ::= \" Então\" [^\\n\\r]*",
+      "raw_native_text": " Então,",
+      "text_after_replay": ",",
+      "classification": "replay_plus_comma_stop",
+      "generated_text": "",
+      "mechanical_pass": false,
+      "failing_checks": [
+        "displayable_result_or_permitted_no_offer"
+      ],
+      "current_output_unchanged_from_pre_nfc": true,
+      "raw_seed_non_timing_native_unchanged_from_pre_nfc": true,
+      "before_native_non_timing_sha256": "5f7398e27868eaf2f9e7993c2d6739108010ecda42d93b867bb4264b90fabb53",
+      "current_native_non_timing_sha256": "5f7398e27868eaf2f9e7993c2d6739108010ecda42d93b867bb4264b90fabb53",
+      "native_calls": 1,
+      "native_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 2,
+          "completed_tokens": 2,
+          "submitted_batches": 2,
+          "submitted_tokens": 2
+        },
+        "input_tokens": 271,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 1,
+          "completed_tokens": 58,
+          "submitted_batches": 1,
+          "submitted_tokens": 58
+        },
+        "reused_tokens": 213,
+        "sampled_tokens": 3,
+        "trim_failures": 0
+      },
+      "sampler_seed": 382732970,
+      "requested_seed_override": 382732970,
+      "native_seed_state_after_call": 382732970,
+      "native_max_tokens": 25,
+      "prompt_token_count": 271,
+      "context_size": 4096,
+      "finish_reasons": [
+        "stop"
+      ],
+      "request_error": null,
+      "native_error": null,
+      "protocol_completed": true,
+      "native_stream_closed": true,
+      "native_stream_exhausted": true,
+      "stopped_by_consumer": true,
+      "stream_updates": 1,
+      "first_displayable_text_observed": false,
+      "canonical_output_stream": {
+        "finish_called": true,
+        "finish_error": null,
+        "inside_native_generate": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 0,
+          "successful_emissions": 0
+        },
+        "known_terminal_callback_seen": true,
+        "known_terminal_callback_emitted": false,
+        "finish_after_native_return": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 1,
+          "successful_emissions": 1
+        }
+      }
+    },
+    {
+      "round": 3,
+      "case": "context-pt-suffix",
+      "allow_no_offer": false,
+      "authored_prefix": "Vou buscar o",
+      "authored_suffix": " na garagem.",
+      "required_replay": " o",
+      "grammar": "root ::= \" o\" [^\\n\\r]*",
+      "raw_native_text": " o",
+      "text_after_replay": "",
+      "classification": "replay_only_stop",
+      "generated_text": "",
+      "mechanical_pass": false,
+      "failing_checks": [
+        "displayable_result_or_permitted_no_offer"
+      ],
+      "current_output_unchanged_from_pre_nfc": true,
+      "raw_seed_non_timing_native_unchanged_from_pre_nfc": true,
+      "before_native_non_timing_sha256": "0e5d4f2bd21bcde289d269be00aa11f37813647a3d2a61a58d22ae40c81ecd88",
+      "current_native_non_timing_sha256": "0e5d4f2bd21bcde289d269be00aa11f37813647a3d2a61a58d22ae40c81ecd88",
+      "native_calls": 1,
+      "native_work": {
+        "cache_resets": 0,
+        "cold_evaluations": 0,
+        "evaluations": 1,
+        "exact_reuses": 0,
+        "generation": {
+          "completed_batches": 1,
+          "completed_tokens": 1,
+          "submitted_batches": 1,
+          "submitted_tokens": 1
+        },
+        "input_tokens": 291,
+        "prefix_misses": 0,
+        "prefix_reuses": 1,
+        "prompt": {
+          "completed_batches": 4,
+          "completed_tokens": 194,
+          "submitted_batches": 4,
+          "submitted_tokens": 194
+        },
+        "reused_tokens": 97,
+        "sampled_tokens": 2,
+        "trim_failures": 0
+      },
+      "sampler_seed": 3450529762,
+      "requested_seed_override": 3450529762,
+      "native_seed_state_after_call": 3450529762,
+      "native_max_tokens": 25,
+      "prompt_token_count": 291,
+      "context_size": 4096,
+      "finish_reasons": [
+        "stop"
+      ],
+      "request_error": null,
+      "native_error": null,
+      "protocol_completed": true,
+      "native_stream_closed": true,
+      "native_stream_exhausted": true,
+      "stopped_by_consumer": true,
+      "stream_updates": 1,
+      "first_displayable_text_observed": false,
+      "canonical_output_stream": {
+        "finish_called": true,
+        "finish_error": null,
+        "inside_native_generate": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 0,
+          "successful_emissions": 0
+        },
+        "known_terminal_callback_seen": true,
+        "known_terminal_callback_emitted": false,
+        "finish_after_native_return": {
+          "nonempty_offers": 0,
+          "nonempty_successful_emissions": 0,
+          "offers": 1,
+          "successful_emissions": 1
+        }
+      }
+    }
+  ],
+  "passing_contrasts": {
+    "lexical_continuation": {
+      "case": "context-pt-empty",
+      "round": 3,
+      "generated_text": ", vou tentar novamente ",
+      "mechanical_pass": true,
+      "interpretation": "The same replay grammar and authored input can preserve and publish lexical continuation when one is generated; not proof of why other rounds stop."
+    },
+    "legitimate_suffix_cleanup": {
+      "case": "suffix-en-time",
+      "rounds": [
+        1,
+        2,
+        3
+      ],
+      "allow_no_offer": true,
+      "prefix": "Could we meet",
+      "suffix": " after lunch?",
+      "required_replay": " meet",
+      "raw_native_text": " meet after lunch?",
+      "text_after_replay": " after lunch?",
+      "generated_text": "",
+      "mechanical_passes": 3,
+      "interpretation": "The exact generated suffix duplicate is safely removed from an already complete question. This is a separate passing category, not any of the fourteen failures."
+    }
+  },
+  "findings_and_uncertainty": {
+    "established": "Observed early stop without useful continuation, not recorded execution error, publication-frontier loss, suffix-cleanup overreach or capacity exhaustion.",
+    "terminal_token_identity": {
+      "observed": "finish_reasons=[stop]; one more sampled token than generation-decoded tokens per failed call. Raw text capture is after the native stop fence.",
+      "terminal_token_ids_available": false,
+      "inference": "EOG-like abstention is consistent with these counters, but EOG specifically versus another native stop is not observed or proved."
+    },
+    "grammar": "The replay grammar uses * and admits zero insertion after replay; admissibility alone does not establish a production defect or justify forcing arbitrary output.",
+    "unresolved": "Model preference versus prompt/replay conditioning as the reason for stopping. Clean cache counters do not prove every cache invariant.",
+    "cancellation": "stopped_by_consumer=true accompanies terminal closure and is not evidence of cancellation by itself. Separate cancellation probes pass but do not replace per-case evidence.",
+    "action": "No additional production change is justified by these fourteen traces. Preserve fixture expectations and display filtering; do not force arbitrary output."
+  },
+  "not_claimed": [
+    "Mechanical and structural outcomes are not blanket semantic-quality acceptance.",
+    "No latency or speedup claim; timing is excluded from equality comparisons and OS cache was not controlled.",
+    "No native-host editing, physical keyboard input, worker delivery, permission, persistence or GPU reclamation proof.",
+    "Real scratch native diagnostic execution only; not primary final-build acceptance.",
+    "Full 55-schedule calibration result is not included or claimed here; these bounded receipts stand independently.",
+    "Historical 175/192 receipts remain unchanged and retain their pre-NFC meaning."
+  ],
+  "other_gates": {
+    "primary_final_build": "not claimed by this receipt",
+    "full55_cache_schedule_calibration": "not claimed by this receipt"
+  }
+}

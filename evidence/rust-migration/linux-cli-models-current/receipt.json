@@ -1,0 +1,82 @@
+{
+  "schema": "brotypist-linux-cli-native-navigation-v1",
+  "status": "passed_navigation_only",
+  "platform": "Linux ARM64 private Xvfb/Openbox/Picom/session-D-Bus",
+  "command": [
+    "BroTypist",
+    "--settings",
+    "--pane",
+    "models",
+    "--paused",
+    "--no-tray"
+  ],
+  "unmodified_executable_run": true,
+  "binary_sha256": "7a945843f6d0d1ff049185a19fc0f96bddcb860e709910a7d507f636cafd7bcc",
+  "source_sha256": {
+    "crates/brotypist/src/cli.rs": "a15f80f7bc4dde4050dbccc4352b26f2358c245016c1296a5f8d15e51afaba50",
+    "crates/brotypist/src/config.rs": "3376e77dd42acac1d8cb8bda9ff117ae10a2db222687c56de5adcfb0ef1fe820",
+    "crates/brotypist/src/paths.rs": "395b579ace1c0766b80d05908720d86e60c36469d7f511dd8cd7d824d31f5ad5",
+    "crates/brotypist/src/ui/linux.rs": "75c243a157fc87cadd36dc8ba44551c71184d49f2fbaeee360ce5dc36c156551",
+    "crates/brotypist/src/ui/linux_settings.rs": "3928a3d8ae013058bee3c7598f7ba785da1df13212853e6ab6a55af50fdf3536"
+  },
+  "native_interface": "Actual AT-SPI through native C interfaces; PID-owned surface only",
+  "actual_pane": "AI Models",
+  "selected_sidebar_rows": 1,
+  "actual_model_control_count": 1,
+  "actual_quit_method": "AT-SPI Action.do_action(click)",
+  "natural_exit_code": 0,
+  "lingering_owned_children": [],
+  "saved_settings_byte_identical": true,
+  "saved_global_enabled": true,
+  "missing_model_remained_absent": true,
+  "model_files": [],
+  "visual_review": {
+    "file": "ai-models-owned-window.png",
+    "parent_inspected": true,
+    "sha256": "d1f13c4f85c1b5236a0fe41fd8778c5bbae9c0b2ad9dd2e29258165ffd0b4a66",
+    "width": 960,
+    "publication_redaction": {
+      "original_capture_sha256": "2de9fb347f318853a6de41c6f85fa32fbe467c31a59a4f184c8c8caa028ecf04",
+      "original_capture_retained_privately": true,
+      "method": "Opaque black rectangle replaces only the private directory locator in Current model / Selected. The public absent-model basename is retained; other pixels are unchanged. PNG bytes were re-encoded.",
+      "rectangle_pixels": {
+        "x": 291,
+        "y": 90,
+        "width": 252,
+        "height": 17
+      },
+      "review_scope": "parent_inspected records review of the original capture. sha256 identifies the redacted public image, not the original capture; edited pixels are not original evidence."
+    },
+    "height": 700
+  },
+  "cleanup": [
+    {
+      "label": "brotypist",
+      "action": "already_exited",
+      "returncode": 0
+    },
+    {
+      "label": "picom",
+      "action": "SIGTERM_owned_group",
+      "returncode": -15
+    },
+    {
+      "label": "openbox",
+      "action": "SIGTERM_owned_group",
+      "returncode": 0
+    }
+  ],
+  "unexercised": [
+    "physical desktop/input",
+    "model download/load/inference/readiness",
+    "other platforms",
+    "production profile",
+    "exhaustive short-lived subprocess tracing"
+  ],
+  "raw_receipt_sha256": "8c3a7a309867d8b1836f741dffcecc05cff0c75b4a3880924d464bea1c7cc3b6",
+  "notes": [
+    "A missing custom model also opens Welcome; only the product-owned Settings frame was raised.",
+    "No model download, load, inference or readiness was claimed.",
+    "Owned Xvfb supervisor exited after the scenario; no normal desktop/profile was used."
+  ]
+}

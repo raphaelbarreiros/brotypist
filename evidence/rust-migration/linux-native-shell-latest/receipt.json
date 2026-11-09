@@ -1,0 +1,366 @@
+{
+  "schema": "linux-native-shell-preservation-v1",
+  "execution_boundary": "Current integrated NFC-source canonical native shell run completed after the current Linux test/build gate. Internal execution handles omitted. This verifies the bounded executed scenario, not a signed or frozen prelaunch whole-tree identity, release build or later edits.",
+  "raw_report": {
+    "basename": "receipt.json",
+    "sha256": "219f3662439a42b9e5cf557194aa58080d6ded948fce831f400349f7a9eaa229",
+    "bytes": 13229,
+    "navigation": "Private raw artifact retained by owner; local paths and ephemeral identities omitted."
+  },
+  "historical_previous_latest": {
+    "scope": "Prior intermediate native shell run after stable publication frontier and selected-readback changes; superseded as latest, not erased or relabeled as NFC evidence.",
+    "raw_report": {
+      "basename": "receipt.json",
+      "sha256": "e93f28e1c7ceb25fb614339523b9efa27d85b9e1c6e4f03624316401816495cd",
+      "bytes": 13230
+    },
+    "passed": true,
+    "assertion_count": 96,
+    "last_stage": 42,
+    "clean_exit": true,
+    "elapsed_ms": 25815,
+    "images_sha256": {
+      "preview-english-visible.png": "08ed9a4242f2e6644768c545153ac939f8332bf8ccb283204a19bab41e8dd4a0",
+      "preview-portuguese-accepted.png": "bab639f3986efacce5421b17e29f04f5cf433d7996c240ef3e36b90c78fa81b7",
+      "privacy-independent-consents.png": "315a36a587803379c239181ef3cc464f7fb97c7cded9a7bc26904bacdf293957",
+      "choices-eligible-subsequence.png": "b5535d0e38ed8d50dc13d6458148a38e59ed9373d5a41f8f189ee1ead2a2d55f"
+    },
+    "older_receipt_observations_preserved": "../linux-native-shell-current/receipt.json"
+  },
+  "run": "current-linux-native-shell",
+  "preceding_build_gate": {
+    "run": "primary-linux-test-build",
+    "status": "passed",
+    "scope": "Parent-reported current Linux ARM64 locked/offline workspace/all-target tests and bins/examples build; 556 library tests plus other suites, no aggregate claimed.",
+    "provenance": "Parent execution handoff, not embedded in native shell raw receipt."
+  },
+  "passed": true,
+  "outcome": "passed",
+  "assertion_count": 96,
+  "clean_exit": true,
+  "last_stage": 42,
+  "elapsed_observation": {
+    "milliseconds": 24840,
+    "interpretation": "Single raw elapsed observation; not comparative performance, latency or power evidence."
+  },
+  "summary": {
+    "ui": "GTK3 native canonical resident shell",
+    "input": "GTK owned-widget event dispatch; no global synthetic input",
+    "english_word_acceptance": "Actual GTK acceptance key dispatch and document readback preserve authored prefix. Visible preview captured in declared image.",
+    "portuguese_full_acceptance": "Configured Above-Tab scan identity reaches canonical full-accept handler; actual native document readback confirmed.",
+    "consents": "Independent clipboard, Accessibility, recording and personalization-use consent/draft paths; actual button responses; normal global capture disabled.",
+    "persistence_failure": {
+      "obstruction": "empty owned directory; original settings inode preserved by rename",
+      "outcome": "passed",
+      "receipts": [
+        {
+          "operation": "ConfigOperationId(9)",
+          "receipt": "Failed(Persistence)"
+        },
+        {
+          "operation": "ConfigOperationId(10)",
+          "receipt": "Saved"
+        }
+      ],
+      "restored": true,
+      "scope": "real native Save and sole shell receipt consumer; only the fresh private settings destination obstructed"
+    },
+    "model_readiness": "Selecting an existing model alone does not make preview ready; actual owned inference waits for normal controller-worker release.",
+    "preview_retirement": "Selection, native preedit-changed composition signal and focus-loss retirement covered; real IME input not demonstrated.",
+    "chooser": "Actual X11 draw/readback acknowledges offers 0 and 2, skips an overlong middle row, and reports no server keyboard focus at draw/readback. Exact bounds/coordinates retained.",
+    "cleanup": "Canonical Quit completed controller, preview, clipboard and power ownership cleanup and exited GTK. Persistence obstruction restored the original settings inode; only isolated owned settings destination obstructed.",
+    "model_selection": "Actual invalid selection Failed operation 5, successful same-model Saved operation 6 and cancelled selection Cancelled operation 7 preserve current/persisted configuration and exact dirty Unicode instructions.",
+    "configuration_rebase": "Live external configuration rebases without losing dirty native instructions; Save preserves concurrent changes across pane navigation and resizing."
+  },
+  "abi_guard": {
+    "passed": true,
+    "scope": "dlsym(RTLD_DEFAULT) and dladdr; no D-Bus calls",
+    "symbols": [
+      {
+        "executable_interposition": false,
+        "passed": true,
+        "provider": "/lib/aarch64-linux-gnu/libdbus-1.so.3",
+        "symbol": "dbus_get_version"
+      },
+      {
+        "executable_interposition": false,
+        "passed": true,
+        "provider": "/lib/aarch64-linux-gnu/libdbus-1.so.3",
+        "symbol": "dbus_connection_open_private"
+      },
+      {
+        "executable_interposition": false,
+        "passed": true,
+        "provider": "/lib/aarch64-linux-gnu/libdbus-1.so.3",
+        "symbol": "dbus_threads_init_default"
+      }
+    ],
+    "interpretation": "Actual runtime symbol providers are system libdbus, not executable interposition. This is a three-symbol linkage guard, not a whole-process or release ABI certification."
+  },
+  "images": [
+    {
+      "path": "preview-english-visible.png",
+      "sha256": "e818deb037a612208fafcd0b8e5d82197ed58757ac05c98b6df61bcec68bf863",
+      "parent_viewed": true,
+      "review_scope": "Parent visually inspected this captured image; this artifact author did not repeat UI execution.",
+      "publication": "Parent owns copying this declared image into this receipt directory."
+    },
+    {
+      "path": "preview-portuguese-accepted.png",
+      "sha256": "bab639f3986efacce5421b17e29f04f5cf433d7996c240ef3e36b90c78fa81b7",
+      "parent_viewed": true,
+      "review_scope": "Parent visually inspected this captured image; this artifact author did not repeat UI execution.",
+      "publication": "Parent owns copying this declared image into this receipt directory."
+    },
+    {
+      "path": "privacy-independent-consents.png",
+      "sha256": "3dd3cfb6017ae724f55ccb1cd1937b483ee8c94f0ddd4d26e6794e864f61bb4d",
+      "parent_viewed": true,
+      "review_scope": "Parent visually inspected this captured image; this artifact author did not repeat UI execution.",
+      "publication": "Parent owns copying this declared image into this receipt directory."
+    },
+    {
+      "path": "choices-eligible-subsequence.png",
+      "sha256": "b5535d0e38ed8d50dc13d6458148a38e59ed9373d5a41f8f189ee1ead2a2d55f",
+      "parent_viewed": true,
+      "review_scope": "Parent visually inspected this captured image; this artifact author did not repeat UI execution.",
+      "publication": "Parent owns copying this declared image into this receipt directory."
+    }
+  ],
+  "other_raw_screenshot_count": 13,
+  "other_raw_screenshots_parent_viewed": false,
+  "provenance_limits": {
+    "executed_binary_sha256": null,
+    "executed_whole_tree_identity": null,
+    "model_file_sha256": null,
+    "source_hashes": null,
+    "interpretation": "Raw receipt has no executed binary/model content hashes or frozen prelaunch source manifest. Parent identifies this as the completed integrated NFC source wave; post-run source hashes, if supplied elsewhere, cannot establish prelaunch identity."
+  },
+  "limits": [
+    "Not physical keyboard or external host-edit proof",
+    "Not a real KWin/Wayland compositor scenario",
+    "Does not register login, change permissions, read history/credentials, download models or install updates",
+    "Not real IME interaction; preedit-changed signal only.",
+    "Not Windows, macOS, release packaging, real KWin/Wayland, external host editing or physical keyboard proof.",
+    "No signed/frozen prelaunch whole-tree provenance; no acceptance claim for later source changes.",
+    "No energy or release acceptance."
+  ],
+  "publication_policy": "Private paths, profile-derived bus identities, process IDs and runtime addresses omitted. Only the four declared images are parent-viewed public links; parent owns copying those exact images. Historical linux-native-shell-current remains unchanged.",
+  "error": null,
+  "raw_observations": {
+    "assertions": [
+      "no-tray launch retains visible Settings and Quit recovery",
+      "normal global capture is disabled throughout the owned-widget fixture",
+      "every Config field has its canonical native control or explicit service editor",
+      "actual X11 draw acknowledges exact offers 0 and 2 after skipping an overlong middle row",
+      "compacted mouse-through X11 chooser and its native children have no server keyboard focus at draw or readback",
+      "six-pane navigation: General",
+      "six-pane navigation: AI Models",
+      "six-pane navigation: Autocomplete",
+      "six-pane navigation: Languages",
+      "six-pane navigation: Privacy",
+      "six-pane navigation: About",
+      "native draft edits do not modify the controller before Save",
+      "Revert discards the native draft without persistence",
+      "Save consumes its exact Saved receipt (ConfigOperationId(1))",
+      "the exact Saved receipt matches current and independently reloaded configuration",
+      "Save applies only after controller-confirmed persistence",
+      "Save is readable from the isolated settings file",
+      "nonpersisting operation returns its own Applied receipt",
+      "live configuration rebases without losing the dirty native instructions editor",
+      "instruction Save consumes its exact Saved receipt (ConfigOperationId(3))",
+      "the exact Saved receipt matches current and independently reloaded configuration",
+      "the instruction Saved receipt acknowledges the submitted draft",
+      "Save preserves concurrent changes across pane navigation and resizing",
+      "Cancel on the actual history consent dialog leaves recording disabled and its native switch unchecked",
+      "declining the actual clipboard consent dialog leaves the draft disabled",
+      "clipboard consent is independent of Accessibility context",
+      "consecutive same-title clipboard dialogs receive distinct Cancel and Continue button responses",
+      "revoking clipboard consent does not revoke the independent Accessibility draft",
+      "native clipboard is unchecked, Accessibility is checked and unsaved controls reflect the independent consent draft before capture",
+      "staged context evidence follows exactly the four expected consent responses",
+      "controller context, recording and normal global capture remain disabled while native consent drafts are edited",
+      "Revert revokes unsaved independent context consents",
+      "Revert restores unchecked native clipboard, Accessibility and recording controls",
+      "Revert leaves controller context, recording and normal global capture disabled",
+      "Cancel on dirty-window close keeps the resident controls and draft",
+      "guarded Quit Cancel does not discard edits or begin shutdown",
+      "Welcome opens its canonical first step",
+      "Welcome local-privacy step",
+      "Welcome Back navigates through the canonical native button",
+      "Welcome returns forward after native Back",
+      "Welcome system-access step",
+      "Welcome cannot bypass explicit access review",
+      "Welcome model step references the explicitly supplied existing GGUF",
+      "selecting a model alone does not create a ready preview session",
+      "owned inference waits for the normal controller worker to release",
+      "native GTK acceptance key dispatch was handled by the actual Welcome field",
+      "English acceptance preserves authored prefix and is counted only after actual GTK document readback",
+      "configured Above-Tab scan identity reaches the canonical full-accept GTK handler",
+      "Portuguese full acceptance preserves the document and receives native readback confirmation",
+      "selection invalidates the actual owned-field preview",
+      "native GTK preedit-changed composition signal cancels and refuses preview acceptance",
+      "focus loss retires the isolated preview before restoring normal controller ownership",
+      "Welcome completes all six native steps",
+      "Welcome Finish without a tray returns to visible Settings, not a hidden loop",
+      "no-tray window-close Cancel retains visible recovery controls",
+      "all seven consent, dirty-draft and no-tray prompts were answered through their actual native buttons",
+      "invalid model selection consumes its exact Failed receipt (ConfigOperationId(5))",
+      "failed model selection keeps current and persisted configuration and exact dirty Unicode instructions",
+      "model selection consumes its exact Saved receipt (ConfigOperationId(6))",
+      "the exact Saved receipt matches current and independently reloaded configuration",
+      "successful same-model selection preserves current and persisted identity and exact dirty instructions",
+      "cancel model selection consumes its exact Cancelled receipt (ConfigOperationId(7))",
+      "cancelled selection retains current and persisted configuration and exact dirty Unicode instructions",
+      "cancelled use consent does not enable personalization or recording",
+      "language and retention Save consumes its exact Saved receipt (ConfigOperationId(8))",
+      "the exact Saved receipt matches current and independently reloaded configuration",
+      "language and retention Saved receipt acknowledges the submitted draft",
+      "new language, regional spelling, independent use and retention controls persist exact draft through receipt",
+      "explicit native action writes the actual typed content-free diagnostic snapshot",
+      "independent personalization-use consent adds one real native cancellation without weakening prior prompt coverage",
+      "persistence failure starts from identical current and independently loaded saved configuration",
+      "persistence recovery retains exact native control and draft: custom_instructions",
+      "persistence recovery retains exact native control and draft: debounce_ms",
+      "persistence recovery retains exact native control and draft: writing_language",
+      "persistence recovery retains exact native control and draft: history_retention_days",
+      "persistence recovery retains exact native control and draft: complete_inside_text",
+      "failed persistence retains editable dirty controls and enabled Save/Revert",
+      "native Save consumes its own exact Failed(Persistence) receipt (ConfigOperationId(9))",
+      "failed native Save changes neither controller nor independently reloaded saved configuration",
+      "persistence recovery retains exact native control and draft: custom_instructions",
+      "persistence recovery retains exact native control and draft: debounce_ms",
+      "persistence recovery retains exact native control and draft: writing_language",
+      "persistence recovery retains exact native control and draft: history_retention_days",
+      "persistence recovery retains exact native control and draft: complete_inside_text",
+      "failed persistence retains editable dirty controls and enabled Save/Revert",
+      "explicit recovery Save consumes its own exact Saved receipt (ConfigOperationId(10))",
+      "the exact Saved receipt matches current and independently reloaded configuration",
+      "failed Save and explicit recovery consume distinct submitted operation IDs",
+      "recovery Save persists exactly the retained draft and preserves every unrelated setting",
+      "persistence recovery retains exact native control and draft: custom_instructions",
+      "persistence recovery retains exact native control and draft: debounce_ms",
+      "persistence recovery retains exact native control and draft: writing_language",
+      "persistence recovery retains exact native control and draft: history_retention_days",
+      "persistence recovery retains exact native control and draft: complete_inside_text",
+      "only the recovery Saved receipt cleans the confirmed native draft",
+      "actual canonical Quit completed controller, preview, clipboard and power ownership cleanup and exited GTK"
+    ],
+    "choice_subsequence": {
+      "draw": {
+        "area_allocation": [
+          76,
+          46
+        ],
+        "area_has_window": true,
+        "area_mapped": true,
+        "area_shares_parent_drawable": false,
+        "at_draw": {
+          "configure_events": 1,
+          "map_events": 1,
+          "native": {
+            "gdk_focused": true,
+            "keyboard_focus_within": false,
+            "origin": [
+              24,
+              50
+            ],
+            "origin_valid": 1,
+            "state": 160,
+            "viewable": true
+          },
+          "widget": {
+            "active": false,
+            "allocation": [
+              76,
+              46
+            ],
+            "mapped": true,
+            "scale": 1,
+            "toplevel_focus": false,
+            "visible": true
+          }
+        },
+        "callbacks": 1,
+        "clip_checked": true,
+        "complete_clip": true,
+        "expected": [
+          24,
+          50,
+          76,
+          46
+        ],
+        "expected_scale": 1.0,
+        "focused": false,
+        "keyboard_focus_within": false,
+        "mapped": true,
+        "native_origin": {
+          "valid": true,
+          "viewable": true,
+          "x": 24,
+          "y": 50
+        },
+        "readiness": {
+          "configure_events": 1,
+          "last_configure": {
+            "after_draw_callbacks": 0,
+            "native": {
+              "gdk_focused": true,
+              "keyboard_focus_within": false,
+              "origin": [
+                24,
+                50
+              ],
+              "origin_valid": 1,
+              "state": 160,
+              "viewable": true
+            }
+          },
+          "last_map": {
+            "after_draw_callbacks": 0,
+            "native": {
+              "gdk_focused": true,
+              "keyboard_focus_within": false,
+              "origin": [
+                24,
+                50
+              ],
+              "origin_valid": 1,
+              "state": 160,
+              "viewable": true
+            }
+          },
+          "map_events": 1
+        },
+        "scale": 1,
+        "status": "painted",
+        "window_allocation": [
+          76,
+          46
+        ]
+      },
+      "outcome": "passed",
+      "readback": "owned-drawing-area-native-drawable",
+      "screenshot": "choices-eligible-subsequence.png"
+    },
+    "modal_responses": 8,
+    "persistence_failure": {
+      "obstruction": "empty owned directory; original settings inode preserved by rename",
+      "outcome": "passed",
+      "receipts": [
+        {
+          "operation": "ConfigOperationId(9)",
+          "receipt": "Failed(Persistence)"
+        },
+        {
+          "operation": "ConfigOperationId(10)",
+          "receipt": "Saved"
+        }
+      ],
+      "restored": true,
+      "scope": "real native Save and sole shell receipt consumer; only the fresh private settings destination obstructed"
+    },
+    "input": "GTK owned-widget event dispatch; no global synthetic input",
+    "ui": "GTK3 native canonical resident shell"
+  }
+}

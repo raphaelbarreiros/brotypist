@@ -1,0 +1,284 @@
+{
+  "schema": "brotypist-publication-frontier/1",
+  "evaluation_date": "2026-11-07",
+  "scope": "Direct native model corpus comparison and synchronous canonical output publication ordering; not desktop delivery",
+  "privacy": {
+    "private_paths_included": false,
+    "account_identities_included": false,
+    "raw_process_ids_included": false,
+    "ephemeral_nonces_included": false,
+    "private_investigation_material_included": false
+  },
+  "result": "relative parity and bounded publication ordering passed; absolute corpus failed",
+  "process_exit_code": 1,
+  "raw_reports_sha256": {
+    "current_publication_frontier": "2e7bbcc67da6a1600ec56a2fad59db6b35d704d71c8070f8c3a5ce2d7af9e3c3",
+    "pre_wave_control": "8fad83582dcc775a106590b9b3872c403d449c3abfeb28633db80240e4f42447",
+    "frozen_original": "2a1e0ae5ac15f110905da9c18a600413d1b49eebb4d7dd72eb7f2a16cb79b133"
+  },
+  "configuration": {
+    "cases": 64,
+    "rounds": 3,
+    "samples": 192,
+    "paired_seed": 20261106,
+    "model": "Gemma 4 E4B Q4_0",
+    "model_size_bytes": 4590807392,
+    "model_access": "read-only; verified model per parent execution facts",
+    "model_sha256": null,
+    "max_tokens": 24,
+    "completion_length": "medium",
+    "owner": "ordinary retained owner per round",
+    "prompt_changed": false,
+    "os_cache_controlled": false
+  },
+  "source_identity": {
+    "capture_phase": "source hashes embedded in raw reports; not asserted to be a frozen prelaunch executable identity",
+    "current_report_sha256": {
+      "crates/brotypist/examples/benchmark_writing.rs": "86896bcaeb33541b1c81d941ca397306acb967e48cc09340d78ee0cbbdf5b8ea",
+      "crates/brotypist/examples/benchmark_writing/contextual_quality.json": "aaa04b4afaeedd9726faad12dc697610b8042c21bf66a499e9474e25e6494512",
+      "crates/brotypist/examples/benchmark_writing/corpus.rs": "b8917dc7c72f394a372579f289f2859f338875945f53bc8a03849d1d6c23f20d",
+      "crates/brotypist/examples/benchmark_writing/direct.rs": "47567172da08cc60a1480f32367a15942a46f4c641cc91b6b302139795f392f0",
+      "crates/brotypist/examples/benchmark_writing/direct_checks.rs": "5c13f755ea03b02460435f120291bf0526507da589c55f89e169ea4dc51ee313",
+      "crates/brotypist/examples/benchmark_writing/direct_process.rs": "28223451ca0e2a275a2135ae3fb7dc4984eceb88403f297199a3cd1bc6712a3c",
+      "crates/brotypist/examples/benchmark_writing/evaluation.rs": "ed2268533cd4c64d99be7cba869602e5f16fb962b34fadcbc170dc6d65c443cc",
+      "crates/brotypist/examples/benchmark_writing/native_details.rs": "2c4598a1f5d34682d3bfbaf7d42c12d15c291ebc435fc36b9f37a7a607661f83",
+      "crates/brotypist/examples/benchmark_writing/runner.rs": "591d3c98245214fa13eede24fd483974cea408198df16918c3c1ed5678d0810f",
+      "crates/brotypist/examples/benchmark_writing/writing_quality.json": "384defd052ec86a38cb934fdfd1eb083c8f43e5b5538496117d058a55c1efbf9",
+      "crates/brotypist/native/llama_bridge.c": "e7d434d7fd26041d2b002534611f4044852cdca93974a5db41bf78f07270c421",
+      "crates/brotypist/src/features.rs": "7a3248c6b8d15c971558ca656db0be074dacb3e89f4b822e6551bb599571ecc2",
+      "crates/brotypist/src/inference_native.rs": "2f8082193823735a0c0bffb18cebec7123fb89ef7a2bc3bcd0aba42dbe57e92e",
+      "crates/brotypist/src/process_client.rs": "f7365cd8812ba1850a7df50e6fd139cee3109d3d08585dca5702aeda9b3bd450",
+      "crates/brotypist/src/providers.rs": "d2ec4207c533bb4fd483e10582a3b4687aed5cabe0412d243b721c83c92b32ef",
+      "crates/brotypist/src/providers_diagnostics.rs": "7eef1cd471341b4fd1fa338566ed0cdc9603a0b3396b5c873ed154539c8b86b5",
+      "crates/brotypist/src/worker.rs": "0cb10a3f7914bd9cc11a4a5842c37c48a7e7770fb3656f70123fe0ac8f69dd86",
+      "crates/brotypist/src/writing.rs": "ef2d0e67a4f32a6df36272dcff19e67e2d38c02eb0fb6dadba79c57ee71726b6"
+    },
+    "pre_wave_report_sha256": {
+      "crates/brotypist/examples/benchmark_writing.rs": "86896bcaeb33541b1c81d941ca397306acb967e48cc09340d78ee0cbbdf5b8ea",
+      "crates/brotypist/examples/benchmark_writing/contextual_quality.json": "aaa04b4afaeedd9726faad12dc697610b8042c21bf66a499e9474e25e6494512",
+      "crates/brotypist/examples/benchmark_writing/corpus.rs": "b8917dc7c72f394a372579f289f2859f338875945f53bc8a03849d1d6c23f20d",
+      "crates/brotypist/examples/benchmark_writing/direct.rs": "47567172da08cc60a1480f32367a15942a46f4c641cc91b6b302139795f392f0",
+      "crates/brotypist/examples/benchmark_writing/direct_checks.rs": "5c13f755ea03b02460435f120291bf0526507da589c55f89e169ea4dc51ee313",
+      "crates/brotypist/examples/benchmark_writing/direct_process.rs": "28223451ca0e2a275a2135ae3fb7dc4984eceb88403f297199a3cd1bc6712a3c",
+      "crates/brotypist/examples/benchmark_writing/evaluation.rs": "ed2268533cd4c64d99be7cba869602e5f16fb962b34fadcbc170dc6d65c443cc",
+      "crates/brotypist/examples/benchmark_writing/native_details.rs": "2c4598a1f5d34682d3bfbaf7d42c12d15c291ebc435fc36b9f37a7a607661f83",
+      "crates/brotypist/examples/benchmark_writing/runner.rs": "591d3c98245214fa13eede24fd483974cea408198df16918c3c1ed5678d0810f",
+      "crates/brotypist/examples/benchmark_writing/writing_quality.json": "384defd052ec86a38cb934fdfd1eb083c8f43e5b5538496117d058a55c1efbf9",
+      "crates/brotypist/native/llama_bridge.c": "e7d434d7fd26041d2b002534611f4044852cdca93974a5db41bf78f07270c421",
+      "crates/brotypist/src/features.rs": "7a3248c6b8d15c971558ca656db0be074dacb3e89f4b822e6551bb599571ecc2",
+      "crates/brotypist/src/inference_native.rs": "2f8082193823735a0c0bffb18cebec7123fb89ef7a2bc3bcd0aba42dbe57e92e",
+      "crates/brotypist/src/process_client.rs": "f7365cd8812ba1850a7df50e6fd139cee3109d3d08585dca5702aeda9b3bd450",
+      "crates/brotypist/src/providers.rs": "3def756d1011db404a090f0d14e753811d51721ad3425500a7118abdb4d6ff38",
+      "crates/brotypist/src/providers_diagnostics.rs": "4e9d58fc91e42a7d2f99d991d1d74a9dd9d02fe4053e6037906c5b1857a4c63b",
+      "crates/brotypist/src/worker.rs": "0cb10a3f7914bd9cc11a4a5842c37c48a7e7770fb3656f70123fe0ac8f69dd86",
+      "crates/brotypist/src/writing.rs": "ef2d0e67a4f32a6df36272dcff19e67e2d38c02eb0fb6dadba79c57ee71726b6"
+    },
+    "frozen_original_report_sha256": {
+      "crates/brotypist/examples/benchmark_writing.rs": "86896bcaeb33541b1c81d941ca397306acb967e48cc09340d78ee0cbbdf5b8ea",
+      "crates/brotypist/examples/benchmark_writing/contextual_quality.json": "aaa04b4afaeedd9726faad12dc697610b8042c21bf66a499e9474e25e6494512",
+      "crates/brotypist/examples/benchmark_writing/corpus.rs": "b8917dc7c72f394a372579f289f2859f338875945f53bc8a03849d1d6c23f20d",
+      "crates/brotypist/examples/benchmark_writing/direct.rs": "47567172da08cc60a1480f32367a15942a46f4c641cc91b6b302139795f392f0",
+      "crates/brotypist/examples/benchmark_writing/direct_checks.rs": "5c13f755ea03b02460435f120291bf0526507da589c55f89e169ea4dc51ee313",
+      "crates/brotypist/examples/benchmark_writing/direct_process.rs": "28223451ca0e2a275a2135ae3fb7dc4984eceb88403f297199a3cd1bc6712a3c",
+      "crates/brotypist/examples/benchmark_writing/evaluation.rs": "ed2268533cd4c64d99be7cba869602e5f16fb962b34fadcbc170dc6d65c443cc",
+      "crates/brotypist/examples/benchmark_writing/native_details.rs": "2c4598a1f5d34682d3bfbaf7d42c12d15c291ebc435fc36b9f37a7a607661f83",
+      "crates/brotypist/examples/benchmark_writing/runner.rs": "591d3c98245214fa13eede24fd483974cea408198df16918c3c1ed5678d0810f",
+      "crates/brotypist/examples/benchmark_writing/writing_quality.json": "384defd052ec86a38cb934fdfd1eb083c8f43e5b5538496117d058a55c1efbf9",
+      "crates/brotypist/native/llama_bridge.c": "190a309d00e5c7834dbd28b45a9167e931339ef9c1616213437f74c1f4ca7059",
+      "crates/brotypist/src/features.rs": "7a3248c6b8d15c971558ca656db0be074dacb3e89f4b822e6551bb599571ecc2",
+      "crates/brotypist/src/inference_native.rs": "164f25eeab4b2dae77ae8cf85d383e699711732c8e8236cb5996c5eafba95d1e",
+      "crates/brotypist/src/process_client.rs": "f7365cd8812ba1850a7df50e6fd139cee3109d3d08585dca5702aeda9b3bd450",
+      "crates/brotypist/src/providers.rs": "41293df42b44c31e1e7d793e50c082c25ed35bc5de1abae9dcf617db0330fafc",
+      "crates/brotypist/src/providers_diagnostics.rs": "a8240c74fe6c3b27e557e71432420dcea77bc55f089a4ca398ff0b02634ba820",
+      "crates/brotypist/src/worker.rs": "0cb10a3f7914bd9cc11a4a5842c37c48a7e7770fb3656f70123fe0ac8f69dd86",
+      "crates/brotypist/src/writing.rs": "5d0d7b6ec1fd2663116ed4ed462220c1097b18f1ba58573f6c48ce68cb10d19a"
+    },
+    "frozen_prelaunch_binary_identity": null
+  },
+  "relative_comparison": {
+    "reference": "pre-wave control",
+    "generated_text_mechanical_and_error_equal": 192,
+    "case_pairs": 192,
+    "corpus_native_call_pairs": 269,
+    "corpus_native_call_raw_seed_work_equal": 269,
+    "compared_native_fields": [
+      "raw_generated_text",
+      "sampler_seed",
+      "native_seed_state_after_call",
+      "requested_seed_override",
+      "native_work"
+    ],
+    "native_work_excluded_fields": [
+      "elapsed_us"
+    ],
+    "additional_session_comparison": {
+      "scope": "269 corpus calls plus 3 active-cancellation calls; 3 pre-cancellation probes made no native calls",
+      "native_call_pairs": 272,
+      "equal": 272
+    }
+  },
+  "publication": {
+    "scope": "269 corpus calls only; excludes cancellation probes",
+    "native_call_records": 269,
+    "finish_called": 269,
+    "exact_comparison_byte_limit": 2048,
+    "counts": {
+      "inside_native_generate": {
+        "nonempty_offers": 676,
+        "nonempty_successful_emissions": 676,
+        "offers": 676,
+        "successful_emissions": 676
+      },
+      "known_terminal_callback": {
+        "nonempty_offers": 117,
+        "nonempty_successful_emissions": 117,
+        "offers": 117,
+        "successful_emissions": 117
+      },
+      "finish_after_native_return": {
+        "nonempty_offers": 211,
+        "nonempty_successful_emissions": 211,
+        "offers": 263,
+        "successful_emissions": 263
+      }
+    },
+    "flags": {
+      "known_terminal_callback_seen": {
+        "true": 177,
+        "false": 92
+      },
+      "known_terminal_callback_emitted": {
+        "true": 117,
+        "false": 60,
+        "null_unavailable": 92
+      },
+      "nonempty_finish_offer_matches_last_native_emission": {
+        "true": 211,
+        "null_unavailable": 58
+      }
+    },
+    "null_comparison_meaning": "Nonempty canonical finish offer versus last successful canonical emission inside NativeModel::generate; null if no nonempty finish offer or the prior emission exceeded the retained-byte bound.",
+    "established": "211 nonempty final offers exactly match the last successful pre-return canonical emission; 117 known-terminal nonempty successful emissions occurred synchronously before native return."
+  },
+  "absolute_quality": {
+    "status": "failed",
+    "mechanical_passes": 175,
+    "samples": 192,
+    "failures": 17,
+    "partial_pt_combining_missing_o_joins": 3,
+    "no_offers": 14,
+    "semantic_status": "not_evaluated",
+    "sla_status": "not_claimed",
+    "unchanged_failure_cases": {
+      "partial-pt-combining": 3,
+      "suffix-pt-agreement": 3,
+      "suffix-ja-unspaced": 3,
+      "context-pt-unrelated": 3,
+      "context-pt-empty": 2,
+      "context-pt-suffix": 3
+    }
+  },
+  "cancellation_and_close": [
+    {
+      "round": 1,
+      "close": {
+        "native_owner_dropped": true,
+        "status": "pass"
+      },
+      "process": {
+        "exitcode": 0,
+        "fresh_owned_process": true,
+        "terminated_by_watchdog": false
+      },
+      "cancellation": [
+        {
+          "kind": "pre_cancelled",
+          "status": "pass",
+          "cancel_requested": true,
+          "native_generation_started": false,
+          "outputs_after_cancel": 0,
+          "error": null
+        },
+        {
+          "kind": "after_first_native_chunk",
+          "status": "pass",
+          "cancel_requested": true,
+          "native_generation_started": true,
+          "outputs_after_cancel": 0,
+          "error": null
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "close": {
+        "native_owner_dropped": true,
+        "status": "pass"
+      },
+      "process": {
+        "exitcode": 0,
+        "fresh_owned_process": true,
+        "terminated_by_watchdog": false
+      },
+      "cancellation": [
+        {
+          "kind": "pre_cancelled",
+          "status": "pass",
+          "cancel_requested": true,
+          "native_generation_started": false,
+          "outputs_after_cancel": 0,
+          "error": null
+        },
+        {
+          "kind": "after_first_native_chunk",
+          "status": "pass",
+          "cancel_requested": true,
+          "native_generation_started": true,
+          "outputs_after_cancel": 0,
+          "error": null
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "close": {
+        "native_owner_dropped": true,
+        "status": "pass"
+      },
+      "process": {
+        "exitcode": 0,
+        "fresh_owned_process": true,
+        "terminated_by_watchdog": false
+      },
+      "cancellation": [
+        {
+          "kind": "pre_cancelled",
+          "status": "pass",
+          "cancel_requested": true,
+          "native_generation_started": false,
+          "outputs_after_cancel": 0,
+          "error": null
+        },
+        {
+          "kind": "after_first_native_chunk",
+          "status": "pass",
+          "cancel_requested": true,
+          "native_generation_started": true,
+          "outputs_after_cancel": 0,
+          "error": null
+        }
+      ]
+    }
+  ],
+  "not_established": [
+    "semantic quality acceptance",
+    "absolute corpus acceptance",
+    "worker delivery or worker freshness",
+    "GPU completion timing",
+    "compositor visibility",
+    "physical input-to-paint latency",
+    "performance speedup from uncontrolled cross-run timing",
+    "interruption during native prefill",
+    "native UI insertion acceptance"
+  ]
+}

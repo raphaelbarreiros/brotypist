@@ -1,0 +1,54 @@
+{
+  "schema": "brotypist-emoji-notice/1",
+  "evaluation_date": "2026-11-07",
+  "scope": "Actual notices generator without packaging; upstream notice evidence only",
+  "privacy": {
+    "private_paths_included": false,
+    "account_identities_included": false,
+    "raw_process_ids_included": false,
+    "ephemeral_nonces_included": false,
+    "private_investigation_material_included": false
+  },
+  "result": "passed",
+  "execution": {
+    "test": "notices::tests::actual_notice_generator_without_packaging",
+    "ignored_test_explicitly_executed": true,
+    "target": "aarch64-apple-darwin",
+    "packaging": false,
+    "installation": false,
+    "execution_evidence": "parent-observed successful run"
+  },
+  "inventory_sha256": "4a0e5e1bf755b3c1c1d98d44e9b6af148a87c00290f04418a4cc6f8d46f9fdcc",
+  "cargo_lock_sha256": "48bfdbf47e531e0dcb45bb154d9bbff5e624b3408572df8acb6f1f5854579828",
+  "unicode": {
+    "name": "Unicode emoji data",
+    "version": "17.0",
+    "spdx": null,
+    "source": "https://www.unicode.org/Public/17.0.0/emoji/emoji-test.txt",
+    "checksum": "457c3a64da442d0d64ec2ac72e2206562d8366fbda3ddd5d3e955111e986e824",
+    "checksum_kind": "embedded-asset-sha256",
+    "documents": [
+      {
+        "upstream_path": "crates/brotypist/assets/emoji.json#/license",
+        "path": "embedded/unicode-emoji/LICENSE.txt",
+        "size": 1607,
+        "sha256": "98f131b2dd49d2afd3e74958f424096617aceecee7ffa93725bdd9b4761b8ae3",
+        "upstream_url": "https://www.unicode.org/Public/17.0.0/emoji/emoji-test.txt"
+      }
+    ],
+    "copied_license_bytes_sha256": "98f131b2dd49d2afd3e74958f424096617aceecee7ffa93725bdd9b4761b8ae3",
+    "copied_license_bytes": 1607,
+    "copied_existing_embedded_license_byte_identical": true
+  },
+  "legal_certification": false,
+  "legal_status": "upstream notice evidence only; not legal certification, a first-party license grant, or evidence that system/toolchain/model license obligations are satisfied",
+  "existing_cargo_and_native_notices_preserved": true,
+  "source_identity": {
+    "capture_phase": "post-run source capture; not frozen prelaunch identity or proof of executed binary correspondence",
+    "sha256": {
+      "crates/xtask/src/notices.rs": "389cce3cc1978dc8b8e3cd6e27b37c5b19d8b3f921e494e89b8b2e89eea61ab4",
+      "crates/brotypist/assets/emoji.json": "457c3a64da442d0d64ec2ac72e2206562d8366fbda3ddd5d3e955111e986e824"
+    },
+    "frozen_prelaunch_binary_identity": null
+  }
+}

@@ -1,0 +1,688 @@
+{
+  "schema": "brotypist-tab-followup-v1",
+  "evaluation_date": "2026-11-09",
+  "scope": "Uncommitted macOS candidate; source regression gates, isolated native component checks, and separate user-reported WhatsApp acceptance.",
+  "overall_status": "reported_native_whatsapp_tab_scenario_user_confirmed_fixed",
+  "user_report": {
+    "emoji_fixed": true,
+    "tab_still_fails_after_geometry_and_guard_candidate": true,
+    "claim": "User-confirmed success for the reported native WhatsApp scenario. Earlier failed candidates remain failed; this does not close the full external-host/security/IME/release matrix.",
+    "tab_final_result": "Works now",
+    "tab_final_protocol": "Fresh unsent draft; first verified visible completion acceptance, pause beyond two seconds after grey text ends, then extra Tabs without typing or moving the caret."
+  },
+  "geometry": {
+    "initial_cause": "A trailing Tab leaves the prior post-Tab calibration sample empty.",
+    "repair": "Use bounded preceding calibration text, independently measured native gap/endpoints and matching current typography; no estimated Tab advance or separated Vision fallback.",
+    "native_coordinate_correction": "Raw AX zero-range Y differs from actual glyph-row Y. Apply the existing compatible-glyph row convention after independently validating endpoint rows/heights, gap/caret heights, native X endpoints and clipping.",
+    "observed_raw_zero_y": 207.0,
+    "observed_glyph_y": 226.0,
+    "observed_height": 19.0,
+    "initial_red": {
+      "passed": 3,
+      "failed": 2
+    },
+    "initial_green": {
+      "passed": 5,
+      "failed": 0
+    },
+    "observed_coordinate_red": {
+      "passed": 6,
+      "failed": 1
+    },
+    "observed_coordinate_green_in_full_gate": true
+  },
+  "native_rows": {
+    "source_raw": {
+      "basename": "receipt.json",
+      "sha256": "7890cdf19f8ffe908ad646497860af24687842d88d35b8fd605308b70f929ef1",
+      "bytes": 151673,
+      "digest_scope": "Original private bytes before public identity redaction."
+    },
+    "passed": false,
+    "outcome": "partial_native_coverage",
+    "exit_code": 2,
+    "complete_native_acceptance": false,
+    "owned_close": true,
+    "scope": "Real MacBridge/direct AX geometry compared with independent owned NSTextView caret/font/baseline metadata. No keyboard posting, model, WhatsApp or rendered ghost proof.",
+    "cases": [
+      {
+        "case": "row-baseline",
+        "status": "direct_native_row_verified",
+        "inline_safe": true,
+        "capture_stage": "inline_ready",
+        "render_source": "macos-ax-attributed-run",
+        "independent_same_row": true,
+        "actual_caret": [
+          582.953125,
+          226.0,
+          0.0,
+          19.0
+        ],
+        "actual_sample_end": [
+          582.953125,
+          226.0,
+          0.0,
+          19.0
+        ]
+      },
+      {
+        "case": "row-gap",
+        "status": "direct_native_row_verified",
+        "inline_safe": true,
+        "capture_stage": "inline_ready",
+        "render_source": "macos-ax-attributed-run",
+        "independent_same_row": true,
+        "actual_caret": [
+          678.890625,
+          226.0,
+          0.0,
+          19.0
+        ],
+        "actual_sample_end": [
+          582.953125,
+          226.0,
+          0.0,
+          19.0
+        ]
+      },
+      {
+        "case": "row-hardline",
+        "status": "native_refusal_verified",
+        "inline_safe": false,
+        "capture_stage": "caret_row_sample_after_tab_empty",
+        "render_source": null,
+        "independent_same_row": false,
+        "actual_caret": [
+          670.0,
+          245.0,
+          0.0,
+          19.0
+        ],
+        "actual_sample_end": [
+          582.953125,
+          226.0,
+          0.0,
+          19.0
+        ]
+      },
+      {
+        "case": "row-nfd",
+        "status": "direct_native_row_verified",
+        "inline_safe": true,
+        "capture_stage": "inline_ready",
+        "render_source": "macos-ax-attributed-run",
+        "independent_same_row": true,
+        "actual_caret": [
+          790.0,
+          226.0,
+          0.0,
+          19.0
+        ],
+        "actual_sample_end": [
+          596.296875,
+          226.0,
+          0.0,
+          19.0
+        ]
+      },
+      {
+        "case": "row-style",
+        "status": "native_refusal_verified",
+        "inline_safe": false,
+        "capture_stage": "typography_run_unverified",
+        "render_source": null,
+        "independent_same_row": true,
+        "actual_caret": [
+          670.0,
+          226.0,
+          0.0,
+          26.0
+        ],
+        "actual_sample_end": [
+          582.953125,
+          226.0,
+          0.0,
+          26.0
+        ]
+      },
+      {
+        "case": "row-suffix",
+        "status": "native_refusal_verified",
+        "inline_safe": false,
+        "capture_stage": "caret_row_suffix_tab",
+        "render_source": null,
+        "independent_same_row": true,
+        "actual_caret": [
+          582.953125,
+          226.0,
+          0.0,
+          19.0
+        ],
+        "actual_sample_end": [
+          582.953125,
+          226.0,
+          0.0,
+          19.0
+        ]
+      },
+      {
+        "case": "row-tab-far",
+        "status": "direct_native_row_verified",
+        "inline_safe": true,
+        "capture_stage": "inline_ready",
+        "render_source": "macos-ax-attributed-run",
+        "independent_same_row": true,
+        "actual_caret": [
+          790.0,
+          226.0,
+          0.0,
+          19.0
+        ],
+        "actual_sample_end": [
+          582.953125,
+          226.0,
+          0.0,
+          19.0
+        ]
+      },
+      {
+        "case": "row-tab-near",
+        "status": "direct_native_row_verified",
+        "inline_safe": true,
+        "capture_stage": "inline_ready",
+        "render_source": "macos-ax-attributed-run",
+        "independent_same_row": true,
+        "actual_caret": [
+          670.0,
+          226.0,
+          0.0,
+          19.0
+        ],
+        "actual_sample_end": [
+          582.953125,
+          226.0,
+          0.0,
+          19.0
+        ]
+      },
+      {
+        "case": "row-unicode",
+        "status": "not_run_font_coverage",
+        "inline_safe": false,
+        "capture_stage": "font_baseline_unverified",
+        "render_source": null,
+        "independent_same_row": true,
+        "actual_caret": [
+          790.0,
+          226.0,
+          0.0,
+          23.00000810623169
+        ],
+        "actual_sample_end": [
+          610.1021875,
+          226.0,
+          0.0,
+          23.00000810623169
+        ]
+      },
+      {
+        "case": "row-wrap",
+        "status": "native_refusal_verified",
+        "inline_safe": false,
+        "capture_stage": "caret_row_gap_geometry_unverified",
+        "render_source": null,
+        "independent_same_row": false,
+        "actual_caret": [
+          430.0,
+          264.0,
+          0.0,
+          19.0
+        ],
+        "actual_sample_end": [
+          502.9296875,
+          245.0,
+          0.0,
+          19.0
+        ]
+      }
+    ]
+  },
+  "native_completion_emoji": {
+    "source_raw": {
+      "basename": "receipt.json",
+      "sha256": "7bceba73b5a310ca42f7e06e68534f1d0945e2eb23eb06f18468717262d3dfd9",
+      "bytes": 292024,
+      "digest_scope": "Original private bytes before public identity redaction."
+    },
+    "passed": true,
+    "cases": [
+      "compact-middle",
+      "exact-whitespace",
+      "exact-nfd-emoji",
+      "selected-replacement",
+      "emoji-zwj",
+      "emoji-alias",
+      "emoji-emoticon",
+      "stale-view"
+    ],
+    "worker_stopped": true,
+    "overlay_close_error": null,
+    "shutdown_error": null,
+    "scope": "Controlled-provider WorkerClient/Controller/native widgets and actual presentation receipts; not physical WhatsApp or global Quartz acceptance.",
+    "source_checkpoint": "Geometry-and-bounded-guard candidate, before the later deferred-readback and WhatsApp field-session policy. Historical component proof, not final-policy physical acceptance."
+  },
+  "prior_native_failures": [
+    {
+      "source_raw": {
+        "basename": "receipt.json",
+        "sha256": "1aee5988be2de618e5a48b578b67e4d7af573825178b689c9d0c94af581f26c0",
+        "bytes": 14123,
+        "digest_scope": "Original private bytes before public identity redaction."
+      },
+      "passed": false,
+      "reason": "Physical input interrupted the owned fixture.",
+      "owned_close": false,
+      "close_error": "Owned editor exited; refusing further access"
+    },
+    {
+      "source_raw": {
+        "basename": "receipt.json",
+        "sha256": "d9e454fd9d8ccac6c0d6d2f050235f07f251786c78d293eae4773cf4e29a233e",
+        "bytes": 32631,
+        "digest_scope": "Original private bytes before public identity redaction."
+      },
+      "passed": false,
+      "reason": "Direct-AX baseline passed, but trailing Tab refused gap geometry.",
+      "owned_close": true,
+      "close_error": null
+    },
+    {
+      "source_raw": {
+        "basename": "receipt.json",
+        "sha256": "d0bf55ddda26de6e54d7e8b8819133ebfbcddd66aaa5094684f4368d85b9d928",
+        "bytes": 36211,
+        "digest_scope": "Original private bytes before public identity redaction."
+      },
+      "passed": false,
+      "reason": "Instrumented run retained the same refusal and measured raw zero-range versus glyph-row coordinates.",
+      "owned_close": true,
+      "close_error": null
+    }
+  ],
+  "actual_whatsapp_failure": {
+    "raw_reports": [
+      {
+        "basename": "whatsapp-capture.json",
+        "sha256": "874259c3f1b32de8b96b2ef0ee044cb4571e827e296302bd97f854703ebbb416",
+        "bytes": 2756,
+        "digest_scope": "Original private bytes before public identity redaction."
+      },
+      {
+        "basename": "runtime-whatsapp.json",
+        "sha256": "a7d5da4cf4111475e2753cfbabf2073ecdf60e1a4c67e3494a64c47d631d4541",
+        "bytes": 3840,
+        "digest_scope": "Original private bytes before public identity redaction."
+      },
+      {
+        "basename": "renderer-whatsapp.json",
+        "sha256": "87cf183bcf372bb306ec2675f87a3126897d08cd39d57e7340cb26955dec2f9f",
+        "bytes": 3034,
+        "digest_scope": "Original private bytes before public identity redaction."
+      }
+    ],
+    "capture_scope": "Export occurred after focus left WhatsApp. Retained counters/outcomes are useful; current background AX shape is not proof of focused composer capabilities.",
+    "native_outcome": "indeterminate",
+    "native_reason": "not yet instrumented",
+    "confirmed_completion_edits": 0,
+    "inline_safe_captures": 59,
+    "captures": 59,
+    "model_submitted": 2,
+    "model_finished": 2,
+    "model_no_offer": 0,
+    "model_failed": 0,
+    "renderer_attempts": 6,
+    "renderer_rendered": 6,
+    "shortcut_dispatches": 2,
+    "tap_timeouts_last_minute": 0,
+    "pending_gate": false,
+    "planned_completion_whitespace_only": false,
+    "planned_completion_contains_tab": false,
+    "implication": "No verified edit means no continuation guard. Indeterminate edits are never retried/replayed or retroactively accepted."
+  },
+  "unchanged_limits": {
+    "model_quality_baseline_passed": 178,
+    "model_quality_baseline_total": 192,
+    "model_no_offer_failures": 14,
+    "held_acceptance_gates": 15,
+    "new_native_windows_linux_execution": false,
+    "new_model_quality_or_latency_or_power_claim": false,
+    "installed_app_replaced": false,
+    "permission_grant_or_reset": false,
+    "committed_or_published": false
+  },
+  "instrumented_whatsapp_failure": {
+    "raw_reports": [
+      {
+        "basename": "whatsapp-capture.json",
+        "sha256": "2ccc5749207f28e0c0abef10304d8788271787b0a36f27344b3812e58eca8bc4",
+        "bytes": 2898,
+        "digest_scope": "Original private bytes before public identity redaction."
+      },
+      {
+        "basename": "runtime-whatsapp.json",
+        "sha256": "dcf8e043c1515bc3d614227193ab27314e24c251c099ad9d5fc3c1fe90c16098",
+        "bytes": 3838,
+        "digest_scope": "Original private bytes before public identity redaction."
+      },
+      {
+        "basename": "renderer-whatsapp.json",
+        "sha256": "afa41f1a69659b495b8ebd5814e1fbf2dec8e8e205635cac894cc5b4c29a1e87",
+        "bytes": 3034,
+        "digest_scope": "Original private bytes before public identity redaction."
+      }
+    ],
+    "native_reason": {
+      "capture_stage": "selection_or_geometry_changed_after_capture",
+      "readback": null,
+      "reason": "capture_unavailable",
+      "user_revision_unchanged": true
+    },
+    "confirmed_completion_edits": 1,
+    "inline_safe_captures": 97,
+    "captures": 99,
+    "shortcut_dispatches": 3,
+    "tap_timeouts_last_minute": 0,
+    "model_session": {
+      "submitted_requests": 3,
+      "finished_requests": 3,
+      "no_offer_requests": 1,
+      "failed_requests": 0,
+      "cancelled_requests": 0
+    },
+    "scope": "Retained immediate insertion evidence; current export took place after focus left WhatsApp. Genuine model abstention is separate from the failed native readback."
+  },
+  "deferred_readback_correction": {
+    "native_stage": "selection_or_geometry_changed_after_capture",
+    "successful_post_and_fresh_safe_scope_required": true,
+    "result_is_dispatched_not_applied": true,
+    "exact_readback_before_original_two_second_deadline_required": true,
+    "one_shot_transient_capture_proof": true,
+    "native_lease_storage_expires_without_renewal": true,
+    "no_reposting_or_replaying": true,
+    "unproved_none_errors_and_full_snapshot_mismatch_refused": true,
+    "red": {
+      "lib_passed": 649,
+      "lib_failed": 4
+    },
+    "full_source_green": {
+      "reported_passed": 782,
+      "ignored": 1,
+      "summaries": 26,
+      "bins_examples_and_format_passed": true
+    }
+  },
+  "post_readback_fix_user_failure": {
+    "raw_reports": [
+      {
+        "basename": "whatsapp-capture.json",
+        "sha256": "fb38383a12f337d4a3f13510bf61ed5d5939e80bfc536f413d43a90ba9c55c4d",
+        "bytes": 3418,
+        "digest_scope": "Original private bytes before public identity redaction."
+      },
+      {
+        "basename": "runtime-whatsapp.json",
+        "sha256": "74a85c0f358eb6c84855f74e7d1e9690537c91509dc36ec8f3e1c7888d3108b9",
+        "bytes": 3853,
+        "digest_scope": "Original private bytes before public identity redaction."
+      },
+      {
+        "basename": "renderer-whatsapp.json",
+        "sha256": "fa5418d34c7d331eb8c82ffdec5a07d1a4c97f5a7636c5de8ab4e0c884add070",
+        "bytes": 3034,
+        "digest_scope": "Original private bytes before public identity redaction."
+      }
+    ],
+    "user_result": "Same Tab failure",
+    "last_native_insert": {
+      "capture_stage": "inline_ready",
+      "readback": {
+        "authority_match": true,
+        "caret_match": true,
+        "same_app": true,
+        "same_document": true,
+        "same_domain": true,
+        "same_field": true,
+        "same_process": true,
+        "same_window": true,
+        "selection_empty": true,
+        "text_match": true,
+        "unchanged_readback": false
+      },
+      "reason": "exact",
+      "user_revision_unchanged": true
+    },
+    "confirmed_completion_edits": 6,
+    "captures": 414,
+    "inline_safe_captures": 255,
+    "gap_geometry_stage_count": 124,
+    "font_sample_stage_count": 30,
+    "shortcut_dispatches": 11,
+    "tap_timeouts_last_minute": 0,
+    "scope": "Retained counters/outcome, exported after focus left WhatsApp; not every failure is correlated to the final native outcome."
+  },
+  "validated_whatsapp_wrapped_gap": {
+    "raw_reports": [
+      {
+        "basename": "whatsapp-capture.json",
+        "sha256": "8a25ceb1b1e2521f43836e51659cff016d8b9c70d9b3761fefe445f24d4d4927",
+        "bytes": 4722,
+        "digest_scope": "Original private bytes before public identity redaction."
+      },
+      {
+        "basename": "runtime-whatsapp.json",
+        "sha256": "95aa459e8214f672ffb660d0e8159fcd7e38c0e44701db872747b4c921cd8de5",
+        "bytes": 3840,
+        "digest_scope": "Original private bytes before public identity redaction."
+      },
+      {
+        "basename": "renderer-whatsapp.json",
+        "sha256": "5b9d7dc20a60487dc997b98b1c5a9c3e00d156f35d26c936e9403bccc71e6ba9",
+        "bytes": 3014,
+        "digest_scope": "Original private bytes before public identity redaction."
+      }
+    ],
+    "foreground_at_export": true,
+    "failure": {
+      "captured_caret": [
+        869.0,
+        602.205078125,
+        1.0,
+        16.689453125
+      ],
+      "clip": [
+        724.0,
+        456.0,
+        736.0,
+        165.0
+      ],
+      "normalized_caret": null,
+      "normalized_sample_end": null,
+      "raw_caret": [
+        869.0,
+        602.205078125,
+        0.0,
+        16.689453125
+      ],
+      "raw_gap": [
+        729.0,
+        452.0,
+        726.0,
+        167.0
+      ],
+      "raw_sample_end": [
+        881.5,
+        452.0,
+        0.0,
+        16.5
+      ],
+      "reason": "raw_endpoint_row_mismatch"
+    },
+    "interpretation": "The endpoints occupy different real rows and native whitespace bounds span multiple wrapped rows. The refusal is correct, not evidence for a same-row/fitted fallback.",
+    "geometry_refusal_preserved": true,
+    "user_draft_modified_by_diagnostic": false
+  },
+  "initial_bounded_continuation_guard": {
+    "maximum_seconds": 2,
+    "starts_only_after_verified_completion": true,
+    "nonmutating": true,
+    "extends_on_ignored_keys": false,
+    "accepts_future_paint": false,
+    "ordinary_tab_outside_scope_unchanged": true,
+    "red": {
+      "passed": 2,
+      "failed": 6
+    },
+    "green": {
+      "passed": 8,
+      "failed": 0
+    }
+  },
+  "initial_geometry_guard_source_gate": {
+    "platform": "macos-arm64",
+    "rust": "1.99.1",
+    "test_command": "cargo test --offline --locked --workspace --all-targets --features brotypist/native-smoke",
+    "build_command": "cargo build --offline --locked --workspace --bins --examples --features brotypist/native-smoke",
+    "format_command": "cargo fmt --all -- --check",
+    "reported_passed": 771,
+    "parent_passed": 766,
+    "child_passed": 5,
+    "failed": 0,
+    "ignored": 1,
+    "summaries": 26,
+    "bins_examples_passed": true,
+    "format_passed": true,
+    "counts_meaning": "Reported test invocations, not distinct user scenarios."
+  },
+  "source_gate": {
+    "platform": "macos-arm64",
+    "rust": "1.99.1",
+    "test_command": "cargo test --offline --locked --workspace --all-targets --features brotypist/native-smoke",
+    "build_command": "cargo build --offline --locked --workspace --bins --examples --features brotypist/native-smoke",
+    "format_command": "cargo fmt --all -- --check",
+    "reported_passed": 789,
+    "parent_passed": 784,
+    "child_passed": 5,
+    "failed": 0,
+    "ignored": 1,
+    "summaries": 26,
+    "bins_examples_passed": true,
+    "format_passed": true,
+    "counts_meaning": "Reported test invocations, not distinct user scenarios."
+  },
+  "whatsapp_field_reservation": {
+    "user_approved": true,
+    "app_id": "net.whatsapp.WhatsApp",
+    "starts_after": "Exact verified ordinary completion acceptance only.",
+    "lifetime": "Current exact writing field/draft/authority and authored-input revision; no renewal timer in this app.",
+    "no_offer_or_idle_ends_reservation": false,
+    "no_visible_eligible_claim": "Consume accept-word action without host mutation, acceptance statistics, model retry, extra request or queued future acceptance.",
+    "fresh_rendered_claims_take_priority": true,
+    "admitted_nonmutating_key_cannot_accept_or_disarm_later_paint": true,
+    "release_conditions": [
+      "Other authored input",
+      "Caret or selection change",
+      "Field, focus or authority change",
+      "Default Escape / explicit dismissal",
+      "Config, policy, pause or stop",
+      "Existing native-readiness, AX, secure-input, protection and composition refusal",
+      "Failed fresh scope revalidation",
+      "New unconfirmed or indeterminate mutation"
+    ],
+    "other_apps": "Existing maximum two-second continuation guard and terminal-no-offer passthrough remain.",
+    "pending_native_readback_deadline_seconds": 2,
+    "existing_draft_automatically_changed": false,
+    "keybinding_scope": "Existing accept-word action; default Tab/default Escape exercised. Configured binding precedence unchanged; arbitrary rebinding is not asserted equivalent.",
+    "permission_scope": "Existing native-readiness/AX/security gates retained. Native mutation still performs nonprompting post-event preflight. Independent posting-permission revocation while AX stays trusted was not exercised.",
+    "red": {
+      "passed": 2,
+      "failed": 3,
+      "filter": "whatsapp_tab_reservation_"
+    },
+    "green_in_full_gate": true
+  },
+  "successful_user_run": {
+    "raw_reports": [
+      {
+        "basename": "whatsapp-capture.json",
+        "sha256": "8adee98efe43b8f88c613acb379586cf9d25d37e8b59a9c3d928838f27c121b9",
+        "bytes": 2719,
+        "digest_scope": "Original private bytes before public identity redaction."
+      },
+      {
+        "basename": "runtime-whatsapp.json",
+        "sha256": "3d91de4d25a2cda55d0c3515cc1bcd69ed128e8130956dc191e6a77dd393f4e8",
+        "bytes": 3840,
+        "digest_scope": "Original private bytes before public identity redaction."
+      },
+      {
+        "basename": "renderer-whatsapp.json",
+        "sha256": "912cdf9ed17d1c048b6c830e2db84cf9b549c75400a0f62cd60956be99d6b4eb",
+        "bytes": 3022,
+        "digest_scope": "Original private bytes before public identity redaction."
+      }
+    ],
+    "user_result": "Works now",
+    "confirmed_completion_edits": 7,
+    "last_native_outcome": "applied",
+    "last_native_reason": {
+      "capture_stage": "inline_ready",
+      "readback": {
+        "authority_match": true,
+        "caret_match": true,
+        "same_app": true,
+        "same_document": true,
+        "same_domain": true,
+        "same_field": true,
+        "same_process": true,
+        "same_window": true,
+        "selection_empty": true,
+        "text_match": true,
+        "unchanged_readback": false
+      },
+      "reason": "exact",
+      "user_revision_unchanged": true
+    },
+    "model_session": {
+      "submitted_requests": 4,
+      "finished_requests": 4,
+      "no_offer_requests": 2,
+      "failed_requests": 0,
+      "cancelled_requests": 0
+    },
+    "shortcut_dispatches": 20,
+    "tap_timeouts_last_minute": 0,
+    "validated_gap_failure_recorded": false,
+    "foreground_at_export": false,
+    "scope": "Manual user test plus retained content-free native/runtime evidence. Export occurred after the user returned to answer; no background AX shape or current reservation-state claim. Dispatch totals do not independently classify every shortcut action.",
+    "tested_binary": {
+      "basename": "BroTypist",
+      "sha256": "1230e745c168375b5d3a4cbc1b0a4e6be1ed019135777710f6e1675cff3fa0bd",
+      "bytes": 49055224,
+      "digest_scope": "Original private bytes before public identity redaction."
+    }
+  },
+  "launch_context_confound": {
+    "terminal_launched_diagnostic_had_ax_trust": false,
+    "terminal_launched_diagnostic_proved_tab_failure": false,
+    "direct_tool_context_fresh_diagnostics_ax_trusted": true,
+    "permission_grant_or_reset": false,
+    "force_quit_executed": false,
+    "scope": "The failed Terminal launch was a permission-context confound. Final candidate uses the directly verified tool launch context; readiness metadata alone is not physical hook proof."
+  },
+  "cleanup": {
+    "owned_tab_row_app_copies_removed": 4,
+    "raw_receipts_preserved": true,
+    "unused_headless_probe_source_and_binary_removed": true,
+    "running_private_manual_profile_retained": true
+  }
+}

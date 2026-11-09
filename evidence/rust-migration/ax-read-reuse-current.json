@@ -1,0 +1,115 @@
+{
+  "schema": "brotypist-ax-read-reuse/1",
+  "evaluation_date": "2026-11-07",
+  "scope": "actual hookless MacBridge capture/direct AX mutation, not Controller, global hooks, physical typing, browser, terminal or screen-reader acceptance",
+  "privacy": {
+    "private_paths_included": false,
+    "account_identities_included": false,
+    "raw_process_ids_included": false,
+    "ephemeral_nonces_included": false,
+    "private_investigation_material_included": false
+  },
+  "result": "passed",
+  "raw_receipt_sha256": "905c18a5116a6332ecb2d337da52dd97a411d85f83354bb41362a3c5ad0a141b",
+  "owned_close": true,
+  "close_error": null,
+  "error": null,
+  "transaction_frame_reads": {
+    "baseline": {
+      "failures": 0,
+      "hits": 0,
+      "invalidations": 0,
+      "native_calls": 3,
+      "requests": 3
+    },
+    "both_captured": true,
+    "fewer_native_frame_calls": true,
+    "fresh_barriers": "independent ordinary captures; reuse ends before appearance/focus/anchor",
+    "identical_capture": true,
+    "pass_local_hit_observed": true,
+    "reused": {
+      "failures": 0,
+      "hits": 1,
+      "invalidations": 0,
+      "native_calls": 2,
+      "requests": 3
+    },
+    "scope": "owned AX child only; no latency or external-host authority claim"
+  },
+  "native_safety_checks": {
+    "changed_value_verified": true,
+    "combining_selection_verified": true,
+    "complete_native_acceptance": true,
+    "foreign_field_refused": true,
+    "foreign_window_refused": true,
+    "geometry_changed": true,
+    "initial_verified": true,
+    "interior_actual_mapping_verified": true,
+    "readonly_refused": true,
+    "second_field_verified": true,
+    "stale_selection_refused": true,
+    "stale_value_refused": true
+  },
+  "safety": {
+    "application_normal_profile_access": false,
+    "child_environment": "cleared; fixed PATH/LANG/authorization plus canonical private INKLOW_HOME/HOME/CFFIXED_USER_HOME/TMPDIR/TMP/TEMP/XDG_CACHE_HOME/XDG_CONFIG_HOME",
+    "clipboard": false,
+    "filesystem_policy": "canonical root/current-UID-owned chains; no extended ACL; group/world writable ancestors require sticky bit; root and same UID trusted",
+    "fresh_private_profile": true,
+    "global_hooks": false,
+    "history": false,
+    "keyboard_injection": false,
+    "known_observer_preflight": true,
+    "model": false,
+    "os_framework_write_confinement": false,
+    "owned_pid_incarnation_window_nonce": true,
+    "permission_requests": false,
+    "private_authenticated_child": true,
+    "remaining_os_side_effect_limit": "AppKit/Foundation, LaunchServices, cfprefsd and text-service daemons may write account-wide preferences, caches, registration or service state outside these directories; HOME is not a sandbox. No host-wide no-write claim. Use a genuinely disposable macOS login account when normal-account side effects are unacceptable.",
+    "text_assistance_disabled": true,
+    "window_restoration": "process-local volatile defaults and non-restorable windows"
+  },
+  "source_identity": {
+    "capture_phase": "post-run source capture; not frozen prelaunch identity or proof of executed binary correspondence",
+    "sha256": {
+      "crates/brotypist/src/platform/macos_ax.rs": "9de64a60c9997f4c95e3a316229df8c3fd6ba4048d8b800058bba85e3b76c0d5",
+      "crates/brotypist/src/ui/macos_ax_smoke.rs": "9f18aee3c1b7cfc68315c78d5882f4d5fae121813a84ab7ca645591e1990a634"
+    },
+    "frozen_prelaunch_binary_identity": null
+  },
+  "independent_native_readback": {
+    "ok": true,
+    "native_widgets_before_event_drain": [
+      {
+        "length": 0,
+        "location": 17,
+        "text": "Mudança 🙂 é fim"
+      },
+      {
+        "length": 0,
+        "location": 19,
+        "text": "Segundo campo — 日本語"
+      }
+    ],
+    "widgets": [
+      {
+        "length": 0,
+        "location": 17,
+        "text": "Mudança 🙂 é fim"
+      },
+      {
+        "length": 0,
+        "location": 19,
+        "text": "Segundo campo — 日本語"
+      }
+    ]
+  },
+  "not_established": [
+    "physical input",
+    "global hooks or Controller acceptance",
+    "secure-field toggling",
+    "browser or terminal or arbitrary external hosts",
+    "latency or WindowServer improvement",
+    "full operating-system write confinement"
+  ]
+}

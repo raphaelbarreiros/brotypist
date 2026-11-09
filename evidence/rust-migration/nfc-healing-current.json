@@ -1,0 +1,2176 @@
+{
+  "schema": "brotypist-nfc-healing/1",
+  "evaluation_date": "2026-11-07",
+  "scope": "Bounded real native scratch evidence for NFC-only model replay normalization, full64 relative outcomes, named long52 controls and Unicode twins.",
+  "privacy": {
+    "private_paths_included": false,
+    "account_identities_included": false,
+    "raw_process_ids_included": false,
+    "ephemeral_nonces_included": false,
+    "private_investigation_material_included": false,
+    "method": "Allowlisted public source-relative names, synthetic fixture/model text, counters and digests only. Raw report locations, model paths and owner identities omitted. No proprietary research source is reproduced."
+  },
+  "result": "Targeted NFC failure corrected in three rounds; full corpus improves 175 to 178 of 192 with zero regressions; fourteen absolute no-offer failures remain.",
+  "raw_reports_sha256": {
+    "focused-three-rounds.json": "af3168f34cb6fa51beebd4f29ae2cfb17f4c99026c7dfbee74261ffb8488eb7a",
+    "full64-three-rounds.json": "31f26b969d6fd97dd2785d310b26f086c03312d74fba63666cd724e06287c539",
+    "paired-native-controls.json": "7af87e8c73873b8c776d438f530d9be05b6c2d314af4659d87a1ab48ac24b192",
+    "long52.json": "08e0057574b9f29c0968a0b68fbcd9ddab468e16e1be7657bc2a2349992ea3ed",
+    "pre-nfc-full64": "2e7bbcc67da6a1600ec56a2fad59db6b35d704d71c8070f8c3a5ce2d7af9e3c3",
+    "baseline-long52": "c5ae5df3cd02ab45641fd5973e2044e03a76772a1adf07440aaa284b9d2c78bf"
+  },
+  "digest_convention": {
+    "raw_reports": "SHA-256 of original raw file bytes before any path removal; raw files are not republished.",
+    "derived_json_fields": "SHA-256 of UTF-8 JSON with sorted keys, compact separators and unescaped Unicode.",
+    "non_timing_native_calls": "All native-call fields retained except dictionary keys ending _ms or _us, recursively."
+  },
+  "source_identity": {
+    "capture_phase": "Source digests embedded in measured scratch reports; not a claim of primary final-build or frozen prelaunch executable identity.",
+    "pre_nfc_full64_sha256": {
+      "crates/brotypist/examples/benchmark_writing.rs": "86896bcaeb33541b1c81d941ca397306acb967e48cc09340d78ee0cbbdf5b8ea",
+      "crates/brotypist/examples/benchmark_writing/contextual_quality.json": "aaa04b4afaeedd9726faad12dc697610b8042c21bf66a499e9474e25e6494512",
+      "crates/brotypist/examples/benchmark_writing/corpus.rs": "b8917dc7c72f394a372579f289f2859f338875945f53bc8a03849d1d6c23f20d",
+      "crates/brotypist/examples/benchmark_writing/direct.rs": "47567172da08cc60a1480f32367a15942a46f4c641cc91b6b302139795f392f0",
+      "crates/brotypist/examples/benchmark_writing/direct_checks.rs": "5c13f755ea03b02460435f120291bf0526507da589c55f89e169ea4dc51ee313",
+      "crates/brotypist/examples/benchmark_writing/direct_process.rs": "28223451ca0e2a275a2135ae3fb7dc4984eceb88403f297199a3cd1bc6712a3c",
+      "crates/brotypist/examples/benchmark_writing/evaluation.rs": "ed2268533cd4c64d99be7cba869602e5f16fb962b34fadcbc170dc6d65c443cc",
+      "crates/brotypist/examples/benchmark_writing/native_details.rs": "2c4598a1f5d34682d3bfbaf7d42c12d15c291ebc435fc36b9f37a7a607661f83",
+      "crates/brotypist/examples/benchmark_writing/runner.rs": "591d3c98245214fa13eede24fd483974cea408198df16918c3c1ed5678d0810f",
+      "crates/brotypist/examples/benchmark_writing/writing_quality.json": "384defd052ec86a38cb934fdfd1eb083c8f43e5b5538496117d058a55c1efbf9",
+      "crates/brotypist/native/llama_bridge.c": "e7d434d7fd26041d2b002534611f4044852cdca93974a5db41bf78f07270c421",
+      "crates/brotypist/src/features.rs": "7a3248c6b8d15c971558ca656db0be074dacb3e89f4b822e6551bb599571ecc2",
+      "crates/brotypist/src/inference_native.rs": "2f8082193823735a0c0bffb18cebec7123fb89ef7a2bc3bcd0aba42dbe57e92e",
+      "crates/brotypist/src/process_client.rs": "f7365cd8812ba1850a7df50e6fd139cee3109d3d08585dca5702aeda9b3bd450",
+      "crates/brotypist/src/providers.rs": "d2ec4207c533bb4fd483e10582a3b4687aed5cabe0412d243b721c83c92b32ef",
+      "crates/brotypist/src/providers_diagnostics.rs": "7eef1cd471341b4fd1fa338566ed0cdc9603a0b3396b5c873ed154539c8b86b5",
+      "crates/brotypist/src/worker.rs": "0cb10a3f7914bd9cc11a4a5842c37c48a7e7770fb3656f70123fe0ac8f69dd86",
+      "crates/brotypist/src/writing.rs": "ef2d0e67a4f32a6df36272dcff19e67e2d38c02eb0fb6dadba79c57ee71726b6"
+    },
+    "nfc_candidate_full64_sha256": {
+      "crates/brotypist/examples/benchmark_writing.rs": "86896bcaeb33541b1c81d941ca397306acb967e48cc09340d78ee0cbbdf5b8ea",
+      "crates/brotypist/examples/benchmark_writing/contextual_quality.json": "aaa04b4afaeedd9726faad12dc697610b8042c21bf66a499e9474e25e6494512",
+      "crates/brotypist/examples/benchmark_writing/corpus.rs": "b8917dc7c72f394a372579f289f2859f338875945f53bc8a03849d1d6c23f20d",
+      "crates/brotypist/examples/benchmark_writing/direct.rs": "47567172da08cc60a1480f32367a15942a46f4c641cc91b6b302139795f392f0",
+      "crates/brotypist/examples/benchmark_writing/direct_checks.rs": "5c13f755ea03b02460435f120291bf0526507da589c55f89e169ea4dc51ee313",
+      "crates/brotypist/examples/benchmark_writing/direct_process.rs": "28223451ca0e2a275a2135ae3fb7dc4984eceb88403f297199a3cd1bc6712a3c",
+      "crates/brotypist/examples/benchmark_writing/evaluation.rs": "ed2268533cd4c64d99be7cba869602e5f16fb962b34fadcbc170dc6d65c443cc",
+      "crates/brotypist/examples/benchmark_writing/native_details.rs": "2c4598a1f5d34682d3bfbaf7d42c12d15c291ebc435fc36b9f37a7a607661f83",
+      "crates/brotypist/examples/benchmark_writing/runner.rs": "591d3c98245214fa13eede24fd483974cea408198df16918c3c1ed5678d0810f",
+      "crates/brotypist/examples/benchmark_writing/writing_quality.json": "384defd052ec86a38cb934fdfd1eb083c8f43e5b5538496117d058a55c1efbf9",
+      "crates/brotypist/native/llama_bridge.c": "e7d434d7fd26041d2b002534611f4044852cdca93974a5db41bf78f07270c421",
+      "crates/brotypist/src/features.rs": "7a3248c6b8d15c971558ca656db0be074dacb3e89f4b822e6551bb599571ecc2",
+      "crates/brotypist/src/inference_native.rs": "2f8082193823735a0c0bffb18cebec7123fb89ef7a2bc3bcd0aba42dbe57e92e",
+      "crates/brotypist/src/process_client.rs": "f7365cd8812ba1850a7df50e6fd139cee3109d3d08585dca5702aeda9b3bd450",
+      "crates/brotypist/src/providers.rs": "9466a6e662f057600db918605fba573f855d7cd3375c1afd24547a705769a560",
+      "crates/brotypist/src/providers_diagnostics.rs": "05d2fdfab7813a2762fc9ccba80b865d95d6c9076ca986a8163ef881822e530e",
+      "crates/brotypist/src/worker.rs": "0cb10a3f7914bd9cc11a4a5842c37c48a7e7770fb3656f70123fe0ac8f69dd86",
+      "crates/brotypist/src/writing.rs": "ef2d0e67a4f32a6df36272dcff19e67e2d38c02eb0fb6dadba79c57ee71726b6"
+    },
+    "changed_reported_source_files": [
+      "crates/brotypist/src/providers.rs",
+      "crates/brotypist/src/providers_diagnostics.rs"
+    ]
+  },
+  "correction": {
+    "authored_healing_tail": "Unchanged exact authored suffix and existing 64-scalar/CJK limits.",
+    "model_replay": "Remove exact authored suffix from prompt first; normalize only model replay to NFC. Already-NFC remains borrowed.",
+    "shared_bytes": "Prompt tokenization, production/diagnostic grammar, replay metadata, tokenizer-derived allowance and replay stripping use the same returned NFC bytes.",
+    "authored_text": "Original NFD prefix, reference and suffix bytes are retained.",
+    "scope_preserved": [
+      "original model framing layouts",
+      "full SWA and flash-off policy",
+      "utility/server scopes",
+      "cleaner",
+      "cancellation",
+      "stable publication"
+    ]
+  },
+  "configuration": {
+    "cases": 64,
+    "rounds": 3,
+    "samples": 192,
+    "paired_seed": 20261106,
+    "model": "Gemma 4 E4B Q4_0",
+    "model_size_bytes": 4590807392,
+    "model_sha256_from_long_contract": "a555b900214b477d8880e7832e0b8925e139b0159640036b09fe472b6f2097f2",
+    "diagnostic_token_cap": 24,
+    "completion_length": "medium",
+    "full64_context_chars": 2000,
+    "owner": "ordinary retained owner per round",
+    "os_cache_controlled": false
+  },
+  "focused_three_rounds": {
+    "process_exit_code": 0,
+    "case": "partial-pt-combining",
+    "samples": 3,
+    "mechanical_passes": 3,
+    "authored_prefix": "A manutençã",
+    "returned_insertions": [
+      "o preventiva é crucial ",
+      "o preventiva é crucial ",
+      "o preventiva é crucial "
+    ],
+    "all_preserve_missing_o_completion": true,
+    "scope": "Recorded target fixture and seeds only; not every partial-word prompt."
+  },
+  "full64_comparison": {
+    "process_exit_code": 1,
+    "absolute_corpus_passed": false,
+    "before_mechanical_passes": 175,
+    "after_mechanical_passes": 178,
+    "total_samples": 192,
+    "improved": 3,
+    "regressions": 0,
+    "changed_samples": [
+      {
+        "round": 1,
+        "case": "partial-pt-combining",
+        "before_insertion": " da infraestrutura será realizada ",
+        "after_insertion": "o preventiva é crucial ",
+        "before_mechanical_pass": false,
+        "after_mechanical_pass": true,
+        "before_raw_native_text": " manutençã da infraestrutura será realizada no",
+        "after_raw_native_text": " manutenção preventiva é crucial para",
+        "sampler_seed": 4227025149,
+        "seed_unchanged": true,
+        "candidate_grammar": "root ::= \" manutençã\" [^\\n\\r]*"
+      },
+      {
+        "round": 2,
+        "case": "partial-pt-combining",
+        "before_insertion": " da infraestrutura será realizada ",
+        "after_insertion": "o preventiva é crucial ",
+        "before_mechanical_pass": false,
+        "after_mechanical_pass": true,
+        "before_raw_native_text": " manutençã da infraestrutura será realizada no",
+        "after_raw_native_text": " manutenção preventiva é crucial para",
+        "sampler_seed": 428013271,
+        "seed_unchanged": true,
+        "candidate_grammar": "root ::= \" manutençã\" [^\\n\\r]*"
+      },
+      {
+        "round": 3,
+        "case": "partial-pt-combining",
+        "before_insertion": " da infraestrutura deve ser ",
+        "after_insertion": "o preventiva é crucial ",
+        "before_mechanical_pass": false,
+        "after_mechanical_pass": true,
+        "before_raw_native_text": " manutençã da infraestrutura deve ser prior",
+        "after_raw_native_text": " manutenção preventiva é crucial para",
+        "sampler_seed": 1260252124,
+        "seed_unchanged": true,
+        "candidate_grammar": "root ::= \" manutençã\" [^\\n\\r]*"
+      }
+    ],
+    "unchanged_generated_text_and_mechanical_samples": 189,
+    "unchanged_native_raw_seed_non_timing_samples": 189,
+    "unchanged_samples_before_sha256": "f56e5c6ab55c92ba484b979923eafb29fc2fcf121c71cea7a47107aac80b3920",
+    "unchanged_samples_after_sha256": "f56e5c6ab55c92ba484b979923eafb29fc2fcf121c71cea7a47107aac80b3920",
+    "total_corpus_native_calls": 269,
+    "publication_observations": {
+      "scope": "Current NFC full64 corpus calls only, excluding separate cancellation probes; synchronous canonical output callbacks, not compositor or worker delivery.",
+      "known_terminal_emissions_before_native_return": 117,
+      "exact_nonempty_finish_offer_agreements": 211,
+      "exact_nonempty_finish_offer_mismatches": 0,
+      "finish_offer_comparison_unavailable": 58,
+      "exact_comparison_byte_limit": 2048,
+      "unavailable_meaning": "Raw null: no nonempty finish offer or prior emission exceeded the retained-byte bound; not counted as an agreement.",
+      "raw_report": "full64-three-rounds.json",
+      "historical_publication_receipt": "publication-frontier-current.json",
+      "historical_scope": "The separate publication-frontier-current receipt remains the pre-NFC record.",
+      "limits": "No input-to-compositor latency, GPU/power, physical acceptance, universal semantic-quality or speedup claim."
+    },
+    "remaining_absolute_no_offer_failures": 14,
+    "literal_fact_checks": {
+      "contradiction_observed": 0,
+      "not_observed": 0,
+      "supported_literal_observed": 12
+    },
+    "choice_availability": {
+      "alternatives": {
+        "case_samples": 21,
+        "empty_results": 5,
+        "mechanical_failures": 0,
+        "parsed_choice_counts": [
+          3,
+          2,
+          2,
+          0,
+          3,
+          2,
+          0,
+          2,
+          2,
+          2,
+          0,
+          3,
+          1,
+          1,
+          2,
+          2,
+          2,
+          0,
+          3,
+          1,
+          0
+        ],
+        "reported_choice_counts": [
+          3,
+          2,
+          2,
+          null,
+          3,
+          2,
+          null,
+          2,
+          2,
+          2,
+          null,
+          3,
+          1,
+          1,
+          2,
+          2,
+          2,
+          null,
+          3,
+          1,
+          null
+        ],
+        "safe_absences": 5
+      },
+      "synonyms": {
+        "case_samples": 6,
+        "empty_results": 0,
+        "mechanical_failures": 0,
+        "parsed_choice_counts": [
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        "reported_choice_counts": [
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        "safe_absences": 0
+      }
+    },
+    "cancellation_and_close": [
+      {
+        "round": 1,
+        "probes": [
+          {
+            "kind": "pre_cancelled",
+            "status": "pass",
+            "cancel_requested": true,
+            "outputs_after_cancel": 0,
+            "native_generation_started": false,
+            "error": null
+          },
+          {
+            "kind": "after_first_native_chunk",
+            "status": "pass",
+            "cancel_requested": true,
+            "outputs_after_cancel": 0,
+            "native_generation_started": true,
+            "error": null
+          }
+        ],
+        "close_status": "pass",
+        "native_owner_dropped": true
+      },
+      {
+        "round": 2,
+        "probes": [
+          {
+            "kind": "pre_cancelled",
+            "status": "pass",
+            "cancel_requested": true,
+            "outputs_after_cancel": 0,
+            "native_generation_started": false,
+            "error": null
+          },
+          {
+            "kind": "after_first_native_chunk",
+            "status": "pass",
+            "cancel_requested": true,
+            "outputs_after_cancel": 0,
+            "native_generation_started": true,
+            "error": null
+          }
+        ],
+        "close_status": "pass",
+        "native_owner_dropped": true
+      },
+      {
+        "round": 3,
+        "probes": [
+          {
+            "kind": "pre_cancelled",
+            "status": "pass",
+            "cancel_requested": true,
+            "outputs_after_cancel": 0,
+            "native_generation_started": false,
+            "error": null
+          },
+          {
+            "kind": "after_first_native_chunk",
+            "status": "pass",
+            "cancel_requested": true,
+            "outputs_after_cancel": 0,
+            "native_generation_started": true,
+            "error": null
+          }
+        ],
+        "close_status": "pass",
+        "native_owner_dropped": true
+      }
+    ],
+    "cancellation_scope": "After-first-native-chunk cancellation synchronously sets cancellation at a real UTF-8 callback before canonical filtering; not interruption during prefill or desktop-worker freshness. Owner drop is not physical GPU reclamation."
+  },
+  "long52_comparison": {
+    "matched_rows": 52,
+    "total_rows": 52,
+    "completed_run": true,
+    "failed_requests": 0,
+    "contract_matched_before": false,
+    "contract_matched_after": false,
+    "contract_flag_explanation": "--match-report was omitted. warm_prefix_smoke.rs serializes arguments.match_report.is_some(); false does not indicate a failed comparison. No automatic strict preflight-match pass is claimed.",
+    "comparison_method": "Explicit comparison of recorded rows, not whole-report byte equality.",
+    "compared_row_fields": [
+      "alternatives",
+      "cancellation",
+      "cancellation_not_reached",
+      "cancelled",
+      "case_id",
+      "cold_owner",
+      "expected_first_sampler_seed",
+      "failed",
+      "final_choices",
+      "final_output_bytes",
+      "final_output_scalars",
+      "final_output_utf16_units",
+      "native",
+      "no_offer",
+      "observed_first_sampler_seed",
+      "owner_id",
+      "phase",
+      "prefix_bytes",
+      "prefix_scalars",
+      "prefix_utf16_units",
+      "sampler_seed_sequence",
+      "sampler_seed_sequence_complete",
+      "status",
+      "suffix_bytes",
+      "synthetic_fixture_generated_final_output",
+      "synthetic_fixture_input"
+    ],
+    "unchanged_scope": "All 52 fixture inputs, final outputs, native non-timing work, observed seed sequences and failure/no-offer/cancellation states match exactly; no feedback-nde or early-Portuguese-period regression relative to this baseline.",
+    "candidate_contract": {
+      "acceleration": "auto",
+      "alternatives_seed_policy": "only first generation attempt overridden; subsequent observed seeds follow native recurrence; candidate-dependent stopping can change sequence length",
+      "arch": "aarch64",
+      "backend": "gguf",
+      "comparison_mode": "paired_first_seed_retained_kv_semantic_trajectory",
+      "context_chars": 8000,
+      "fixtures_sha256": "f0b9e6648b9bb8bc5a3cfeef9794cb7eac213a7368b31f2c5162bca8bd65412d",
+      "harness_sha256": "9dd164ee585be56bf618c42e904bf5ffc16377385e6e152316aeea9e64443273",
+      "kv_policy": "retained per owner; no per-case diagnostic clearing",
+      "max_tokens": 24,
+      "model_bytes": 4590807392,
+      "model_sha256": "a555b900214b477d8880e7832e0b8925e139b0159640036b09fe472b6f2097f2",
+      "native_bridge_sha256": "e7d434d7fd26041d2b002534611f4044852cdca93974a5db41bf78f07270c421",
+      "native_rust_sha256": "2f8082193823735a0c0bffb18cebec7123fb89ef7a2bc3bcd0aba42dbe57e92e",
+      "native_threads": 14,
+      "os": "macos",
+      "os_cache_policy": "not cleared or controlled",
+      "paired_seed": 20261106,
+      "prepare_called": false,
+      "prompt_style": "writing",
+      "sampler_policy": "paired_case_round_v2_first_sampler_then_native_recurrence",
+      "sampler_seed_observation": "NativeModel diagnostic_last_sampler_seed and diagnostic_sampler_seed after each actual generation attempt; at most five attempts per request; null is unknown or no sampler, never an invented seed",
+      "schema": "warm-prefix-v4-seeds-single-line",
+      "seed_derivation": "SHA-256(brotypist-paired-case-round-v2\\0 || root-u32-LE || zero-u64-LE || case-ID-UTF8), first-u32-LE modulo 4294967295",
+      "seed_round": 0,
+      "tokenizer": "embedded_in_the_pinned_gguf"
+    },
+    "different_contract_fields": {
+      "native_bridge_sha256": {
+        "baseline": "190a309d00e5c7834dbd28b45a9167e931339ef9c1616213437f74c1f4ca7059",
+        "candidate": "e7d434d7fd26041d2b002534611f4044852cdca93974a5db41bf78f07270c421"
+      },
+      "native_rust_sha256": {
+        "baseline": "164f25eeab4b2dae77ae8cf85d383e699711732c8e8236cb5996c5eafba95d1e",
+        "candidate": "2f8082193823735a0c0bffb18cebec7123fb89ef7a2bc3bcd0aba42dbe57e92e"
+      }
+    },
+    "source_limitation": "The original long baseline native C/Rust hashes predate accepted shortlist changes; do not attribute all source differences to NFC. Full64 pre-NFC comparison is the narrow current-source comparison.",
+    "context_scope": "Explicit context_chars=8000 paired long workload, not canonical production context allocation.",
+    "callback_count_differences": [
+      {
+        "case_id": "en.07.double_space",
+        "baseline_callbacks": 1,
+        "candidate_callbacks": 2,
+        "baseline_nonempty_callbacks": 1,
+        "candidate_nonempty_callbacks": 2
+      },
+      {
+        "case_id": "en.09.backspace",
+        "baseline_callbacks": 1,
+        "candidate_callbacks": 2,
+        "baseline_nonempty_callbacks": 1,
+        "candidate_nonempty_callbacks": 2
+      },
+      {
+        "case_id": "en.12.context_changed",
+        "baseline_callbacks": 3,
+        "candidate_callbacks": 4,
+        "baseline_nonempty_callbacks": 3,
+        "candidate_nonempty_callbacks": 4
+      },
+      {
+        "case_id": "pt.13.instructions_changed",
+        "baseline_callbacks": 4,
+        "candidate_callbacks": 5,
+        "baseline_nonempty_callbacks": 4,
+        "candidate_nonempty_callbacks": 5
+      }
+    ],
+    "callback_limitation": "Callbacks/nonempty_callbacks are not part of exact matched-row scope; four rows differ in these publication counts. No unchanged callback trajectory is claimed.",
+    "rows": [
+      {
+        "case_id": "en.00.seed",
+        "phase": "seed_cold_owner",
+        "matched": true,
+        "fixture_sha256": "ce89c5513a0584a14c2e0add4572b9a33ceacf134c7554202a1324c6b54b0cbe",
+        "final_output_sha256": "dad171d0e3d2a0415b20f7a39aac20bb14342cb2b9818273a578e98afa665fd4",
+        "native_non_timing_work_sha256": "5b9ab393f9a13e58d79f93204bfcaa35e903647cf59090933aa68d87fce02948",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 875574525,
+            "observed_seed": 875574525,
+            "requested_override": 875574525,
+            "sampled_tokens": 7
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.01.partial",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "e3ba16662af60fd1a45cccc1634ee3a3d1e632beb61e75f1f09befa769d595b3",
+        "final_output_sha256": "83bc102a96a6fb43729889df8e6dd96ac3f101b871a9ec46cbd542dcddf4bb02",
+        "native_non_timing_work_sha256": "7a062807db3dfb652ea979f80e5841fccddc5f18edffdf157c75573121b15250",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 723102890,
+            "observed_seed": 723102890,
+            "requested_override": 723102890,
+            "sampled_tokens": 9
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.02.partial",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "4c5b8ebe9cd1145ee2b7f33d3997e5e6d0f6d5321e6aaf8dc478f3c27b700972",
+        "final_output_sha256": "39c0e62ea7b53a88550e8e3570c6cefc00ccfe17c4e7db5f1898121cf10d00f1",
+        "native_non_timing_work_sha256": "7a062807db3dfb652ea979f80e5841fccddc5f18edffdf157c75573121b15250",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 319553990,
+            "observed_seed": 319553990,
+            "requested_override": 319553990,
+            "sampled_tokens": 9
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.03.partial",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "e25c8b6c8ef6824c2804553a9add649edf2244301440a663cf7f91eb0904f2dd",
+        "final_output_sha256": "75cccb3267cf823ed66635528b43ef951e3ab6865544ed912da8ebbb15c52f13",
+        "native_non_timing_work_sha256": "7a062807db3dfb652ea979f80e5841fccddc5f18edffdf157c75573121b15250",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 1141841437,
+            "observed_seed": 1141841437,
+            "requested_override": 1141841437,
+            "sampled_tokens": 9
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.04.partial",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "eda7e30c7c2ec039cdd01613fbf0de395ecd24c42c6e40f7e7b34db223b0fd6f",
+        "final_output_sha256": "81744fc1e95f3b4f2a49b26c557eb1f61bbbdc12f976c382750a7b1612a102e4",
+        "native_non_timing_work_sha256": "4bc87ef1feabd79caa46d260902725dbc536ccdee947205a48dfee769245a411",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 3995379335,
+            "observed_seed": 3995379335,
+            "requested_override": 3995379335,
+            "sampled_tokens": 5
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.05.word",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "452659a137691498af3969e74d671d9de6865082774860fd890999efd555657e",
+        "final_output_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "native_non_timing_work_sha256": "64323bb0760e2fb49969772fe4e26802b478fcf1df07da2a6c4bd0c4af33a74d",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 3924048312,
+            "observed_seed": 3924048312,
+            "requested_override": 3924048312,
+            "sampled_tokens": 2
+          }
+        ],
+        "failed": false,
+        "no_offer": true,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.06.space",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "8c8f314aea746a86d274703e1b4afd4a13d53af7a8b2388625cb0fe688c24143",
+        "final_output_sha256": "f52eef80e46da7ad605a64556ca83c6a1936fb1c64fc9c1be71451a0e12eefbe",
+        "native_non_timing_work_sha256": "6a66dd1984b6c845c9409aa602a994014d012bb6cceebe10c0ebede5293f7ee1",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 3327834881,
+            "observed_seed": 3327834881,
+            "requested_override": 3327834881,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.07.double_space",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "37d4e1450af9a765caf8fae78d2c34b4f7f420f743c3e8a3a20d6af366a82fed",
+        "final_output_sha256": "d1e337bdb967952719c8099548a577d9c0db907ad4aa391055604956af40df44",
+        "native_non_timing_work_sha256": "de3eb306d14f99cf28ed2399f3c072a9c55fd2b4a9e2122a37d5e2beb3efd7a5",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 699887122,
+            "observed_seed": 699887122,
+            "requested_override": 699887122,
+            "sampled_tokens": 4
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.08.next_partial",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "fab33d3ca4272db1746b3b9c21285b396c5e21f485908d760ddf9ad594cac347",
+        "final_output_sha256": "0a612773334f97bdf99b02c3bdb857ad4228098af5803d57579143bfc81530d3",
+        "native_non_timing_work_sha256": "d3a82d66bad2e4b6aca25a69ecda507e78b45e8835e7106f4b25caede856500b",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 417560241,
+            "observed_seed": 417560241,
+            "requested_override": 417560241,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.09.backspace",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "65fc3aebea6f5afa856db6d9eb58bc11f480811f5eb0bc0c13bcb57d3c718482",
+        "final_output_sha256": "d1e337bdb967952719c8099548a577d9c0db907ad4aa391055604956af40df44",
+        "native_non_timing_work_sha256": "de3eb306d14f99cf28ed2399f3c072a9c55fd2b4a9e2122a37d5e2beb3efd7a5",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 3515335114,
+            "observed_seed": 3515335114,
+            "requested_override": 3515335114,
+            "sampled_tokens": 4
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.10.caret_rewind",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "2c0fe62572633bc7b84e81169d69dd4aaa5d15e89b74101b25a65a974f88ab8d",
+        "final_output_sha256": "fe6c4277affaf65f5cfbc71368065bf77ed8be54e45e54a8e066a8025cb06800",
+        "native_non_timing_work_sha256": "7a062807db3dfb652ea979f80e5841fccddc5f18edffdf157c75573121b15250",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 1004170576,
+            "observed_seed": 1004170576,
+            "requested_override": 1004170576,
+            "sampled_tokens": 9
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.11.caret_return",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "d5e6ced42cdda4c605d7df00d09f524025d3e55d5d38de64277c0b6ffffdf9c0",
+        "final_output_sha256": "0a612773334f97bdf99b02c3bdb857ad4228098af5803d57579143bfc81530d3",
+        "native_non_timing_work_sha256": "d3a82d66bad2e4b6aca25a69ecda507e78b45e8835e7106f4b25caede856500b",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 2151489553,
+            "observed_seed": 2151489553,
+            "requested_override": 2151489553,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.12.context_changed",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "f41a7d773297b578c9e5579bfff57edeea0f0623191088b89e7706f8edf3c659",
+        "final_output_sha256": "a4dbb512209792b39868af8802b8eb2073d00ef151cb42bcc7f57aaefc1a8daf",
+        "native_non_timing_work_sha256": "248db830a8b614183f5cd9f8b4285edf69a177125a707c55d6a51f3348ef027d",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 1897663990,
+            "observed_seed": 1897663990,
+            "requested_override": 1897663990,
+            "sampled_tokens": 5
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.13.instructions_changed",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "d3ab529b98f8fa7ee839e647e4df8aeeaca49850d3605d76cc91a8f4b14a6a41",
+        "final_output_sha256": "c64d7375292c682dbb96ed61ce22c8d5a1e2fd8a37dc4a1746f3c38667ddc8c7",
+        "native_non_timing_work_sha256": "49d7d3fef6c866c82db5d06ae704d1ea13cf5c44a4015faa496ecb58fe962c6a",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 1809018065,
+            "observed_seed": 1809018065,
+            "requested_override": 1809018065,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.14.options_restored",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "bc8252463dcd8c5ce388a8ca321d0177dfa61c71a1c34dfdf874d4ca167dbd0e",
+        "final_output_sha256": "3b4a500ad5371230531a076016ef63e5c19ddb196c7c7eadeb4425cf9ed2ae52",
+        "native_non_timing_work_sha256": "af40be898304658764637d27e75d6eac276eda9e200173067857383760391246",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 4271085456,
+            "observed_seed": 4271085456,
+            "requested_override": 4271085456,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.15.precancel",
+        "phase": "cancellation_probe",
+        "matched": true,
+        "fixture_sha256": "6e7e0acb83a398e7b816548bac3c33acd23203a8a13ef94be25a27923b873b29",
+        "final_output_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "native_non_timing_work_sha256": "79d38234496d85126534479a2f68fcbfcf7147896063eb4c56a1088cf3156c63",
+        "sampler_seed_sequence": [],
+        "failed": false,
+        "no_offer": true,
+        "cancelled": true,
+        "cancellation_not_reached": false,
+        "status": "cancelled"
+      },
+      {
+        "case_id": "en.16.cancel_on_offer",
+        "phase": "cancellation_probe",
+        "matched": true,
+        "fixture_sha256": "aeaa8ce0f31b0d526818bc74c70564441932ea53e7268488f2a0082544bfc607",
+        "final_output_sha256": "46a3ae93aa7a8b988080d6c9a03adc15d0518284b1fc2e498db412676d201d5a",
+        "native_non_timing_work_sha256": "ee026141cc5a52245ec939b6ac5672cff984d92254da0bbb4875de699723a93e",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 44553518,
+            "observed_seed": 44553518,
+            "requested_override": 44553518,
+            "sampled_tokens": 2
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": true,
+        "cancellation_not_reached": false,
+        "status": "cancelled"
+      },
+      {
+        "case_id": "en.17.recovery",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "b850ad7c55d2f348c626b617594c6164253a35e8281a1e4e1e2afc331b497af4",
+        "final_output_sha256": "0a612773334f97bdf99b02c3bdb857ad4228098af5803d57579143bfc81530d3",
+        "native_non_timing_work_sha256": "9c316706ead1a6ebee68f615b85dc8baed38fda0d49e5051033cb17969420765",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 1570355175,
+            "observed_seed": 1570355175,
+            "requested_override": 1570355175,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.alt.00.seed",
+        "phase": "seed_cold_owner",
+        "matched": true,
+        "fixture_sha256": "6a290e302b1fc6c16b68a47cc886b389c8c8da0242392ae7af5874f52315ee4c",
+        "final_output_sha256": "723adf500670ee779ae161e7d33652e14b8f551e12483d67b0b0a0e53bcd1dfe",
+        "native_non_timing_work_sha256": "1cf168d8f243748f76cc9924b27b767ae307337c1474ac190f614b5924e4aef0",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 4270881020,
+            "observed_seed": 4270881020,
+            "requested_override": 4270881020,
+            "sampled_tokens": 9
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.alt.01.partial",
+        "phase": "alternatives_request",
+        "matched": true,
+        "fixture_sha256": "ce4daa04e0258b56452dc834bddce4724105eeb29f5e94102b99091f5286c3fc",
+        "final_output_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "native_non_timing_work_sha256": "79c1dd28b382f666fe68ea954bf9232e67ffaf5b82a7f5cda3617d3d262012be",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 4045071520,
+            "observed_seed": 4045071520,
+            "requested_override": 4045071520,
+            "sampled_tokens": 5
+          },
+          {
+            "diverse": true,
+            "native_state_after_call": 1096630021,
+            "observed_seed": 1096630021,
+            "requested_override": null,
+            "sampled_tokens": 3
+          },
+          {
+            "diverse": true,
+            "native_state_after_call": 3947444091,
+            "observed_seed": 3947444091,
+            "requested_override": null,
+            "sampled_tokens": 2
+          },
+          {
+            "diverse": true,
+            "native_state_after_call": 4270408491,
+            "observed_seed": 4270408491,
+            "requested_override": null,
+            "sampled_tokens": 2
+          },
+          {
+            "diverse": true,
+            "native_state_after_call": 1321397486,
+            "observed_seed": 1321397486,
+            "requested_override": null,
+            "sampled_tokens": 2
+          }
+        ],
+        "failed": false,
+        "no_offer": true,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.alt.02.space",
+        "phase": "alternatives_request",
+        "matched": true,
+        "fixture_sha256": "c3445cd3c8ea9cee0e3441a215820d8705b6b8e0ace0c24e7e8bf3fe93ccf2dc",
+        "final_output_sha256": "6ff3f5bc2aa57db1f99a97302d57b61bc5e1f006f090325cfefb723af346de79",
+        "native_non_timing_work_sha256": "be09f6d6e66d9fb4a0a59cf78fe3dc4ac27bfd0d058ee9d300cceeccb140a3e2",
+        "sampler_seed_sequence": [
+          {
+            "diverse": true,
+            "native_state_after_call": 2632172939,
+            "observed_seed": 2632172939,
+            "requested_override": 2632172939,
+            "sampled_tokens": 6
+          },
+          {
+            "diverse": true,
+            "native_state_after_call": 2340615644,
+            "observed_seed": 2340615644,
+            "requested_override": null,
+            "sampled_tokens": 8
+          },
+          {
+            "diverse": true,
+            "native_state_after_call": 1288511928,
+            "observed_seed": 1288511928,
+            "requested_override": null,
+            "sampled_tokens": 6
+          },
+          {
+            "diverse": true,
+            "native_state_after_call": 1859176521,
+            "observed_seed": 1859176521,
+            "requested_override": null,
+            "sampled_tokens": 8
+          },
+          {
+            "diverse": true,
+            "native_state_after_call": 2422430405,
+            "observed_seed": 2422430405,
+            "requested_override": null,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.00.seed",
+        "phase": "seed_cold_owner",
+        "matched": true,
+        "fixture_sha256": "c5015ab220f22b181f6b69fdb6f6404ab005e9272eea495e7e89efbd336b1a64",
+        "final_output_sha256": "b6a0842924a10521a8a89d60b1e38a8b37a80960ed1ca9c1cfa1ebd6f26c891a",
+        "native_non_timing_work_sha256": "9638c861b249c2f99f2abfa8a1ad06a001d53f8d768cc37e97d184a8d0af0aae",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 3953855061,
+            "observed_seed": 3953855061,
+            "requested_override": 3953855061,
+            "sampled_tokens": 9
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.01.partial",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "e2da37fa665b6ad8af37bd33adbe6ef5d64f417fe5ed6c048adfb8ba566eecfd",
+        "final_output_sha256": "2f2749e4f07c771d6c50fb5ee24e25d5efc357bf67d4c12cebc87bf70f247ef7",
+        "native_non_timing_work_sha256": "01c9a4b57495e4b9021e53f39731fb490c471bf7b745439fd214196142533662",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 3667986648,
+            "observed_seed": 3667986648,
+            "requested_override": 3667986648,
+            "sampled_tokens": 9
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.02.partial",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "648915fdd361fe94925c7498c090f2d513aa29140885cb05c51dd05b90931d1f",
+        "final_output_sha256": "57691f8409b190d7789393bbb647e6b8453634ea71eafd50db7de14c14dc67d8",
+        "native_non_timing_work_sha256": "2efcf87121561d2cb6a5ee46a91ef6ff623f835bb29f562f3210407c55ef8049",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 190078199,
+            "observed_seed": 190078199,
+            "requested_override": 190078199,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.03.partial",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "1ddc14b48737fbb8133298d16ae82efe073915fd32dff13dcd1a9fe4e01840e9",
+        "final_output_sha256": "52559d5849e821c20079e3f4a9febbb77b4f66bc4bda50af9f56de379d5f4778",
+        "native_non_timing_work_sha256": "2efcf87121561d2cb6a5ee46a91ef6ff623f835bb29f562f3210407c55ef8049",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 621395817,
+            "observed_seed": 621395817,
+            "requested_override": 621395817,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.04.partial",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "85813a718b4be84b889b7bdedb9b287fe9080169c5c0ddee9cdf35172c352b36",
+        "final_output_sha256": "e8e1b05df704e53dbd98c6cb1f9e92fcbf66d5a0e18c1e0779f024f6f42ff774",
+        "native_non_timing_work_sha256": "ee60a34d0ab0f50f50688edb1d4d65c7ba4db5dc4fa401146d1a2fa819b4cf26",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 2512597046,
+            "observed_seed": 2512597046,
+            "requested_override": 2512597046,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.05.word",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "acb1212c362d035951d922bc4f5b6d401f45f99bed68313778cea5f9047ca677",
+        "final_output_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "native_non_timing_work_sha256": "2efcf87121561d2cb6a5ee46a91ef6ff623f835bb29f562f3210407c55ef8049",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 261897515,
+            "observed_seed": 261897515,
+            "requested_override": 261897515,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": true,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.06.space",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "9ac35ffe72759e5137d911df00f9e940286d8dbe76a3976d5b01fe36902b210e",
+        "final_output_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "native_non_timing_work_sha256": "46145773343a0bbc7d86d2438391c1f3d2453e91680c164ef07c50a425e77bc7",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 2925222806,
+            "observed_seed": 2925222806,
+            "requested_override": 2925222806,
+            "sampled_tokens": 7
+          }
+        ],
+        "failed": false,
+        "no_offer": true,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.07.double_space",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "46a13a0e1e4ac05008ecb55b3b277d17268e94b4c4afee11edcb2c1f040ce6c1",
+        "final_output_sha256": "5480b538a97d8794e3f6ab4eff5e808a753240bbe45f1028fa45ff9082cc9397",
+        "native_non_timing_work_sha256": "c96180bedb6817e83667f4d745fd472259767950bbd5b8f0d74104c743d1a89b",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 302444384,
+            "observed_seed": 302444384,
+            "requested_override": 302444384,
+            "sampled_tokens": 9
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.08.next_partial",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "c7c7990206c7582a98150952a4d01de8ef2d8d24d57e8702cb8d2803dd2f3aef",
+        "final_output_sha256": "fbace109ad6fd0fc501a61a9b5e94e93a27c1fa78b0b6bfe20f5b0771f7cdb11",
+        "native_non_timing_work_sha256": "9f1b481bcd352d87cc72112ad77493d2ee6d6f0b9fb3bc6d86f07402bb3aabd9",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 1497406896,
+            "observed_seed": 1497406896,
+            "requested_override": 1497406896,
+            "sampled_tokens": 10
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.09.backspace",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "23dcf61d9b01952a172f2ea5d904214201be61c5f8bbfd100d84e91628139018",
+        "final_output_sha256": "5480b538a97d8794e3f6ab4eff5e808a753240bbe45f1028fa45ff9082cc9397",
+        "native_non_timing_work_sha256": "c96180bedb6817e83667f4d745fd472259767950bbd5b8f0d74104c743d1a89b",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 1464901120,
+            "observed_seed": 1464901120,
+            "requested_override": 1464901120,
+            "sampled_tokens": 9
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.10.caret_rewind",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "24f4b4b610b7c39f124448853b349967646af9150deabebfc31644657ef8b1fc",
+        "final_output_sha256": "57691f8409b190d7789393bbb647e6b8453634ea71eafd50db7de14c14dc67d8",
+        "native_non_timing_work_sha256": "2efcf87121561d2cb6a5ee46a91ef6ff623f835bb29f562f3210407c55ef8049",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 3576476671,
+            "observed_seed": 3576476671,
+            "requested_override": 3576476671,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.11.caret_return",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "8f821302b8cddc6f5f6f30097ff292dc390b882f6e1d45acfa48086baad13019",
+        "final_output_sha256": "fbace109ad6fd0fc501a61a9b5e94e93a27c1fa78b0b6bfe20f5b0771f7cdb11",
+        "native_non_timing_work_sha256": "9f1b481bcd352d87cc72112ad77493d2ee6d6f0b9fb3bc6d86f07402bb3aabd9",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 1940664063,
+            "observed_seed": 1940664063,
+            "requested_override": 1940664063,
+            "sampled_tokens": 10
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.12.context_changed",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "0c8bd95b2748cc4831aa49ae4015ada5ae42fa53e13fed978ae0c9b9e180ab40",
+        "final_output_sha256": "9d21765cb5c42ed9f3a3906d4106a94ecd007cbb546717b59961212b588f78ef",
+        "native_non_timing_work_sha256": "e7d1b2e3520bbccb699b4ea801b0b408e5eb558799f7e6fdb19b2bb33c0b21f7",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 648281877,
+            "observed_seed": 648281877,
+            "requested_override": 648281877,
+            "sampled_tokens": 10
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.13.instructions_changed",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "5a78b4846c01aafb7bdeb81f55863b157784088a20e32082a11d3486814654fa",
+        "final_output_sha256": "2ffc0567d5e5f36e8dae80fbe81d05fd1c300e5efe7f579629fa60d5a6a74778",
+        "native_non_timing_work_sha256": "0368d2243d321a878e0e1686cfb149e883f598d2b9a857cddd59c9d75a5de28c",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 2483699268,
+            "observed_seed": 2483699268,
+            "requested_override": 2483699268,
+            "sampled_tokens": 7
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.14.options_restored",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "bc6d0cb0233f644cfa79701e91e5d4421303e9fe53ed2cb2c9ea68fd07735c8b",
+        "final_output_sha256": "062e6ab73222dfc53b93a57b09cce27c0e1ff6536ee426421be682e4e9e24728",
+        "native_non_timing_work_sha256": "1553f90aaaf17dc7b621cdb499a03e99be5b3b89b93c4d1e32d3f696910ccb8f",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 1256643539,
+            "observed_seed": 1256643539,
+            "requested_override": 1256643539,
+            "sampled_tokens": 12
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.15.precancel",
+        "phase": "cancellation_probe",
+        "matched": true,
+        "fixture_sha256": "ff6e3b1c31bb102362abf740c0cb93bc03748951f42344b3ff9e0f643161e96f",
+        "final_output_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "native_non_timing_work_sha256": "79d38234496d85126534479a2f68fcbfcf7147896063eb4c56a1088cf3156c63",
+        "sampler_seed_sequence": [],
+        "failed": false,
+        "no_offer": true,
+        "cancelled": true,
+        "cancellation_not_reached": false,
+        "status": "cancelled"
+      },
+      {
+        "case_id": "pt.16.cancel_on_offer",
+        "phase": "cancellation_probe",
+        "matched": true,
+        "fixture_sha256": "87a28b0cb4db0cb7b02399a1b383ed7c469da48d32442ed00ff8f6fa17015b76",
+        "final_output_sha256": "53cbff53f27b19c7792497273adb219c4e897a1003289f1b27d2afad2712e7bc",
+        "native_non_timing_work_sha256": "f9ed8edffe818d9db88aeb4f23e4b583b3f0eed17cfb53a179a8b8224bbdcac3",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 1021648199,
+            "observed_seed": 1021648199,
+            "requested_override": 1021648199,
+            "sampled_tokens": 2
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": true,
+        "cancellation_not_reached": false,
+        "status": "cancelled"
+      },
+      {
+        "case_id": "pt.17.recovery",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "d03a260877745815fb8f2ec06f94167c260dcc20a51778fb57060034c307c604",
+        "final_output_sha256": "062e6ab73222dfc53b93a57b09cce27c0e1ff6536ee426421be682e4e9e24728",
+        "native_non_timing_work_sha256": "10ff637c49ad8fd4df66c829b923a43a0c98a1c37e57104b215d37fae7fad754",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 394535795,
+            "observed_seed": 394535795,
+            "requested_override": 394535795,
+            "sampled_tokens": 12
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.alt.00.seed",
+        "phase": "seed_cold_owner",
+        "matched": true,
+        "fixture_sha256": "429c6c3d46ee64214cf38158667435e36e529c612420e5d4d7a4ce2fd22f8113",
+        "final_output_sha256": "b6a0842924a10521a8a89d60b1e38a8b37a80960ed1ca9c1cfa1ebd6f26c891a",
+        "native_non_timing_work_sha256": "9638c861b249c2f99f2abfa8a1ad06a001d53f8d768cc37e97d184a8d0af0aae",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 4161770982,
+            "observed_seed": 4161770982,
+            "requested_override": 4161770982,
+            "sampled_tokens": 9
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.alt.01.partial",
+        "phase": "alternatives_request",
+        "matched": true,
+        "fixture_sha256": "2962b5f6ecb1f7c50c3638d7c686bf579bb1e84eee565b6c32f924014ab95062",
+        "final_output_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "native_non_timing_work_sha256": "8e54a279cf33cee77e8dd400653eb2eebe380e75d801cf3e5824128743b24dcc",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 321882778,
+            "observed_seed": 321882778,
+            "requested_override": 321882778,
+            "sampled_tokens": 8
+          },
+          {
+            "diverse": true,
+            "native_state_after_call": 2227024339,
+            "observed_seed": 2227024339,
+            "requested_override": null,
+            "sampled_tokens": 8
+          },
+          {
+            "diverse": true,
+            "native_state_after_call": 1317793978,
+            "observed_seed": 1317793978,
+            "requested_override": null,
+            "sampled_tokens": 8
+          },
+          {
+            "diverse": true,
+            "native_state_after_call": 272669101,
+            "observed_seed": 272669101,
+            "requested_override": null,
+            "sampled_tokens": 8
+          },
+          {
+            "diverse": true,
+            "native_state_after_call": 4096675507,
+            "observed_seed": 4096675507,
+            "requested_override": null,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": true,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.alt.02.space",
+        "phase": "alternatives_request",
+        "matched": true,
+        "fixture_sha256": "93ddabf4da075b52b1445d0433de21eaae69e7d4a264b545c82dcf59c6c7e7c9",
+        "final_output_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "native_non_timing_work_sha256": "8689509d98c7f02c4babad6cb2874d42eef9b992aacb2bac2e42118c118c4733",
+        "sampler_seed_sequence": [
+          {
+            "diverse": true,
+            "native_state_after_call": 162120887,
+            "observed_seed": 162120887,
+            "requested_override": 162120887,
+            "sampled_tokens": 7
+          },
+          {
+            "diverse": true,
+            "native_state_after_call": 2535463704,
+            "observed_seed": 2535463704,
+            "requested_override": null,
+            "sampled_tokens": 7
+          },
+          {
+            "diverse": true,
+            "native_state_after_call": 181558792,
+            "observed_seed": 181558792,
+            "requested_override": null,
+            "sampled_tokens": 7
+          },
+          {
+            "diverse": true,
+            "native_state_after_call": 1799117883,
+            "observed_seed": 1799117883,
+            "requested_override": null,
+            "sampled_tokens": 7
+          },
+          {
+            "diverse": true,
+            "native_state_after_call": 1906285728,
+            "observed_seed": 1906285728,
+            "requested_override": null,
+            "sampled_tokens": 7
+          }
+        ],
+        "failed": false,
+        "no_offer": true,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.single_line.00",
+        "phase": "seed_cold_owner",
+        "matched": true,
+        "fixture_sha256": "196ed2f136239113693612e06d571cc27f5340e99171082fb8bc6b67df7b3c4e",
+        "final_output_sha256": "83bc102a96a6fb43729889df8e6dd96ac3f101b871a9ec46cbd542dcddf4bb02",
+        "native_non_timing_work_sha256": "fad89e4338279a61c8b9a12c3a7aff9b151bc29399ac253f488be0140b26c071",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 1047471151,
+            "observed_seed": 1047471151,
+            "requested_override": 1047471151,
+            "sampled_tokens": 9
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.single_line.01",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "031d7005604db1821915bc855fd61072b140b6b1a2282426bd521e3daf20ff37",
+        "final_output_sha256": "bffc0bdab4eca598cc915b269daec853b6ff7cd4a0c80b1b7477a0a03503933c",
+        "native_non_timing_work_sha256": "b4b904ca1364b2ef1a12dc94b0945847bb86dd4ff3227ba135f8608f69883593",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 1811928245,
+            "observed_seed": 1811928245,
+            "requested_override": 1811928245,
+            "sampled_tokens": 5
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.single_line.02",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "81d67e09c67c0e64068fb341913395ba61a15b265645ec843612291ccfd257cc",
+        "final_output_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "native_non_timing_work_sha256": "b4b904ca1364b2ef1a12dc94b0945847bb86dd4ff3227ba135f8608f69883593",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 655119061,
+            "observed_seed": 655119061,
+            "requested_override": 655119061,
+            "sampled_tokens": 5
+          }
+        ],
+        "failed": false,
+        "no_offer": true,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.single_line.03",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "abfe9916ac718bead14370a95caf0dac23cbbf4fbada15768de5f9f8a9edf274",
+        "final_output_sha256": "0edb810c5b1b736378070082d80de026dece3c5187c7317672cef880d4291937",
+        "native_non_timing_work_sha256": "af21a58fbf5d559f6c31808b5af4c02f31c7bade09a4fc815fcbd1788193a693",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 4217538874,
+            "observed_seed": 4217538874,
+            "requested_override": 4217538874,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "en.single_line.04",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "21cfb812cb66d8456a151ed55d66c7766e8e533e38d5de6201c0e8afbb6789ad",
+        "final_output_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "native_non_timing_work_sha256": "7ca67a497cabeac1560c1f1c7f0162dcbac1fccf0ff1d10735202c7299247f38",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 2179303349,
+            "observed_seed": 2179303349,
+            "requested_override": 2179303349,
+            "sampled_tokens": 2
+          }
+        ],
+        "failed": false,
+        "no_offer": true,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.single_line.00",
+        "phase": "seed_cold_owner",
+        "matched": true,
+        "fixture_sha256": "0016cdbe1831bb58f28301b64f2d4acefbb95d09ee598337bfa55ac24205c0d9",
+        "final_output_sha256": "2f2749e4f07c771d6c50fb5ee24e25d5efc357bf67d4c12cebc87bf70f247ef7",
+        "native_non_timing_work_sha256": "6f9073ce11255b6d3803ceb24c715ef21d1353ac1e4c989475eff8d30713d56f",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 1503603172,
+            "observed_seed": 1503603172,
+            "requested_override": 1503603172,
+            "sampled_tokens": 9
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.single_line.01",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "ebb1b01ba253360966dace515e8de4a0a31bf94f0acca5fd4b4512feb5228cc1",
+        "final_output_sha256": "57691f8409b190d7789393bbb647e6b8453634ea71eafd50db7de14c14dc67d8",
+        "native_non_timing_work_sha256": "7b4ccfc60af995d48bef04407a75785f56cd85b43411d03d1f5a2787522ebf47",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 886924552,
+            "observed_seed": 886924552,
+            "requested_override": 886924552,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": false,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.single_line.02",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "d329ff42685e554a181debc5db77bf6b759f040b5738010852d185a6ba162a1b",
+        "final_output_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "native_non_timing_work_sha256": "7b4ccfc60af995d48bef04407a75785f56cd85b43411d03d1f5a2787522ebf47",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 2851533926,
+            "observed_seed": 2851533926,
+            "requested_override": 2851533926,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": true,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.single_line.03",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "c35a1558c85018b5ef3ae5f61f1c9465af3d5398b89b34d7e7881216191b3d68",
+        "final_output_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "native_non_timing_work_sha256": "865909d9424fc8187834f961e8bab7ae4830f9270e1f7847cf80cb6eff6cb6c1",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 1509074805,
+            "observed_seed": 1509074805,
+            "requested_override": 1509074805,
+            "sampled_tokens": 7
+          }
+        ],
+        "failed": false,
+        "no_offer": true,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      },
+      {
+        "case_id": "pt.single_line.04",
+        "phase": "warm_request",
+        "matched": true,
+        "fixture_sha256": "2b0ee86b9b549bde574d23a5e98f85091225d2ff933a5c5cddba208541b011a3",
+        "final_output_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "native_non_timing_work_sha256": "dcc33f8709802e05e0a1534d0c6adbf895633ac75b78eae3197a9a1601d6dd9d",
+        "sampler_seed_sequence": [
+          {
+            "diverse": false,
+            "native_state_after_call": 1146327431,
+            "observed_seed": 1146327431,
+            "requested_override": 1146327431,
+            "sampled_tokens": 8
+          }
+        ],
+        "failed": false,
+        "no_offer": true,
+        "cancelled": false,
+        "cancellation_not_reached": false,
+        "status": "completed"
+      }
+    ]
+  },
+  "unicode_native_controls": {
+    "process_exit_code": 0,
+    "pairs": 12,
+    "streams": 24,
+    "pair_families": 4,
+    "seeds": [
+      7,
+      42,
+      2026
+    ],
+    "owner_method": "Fresh DiagnosticSession per variant; normal open/warmup, clear_cache (actual KV/logits), reset_observations, projection, set_next_seed, one stream, explicit drop before next variant",
+    "projection_method": "DiagnosticSession::projection uses a separate framing cache; no decode",
+    "real_execution": "DiagnosticSession runner using real native model execution, not a model mock; helper remained scratch-only.",
+    "equal_projection_raw_output_seed_non_timing_pairs": 12,
+    "structural_checks_passed_streams": 24,
+    "nonempty_offers": 12,
+    "no_offers": 12,
+    "english_completed_word_whitespace_positive_streams": 6,
+    "japanese_positive_streams": 6,
+    "portuguese_completed_cafe_no_offer_streams": 6,
+    "different_partial_manutencao_sentence_no_offer_streams": 6,
+    "no_offer_limitation": "All twelve abstentions are explicit below. They are not semantic passes and provide no positive replay-stripping proof. The partial Portuguese sentence differs from the fixed full64 fixture; this is not a universal partial-word fix.",
+    "pairs_detail": [
+      {
+        "pair": "pt_partial_missing_o",
+        "seed": 7,
+        "streams": 2,
+        "variants": [
+          "composed",
+          "decomposed"
+        ],
+        "authored_prefixes": {
+          "composed": "A equipe vai concluir a manutençã",
+          "decomposed": "A equipe vai concluir a manutençã"
+        },
+        "authored_prefixes_preserved_separately": true,
+        "projection_equal": true,
+        "projection_sha256": "d493205ee72427705fc48dae96b3ec96dd6440c3a67b5a24b71503fe37bb36a7",
+        "projected_replay": " manutençã",
+        "raw_native_seed_and_non_timing_work_equal": true,
+        "native_non_timing_sha256": "dda7ac904e42fffa759fe988b0f55744565f501392708886dae2326414337775",
+        "raw_native_texts": [
+          " manutençã"
+        ],
+        "returned_insertions": {
+          "composed": "",
+          "decomposed": ""
+        },
+        "returned_insertions_equal": true,
+        "nonempty_offers": 0,
+        "no_offers": 2,
+        "completed_word_leading_whitespace_observed": {
+          "composed": null,
+          "decomposed": null
+        },
+        "both_structural_assertions_satisfied": true
+      },
+      {
+        "pair": "pt_completed_cafe",
+        "seed": 7,
+        "streams": 2,
+        "variants": [
+          "composed",
+          "decomposed"
+        ],
+        "authored_prefixes": {
+          "composed": "Hoje vamos tomar um café",
+          "decomposed": "Hoje vamos tomar um café"
+        },
+        "authored_prefixes_preserved_separately": true,
+        "projection_equal": true,
+        "projection_sha256": "082dc43d115682319733dea2a10354dd2806610997f2cf172983629e8dcdeb3a",
+        "projected_replay": " café",
+        "raw_native_seed_and_non_timing_work_equal": true,
+        "native_non_timing_sha256": "1867040947e7c6359eb15c5105eb8903daa30499d3e27e314859bb3f1282dc68",
+        "raw_native_texts": [
+          " café"
+        ],
+        "returned_insertions": {
+          "composed": "",
+          "decomposed": ""
+        },
+        "returned_insertions_equal": true,
+        "nonempty_offers": 0,
+        "no_offers": 2,
+        "completed_word_leading_whitespace_observed": {
+          "composed": false,
+          "decomposed": false
+        },
+        "both_structural_assertions_satisfied": true
+      },
+      {
+        "pair": "en_completed_cafe",
+        "seed": 7,
+        "streams": 2,
+        "variants": [
+          "composed",
+          "decomposed"
+        ],
+        "authored_prefixes": {
+          "composed": "We met at the café",
+          "decomposed": "We met at the café"
+        },
+        "authored_prefixes_preserved_separately": true,
+        "projection_equal": true,
+        "projection_sha256": "493838b84588160c8f88bbf0cd282f93f0f390e6965f5438a88e3925049f340c",
+        "projected_replay": " café",
+        "raw_native_seed_and_non_timing_work_equal": true,
+        "native_non_timing_sha256": "62e963b77d179a32ac7443853a1d96a18fa764da2f275901090a084317913469",
+        "raw_native_texts": [
+          " café yesterday."
+        ],
+        "returned_insertions": {
+          "composed": " yesterday.",
+          "decomposed": " yesterday."
+        },
+        "returned_insertions_equal": true,
+        "nonempty_offers": 2,
+        "no_offers": 0,
+        "completed_word_leading_whitespace_observed": {
+          "composed": true,
+          "decomposed": true
+        },
+        "both_structural_assertions_satisfied": true
+      },
+      {
+        "pair": "ja_dakuten_observation",
+        "seed": 7,
+        "streams": 2,
+        "variants": [
+          "composed",
+          "decomposed"
+        ],
+        "authored_prefixes": {
+          "composed": "私は音楽が",
+          "decomposed": "私は音楽が"
+        },
+        "authored_prefixes_preserved_separately": true,
+        "projection_equal": true,
+        "projection_sha256": "aa332818a85e4b84ddec7b783eb3e6e4f772ad6374a3108e45f083ca518f06f2",
+        "projected_replay": "が",
+        "raw_native_seed_and_non_timing_work_equal": true,
+        "native_non_timing_sha256": "f246a30f7f9e0047fa5a46825b9894b1bdb8b472ddc3c0fb20f30d10fe0f7c89",
+        "raw_native_texts": [
+          "が好きで、特にクラシックをよく聴きます。"
+        ],
+        "returned_insertions": {
+          "composed": "好きで、特にクラシックをよく聴きます。",
+          "decomposed": "好きで、特にクラシックをよく聴きます。"
+        },
+        "returned_insertions_equal": true,
+        "nonempty_offers": 2,
+        "no_offers": 0,
+        "completed_word_leading_whitespace_observed": {
+          "composed": null,
+          "decomposed": null
+        },
+        "both_structural_assertions_satisfied": true
+      },
+      {
+        "pair": "pt_partial_missing_o",
+        "seed": 42,
+        "streams": 2,
+        "variants": [
+          "composed",
+          "decomposed"
+        ],
+        "authored_prefixes": {
+          "composed": "A equipe vai concluir a manutençã",
+          "decomposed": "A equipe vai concluir a manutençã"
+        },
+        "authored_prefixes_preserved_separately": true,
+        "projection_equal": true,
+        "projection_sha256": "d493205ee72427705fc48dae96b3ec96dd6440c3a67b5a24b71503fe37bb36a7",
+        "projected_replay": " manutençã",
+        "raw_native_seed_and_non_timing_work_equal": true,
+        "native_non_timing_sha256": "3fce7bdbfdc1a7ffeded0cc52f83546d21225740d58752fd8c241a664968fc8c",
+        "raw_native_texts": [
+          " manutençã"
+        ],
+        "returned_insertions": {
+          "composed": "",
+          "decomposed": ""
+        },
+        "returned_insertions_equal": true,
+        "nonempty_offers": 0,
+        "no_offers": 2,
+        "completed_word_leading_whitespace_observed": {
+          "composed": null,
+          "decomposed": null
+        },
+        "both_structural_assertions_satisfied": true
+      },
+      {
+        "pair": "pt_completed_cafe",
+        "seed": 42,
+        "streams": 2,
+        "variants": [
+          "composed",
+          "decomposed"
+        ],
+        "authored_prefixes": {
+          "composed": "Hoje vamos tomar um café",
+          "decomposed": "Hoje vamos tomar um café"
+        },
+        "authored_prefixes_preserved_separately": true,
+        "projection_equal": true,
+        "projection_sha256": "082dc43d115682319733dea2a10354dd2806610997f2cf172983629e8dcdeb3a",
+        "projected_replay": " café",
+        "raw_native_seed_and_non_timing_work_equal": true,
+        "native_non_timing_sha256": "e2893ddac234ee63c4ace44275e2cf713c32e154417c7a03e02c3cf0f59321ee",
+        "raw_native_texts": [
+          " café"
+        ],
+        "returned_insertions": {
+          "composed": "",
+          "decomposed": ""
+        },
+        "returned_insertions_equal": true,
+        "nonempty_offers": 0,
+        "no_offers": 2,
+        "completed_word_leading_whitespace_observed": {
+          "composed": false,
+          "decomposed": false
+        },
+        "both_structural_assertions_satisfied": true
+      },
+      {
+        "pair": "en_completed_cafe",
+        "seed": 42,
+        "streams": 2,
+        "variants": [
+          "composed",
+          "decomposed"
+        ],
+        "authored_prefixes": {
+          "composed": "We met at the café",
+          "decomposed": "We met at the café"
+        },
+        "authored_prefixes_preserved_separately": true,
+        "projection_equal": true,
+        "projection_sha256": "493838b84588160c8f88bbf0cd282f93f0f390e6965f5438a88e3925049f340c",
+        "projected_replay": " café",
+        "raw_native_seed_and_non_timing_work_equal": true,
+        "native_non_timing_sha256": "08ccc092bdb2353f3e51a6cc0871c57f453098356bf9ae63b1bb113a172b0142",
+        "raw_native_texts": [
+          " café yesterday and discussed the project further."
+        ],
+        "returned_insertions": {
+          "composed": " yesterday and discussed the project further.",
+          "decomposed": " yesterday and discussed the project further."
+        },
+        "returned_insertions_equal": true,
+        "nonempty_offers": 2,
+        "no_offers": 0,
+        "completed_word_leading_whitespace_observed": {
+          "composed": true,
+          "decomposed": true
+        },
+        "both_structural_assertions_satisfied": true
+      },
+      {
+        "pair": "ja_dakuten_observation",
+        "seed": 42,
+        "streams": 2,
+        "variants": [
+          "composed",
+          "decomposed"
+        ],
+        "authored_prefixes": {
+          "composed": "私は音楽が",
+          "decomposed": "私は音楽が"
+        },
+        "authored_prefixes_preserved_separately": true,
+        "projection_equal": true,
+        "projection_sha256": "aa332818a85e4b84ddec7b783eb3e6e4f772ad6374a3108e45f083ca518f06f2",
+        "projected_replay": "が",
+        "raw_native_seed_and_non_timing_work_equal": true,
+        "native_non_timing_sha256": "6df91d071626d1a647f19b04ece25f3deeca5e5d43de840da8ec04a8a315d90b",
+        "raw_native_texts": [
+          "が好きで、特にクラシックをよく聴きます。"
+        ],
+        "returned_insertions": {
+          "composed": "好きで、特にクラシックをよく聴きます。",
+          "decomposed": "好きで、特にクラシックをよく聴きます。"
+        },
+        "returned_insertions_equal": true,
+        "nonempty_offers": 2,
+        "no_offers": 0,
+        "completed_word_leading_whitespace_observed": {
+          "composed": null,
+          "decomposed": null
+        },
+        "both_structural_assertions_satisfied": true
+      },
+      {
+        "pair": "pt_partial_missing_o",
+        "seed": 2026,
+        "streams": 2,
+        "variants": [
+          "composed",
+          "decomposed"
+        ],
+        "authored_prefixes": {
+          "composed": "A equipe vai concluir a manutençã",
+          "decomposed": "A equipe vai concluir a manutençã"
+        },
+        "authored_prefixes_preserved_separately": true,
+        "projection_equal": true,
+        "projection_sha256": "d493205ee72427705fc48dae96b3ec96dd6440c3a67b5a24b71503fe37bb36a7",
+        "projected_replay": " manutençã",
+        "raw_native_seed_and_non_timing_work_equal": true,
+        "native_non_timing_sha256": "b65402b330d93eaead652258e4f40620bbd5d07818a0c9e9654dc6d794e76a3f",
+        "raw_native_texts": [
+          " manutençã"
+        ],
+        "returned_insertions": {
+          "composed": "",
+          "decomposed": ""
+        },
+        "returned_insertions_equal": true,
+        "nonempty_offers": 0,
+        "no_offers": 2,
+        "completed_word_leading_whitespace_observed": {
+          "composed": null,
+          "decomposed": null
+        },
+        "both_structural_assertions_satisfied": true
+      },
+      {
+        "pair": "pt_completed_cafe",
+        "seed": 2026,
+        "streams": 2,
+        "variants": [
+          "composed",
+          "decomposed"
+        ],
+        "authored_prefixes": {
+          "composed": "Hoje vamos tomar um café",
+          "decomposed": "Hoje vamos tomar um café"
+        },
+        "authored_prefixes_preserved_separately": true,
+        "projection_equal": true,
+        "projection_sha256": "082dc43d115682319733dea2a10354dd2806610997f2cf172983629e8dcdeb3a",
+        "projected_replay": " café",
+        "raw_native_seed_and_non_timing_work_equal": true,
+        "native_non_timing_sha256": "6d9fe3ab2a17516fcc1961cb09114c6c1954b8f3eb07a8bc6dd88f62fc07eaf7",
+        "raw_native_texts": [
+          " café"
+        ],
+        "returned_insertions": {
+          "composed": "",
+          "decomposed": ""
+        },
+        "returned_insertions_equal": true,
+        "nonempty_offers": 0,
+        "no_offers": 2,
+        "completed_word_leading_whitespace_observed": {
+          "composed": false,
+          "decomposed": false
+        },
+        "both_structural_assertions_satisfied": true
+      },
+      {
+        "pair": "en_completed_cafe",
+        "seed": 2026,
+        "streams": 2,
+        "variants": [
+          "composed",
+          "decomposed"
+        ],
+        "authored_prefixes": {
+          "composed": "We met at the café",
+          "decomposed": "We met at the café"
+        },
+        "authored_prefixes_preserved_separately": true,
+        "projection_equal": true,
+        "projection_sha256": "493838b84588160c8f88bbf0cd282f93f0f390e6965f5438a88e3925049f340c",
+        "projected_replay": " café",
+        "raw_native_seed_and_non_timing_work_equal": true,
+        "native_non_timing_sha256": "7ecc926bd2c241c77a61bd705b660ad909b0595f4e9e6569108df852a864511c",
+        "raw_native_texts": [
+          " café yesterday."
+        ],
+        "returned_insertions": {
+          "composed": " yesterday.",
+          "decomposed": " yesterday."
+        },
+        "returned_insertions_equal": true,
+        "nonempty_offers": 2,
+        "no_offers": 0,
+        "completed_word_leading_whitespace_observed": {
+          "composed": true,
+          "decomposed": true
+        },
+        "both_structural_assertions_satisfied": true
+      },
+      {
+        "pair": "ja_dakuten_observation",
+        "seed": 2026,
+        "streams": 2,
+        "variants": [
+          "composed",
+          "decomposed"
+        ],
+        "authored_prefixes": {
+          "composed": "私は音楽が",
+          "decomposed": "私は音楽が"
+        },
+        "authored_prefixes_preserved_separately": true,
+        "projection_equal": true,
+        "projection_sha256": "aa332818a85e4b84ddec7b783eb3e6e4f772ad6374a3108e45f083ca518f06f2",
+        "projected_replay": "が",
+        "raw_native_seed_and_non_timing_work_equal": true,
+        "native_non_timing_sha256": "44018b53f32cb8f14c4d3cc268a745417e4f863931a8f0b6e73fe8c1ee7cab4c",
+        "raw_native_texts": [
+          "が好きで、特にクラシックをよく聴きます。"
+        ],
+        "returned_insertions": {
+          "composed": "好きで、特にクラシックをよく聴きます。",
+          "decomposed": "好きで、特にクラシックをよく聴きます。"
+        },
+        "returned_insertions_equal": true,
+        "nonempty_offers": 2,
+        "no_offers": 0,
+        "completed_word_leading_whitespace_observed": {
+          "composed": null,
+          "decomposed": null
+        },
+        "both_structural_assertions_satisfied": true
+      }
+    ]
+  },
+  "not_claimed": [
+    "Mechanical and structural outcomes are not blanket semantic-quality acceptance.",
+    "No latency or speedup claim; timing is excluded from equality comparisons and OS cache was not controlled.",
+    "The direct native observations do not prove native-host editing, physical keyboard input, worker delivery, permission, persistence or GPU reclamation. Separate worker and Linux receipts have their own bounded scopes.",
+    "Scratch native diagnostic runs are not primary final-build acceptance; separately completed primary gates are attributed below.",
+    "Full 55-schedule calibration and canonical worker observations are linked separately and do not turn full64 mechanical results into semantic acceptance.",
+    "Historical 175/192 receipts remain unchanged and retain their pre-NFC meaning."
+  ],
+  "other_gates": {
+    "primary_macos_test_build": {
+      "run": "primary-macos-test-build",
+      "status": "passed",
+      "tests_passed": 721,
+      "suites": 26,
+      "ignored": 1,
+      "scope": "Parent-reported locked/offline workspace/all-target native-smoke tests and bins/examples build. The separately chained worker benchmark exits 1; it is not included in this pass."
+    },
+    "primary_linux_test_build": {
+      "run": "primary-linux-test-build",
+      "status": "passed",
+      "library_tests_passed": 556,
+      "aggregate_test_count": null,
+      "scope": "Parent-reported current Linux ARM64 locked/offline workspace/all-target tests plus bins/examples build; other suites passed, no aggregate invented."
+    },
+    "full55_cache_schedule_calibration": {
+      "path": "nfc-cache-calibration-current.json",
+      "sha256": "b8b1483b9706eba8c652f2a2a73fe2234cbe2607f9fb80d22120f26f8bad10e6",
+      "status": "passed",
+      "scope": "55 rows, 330 native trajectories, all three gate classes; no checkpoint, semantic-quality or speedup acceptance."
+    },
+    "canonical_worker_healing": {
+      "path": "nfc-worker-healing-current.json",
+      "sha256": "d8682d3a66924abd3d7e495339b4aab65956779a3fb08d750f8d35a02c43012b",
+      "target_passes": 3,
+      "command_exit_code": 1,
+      "scope": "Three target passes with exact authored NFD preserved and missing o appended; all three after-result cancellation probes inconclusive. Not a whole-worker-benchmark pass."
+    },
+    "current_linux_native_shell": {
+      "path": "linux-native-shell-latest/receipt.json",
+      "run": "current-linux-native-shell",
+      "status": "passed",
+      "assertions": 96,
+      "last_stage": 42,
+      "clean_exit": true,
+      "scope": "Bounded canonical native shell and three-symbol ABI guard; no frozen prelaunch source manifest."
+    },
+    "build_gate_provenance": "Build/test outcomes above are parent execution handoff observations, not reconstructed from the model reports and not rerun by this artifact author.",
+    "roadmap_acceptance": "open: fourteen unchanged absolute model no-offers remain; not an external environment blocker or proof of unfixability"
+  },
+  "historical_evidence_preserved": [
+    "evidence/rust-migration/publication-frontier-current.json",
+    "evidence/rust-migration/writing-full-corpus-parity-current.json"
+  ]
+}

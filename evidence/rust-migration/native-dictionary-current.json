@@ -1,0 +1,237 @@
+{
+  "schema": "brotypist-native-dictionary-observation-v1",
+  "platform": "macOS arm64",
+  "adapter": "MacSpellBackend / NSSpellChecker",
+  "structural_checks": 22,
+  "structural_failures": 0,
+  "requested_dictionaries": {
+    "en-US": {
+      "detected": "en-US",
+      "languages": [],
+      "status": "Unavailable"
+    },
+    "en-GB": {
+      "detected": "",
+      "languages": [
+        "en_GB"
+      ],
+      "status": "Ok"
+    },
+    "pt-BR": {
+      "detected": "",
+      "languages": [
+        "pt_BR"
+      ],
+      "status": "Ok"
+    }
+  },
+  "observations": [
+    {
+      "data": {
+        "evidence": {
+          "error": "spelling-range-invalid",
+          "language_argument": "en_US"
+        },
+        "passed": true
+      },
+      "event": "surrogate_interior_refusal",
+      "sequence": 8,
+      "thread": "ThreadId(1)"
+    },
+    {
+      "data": {
+        "evidence": {
+          "error": "spelling-language-unavailable"
+        },
+        "passed": true
+      },
+      "event": "unsupported_misspelled_refusal",
+      "sequence": 9,
+      "thread": "ThreadId(1)"
+    },
+    {
+      "data": {
+        "evidence": {
+          "error": "spelling-language-unavailable"
+        },
+        "passed": true
+      },
+      "event": "unsupported_suggestions_refusal",
+      "sequence": 10,
+      "thread": "ThreadId(1)"
+    },
+    {
+      "data": {
+        "evidence": {
+          "error": "spelling-language-unavailable"
+        },
+        "passed": true
+      },
+      "event": "unsupported_completions_refusal",
+      "sequence": 11,
+      "thread": "ThreadId(1)"
+    },
+    {
+      "data": {
+        "evidence": {
+          "native": "en_GB",
+          "ranges_utf16": [],
+          "requested": "en-GB",
+          "text": "colour"
+        },
+        "passed": true
+      },
+      "event": "known_valid_word",
+      "sequence": 19,
+      "thread": "ThreadId(1)"
+    },
+    {
+      "data": {
+        "evidence": {
+          "actual_ranges": [
+            [
+              6,
+              11
+            ]
+          ],
+          "expected_range": [
+            6,
+            11
+          ],
+          "requested": "en-GB"
+        },
+        "passed": true
+      },
+      "event": "invalid_word_exact_native_range",
+      "sequence": 22,
+      "thread": "ThreadId(1)"
+    },
+    {
+      "data": {
+        "asserted_expected_suggestions": false,
+        "correction": "",
+        "guesses": [],
+        "requested": "en-GB",
+        "word": "qxzvplmnrsk"
+      },
+      "event": "suggestions_observation",
+      "sequence": 24,
+      "thread": "ThreadId(1)"
+    },
+    {
+      "data": {
+        "asserted_expected_suggestions": false,
+        "correction": "",
+        "guesses": [
+          "colour",
+          "collar",
+          "collier"
+        ],
+        "requested": "en-GB",
+        "word": "coluor"
+      },
+      "event": "suggestions_observation",
+      "sequence": 26,
+      "thread": "ThreadId(1)"
+    },
+    {
+      "data": {
+        "evidence": {
+          "native": "pt_BR",
+          "ranges_utf16": [],
+          "requested": "pt-BR",
+          "text": "obrigado"
+        },
+        "passed": true
+      },
+      "event": "known_valid_word",
+      "sequence": 30,
+      "thread": "ThreadId(1)"
+    },
+    {
+      "data": {
+        "evidence": {
+          "actual_ranges": [
+            [
+              6,
+              11
+            ]
+          ],
+          "expected_range": [
+            6,
+            11
+          ],
+          "requested": "pt-BR"
+        },
+        "passed": true
+      },
+      "event": "invalid_word_exact_native_range",
+      "sequence": 33,
+      "thread": "ThreadId(1)"
+    },
+    {
+      "data": {
+        "asserted_expected_suggestions": false,
+        "correction": "",
+        "guesses": [],
+        "requested": "pt-BR",
+        "word": "qxzvplmnrsk"
+      },
+      "event": "suggestions_observation",
+      "sequence": 35,
+      "thread": "ThreadId(1)"
+    },
+    {
+      "data": {
+        "asserted_expected_suggestions": false,
+        "correction": "obrigado",
+        "guesses": [
+          "obrigados",
+          "obrigado"
+        ],
+        "requested": "pt-BR",
+        "word": "obrigadoo"
+      },
+      "event": "suggestions_observation",
+      "sequence": 37,
+      "thread": "ThreadId(1)"
+    },
+    {
+      "data": {
+        "evidence": {
+          "thread": "main"
+        },
+        "passed": true
+      },
+      "event": "owner_thread_close",
+      "sequence": 44,
+      "thread": "ThreadId(1)"
+    },
+    {
+      "data": {
+        "structural_failures": 0,
+        "suggestions_and_recognition_are_observations": true,
+        "unavailable_dictionaries_are_not_passes": true
+      },
+      "event": "finished",
+      "sequence": 48,
+      "thread": "ThreadId(1)"
+    }
+  ],
+  "source_sha256": {
+    "crates/brotypist/src/platform/macos_spelling.rs": "c8c6e65a9f442a2a0fec4bd2fa171b726b8dc6f132f6ed30182f652e7702e12e",
+    "crates/brotypist/src/platform/macos_language.rs": "951ef0082fe48fa46916b4ad7627ec9e7ab2775a59d85334136dc18e3ba14fa6",
+    "crates/brotypist/src/spelling.rs": "36b995ca5a670da384dc92ec3a083487f6b7cfc557cc58247bbfc6b6b3bf853a",
+    "crates/brotypist/src/config.rs": "3376e77dd42acac1d8cb8bda9ff117ae10a2db222687c56de5adcfb0ef1fe820"
+  },
+  "probe_source_sha256": "f4df0a931814b433776ab4a16f14a783f27f7bbc2b9105f269cc9cbf6e09ccde",
+  "probe_binary_sha256": "6434cd9a5ec98f4f68f23b70498c8a11f7165a6c9567a9e6b46d841965655d23",
+  "brotypist_rlib_sha256": "b67187b8fbf1c550711c05773304606bb3ff9f1ef80289f70156eba473828f58",
+  "raw_report_sha256": "e0242e310f4704ee0f8629fdd43de988376b8abc09aae96941cbf71a9ef59d98",
+  "limits": [
+    "Exact en-US is unavailable on this host and is not counted as passed or replaced by generic en.",
+    "Only fixed synthetic strings were passed to native APIs; no dictionary learning or shared settings changes.",
+    "Actual suggestions are observations, not a semantic-quality score.",
+    "No asynchronous service, physical typing, native field, credential or model acceptance is established."
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "schema": "brotypist-word-tools-current/1",
+  "evaluation_date": "2026-11-07",
+  "scope": "Actual deterministic public feature/core API checks on fixed synthetic data",
+  "privacy": {
+    "private_paths_included": false,
+    "account_identities_included": false,
+    "raw_process_ids_included": false,
+    "ephemeral_nonces_included": false,
+    "private_investigation_material_included": false
+  },
+  "result": "passed",
+  "execution": {
+    "example": "word_tools_smoke",
+    "exit_code": 0,
+    "execution_evidence": "parent-observed direct invocation after current build; stdout counts transcribed in source-wave execution facts",
+    "smoke_schema": "brotypist-word-tools-smoke-v1",
+    "raw_stdout_sha256": null
+  },
+  "checks": {
+    "word_boundaries": 21,
+    "emoji_catalogue": 23,
+    "decoded_choices_and_ordinals": 18,
+    "pure_acceptance": 18,
+    "total": 80
+  },
+  "source_identity": {
+    "capture_phase": "post-run source capture; not frozen prelaunch identity or proof of executed binary correspondence",
+    "sha256": {
+      "crates/brotypist/examples/word_tools_smoke.rs": "854f610003c3f1b95c2bd693d4b3e57295faf73d87207afb281aad49b93ff33f",
+      "crates/brotypist/src/features.rs": "7a3248c6b8d15c971558ca656db0be074dacb3e89f4b822e6551bb599571ecc2",
+      "crates/brotypist/src/core.rs": "947a8e0a80ba8a543a610b5452f5f50c8d553938a2e4c3d5e18cdef0cc0d8ee2",
+      "crates/brotypist/assets/emoji.json": "457c3a64da442d0d64ec2ac72e2206562d8366fbda3ddd5d3e955111e986e824"
+    },
+    "frozen_prelaunch_binary_identity": null
+  },
+  "not_established": [
+    "model semantics",
+    "model-generated next-word or fallback alternatives",
+    "native insertion or UI acceptance",
+    "physical IME input",
+    "general grapheme segmentation"
+  ],
+  "model": false,
+  "normal_profile": false,
+  "native_edits": false,
+  "trigger_customization": {
+    "adopted": false,
+    "reason": "No measured need, collision, or consent case for a new preference."
+  }
+}

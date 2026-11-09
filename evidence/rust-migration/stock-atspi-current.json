@@ -1,0 +1,236 @@
+{
+  "schema": "brotypist-stock-atspi-preservation-v1",
+  "execution_boundary": "Corrected disposable harness completed against current-source-wave native public bridge; no signed/frozen prelaunch whole-tree identity is asserted. Harness corrections are not product source changes.",
+  "raw_report": {
+    "basename": "receipt.jsonl",
+    "sha256": "d104b5952bf584f137d5d3ce291d302888d6379f8757cfbf237e895b00d75e60",
+    "bytes": 43635,
+    "navigation": "Private raw artifact retained by owner; local paths and ephemeral identities omitted."
+  },
+  "record_count": 118,
+  "outcome": "bounded_capture_and_refusal_passed_insertion_unsupported",
+  "completed_without_error": true,
+  "scope": {
+    "bridge": "Public LinuxBridge/NativeBridge plus independent owned GTK pipe readback",
+    "environment": "Owned Xvfb/Openbox/session D-Bus and fixed stock GTK child in fresh isolated profile",
+    "custom_attributes_or_client_plugin": false,
+    "input_injection": false
+  },
+  "native_exact_snapshot_cases": 4,
+  "native_unchanged_refusals": 8,
+  "positive_insertion_attempts": 0,
+  "independently_confirmed_insertions": 0,
+  "capture_cases": [
+    {
+      "atomic_replacement": false,
+      "caret_rect": [
+        380.0,
+        260.0,
+        5.0,
+        17.0
+      ],
+      "fixture": "en",
+      "inactive_composition": false,
+      "inline_render": null,
+      "matches_independent_readback": true,
+      "native_scalar_caret": 8,
+      "range_rect": null,
+      "text_scalars": 12,
+      "text_utf8_bytes": 12
+    },
+    {
+      "atomic_replacement": false,
+      "caret_rect": [
+        398.0,
+        327.0,
+        7.0,
+        17.0
+      ],
+      "fixture": "pt",
+      "inactive_composition": false,
+      "inline_render": null,
+      "matches_independent_readback": true,
+      "native_scalar_caret": 10,
+      "range_rect": null,
+      "text_scalars": 15,
+      "text_utf8_bytes": 16
+    },
+    {
+      "atomic_replacement": false,
+      "caret_rect": [
+        427.0,
+        394.0,
+        4.0,
+        17.0
+      ],
+      "fixture": "nfd",
+      "inactive_composition": false,
+      "inline_render": null,
+      "matches_independent_readback": true,
+      "native_scalar_caret": 15,
+      "range_rect": null,
+      "text_scalars": 18,
+      "text_utf8_bytes": 20
+    },
+    {
+      "atomic_replacement": false,
+      "caret_rect": [
+        385.0,
+        461.0,
+        5.0,
+        17.0
+      ],
+      "fixture": "nonbmp",
+      "inactive_composition": false,
+      "inline_render": null,
+      "matches_independent_readback": true,
+      "native_scalar_caret": 8,
+      "range_rect": null,
+      "text_scalars": 12,
+      "text_utf8_bytes": 15
+    }
+  ],
+  "refusal_cases": [
+    {
+      "all_owned_text_and_carets_unchanged": true,
+      "case": "en:atomic-replacement",
+      "native_result": "Ok(Rejected)"
+    },
+    {
+      "all_owned_text_and_carets_unchanged": true,
+      "case": "pt:atomic-replacement",
+      "native_result": "Ok(Rejected)"
+    },
+    {
+      "all_owned_text_and_carets_unchanged": true,
+      "case": "nfd:atomic-replacement",
+      "native_result": "Ok(Rejected)"
+    },
+    {
+      "all_owned_text_and_carets_unchanged": true,
+      "case": "nonbmp:atomic-replacement",
+      "native_result": "Ok(Rejected)"
+    },
+    {
+      "all_owned_text_and_carets_unchanged": true,
+      "case": "readonly",
+      "native_result": "Ok(Rejected)"
+    },
+    {
+      "all_owned_text_and_carets_unchanged": true,
+      "case": "password",
+      "native_result": "Ok(Rejected)"
+    },
+    {
+      "all_owned_text_and_carets_unchanged": true,
+      "case": "foreign",
+      "native_result": "Ok(Rejected)"
+    },
+    {
+      "all_owned_text_and_carets_unchanged": true,
+      "case": "changed",
+      "native_result": "Ok(Rejected)"
+    }
+  ],
+  "positive_insertion_unsupported": [
+    {
+      "fixture": "en",
+      "mutation_attempted": false,
+      "no_capability_override": true,
+      "reason": "stock native positive inactive-composition and inline/caret geometry not all available"
+    },
+    {
+      "fixture": "pt",
+      "mutation_attempted": false,
+      "no_capability_override": true,
+      "reason": "stock native positive inactive-composition and inline/caret geometry not all available"
+    },
+    {
+      "fixture": "nfd",
+      "mutation_attempted": false,
+      "no_capability_override": true,
+      "reason": "stock native positive inactive-composition and inline/caret geometry not all available"
+    },
+    {
+      "fixture": "nonbmp",
+      "mutation_attempted": false,
+      "no_capability_override": true,
+      "reason": "stock native positive inactive-composition and inline/caret geometry not all available"
+    }
+  ],
+  "interpretation": "Four exact native snapshots match independent GTK readback. Eight mutation API calls actually returned Ok(Rejected), with all owned texts and carets unchanged; these are atomic replacement and stale/read-only/password/foreign/changed-field refusal observations, not successful insertion. Real caret rectangles do not supply the missing positive inactive-composition, inline-render or range geometry capabilities. inactive_composition=false does not prove an active IME session.",
+  "cleanup": {
+    "completed_without_timeout": true,
+    "worker_reaped": true,
+    "target_quit_acknowledged": true,
+    "bridge_cleanup": "Ok(())",
+    "owned_children": [
+      {
+        "exit": "exit status: 0",
+        "forced": false,
+        "name": "gtk_target",
+        "reaped": true
+      },
+      {
+        "exit": "signal: 9 (SIGKILL)",
+        "forced": true,
+        "name": "openbox",
+        "reaped": true
+      },
+      {
+        "exit": "signal: 9 (SIGKILL)",
+        "forced": true,
+        "name": "session_dbus",
+        "reaped": true
+      },
+      {
+        "exit": "signal: 9 (SIGKILL)",
+        "forced": true,
+        "name": "xvfb",
+        "reaped": true
+      },
+      {
+        "exit": "exit status: 0",
+        "forced": false,
+        "name": "session_worker",
+        "reaped": true
+      }
+    ],
+    "group_scope": "Owned group signal cleanup is not an inventory of reaped grandchildren."
+  },
+  "failure_harness_observations": {
+    "source": "Completed parent command observations; separate stdout was not retained.",
+    "raw_stdout_sha256": null,
+    "concurrent_writer_processes": 4,
+    "complete_unique_jsonl_records": 256,
+    "cleanup_error_paths": [
+      {
+        "failure": "post-spawn journal-open",
+        "error_retained": true,
+        "worker_reaped": true,
+        "owned_descendant_absent": true
+      },
+      {
+        "failure": "post-spawn journal-write",
+        "error_retained": true,
+        "worker_reaped": true,
+        "owned_descendant_absent": true
+      }
+    ],
+    "failed_write_released_flock": true,
+    "repeated_cleanup_without_another_signaling_pass": true,
+    "interpretation": "Bounded Unix harness failure checks, not arbitrary process-tree confinement or a product insertion pass."
+  },
+  "provenance_limits": {
+    "executed_binary_sha256": null,
+    "executed_whole_tree_identity": null,
+    "source_hashes": null,
+    "interpretation": "No frozen prelaunch source manifest supplied. Any separately recorded source hashes are post-run observations only."
+  },
+  "limits": [
+    "No positive stock insertion support demonstrated.",
+    "Not physical input, real IME composition, target-owned client plugin, Wayland/KWin, Windows or macOS acceptance.",
+    "Not performance, power/energy, packaging or release approval."
+  ],
+  "publication_policy": "Private filesystem paths, account identities, nonces, D-Bus addresses and process IDs removed; raw artifact hash identifies the privately retained original."
+}

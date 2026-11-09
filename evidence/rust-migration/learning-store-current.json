@@ -1,0 +1,110 @@
+{
+  "scope": "actual standalone public-API encrypted storage smoke; no OS credentials/model/native UI",
+  "return_code": 0,
+  "binary_sha256": "df8e2e2fceae9951aed028e9851b38bd7d8910de7620e962f3fa2adc5e0eb6ee",
+  "source_sha256": {
+    "crates/brotypist/src/storage.rs": "d1cc795a0a1b37ddfbf7afbf2cf0ccbeed2e44433faca5e390ce9cc9dfe4606b",
+    "crates/brotypist/examples/learning_store_smoke.rs": "e36b4eda2aa8b69ad1e772b376ac36d6b5a1a33706bc061983b8c79406bafcc8"
+  },
+  "receipt": {
+    "failed_scenario": null,
+    "fixture": "synthetic_en_pt",
+    "scenarios": [
+      {
+        "observed_count": 2,
+        "outcome": "passed",
+        "scenario": "authored_only_evidence"
+      },
+      {
+        "observed_count": 8,
+        "outcome": "passed",
+        "scenario": "warm_retrieval"
+      },
+      {
+        "observed_count": 2,
+        "outcome": "passed",
+        "scenario": "stable_id_replacement"
+      },
+      {
+        "observed_count": 8,
+        "outcome": "passed",
+        "scenario": "dirty_incremental_refresh"
+      },
+      {
+        "observed_count": 8,
+        "outcome": "passed",
+        "scenario": "exact_app_and_domain_separation"
+      },
+      {
+        "observed_count": 3,
+        "outcome": "passed",
+        "scenario": "consent_withdrawal"
+      },
+      {
+        "observed_count": 4,
+        "outcome": "passed",
+        "scenario": "scoped_forgetting"
+      },
+      {
+        "observed_count": 4,
+        "outcome": "passed",
+        "scenario": "locked_store_refusal"
+      },
+      {
+        "observed_count": 2,
+        "outcome": "passed",
+        "scenario": "sqlite_lock_refusal_and_recovery"
+      },
+      {
+        "observed_count": 1,
+        "outcome": "passed",
+        "scenario": "changed_ciphertext_authentication_refusal"
+      },
+      {
+        "observed_count": 5,
+        "outcome": "passed",
+        "scenario": "full_delete_recovery"
+      },
+      {
+        "observed_count": 2,
+        "outcome": "passed",
+        "scenario": "retention_locked_empty_refusal"
+      },
+      {
+        "observed_count": 3,
+        "outcome": "passed",
+        "scenario": "retention_age_boundaries_unicode_and_scopes"
+      },
+      {
+        "observed_count": 1,
+        "outcome": "passed",
+        "scenario": "retention_locked_existing_refusal"
+      },
+      {
+        "observed_count": 2,
+        "outcome": "passed",
+        "scenario": "retention_atomic_write_refusal_and_recovery"
+      },
+      {
+        "observed_count": 8,
+        "outcome": "passed",
+        "scenario": "retention_authentication_atomicity_and_latch"
+      },
+      {
+        "observed_count": 1,
+        "outcome": "passed",
+        "scenario": "retention_credential_refusal_no_implicit_retry"
+      },
+      {
+        "observed_count": 1,
+        "outcome": "passed",
+        "scenario": "owned_temporary_cleanup"
+      }
+    ],
+    "smoke": "learning_store",
+    "status": "passed",
+    "temporary_cleanup": true
+  },
+  "schema": "brotypist-learning-store-execution-v1",
+  "execution_scope": "Existing standalone example built before the Settings/diagnostic integration wave; the recorded storage and harness source bytes were unchanged. No whole-tree release acceptance."
+}

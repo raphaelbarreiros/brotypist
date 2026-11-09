@@ -8,6 +8,16 @@ Historical local-only boundaries describe their original checkpoints, not this
 subsequent release authorization. Public history cleanup does not authorize
 changing old signed build identities or discarding recorded application failures.
 
+**Historical scope:** this document records the published 0.5.4 investigation
+and implementation choices, not the current Unreleased candidate's settings or
+diagnostic API. The candidate uses contiguous v19/v22 full-prefill, 64/32 batching,
+full SWA and flash disabled. Its canonical request/session accounting and native
+draw attribution do not preserve the old child-phase decomposition or synchronized
+sampling timings losslessly. The old native-smoke recorder and wake-owner module
+are retired rather than kept as parallel implementations. Current behavior,
+evidence and remaining gates are in the [Unreleased register](README.md#current-unreleased-evidence-not-release-approval)
+and [diagnostic contracts](contracts.md#diagnostic-and-acceptance-boundaries).
+
 ## Objective and constraints
 
 Make BroTypist useful during continuous writing, not merely fast at producing its first raw token. Measure the first displayable insertion after hidden healing replay, actual overlay appearance, useful-offer coverage, and Tab acceptance. Retain the model, authored context, references, personalization policy, authorization checks, and cancellation safety. Model-only timings do not establish the desktop experience.

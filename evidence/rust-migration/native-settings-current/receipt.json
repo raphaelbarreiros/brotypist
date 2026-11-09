@@ -1,0 +1,586 @@
+{
+  "schema": "brotypist-current-native-settings-observation-v1",
+  "status": "passed",
+  "scope": "Canonical owned native Settings controls, theme frame, chooser and same-line OverlayOwner ghost; synthetic preferences/status/writing and embedded catalog render fixtures, no runtime services. Native menu inspected without opening it.",
+  "safety": {
+    "controller_started": false,
+    "external_screen_capture": false,
+    "foreground_activation_allowed": false,
+    "input_hooks_started": false,
+    "license_urls_opened": false,
+    "modal_actions_dispatched": false,
+    "model_files_inspected": false,
+    "model_loaded": false,
+    "profile_loaded": false
+  },
+  "limits": "Native geometry assertions and NSView rasterization do not prove WindowServer vibrancy/compositing, runtime choice acceptance, insertion, external-host typing, persistence, license consent or measured model availability. Visual review of images is required.",
+  "generated_capture_count": 78,
+  "geometry_observation_count": 107,
+  "canonical_surface_observation_count": 24,
+  "canonical_surfaces": [
+    {
+      "accessibility_id": "inklow.models.description",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 66.0,
+        "width": 614.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.models.description",
+      "pane": "models",
+      "size_case": "baseline",
+      "surface": "resource-details",
+      "text": "On-device multilingual writing; 2.84 GB verified download. Apple Silicon Metal recommended. · Apache-2.0 · Render fixture only; installation and hardware availability unmeasured.\nCatalog download: 2.8 GB · Minimum physical memory: 8.6 GB (catalog)\nLicense: https://www.apache.org/licenses/LICENSE-2.0",
+      "visible_rect": {
+        "height": 588.0,
+        "width": 690.0,
+        "x": -38.0,
+        "y": -212.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.models.license",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 24.0,
+        "width": 114.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.models.license",
+      "pane": "models",
+      "size_case": "baseline",
+      "surface": "license",
+      "text": "0",
+      "visible_rect": {
+        "height": 588.0,
+        "width": 690.0,
+        "x": -538.0,
+        "y": -322.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.appSettings.addExclusion",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 24.0,
+        "width": 152.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.appSettings.addExclusion",
+      "pane": "appSettings",
+      "size_case": "baseline",
+      "surface": "hard-exclusion",
+      "text": "0",
+      "visible_rect": {
+        "height": 588.0,
+        "width": 690.0,
+        "x": -500.0,
+        "y": -561.0
+      }
+    },
+    {
+      "accessibility_id": null,
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 30.0,
+        "width": 614.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "",
+      "pane": "appSettings",
+      "size_case": "baseline",
+      "surface": "rule-help",
+      "text": "Add App creates an app-specific settings rule, not a hard exclusion. Website rules match exact hostnames when the browser exposes its URL. Drag an app from Finder or a browser link onto the list.",
+      "visible_rect": {
+        "height": 588.0,
+        "width": 690.0,
+        "x": -38.0,
+        "y": -448.0
+      }
+    },
+    {
+      "accessibility_id": null,
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 44.0,
+        "width": 438.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "",
+      "pane": "appSettings",
+      "size_case": "baseline",
+      "surface": "hard-exclusion-help",
+      "text": "Case-insensitive substring matching against app identifiers and names, not website hostnames. Matches block capture, context and inference; built-in terminal identifiers retain the Terminal AI-prompt opt-in exception.",
+      "visible_rect": {
+        "height": 588.0,
+        "width": 690.0,
+        "x": -38.0,
+        "y": -544.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.models.description",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 82.0,
+        "width": 474.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.models.description",
+      "pane": "models",
+      "size_case": "minimum",
+      "surface": "resource-details",
+      "text": "On-device multilingual writing; 2.84 GB verified download. Apple Silicon Metal recommended. · Apache-2.0 · Render fixture only; installation and hardware availability unmeasured.\nCatalog download: 2.8 GB · Minimum physical memory: 8.6 GB (catalog)\nLicense: https://www.apache.org/licenses/LICENSE-2.0",
+      "visible_rect": {
+        "height": 508.0,
+        "width": 550.0,
+        "x": -38.0,
+        "y": -226.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.models.license",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 24.0,
+        "width": 114.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.models.license",
+      "pane": "models",
+      "size_case": "minimum",
+      "surface": "license",
+      "text": "0",
+      "visible_rect": {
+        "height": 508.0,
+        "width": 550.0,
+        "x": -398.0,
+        "y": -358.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.appSettings.addExclusion",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 24.0,
+        "width": 152.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.appSettings.addExclusion",
+      "pane": "appSettings",
+      "size_case": "minimum",
+      "surface": "hard-exclusion",
+      "text": "0",
+      "visible_rect": {
+        "height": 508.0,
+        "width": 550.0,
+        "x": -360.0,
+        "y": -484.0
+      }
+    },
+    {
+      "accessibility_id": null,
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 44.0,
+        "width": 474.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "",
+      "pane": "appSettings",
+      "size_case": "minimum",
+      "surface": "rule-help",
+      "text": "Add App creates an app-specific settings rule, not a hard exclusion. Website rules match exact hostnames when the browser exposes its URL. Drag an app from Finder or a browser link onto the list.",
+      "visible_rect": {
+        "height": 508.0,
+        "width": 550.0,
+        "x": -38.0,
+        "y": -343.0
+      }
+    },
+    {
+      "accessibility_id": null,
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 72.0,
+        "width": 298.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "",
+      "pane": "appSettings",
+      "size_case": "minimum",
+      "surface": "hard-exclusion-help",
+      "text": "Case-insensitive substring matching against app identifiers and names, not website hostnames. Matches block capture, context and inference; built-in terminal identifiers retain the Terminal AI-prompt opt-in exception.",
+      "visible_rect": {
+        "height": 508.0,
+        "width": 550.0,
+        "x": -38.0,
+        "y": -436.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.models.description",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 66.0,
+        "width": 714.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.models.description",
+      "pane": "models",
+      "size_case": "resized",
+      "surface": "resource-details",
+      "text": "On-device multilingual writing; 2.84 GB verified download. Apple Silicon Metal recommended. · Apache-2.0 · Render fixture only; installation and hardware availability unmeasured.\nCatalog download: 2.8 GB · Minimum physical memory: 8.6 GB (catalog)\nLicense: https://www.apache.org/licenses/LICENSE-2.0",
+      "visible_rect": {
+        "height": 688.0,
+        "width": 790.0,
+        "x": -38.0,
+        "y": -198.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.models.license",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 24.0,
+        "width": 114.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.models.license",
+      "pane": "models",
+      "size_case": "resized",
+      "surface": "license",
+      "text": "0",
+      "visible_rect": {
+        "height": 688.0,
+        "width": 790.0,
+        "x": -638.0,
+        "y": -308.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.appSettings.addExclusion",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 24.0,
+        "width": 152.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.appSettings.addExclusion",
+      "pane": "appSettings",
+      "size_case": "resized",
+      "surface": "hard-exclusion",
+      "text": "0",
+      "visible_rect": {
+        "height": 688.0,
+        "width": 790.0,
+        "x": -600.0,
+        "y": -561.0
+      }
+    },
+    {
+      "accessibility_id": null,
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 30.0,
+        "width": 714.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "",
+      "pane": "appSettings",
+      "size_case": "resized",
+      "surface": "rule-help",
+      "text": "Add App creates an app-specific settings rule, not a hard exclusion. Website rules match exact hostnames when the browser exposes its URL. Drag an app from Finder or a browser link onto the list.",
+      "visible_rect": {
+        "height": 688.0,
+        "width": 790.0,
+        "x": -38.0,
+        "y": -448.0
+      }
+    },
+    {
+      "accessibility_id": null,
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 44.0,
+        "width": 480.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "",
+      "pane": "appSettings",
+      "size_case": "resized",
+      "surface": "hard-exclusion-help",
+      "text": "Case-insensitive substring matching against app identifiers and names, not website hostnames. Matches block capture, context and inference; built-in terminal identifiers retain the Terminal AI-prompt opt-in exception.",
+      "visible_rect": {
+        "height": 688.0,
+        "width": 790.0,
+        "x": -38.0,
+        "y": -562.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.models.description",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 66.0,
+        "width": 614.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.models.description",
+      "pane": "models",
+      "size_case": "advanced-baseline",
+      "surface": "resource-details",
+      "text": "On-device multilingual writing; 2.84 GB verified download. Apple Silicon Metal recommended. · Apache-2.0 · Render fixture only; installation and hardware availability unmeasured.\nCatalog download: 2.8 GB · Minimum physical memory: 8.6 GB (catalog)\nLicense: https://www.apache.org/licenses/LICENSE-2.0",
+      "visible_rect": {
+        "height": 588.0,
+        "width": 690.0,
+        "x": -38.0,
+        "y": -212.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.models.license",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 24.0,
+        "width": 114.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.models.license",
+      "pane": "models",
+      "size_case": "advanced-baseline",
+      "surface": "license",
+      "text": "0",
+      "visible_rect": {
+        "height": 588.0,
+        "width": 690.0,
+        "x": -538.0,
+        "y": -322.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.models.max_tokens",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 24.0,
+        "width": 88.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.models.max_tokens",
+      "pane": "models",
+      "size_case": "advanced-baseline",
+      "surface": "token-cap",
+      "text": "24",
+      "visible_rect": {
+        "height": 588.0,
+        "width": 690.0,
+        "x": -564.0,
+        "y": -564.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.models.description",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 82.0,
+        "width": 474.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.models.description",
+      "pane": "models",
+      "size_case": "advanced-minimum",
+      "surface": "resource-details",
+      "text": "On-device multilingual writing; 2.84 GB verified download. Apple Silicon Metal recommended. · Apache-2.0 · Render fixture only; installation and hardware availability unmeasured.\nCatalog download: 2.8 GB · Minimum physical memory: 8.6 GB (catalog)\nLicense: https://www.apache.org/licenses/LICENSE-2.0",
+      "visible_rect": {
+        "height": 508.0,
+        "width": 550.0,
+        "x": -38.0,
+        "y": -226.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.models.license",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 24.0,
+        "width": 114.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.models.license",
+      "pane": "models",
+      "size_case": "advanced-minimum",
+      "surface": "license",
+      "text": "0",
+      "visible_rect": {
+        "height": 508.0,
+        "width": 550.0,
+        "x": -398.0,
+        "y": -358.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.models.max_tokens",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 24.0,
+        "width": 88.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.models.max_tokens",
+      "pane": "models",
+      "size_case": "advanced-minimum",
+      "surface": "token-cap",
+      "text": "24",
+      "visible_rect": {
+        "height": 508.0,
+        "width": 550.0,
+        "x": -424.0,
+        "y": -484.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.models.description",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 66.0,
+        "width": 714.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.models.description",
+      "pane": "models",
+      "size_case": "advanced-resized",
+      "surface": "resource-details",
+      "text": "On-device multilingual writing; 2.84 GB verified download. Apple Silicon Metal recommended. · Apache-2.0 · Render fixture only; installation and hardware availability unmeasured.\nCatalog download: 2.8 GB · Minimum physical memory: 8.6 GB (catalog)\nLicense: https://www.apache.org/licenses/LICENSE-2.0",
+      "visible_rect": {
+        "height": 688.0,
+        "width": 790.0,
+        "x": -38.0,
+        "y": -198.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.models.license",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 24.0,
+        "width": 114.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.models.license",
+      "pane": "models",
+      "size_case": "advanced-resized",
+      "surface": "license",
+      "text": "0",
+      "visible_rect": {
+        "height": 688.0,
+        "width": 790.0,
+        "x": -638.0,
+        "y": -308.0
+      }
+    },
+    {
+      "accessibility_id": "inklow.models.max_tokens",
+      "actions_dispatched": false,
+      "bounds": {
+        "height": 24.0,
+        "width": 88.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "fully_reachable": true,
+      "native_id": "inklow.models.max_tokens",
+      "pane": "models",
+      "size_case": "advanced-resized",
+      "surface": "token-cap",
+      "text": "24",
+      "visible_rect": {
+        "height": 688.0,
+        "width": 790.0,
+        "x": -664.0,
+        "y": -664.0
+      }
+    }
+  ],
+  "unicode_draft_resize": {
+    "observations": 4,
+    "all_exact_readbacks": true,
+    "same_native_editor": true,
+    "selection_utf16": {
+      "length": 9,
+      "location": 15
+    }
+  },
+  "visual_review": {
+    "reviewed_and_retained_images": [
+      "models-advanced-minimum-token-cap.png",
+      "models-advanced-minimum-bottom.png",
+      "models-advanced-resized-resource-details.png",
+      "appSettings-minimum-hard-exclusion.png",
+      "appSettings-minimum-bottom.png",
+      "appSettings-resized-hard-exclusion-help.png"
+    ],
+    "all_generated_images_visually_reviewed": false
+  },
+  "reviewed_unchanged_settings_source_sha256": {
+    "crates/brotypist/src/ui/macos_settings.rs": "fad05b2e770ec121d72c02b375423a86cd6e1985607e30c6823e71caccf8db6c",
+    "crates/brotypist/src/ui/macos_settings_contract.rs": "aa849917496fc725494c1fc15bdd8c61ee991e68e17f4521b4db249a876a816c",
+    "crates/brotypist/src/ui/macos_settings_panes.rs": "897233aeebb57ea16f0d456aa4fe86f314f17bc1cecbb7b7b86f3551fb2c97a5",
+    "crates/brotypist/assets/models.json": "4032c990fba0f34553e7fb0a55b87db8e8cb0e24c1e775eff4f013d2fee42672"
+  },
+  "artifact_identity_limit": "Relevant Settings source was unchanged across capture and attestation. A frozen whole-tree/executable identity was not recorded for this layout run; do not treat it as release acceptance.",
+  "raw_receipt_sha256": "a4e679a7647bcc8345a950921ed4daa17d0027df740454961d6a720c966f69b1",
+  "image_sha256": {
+    "models-advanced-minimum-token-cap.png": "7c5bf748cddce59a3d7e9ff31b8da435b3e1738daf84382668231a9e57a96d04",
+    "models-advanced-minimum-bottom.png": "6d4ea9052f0ba890984fd388c0170cd21e961a716127356c1f8f6b0e24d86b42",
+    "models-advanced-resized-resource-details.png": "8ab8929b733fd6b15160b773588a6a69da460172fdbb6baa2a57ea8e236d88a6",
+    "appSettings-minimum-hard-exclusion.png": "54a3c18885fb1ab309d9f2eaa022db575a52e313bb9bbeb9974a7f61a0c598c2",
+    "appSettings-minimum-bottom.png": "3d3d7dc5861580f415631ecd3ab0f96fb5cdc57d4b6286cb3d252f7ab7d154b9",
+    "appSettings-resized-hard-exclusion-help.png": "592597c2b495eb9fd91131d73cc519b6074db720c330c566f348eb9b222af749"
+  }
+}

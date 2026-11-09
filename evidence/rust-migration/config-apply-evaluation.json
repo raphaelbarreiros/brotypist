@@ -1,0 +1,113 @@
+{
+  "schema": "brotypist-config-apply-evaluation/1",
+  "source_schema": "brotypist-config-apply-smoke/1",
+  "evaluation_date": "2026-11-06",
+  "scope": "headless real-worker configuration transactions; selected-model preparation and retention",
+  "passed": true,
+  "acknowledged_validation_admissions": 7,
+  "matching_prepared_done_pairs": 5,
+  "worker_clients_constructed": 1,
+  "release_requests": 32,
+  "shutdown_complete": true,
+  "external_readers_enabled": false,
+  "native_bridge_created": false,
+  "native_ui_or_physical_input_exercised": false,
+  "immutable_file_attestation": false,
+  "quality_certification": false,
+  "not_exercised": [
+    "physical power transition",
+    "in-flight GPU race",
+    "integrity hash race",
+    "native UI or physical input",
+    "immutable-file attestation",
+    "successful distinct battery target"
+  ],
+  "cases": [
+    {
+      "case": "cold-selection-concurrent-save",
+      "receipt": "saved",
+      "proof": {"acknowledged_release": true, "cold_validations": 1, "matching_prepared_done": true, "prepared_child_retained": true}
+    },
+    {"case": "draft-refresh-and-merge", "exact_edits_preserved": true, "receipt": "saved"},
+    {"case": "session-only-apply", "persistence_unchanged": true, "receipt": "applied"},
+    {
+      "case": "same-model-battery-policies",
+      "battery_target": "same",
+      "cold_validations": 0,
+      "disabled_owner_release_requested": true,
+      "physical_power_transition_exercised": false,
+      "receipt": "saved"
+    },
+    {
+      "case": "cold-session-model-apply",
+      "battery_target": "same",
+      "meaningful_configuration_difference": "prompt_style",
+      "persistence_unchanged": true,
+      "same_supplied_model_path": true,
+      "validation_targets": 1,
+      "proof": {"acknowledged_release": true, "cold_validations": 1, "matching_prepared_done": true, "prepared_child_retained": true},
+      "receipt": "applied"
+    },
+    {
+      "case": "guided-model-restore",
+      "proof": {"acknowledged_release": true, "cold_validations": 1, "matching_prepared_done": true, "prepared_child_retained": true},
+      "receipt": "saved"
+    },
+    {
+      "case": "invalid-private-battery-target",
+      "cold_validations": 0,
+      "current_and_saved_preserved": true,
+      "receipt": "failed",
+      "stage": "integrity",
+      "successful_distinct_battery_target_exercised": false
+    },
+    {"case": "loopback-configuration-save", "backend": "ollama", "availability_checked": false, "cold_validations": 0, "endpoint_and_model_edits_saved": true, "receipt": "saved"},
+    {"case": "loopback-configuration-save", "backend": "openai", "availability_checked": false, "cold_validations": 0, "endpoint_and_model_edits_saved": true, "receipt": "saved"},
+    {
+      "case": "gguf-restored-after-loopback-save",
+      "proof": {"acknowledged_release": true, "cold_validations": 1, "matching_prepared_done": true, "prepared_child_retained": true},
+      "receipt": "saved"
+    },
+    {"case": "invalid-candidate", "current_and_saved_preserved": true, "receipt": "failed", "stage": "preparation"},
+    {"case": "unchanged-save-directory-destination", "current_and_saved_preserved": true, "receipt": "failed", "stage": "persistence"},
+    {"case": "persistence-recovery", "receipt": "saved"},
+    {
+      "case": "pre-pump-ordinary-model-return-and-invalid-intent",
+      "committed_state_preserved": true,
+      "inflight_gpu_race_exercised": false,
+      "latest_receipts": ["saved", "validation-failed"],
+      "older_receipt": "superseded"
+    },
+    {
+      "case": "pre-pump-supersession-and-identity-cancel",
+      "inflight_gpu_race_exercised": false,
+      "receipts": ["superseded", "cancelled"],
+      "stale_cancel_ignored": true
+    },
+    {
+      "case": "admitted-before-controller-completion-cancel",
+      "acknowledged_release_before_admission": true,
+      "current_and_saved_preserved": true,
+      "inflight_gpu_race_exercised": false,
+      "integrity_hash_race_exercised": false,
+      "matching_terminal_receipt_once": true,
+      "receipt": "cancelled",
+      "worker_execution_stage_known": false
+    },
+    {
+      "case": "cold-model-recovery",
+      "proof": {"acknowledged_release": true, "cold_validations": 1, "matching_prepared_done": true, "prepared_child_retained": true},
+      "receipt": "saved"
+    },
+    {"case": "shutdown-pending-operation", "owned_shutdown_complete": true, "receipt": "stopped"}
+  ],
+  "preparation_diagnostics": {
+    "version": 2,
+    "evicted_traces": 0,
+    "lost_preparations": 0,
+    "lost_reports": 0,
+    "rejected_draws": 0,
+    "unmatched_reports": 0
+  },
+  "publication": "Bounded content-free receipt fields only; private paths, model identity, timings and detailed traces omitted. Passing this evaluation is not native acceptance, release or installation certification, prompt-quality acceptance, or a performance claim."
+}

@@ -1,0 +1,81 @@
+{
+  "schema": "brotypist-synthetic-storage-interoperability-v1",
+  "status": "passed",
+  "scope": "Synthetic AES-256-GCM cross-library and real HistoryStore record interoperability only",
+  "checks": 277,
+  "failed_checks": 0,
+  "fixture_classes": [
+    "English",
+    "Portuguese",
+    "NFD combining marks",
+    "non-BMP characters"
+  ],
+  "directions": [
+    "Python cryptography AESGCM ciphertext to Rust HistoryStore records",
+    "Rust HistoryStore ciphertext to Python AESGCM decryption and record-schema comparison",
+    "Rust seal_record payload to Python AESGCM decryption"
+  ],
+  "refusals": [
+    "wrong key",
+    "wrong record identifier/AAD",
+    "changed nonce",
+    "changed ciphertext",
+    "changed authentication tag",
+    "truncated payload",
+    "plaintext fallback"
+  ],
+  "wire": {
+    "aad_prefix_hex": "696e6b6c6f772d686973746f72792d7631",
+    "aad_identifier_encoding": "UTF-8, appended directly with no delimiter",
+    "layout": "12-byte nonce || AES-256-GCM ciphertext || 16-byte tag",
+    "table": "history (id TEXT PRIMARY KEY, sealed BLOB NOT NULL)",
+    "payload_keys": [
+      "app",
+      "authored_spans",
+      "authorship",
+      "domain",
+      "text",
+      "time"
+    ]
+  },
+  "cryptography_version": "48.0.0",
+  "identities": {
+    "storage_source": {
+      "sha256": "d1cc795a0a1b37ddfbf7afbf2cf0ccbeed2e44433faca5e390ce9cc9dfe4606b",
+      "bytes": 109216
+    },
+    "bridge_source": {
+      "sha256": "f29a7e1f2465004face76689b2648657767dd831020f047e9bb15e8056e1cd9f",
+      "bytes": 6664
+    },
+    "oracle_source": {
+      "sha256": "ab1de550b2076129f980fa37706da012c6361879d322f4c57561f82302ef63b4",
+      "bytes": 17970
+    },
+    "bridge_binary": {
+      "sha256": "a6ebecc19036a193cea868299316f8e7f49e5e8221d8ce89e57c7c819bdeb97c",
+      "bytes": 11793392
+    },
+    "brotypist_rlib": {
+      "sha256": "b67187b8fbf1c550711c05773304606bb3ff9f1ef80289f70156eba473828f58",
+      "bytes": 94541688
+    },
+    "serde_json_rlib": {
+      "sha256": "daedfe184fe925546fb44bbb0e5e5d64da843f154a06830162377a9783129f20",
+      "bytes": 2226920
+    }
+  },
+  "raw_report_sha256": "6af079c1f72de7ce1b9ce51c5f82581a1d9fa5dd80a8fc40d4ac9fb671c4e586",
+  "limits": [
+    "No OS-keychain migration or credential backend exercised.",
+    "No normal profiles, real user text, UI, observers, permission changes or dictionary changes.",
+    "HistoryRecord exposes scalar authored_spans but not authorship version; authorship:1 is checked in authenticated wire payloads.",
+    "Source/rlib/binary hashes identify supplied artifacts; this probe does not independently attest how the rlibs were built.",
+    "Private-directory isolation assumes no hostile concurrent replacement of probe paths."
+  ],
+  "observations": [
+    "Only injected synthetic keys and owned private SQLite files were used.",
+    "No OS-keychain migration, normal-profile or native-authorship acceptance is established.",
+    "Standalone throwaway probes linked the actual product rlib; this is not a Rust self-roundtrip."
+  ]
+}

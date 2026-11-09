@@ -1,0 +1,466 @@
+{
+  "schema": "brotypist-catalog-memory-evidence/1",
+  "scope": "Catalogue minimum physical-memory display correction, two actual Mac render states and two actual Linux native Models dialog states. Zero means unspecified, not zero consumption.",
+  "display_rules": {
+    "metadata": "minimum_memory_bytes is catalogue guidance, not measured consumption, physical RAM measurement or hardware-fit guarantee. Missing and zero values are unspecified.",
+    "macos": "Omit the minimum-memory line for missing/zero; retain positive decimal GB display.",
+    "linux_gtk": "Use existing unavailable fallback for missing/zero; retain positive binary GiB display.",
+    "windows": "Use Unavailable for missing/zero without a static bytes suffix; positive values retain bytes. Source-reviewed only, not executed on Windows.",
+    "backend": "models.rs model_availability rejects physical memory only below a positive catalogue threshold; zero cannot reject a nonnegative physical-memory reading. Catalogue eligibility/backend behavior unchanged.",
+    "examples": [
+      {
+        "id": "balanced",
+        "minimum_memory_bytes": 0,
+        "macos": "minimum-memory line omitted",
+        "linux": "Catalog minimum physical memory: unavailable (not measured consumption or a capacity guarantee)"
+      },
+      {
+        "id": "gemma4-e2b",
+        "label": "Gemma 4 E2B",
+        "minimum_memory_bytes": 8589934592,
+        "macos": "Minimum physical memory: 8.6 GB (catalog)",
+        "linux": "Catalog minimum physical memory: 8.00 GiB (not measured consumption or a capacity guarantee)",
+        "unit_interpretation": "8589934592 bytes = 8 GiB binary; rounded to 8.6 GB decimal on Mac."
+      }
+    ]
+  },
+  "source_gates": {
+    "commands": [
+      "cargo test --offline --locked --workspace --all-targets --features brotypist/native-smoke",
+      "cargo build --offline --locked --workspace --bins --examples --features brotypist/native-smoke"
+    ],
+    "toolchain": "Rust 1.99.1, explicitly selected by parent PATH",
+    "provenance": "Completed parent executions; raw output digests below. These commands were not rerun to prepare this receipt.",
+    "macos": {
+      "platform": "macOS ARM64 (aarch64-apple-darwin)",
+      "passed": true,
+      "passed_tests": 733,
+      "suites": 26,
+      "ignored": 1,
+      "library": {
+        "passed": 606,
+        "ignored": 0
+      },
+      "other_nonempty_suites": {
+        "benchmark_writing": {
+          "passed": 9,
+          "ignored": 0
+        },
+        "updater": {
+          "passed": 50,
+          "ignored": 0
+        },
+        "review_predictions": {
+          "passed": 13,
+          "ignored": 0
+        },
+        "xtask": {
+          "passed": 50,
+          "ignored": 1
+        }
+      },
+      "counting": "733 includes five successful isolated child-test invocations; parent suites alone have 728 passed. 26 result summaries include child invocations.",
+      "bins_examples_build": "passed",
+      "raw_output": {
+        "sha256": "8836d1529ea5472b2e045bd35977476aa9eb8d3fc48c4f555fcb8da215c26069",
+        "bytes": 75394
+      }
+    },
+    "linux": {
+      "platform": "Ubuntu 24.04 ARM64 (aarch64-unknown-linux-gnu), pinned snapshot 20261102T000000Z, private offline QA image",
+      "passed": true,
+      "library": {
+        "total": 568,
+        "passed": 567,
+        "ignored": 1
+      },
+      "other_nonempty_suites": {
+        "benchmark_writing": {
+          "passed": 9,
+          "ignored": 0
+        },
+        "updater": {
+          "passed": 49,
+          "ignored": 0
+        },
+        "review_predictions": {
+          "passed": 13,
+          "ignored": 0
+        },
+        "xtask": {
+          "passed": 51,
+          "ignored": 1
+        }
+      },
+      "counting": "No aggregate claimed; child-test result summaries are not added to library totals.",
+      "bins_examples_build": "passed",
+      "raw_output_including_native_shell": {
+        "sha256": "f8f8a1aad072f915588834d63bf36851473d6ca18c593a95ed5f692ec13cce60",
+        "bytes": 86009
+      }
+    }
+  },
+  "macos_render": {
+    "raw_report": {
+      "basename": "receipt.json",
+      "sha256": "8a6aa5d1affee31aa97759eb21db109cc6e539eb662257b922bf3f18146a06a5",
+      "bytes": 4450345
+    },
+    "schema": "brotypist-macos-layout-capture/7",
+    "passed": true,
+    "error": null,
+    "capture_count": 86,
+    "geometry_observation_count": 117,
+    "scope": "Canonical owned native Settings controls, theme frame, chooser and same-line OverlayOwner ghost; synthetic preferences/status/writing and embedded catalog render fixtures, no runtime services. Native menu inspected without opening it.",
+    "safety": {
+      "controller_started": false,
+      "external_screen_capture": false,
+      "foreground_activation_allowed": false,
+      "input_hooks_started": false,
+      "license_urls_opened": false,
+      "modal_actions_dispatched": false,
+      "model_files_inspected": false,
+      "model_loaded": false,
+      "profile_loaded": false
+    },
+    "selected_states": [
+      {
+        "actions_dispatched": false,
+        "catalog_entry": {
+          "description": "Previous guided writing model; 1.12 GB download. Kept available without changing existing selections.",
+          "filename": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+          "id": "balanced",
+          "label": "Balanced — Qwen2.5 1.5B Writing",
+          "license_name": "Apache-2.0",
+          "license_url": "https://www.apache.org/licenses/LICENSE-2.0",
+          "minimum_memory_bytes": 0,
+          "prompt_style": "writing",
+          "repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+          "requires_license_acceptance": false,
+          "revision": "91cad51170dc346986eccefdc2dd33a9da36ead9",
+          "sha256": "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
+          "size_bytes": 1117320736
+        },
+        "detail_text": "Previous guided writing model; 1.12 GB download. Kept available without changing existing selections. · Apache-2.0 · Render fixture only; installation and hardware availability unmeasured.\nCatalog download: 1.1 GB\nLicense: https://www.apache.org/licenses/LICENSE-2.0",
+        "installed": false,
+        "minimum_memory_specified": false,
+        "native_selected_index": 10,
+        "pane": "models",
+        "size_case": "memory-unspecified",
+        "surface": "catalog-selection"
+      },
+      {
+        "actions_dispatched": false,
+        "catalog_entry": {
+          "description": "On-device multilingual writing; 2.84 GB verified download. Apple Silicon Metal recommended.",
+          "filename": "gemma-4-E2B-it-Q4_0.gguf",
+          "id": "gemma4-e2b",
+          "label": "Gemma 4 E2B",
+          "license_name": "Apache-2.0",
+          "license_url": "https://www.apache.org/licenses/LICENSE-2.0",
+          "minimum_memory_bytes": 8589934592,
+          "prompt_style": "writing",
+          "repo": "ggml-org/gemma-4-E2B-it-GGUF",
+          "requires_license_acceptance": false,
+          "revision": "6938c58e698502037401a5f19f6905f2fb2f7dee",
+          "sha256": "8e30dff3ac4c8434c49a7036fa15564bdbb6044e42bf04550bf1a096ad7e6a52",
+          "size_bytes": 2841481184
+        },
+        "detail_text": "On-device multilingual writing; 2.84 GB verified download. Apple Silicon Metal recommended. · Apache-2.0 · Render fixture only; installation and hardware availability unmeasured.\nCatalog download: 2.8 GB · Minimum physical memory: 8.6 GB (catalog)\nLicense: https://www.apache.org/licenses/LICENSE-2.0",
+        "installed": false,
+        "minimum_memory_specified": true,
+        "native_selected_index": 1,
+        "pane": "models",
+        "size_case": "memory-specified",
+        "surface": "catalog-selection"
+      }
+    ],
+    "availability_boundary": "installed=false and availability text are explicit models::presets render fixtures, not filesystem inspection, actual installed inventory, loading or hardware-fit evidence.",
+    "retained_scope": "Existing twelve panes and older geometry/Unicode scenarios retained.",
+    "actions_dispatched": false,
+    "profile_runtime_boundary": "No Controller/services, saved profile inspection, model filesystem inspection, activation or actions; no runtime/saved/draft mutation is exercised or claimed by these render-only states."
+  },
+  "linux_native_shell": {
+    "raw_report": {
+      "basename": "receipt.json",
+      "sha256": "c113dd50350badc1d92a14f85aeba370b75b4936d86dc4969d7502e8812745f0",
+      "bytes": 16388
+    },
+    "schema": 1,
+    "platform": "linux",
+    "ui": "GTK3 native canonical resident shell",
+    "input": "GTK owned-widget event dispatch; no global synthetic input",
+    "passed": true,
+    "error": null,
+    "assertion_count": 99,
+    "last_stage": 45,
+    "clean_exit": true,
+    "elapsed_ms": 27257,
+    "elapsed_limit": "Single observation, not comparative performance evidence.",
+    "catalog_memory_details": {
+      "download_requested": false,
+      "entries": [
+        {
+          "catalog_entry": {
+            "availability": null,
+            "description": "Previous guided writing model; 1.12 GB download. Kept available without changing existing selections.",
+            "id": "balanced",
+            "installed": false,
+            "label": "Balanced — Qwen2.5 1.5B Writing",
+            "license_name": "Apache-2.0",
+            "license_url": "https://www.apache.org/licenses/LICENSE-2.0",
+            "minimum_memory_bytes": 0,
+            "prompt_style": "writing",
+            "requires_license_acceptance": false,
+            "size_bytes": 1117320736
+          },
+          "detail_text": "Previous guided writing model; 1.12 GB download. Kept available without changing existing selections.\nCatalog minimum physical memory: unavailable (not measured consumption or a capacity guarantee)\nLicense: Apache-2.0",
+          "download_enabled": true,
+          "height": 85,
+          "license_url": "https://www.apache.org/licenses/LICENSE-2.0",
+          "mapped": true,
+          "minimum_memory_specified": false,
+          "native_selected_id": "balanced",
+          "screenshot": "linux-models-memory-unspecified.png",
+          "use_installed_enabled": false,
+          "width": 580
+        },
+        {
+          "catalog_entry": {
+            "availability": null,
+            "description": "On-device multilingual writing; 2.84 GB verified download. Apple Silicon Metal recommended.",
+            "id": "gemma4-e2b",
+            "installed": false,
+            "label": "Gemma 4 E2B",
+            "license_name": "Apache-2.0",
+            "license_url": "https://www.apache.org/licenses/LICENSE-2.0",
+            "minimum_memory_bytes": 8589934592,
+            "prompt_style": "writing",
+            "requires_license_acceptance": false,
+            "size_bytes": 2841481184
+          },
+          "detail_text": "On-device multilingual writing; 2.84 GB verified download. Apple Silicon Metal recommended.\nCatalog minimum physical memory: 8.00 GiB (not measured consumption or a capacity guarantee)\nLicense: Apache-2.0",
+          "download_enabled": true,
+          "height": 85,
+          "license_url": "https://www.apache.org/licenses/LICENSE-2.0",
+          "mapped": true,
+          "minimum_memory_specified": true,
+          "native_selected_id": "gemma4-e2b",
+          "screenshot": "linux-models-memory-specified.png",
+          "use_installed_enabled": false,
+          "width": 580
+        }
+      ],
+      "installation_fixture_created": false,
+      "license_consent_granted": false,
+      "model_selection_saved": false,
+      "source": "real Models dialog and runtime catalogue inventory"
+    },
+    "three_new_assertions": [
+      "real Models dialog does not present unspecified catalogue memory as numeric zero",
+      "real Models dialog renders a specified positive catalogue memory threshold",
+      "catalogue browsing changes neither runtime model, saved configuration nor settings draft"
+    ],
+    "all_assertions": [
+      "no-tray launch retains visible Settings and Quit recovery",
+      "normal global capture is disabled throughout the owned-widget fixture",
+      "every Config field has its canonical native control or explicit service editor",
+      "actual X11 draw acknowledges exact offers 0 and 2 after skipping an overlong middle row",
+      "compacted mouse-through X11 chooser and its native children have no server keyboard focus at draw or readback",
+      "six-pane navigation: General",
+      "six-pane navigation: AI Models",
+      "six-pane navigation: Autocomplete",
+      "six-pane navigation: Languages",
+      "six-pane navigation: Privacy",
+      "six-pane navigation: About",
+      "native draft edits do not modify the controller before Save",
+      "Revert discards the native draft without persistence",
+      "Save consumes its exact Saved receipt (ConfigOperationId(1))",
+      "the exact Saved receipt matches current and independently reloaded configuration",
+      "Save applies only after controller-confirmed persistence",
+      "Save is readable from the isolated settings file",
+      "nonpersisting operation returns its own Applied receipt",
+      "live configuration rebases without losing the dirty native instructions editor",
+      "instruction Save consumes its exact Saved receipt (ConfigOperationId(3))",
+      "the exact Saved receipt matches current and independently reloaded configuration",
+      "the instruction Saved receipt acknowledges the submitted draft",
+      "Save preserves concurrent changes across pane navigation and resizing",
+      "Cancel on the actual history consent dialog leaves recording disabled and its native switch unchecked",
+      "declining the actual clipboard consent dialog leaves the draft disabled",
+      "clipboard consent is independent of Accessibility context",
+      "consecutive same-title clipboard dialogs receive distinct Cancel and Continue button responses",
+      "revoking clipboard consent does not revoke the independent Accessibility draft",
+      "native clipboard is unchecked, Accessibility is checked and unsaved controls reflect the independent consent draft before capture",
+      "staged context evidence follows exactly the four expected consent responses",
+      "controller context, recording and normal global capture remain disabled while native consent drafts are edited",
+      "Revert revokes unsaved independent context consents",
+      "Revert restores unchecked native clipboard, Accessibility and recording controls",
+      "Revert leaves controller context, recording and normal global capture disabled",
+      "Cancel on dirty-window close keeps the resident controls and draft",
+      "guarded Quit Cancel does not discard edits or begin shutdown",
+      "Welcome opens its canonical first step",
+      "Welcome local-privacy step",
+      "Welcome Back navigates through the canonical native button",
+      "Welcome returns forward after native Back",
+      "Welcome system-access step",
+      "Welcome cannot bypass explicit access review",
+      "Welcome model step references the explicitly supplied existing GGUF",
+      "selecting a model alone does not create a ready preview session",
+      "owned inference waits for the normal controller worker to release",
+      "native GTK acceptance key dispatch was handled by the actual Welcome field",
+      "English acceptance preserves authored prefix and is counted only after actual GTK document readback",
+      "configured Above-Tab scan identity reaches the canonical full-accept GTK handler",
+      "Portuguese full acceptance preserves the document and receives native readback confirmation",
+      "selection invalidates the actual owned-field preview",
+      "native GTK preedit-changed composition signal cancels and refuses preview acceptance",
+      "focus loss retires the isolated preview before restoring normal controller ownership",
+      "Welcome completes all six native steps",
+      "Welcome Finish without a tray returns to visible Settings, not a hidden loop",
+      "no-tray window-close Cancel retains visible recovery controls",
+      "all seven consent, dirty-draft and no-tray prompts were answered through their actual native buttons",
+      "invalid model selection consumes its exact Failed receipt (ConfigOperationId(5))",
+      "failed model selection keeps current and persisted configuration and exact dirty Unicode instructions",
+      "model selection consumes its exact Saved receipt (ConfigOperationId(6))",
+      "the exact Saved receipt matches current and independently reloaded configuration",
+      "successful same-model selection preserves current and persisted identity and exact dirty instructions",
+      "cancel model selection consumes its exact Cancelled receipt (ConfigOperationId(7))",
+      "cancelled selection retains current and persisted configuration and exact dirty Unicode instructions",
+      "cancelled use consent does not enable personalization or recording",
+      "language and retention Save consumes its exact Saved receipt (ConfigOperationId(8))",
+      "the exact Saved receipt matches current and independently reloaded configuration",
+      "language and retention Saved receipt acknowledges the submitted draft",
+      "new language, regional spelling, independent use and retention controls persist exact draft through receipt",
+      "explicit native action writes the actual typed content-free diagnostic snapshot",
+      "independent personalization-use consent adds one real native cancellation without weakening prior prompt coverage",
+      "persistence failure starts from identical current and independently loaded saved configuration",
+      "persistence recovery retains exact native control and draft: custom_instructions",
+      "persistence recovery retains exact native control and draft: debounce_ms",
+      "persistence recovery retains exact native control and draft: writing_language",
+      "persistence recovery retains exact native control and draft: history_retention_days",
+      "persistence recovery retains exact native control and draft: complete_inside_text",
+      "failed persistence retains editable dirty controls and enabled Save/Revert",
+      "native Save consumes its own exact Failed(Persistence) receipt (ConfigOperationId(9))",
+      "failed native Save changes neither controller nor independently reloaded saved configuration",
+      "persistence recovery retains exact native control and draft: custom_instructions",
+      "persistence recovery retains exact native control and draft: debounce_ms",
+      "persistence recovery retains exact native control and draft: writing_language",
+      "persistence recovery retains exact native control and draft: history_retention_days",
+      "persistence recovery retains exact native control and draft: complete_inside_text",
+      "failed persistence retains editable dirty controls and enabled Save/Revert",
+      "explicit recovery Save consumes its own exact Saved receipt (ConfigOperationId(10))",
+      "the exact Saved receipt matches current and independently reloaded configuration",
+      "failed Save and explicit recovery consume distinct submitted operation IDs",
+      "recovery Save persists exactly the retained draft and preserves every unrelated setting",
+      "persistence recovery retains exact native control and draft: custom_instructions",
+      "persistence recovery retains exact native control and draft: debounce_ms",
+      "persistence recovery retains exact native control and draft: writing_language",
+      "persistence recovery retains exact native control and draft: history_retention_days",
+      "persistence recovery retains exact native control and draft: complete_inside_text",
+      "only the recovery Saved receipt cleans the confirmed native draft",
+      "real Models dialog does not present unspecified catalogue memory as numeric zero",
+      "real Models dialog renders a specified positive catalogue memory threshold",
+      "catalogue browsing changes neither runtime model, saved configuration nor settings draft",
+      "actual canonical Quit completed controller, preview, clipboard and power ownership cleanup and exited GTK"
+    ],
+    "preserved_previous": {
+      "receipt": "../linux-native-shell-latest/receipt.json",
+      "sha256": "e2fe77801e628a780a30e7776f3f11ccc093f753e932dd0a14597c7428f680b7",
+      "bytes": 19535,
+      "assertion_count": 96,
+      "relationship": "Previous 96 assertions retained in current 99-assertion run; older observations are unchanged and are not relabeled. The linked public receipt omits internal execution handles; sha256 and bytes identify that sanitized public file, not the privately retained original. Canonical Quit assertion remains last after three new catalogue assertions."
+    },
+    "full_run_scope": [
+      "Canonical six-pane native settings navigation, draft/Revert/Save and concurrent configuration rebase.",
+      "Actual independent consent responses, dirty-close/guarded-Quit cancellation and visible no-tray recovery.",
+      "Actual invalid, same-model and cancelled selection operations preserve runtime/saved identity and dirty Unicode instructions according to their own receipts.",
+      "Actual persistence obstruction, Failed(Persistence) receipt and explicit successful recovery preserve controls and unrelated settings.",
+      "English and Portuguese owned-field preview acceptance with GTK document readback; selection, preedit signal and focus-loss retirement.",
+      "Actual X11 chooser compacted subsequence and no keyboard focus at draw/readback.",
+      "Canonical Quit cleans controller, preview, clipboard and power ownership and exits GTK."
+    ],
+    "catalog_browsing_boundary": "The two catalogue selections are browsing only: runtime model, independently reloaded saved configuration and settings draft unchanged. No catalogue download, installation fixture, license consent or model-selection save. This does not deny the earlier isolated full-shell scenario explicitly exercising same-model Saved and configuration Save operations.",
+    "readiness_correction": "First-open inventory race corrected by waiting for mapped Models window plus complete populated catalogue and an active row within the existing five-second deadline. No fixed sleep, deadline reset, hidden lookup failure, model-selection save or retry; final actual run passed.",
+    "limits": [
+      "Not physical keyboard or external host-edit proof",
+      "Not a real KWin/Wayland compositor scenario",
+      "Does not register login, change permissions, read history/credentials, download models or install updates"
+    ]
+  },
+  "images": [
+    {
+      "file": "mac-models-memory-unspecified.png",
+      "sha256": "8d137a1650a5562ba96699502c14877b7fc62613b1983beed87f19598d4f7298",
+      "bytes": 244739,
+      "platform": "mac",
+      "state": "unspecified",
+      "capture": "in-process owned NSView bitmap, not compositor capture"
+    },
+    {
+      "file": "mac-models-memory-specified.png",
+      "sha256": "5a5e73175257fded13d993326e73fd8d99c946ff82d6a57e043cd15c7ad9bf36",
+      "bytes": 250837,
+      "platform": "mac",
+      "state": "specified",
+      "capture": "in-process owned NSView bitmap, not compositor capture"
+    },
+    {
+      "file": "linux-models-memory-unspecified.png",
+      "sha256": "1a2da36ab5261940bbf3263145db38da6807cd443fd70275448ef2bcb02e057b",
+      "bytes": 42197,
+      "platform": "linux",
+      "state": "unspecified",
+      "capture": "actual native GTK Models dialog screenshot"
+    },
+    {
+      "file": "linux-models-memory-specified.png",
+      "sha256": "cce02f00bea037e09ccd81205feabad4a16be55e7c6264d649c8b0f198fefbeb",
+      "bytes": 40668,
+      "platform": "linux",
+      "state": "specified",
+      "capture": "actual native GTK Models dialog screenshot"
+    }
+  ],
+  "source_capture": {
+    "timing": "Post-run current working-tree source capture, not a frozen prelaunch attestation.",
+    "files": [
+      {
+        "path": "crates/brotypist/src/models.rs",
+        "sha256": "2fbfe22c45630a875365017a5fd246e719e14ea39e81c20a9cb7c5c4d9d90203",
+        "bytes": 32404
+      },
+      {
+        "path": "crates/brotypist/src/ui/macos_settings.rs",
+        "sha256": "c902472639cf46423e0f911c70c1e10103d28edc7e4a0ad4e59b655398a2aa8b",
+        "bytes": 150842
+      },
+      {
+        "path": "crates/brotypist/src/ui/linux_models.rs",
+        "sha256": "050c036d7e548f911af7e0ea209320206476666ad0b1d2d68551a47df03f6cad",
+        "bytes": 17129
+      },
+      {
+        "path": "crates/brotypist/src/ui/windows.rs",
+        "sha256": "c9f22877b19347c072337f4b016aeae628bc95d087ab187f8bd096bbf2744083",
+        "bytes": 127723
+      },
+      {
+        "path": "crates/brotypist/src/ui/macos_smoke.rs",
+        "sha256": "9ca2134a9796b8b597d3f011875234bfa3b447dd200b3e31de04a1ff3d1a0d84",
+        "bytes": 293087
+      },
+      {
+        "path": "crates/brotypist/src/ui/linux_smoke.rs",
+        "sha256": "3e3adca9033e55e3e49657f84a9e12db39ce401bff5b191d5765e9241f28f570",
+        "bytes": 95430
+      }
+    ]
+  },
+  "privacy": "Private model/profile paths, process IDs and account identities omitted. Raw JSON and gate output are identified by byte digests, not session handles or private navigation paths.",
+  "limits": [
+    "Mac capture is native NSView rendering, not WindowServer/compositor, physical input or application runtime acceptance.",
+    "Linux exercise uses real runtime catalogue inventory; Mac installed/availability metadata is explicitly a render fixture. Do not conflate them.",
+    "No physical IME/input, KWin/Wayland, native Windows, signing, installation, publication or release acceptance claim.",
+    "No download, installation, license grant or model-selection commit occurs in the added catalogue-browsing states.",
+    "Existing 721-test/96-assertion and NFC receipts remain unchanged. No new inference performance, model-quality or full-roadmap claim."
+  ]
+}

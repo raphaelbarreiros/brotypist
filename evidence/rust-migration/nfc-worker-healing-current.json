@@ -1,0 +1,410 @@
+{
+  "schema": "brotypist-nfc-worker-healing/1",
+  "evaluation_date": "2026-11-07",
+  "scope": "Canonical WorkerClient target healing and bounded lifecycle/cancellation observations; separate from direct native diagnostics.",
+  "raw_report": {
+    "basename": "canonical-worker-three-rounds.json",
+    "sha256": "879754bd0f0d54fa2f342883a5c6de4782398b5f459b97e22dd246491dad6fd9",
+    "bytes": 100805,
+    "capture": "SHA-256 of original raw bytes; private location and runtime identities omitted."
+  },
+  "run": "separately chained canonical worker benchmark",
+  "command_exit_code": 1,
+  "command_exit_observation": "Parent execution handoff; distinct from raw child process exit codes, which remain null.",
+  "mechanical_status": "fail_or_inconclusive",
+  "whole_worker_benchmark_passed": false,
+  "summary": {
+    "target_samples": 3,
+    "target_mechanical_passes": 3,
+    "before_proceed_passes": 3,
+    "after_result_inconclusive": 3,
+    "outputs_after_cancel": 0,
+    "acknowledged_release_shutdown_passes": 3,
+    "semantic_quality_status": "not_evaluated",
+    "sla_status": "not_claimed"
+  },
+  "source_identity": {
+    "capture": "Digests embedded in raw benchmark report, not a signed/frozen prelaunch executable or whole-tree manifest.",
+    "source_sha256": {
+      "crates/brotypist/examples/benchmark_writing.rs": "86896bcaeb33541b1c81d941ca397306acb967e48cc09340d78ee0cbbdf5b8ea",
+      "crates/brotypist/examples/benchmark_writing/contextual_quality.json": "aaa04b4afaeedd9726faad12dc697610b8042c21bf66a499e9474e25e6494512",
+      "crates/brotypist/examples/benchmark_writing/corpus.rs": "b8917dc7c72f394a372579f289f2859f338875945f53bc8a03849d1d6c23f20d",
+      "crates/brotypist/examples/benchmark_writing/direct.rs": "47567172da08cc60a1480f32367a15942a46f4c641cc91b6b302139795f392f0",
+      "crates/brotypist/examples/benchmark_writing/direct_checks.rs": "5c13f755ea03b02460435f120291bf0526507da589c55f89e169ea4dc51ee313",
+      "crates/brotypist/examples/benchmark_writing/direct_process.rs": "28223451ca0e2a275a2135ae3fb7dc4984eceb88403f297199a3cd1bc6712a3c",
+      "crates/brotypist/examples/benchmark_writing/evaluation.rs": "ed2268533cd4c64d99be7cba869602e5f16fb962b34fadcbc170dc6d65c443cc",
+      "crates/brotypist/examples/benchmark_writing/native_details.rs": "2c4598a1f5d34682d3bfbaf7d42c12d15c291ebc435fc36b9f37a7a607661f83",
+      "crates/brotypist/examples/benchmark_writing/runner.rs": "591d3c98245214fa13eede24fd483974cea408198df16918c3c1ed5678d0810f",
+      "crates/brotypist/examples/benchmark_writing/writing_quality.json": "384defd052ec86a38cb934fdfd1eb083c8f43e5b5538496117d058a55c1efbf9",
+      "crates/brotypist/native/llama_bridge.c": "e7d434d7fd26041d2b002534611f4044852cdca93974a5db41bf78f07270c421",
+      "crates/brotypist/src/features.rs": "7a3248c6b8d15c971558ca656db0be074dacb3e89f4b822e6551bb599571ecc2",
+      "crates/brotypist/src/inference_native.rs": "2f8082193823735a0c0bffb18cebec7123fb89ef7a2bc3bcd0aba42dbe57e92e",
+      "crates/brotypist/src/process_client.rs": "f7365cd8812ba1850a7df50e6fd139cee3109d3d08585dca5702aeda9b3bd450",
+      "crates/brotypist/src/providers.rs": "9466a6e662f057600db918605fba573f855d7cd3375c1afd24547a705769a560",
+      "crates/brotypist/src/providers_diagnostics.rs": "05d2fdfab7813a2762fc9ccba80b865d95d6c9076ca986a8163ef881822e530e",
+      "crates/brotypist/src/worker.rs": "0cb10a3f7914bd9cc11a4a5842c37c48a7e7770fb3656f70123fe0ac8f69dd86",
+      "crates/brotypist/src/writing.rs": "ef2d0e67a4f32a6df36272dcff19e67e2d38c02eb0fb6dadba79c57ee71726b6"
+    }
+  },
+  "configuration": {
+    "execution": "worker",
+    "completion_length": "medium",
+    "max_tokens": 24,
+    "max_words": 4,
+    "paired_seed": null
+  },
+  "fixture": {
+    "allow_no_offer": false,
+    "anchor": "",
+    "boundary": "partial-word",
+    "context": "",
+    "dimensions": [
+      "language",
+      "lexical_join"
+    ],
+    "fact_checks": [],
+    "id": "partial-pt-combining",
+    "instructions": "",
+    "kind": "completion",
+    "language": "Portuguese",
+    "prefix": "A manutençã",
+    "reference_sources": [],
+    "selection": "",
+    "semantic_criteria": [
+      "Preserve the decomposed combining characters and complete a real word such as manutenção."
+    ],
+    "suffix": ""
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "case": {
+        "case": "partial-pt-combining",
+        "assembled_draft": "A manutenção preventiva é crucial ",
+        "generated_text": "o preventiva é crucial ",
+        "error": null,
+        "mechanical": {
+          "checks": {
+            "bounded_display_length": true,
+            "displayable_result_or_permitted_no_offer": true,
+            "no_displayed_structural_thought_or_tool_markers": true,
+            "no_duplicate_or_midword_leading_whitespace": true,
+            "quoted_injection_not_followed": true,
+            "single_line_printable_insertion": true,
+            "stream_completed_without_error": true,
+            "worker_generation_completed_with_final_and_done": true
+          },
+          "pass": true,
+          "scope": "Observed canonical worker protocol and returned insertion only; NOT raw native generation or semantic quality.",
+          "unsupported_checks": [
+            "no_raw_structural_thought_or_tool_markers",
+            "native_generation_observed",
+            "bounded_generation_requested",
+            "native_iterators_closed",
+            "actual_tokenizer_context_budget",
+            "gemma_exactly_one_bos"
+          ]
+        },
+        "native_calls": null,
+        "protocol_completed": true,
+        "reference_context_used": "",
+        "requested_limits": {
+          "max_tokens": 24,
+          "max_words": 4
+        },
+        "stream_updates": 6
+      },
+      "authored_prefix": "A manutençã",
+      "authored_prefix_utf8_preserved": true,
+      "appended_missing_o": true,
+      "cancellation": [
+        {
+          "kind": "before_worker_proceed",
+          "status": "pass",
+          "cancel_requested": true,
+          "outputs_after_cancel": 0,
+          "updates_before_cancel": 0,
+          "error": null,
+          "limitation": "Real canonical WorkerClient cancellation. Before-proceed never authorizes generation; after-result observes IPC, not a synchronous raw native chunk. Producer may finish before observation (explicitly inconclusive). Does not prove interruption during prefill or desktop freshness."
+        },
+        {
+          "kind": "after_first_observed_worker_result",
+          "status": "inconclusive_request_already_completed",
+          "cancel_requested": true,
+          "outputs_after_cancel": 0,
+          "updates_before_cancel": 2,
+          "error": null,
+          "limitation": "Real canonical WorkerClient cancellation. Before-proceed never authorizes generation; after-result observes IPC, not a synchronous raw native chunk. Producer may finish before observation (explicitly inconclusive). Does not prove interruption during prefill or desktop freshness."
+        }
+      ],
+      "close": {
+        "status": "pass",
+        "release_error": null,
+        "shutdown_error": null,
+        "release_status": {
+          "active_id": null,
+          "awaiting_proceed": false,
+          "evaluating": false,
+          "initializing": false,
+          "lifecycle": "idle",
+          "lost_terminal_reports": 0,
+          "model_loaded": false,
+          "owner_finished": false,
+          "release_complete": true,
+          "release_generation": 2,
+          "release_pending": false,
+          "released_generation": 2,
+          "released_through": 6,
+          "state": "idle",
+          "terminating": false
+        },
+        "shutdown_status": {
+          "active_id": null,
+          "awaiting_proceed": false,
+          "evaluating": false,
+          "initializing": false,
+          "lifecycle": "stopped",
+          "lost_terminal_reports": 0,
+          "model_loaded": false,
+          "owner_finished": true,
+          "release_complete": true,
+          "release_generation": 2,
+          "release_pending": false,
+          "released_generation": 2,
+          "released_through": 7,
+          "state": "stopped",
+          "terminating": false
+        }
+      },
+      "process": {
+        "exitcode": null,
+        "exitcode_observation": "WorkerClient acknowledges owned release and shutdown, not raw child wait status; see close.",
+        "terminated_by_watchdog": null
+      }
+    },
+    {
+      "round": 2,
+      "case": {
+        "case": "partial-pt-combining",
+        "assembled_draft": "A manutenção preventiva é crucial ",
+        "generated_text": "o preventiva é crucial ",
+        "error": null,
+        "mechanical": {
+          "checks": {
+            "bounded_display_length": true,
+            "displayable_result_or_permitted_no_offer": true,
+            "no_displayed_structural_thought_or_tool_markers": true,
+            "no_duplicate_or_midword_leading_whitespace": true,
+            "quoted_injection_not_followed": true,
+            "single_line_printable_insertion": true,
+            "stream_completed_without_error": true,
+            "worker_generation_completed_with_final_and_done": true
+          },
+          "pass": true,
+          "scope": "Observed canonical worker protocol and returned insertion only; NOT raw native generation or semantic quality.",
+          "unsupported_checks": [
+            "no_raw_structural_thought_or_tool_markers",
+            "native_generation_observed",
+            "bounded_generation_requested",
+            "native_iterators_closed",
+            "actual_tokenizer_context_budget",
+            "gemma_exactly_one_bos"
+          ]
+        },
+        "native_calls": null,
+        "protocol_completed": true,
+        "reference_context_used": "",
+        "requested_limits": {
+          "max_tokens": 24,
+          "max_words": 4
+        },
+        "stream_updates": 6
+      },
+      "authored_prefix": "A manutençã",
+      "authored_prefix_utf8_preserved": true,
+      "appended_missing_o": true,
+      "cancellation": [
+        {
+          "kind": "before_worker_proceed",
+          "status": "pass",
+          "cancel_requested": true,
+          "outputs_after_cancel": 0,
+          "updates_before_cancel": 0,
+          "error": null,
+          "limitation": "Real canonical WorkerClient cancellation. Before-proceed never authorizes generation; after-result observes IPC, not a synchronous raw native chunk. Producer may finish before observation (explicitly inconclusive). Does not prove interruption during prefill or desktop freshness."
+        },
+        {
+          "kind": "after_first_observed_worker_result",
+          "status": "inconclusive_request_already_completed",
+          "cancel_requested": true,
+          "outputs_after_cancel": 0,
+          "updates_before_cancel": 2,
+          "error": null,
+          "limitation": "Real canonical WorkerClient cancellation. Before-proceed never authorizes generation; after-result observes IPC, not a synchronous raw native chunk. Producer may finish before observation (explicitly inconclusive). Does not prove interruption during prefill or desktop freshness."
+        }
+      ],
+      "close": {
+        "status": "pass",
+        "release_error": null,
+        "shutdown_error": null,
+        "release_status": {
+          "active_id": null,
+          "awaiting_proceed": false,
+          "evaluating": false,
+          "initializing": false,
+          "lifecycle": "idle",
+          "lost_terminal_reports": 0,
+          "model_loaded": false,
+          "owner_finished": false,
+          "release_complete": true,
+          "release_generation": 2,
+          "release_pending": false,
+          "released_generation": 2,
+          "released_through": 6,
+          "state": "idle",
+          "terminating": false
+        },
+        "shutdown_status": {
+          "active_id": null,
+          "awaiting_proceed": false,
+          "evaluating": false,
+          "initializing": false,
+          "lifecycle": "stopped",
+          "lost_terminal_reports": 0,
+          "model_loaded": false,
+          "owner_finished": true,
+          "release_complete": true,
+          "release_generation": 2,
+          "release_pending": false,
+          "released_generation": 2,
+          "released_through": 7,
+          "state": "stopped",
+          "terminating": false
+        }
+      },
+      "process": {
+        "exitcode": null,
+        "exitcode_observation": "WorkerClient acknowledges owned release and shutdown, not raw child wait status; see close.",
+        "terminated_by_watchdog": null
+      }
+    },
+    {
+      "round": 3,
+      "case": {
+        "case": "partial-pt-combining",
+        "assembled_draft": "A manutenção preventiva é crucial ",
+        "generated_text": "o preventiva é crucial ",
+        "error": null,
+        "mechanical": {
+          "checks": {
+            "bounded_display_length": true,
+            "displayable_result_or_permitted_no_offer": true,
+            "no_displayed_structural_thought_or_tool_markers": true,
+            "no_duplicate_or_midword_leading_whitespace": true,
+            "quoted_injection_not_followed": true,
+            "single_line_printable_insertion": true,
+            "stream_completed_without_error": true,
+            "worker_generation_completed_with_final_and_done": true
+          },
+          "pass": true,
+          "scope": "Observed canonical worker protocol and returned insertion only; NOT raw native generation or semantic quality.",
+          "unsupported_checks": [
+            "no_raw_structural_thought_or_tool_markers",
+            "native_generation_observed",
+            "bounded_generation_requested",
+            "native_iterators_closed",
+            "actual_tokenizer_context_budget",
+            "gemma_exactly_one_bos"
+          ]
+        },
+        "native_calls": null,
+        "protocol_completed": true,
+        "reference_context_used": "",
+        "requested_limits": {
+          "max_tokens": 24,
+          "max_words": 4
+        },
+        "stream_updates": 6
+      },
+      "authored_prefix": "A manutençã",
+      "authored_prefix_utf8_preserved": true,
+      "appended_missing_o": true,
+      "cancellation": [
+        {
+          "kind": "before_worker_proceed",
+          "status": "pass",
+          "cancel_requested": true,
+          "outputs_after_cancel": 0,
+          "updates_before_cancel": 0,
+          "error": null,
+          "limitation": "Real canonical WorkerClient cancellation. Before-proceed never authorizes generation; after-result observes IPC, not a synchronous raw native chunk. Producer may finish before observation (explicitly inconclusive). Does not prove interruption during prefill or desktop freshness."
+        },
+        {
+          "kind": "after_first_observed_worker_result",
+          "status": "inconclusive_request_already_completed",
+          "cancel_requested": true,
+          "outputs_after_cancel": 0,
+          "updates_before_cancel": 2,
+          "error": null,
+          "limitation": "Real canonical WorkerClient cancellation. Before-proceed never authorizes generation; after-result observes IPC, not a synchronous raw native chunk. Producer may finish before observation (explicitly inconclusive). Does not prove interruption during prefill or desktop freshness."
+        }
+      ],
+      "close": {
+        "status": "pass",
+        "release_error": null,
+        "shutdown_error": null,
+        "release_status": {
+          "active_id": null,
+          "awaiting_proceed": false,
+          "evaluating": false,
+          "initializing": false,
+          "lifecycle": "idle",
+          "lost_terminal_reports": 0,
+          "model_loaded": false,
+          "owner_finished": false,
+          "release_complete": true,
+          "release_generation": 2,
+          "release_pending": false,
+          "released_generation": 2,
+          "released_through": 6,
+          "state": "idle",
+          "terminating": false
+        },
+        "shutdown_status": {
+          "active_id": null,
+          "awaiting_proceed": false,
+          "evaluating": false,
+          "initializing": false,
+          "lifecycle": "stopped",
+          "lost_terminal_reports": 0,
+          "model_loaded": false,
+          "owner_finished": true,
+          "release_complete": true,
+          "release_generation": 2,
+          "release_pending": false,
+          "released_generation": 2,
+          "released_through": 7,
+          "state": "stopped",
+          "terminating": false
+        }
+      },
+      "process": {
+        "exitcode": null,
+        "exitcode_observation": "WorkerClient acknowledges owned release and shutdown, not raw child wait status; see close.",
+        "terminated_by_watchdog": null
+      }
+    }
+  ],
+  "limits": [
+    "Three target cases pass, but command exit 1 is retained because all three after-first-observed-result probes are inconclusive_request_already_completed.",
+    "After-result cancellation observes IPC, not synchronous raw native chunks; no mid-prefill interruption or desktop freshness proof.",
+    "Protocol completion and acknowledged release/shutdown do not establish raw child exit status, GPU reclamation or physical host editing.",
+    "Per-case raw native calls are null; no raw-generation, tokenizer-budget or native-iterator proof from this worker receipt.",
+    "No semantic-quality, speedup, latency or whole benchmark pass claim."
+  ],
+  "related_evidence": [
+    "nfc-healing-current.json",
+    "nfc-cache-calibration-current.json"
+  ],
+  "privacy": "Allowlisted synthetic authored text, counters and source-relative hashes only; no private paths, account names or process IDs."
+}

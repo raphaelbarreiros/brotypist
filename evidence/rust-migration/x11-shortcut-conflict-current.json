@@ -1,0 +1,259 @@
+{
+  "schema": "brotypist-real-x11-shortcut-conflict-observation-v1",
+  "passed": true,
+  "scope": "Actual private X11 passive-grab conflict/recovery/release only; not physical replay or full Settings UI proof",
+  "source_sha256": {
+    "crates/brotypist/src/platform/linux_x11.rs": "eb12ee6f2cb7764ec136166b52ec01c6015976bc13954b8b9c13531d152c78c3"
+  },
+  "execution_identity_limit": "The direct public-LinuxBridge probe ran before the subsequent D-Bus linkage cutover; its X11 implementation source remained unchanged. Do not infer full-current-shell acceptance from this adapter-only run.",
+  "observations": [
+    {
+      "details": {
+        "note": "The real hook also has built-in Escape/digit candidates; those are not fabricated or removed by this probe.",
+        "public_api": "LinuxBridge + NativeBridge; status is the native_status payload",
+        "scenario": "preexisting passive-grab conflict, all-or-none rollback witness, disable/enable recovery, stop cleanup",
+        "status_wait_seconds": 3,
+        "unexercised": [
+          "physical keyboard",
+          "key injection/replay",
+          "full Settings UI",
+          "focus or text capture",
+          "model acquisition/inference",
+          "Wayland",
+          "macOS",
+          "Windows"
+        ],
+        "worker_deadline_seconds": 30
+      },
+      "event": "scope"
+    },
+    {
+      "details": {
+        "pid": "<owned-x11-xvfb-process>"
+      },
+      "event": "xvfb_spawned"
+    },
+    {
+      "details": {
+        "display": ":0",
+        "pid": "<owned-x11-xvfb-process>"
+      },
+      "event": "xvfb_ready"
+    },
+    {
+      "details": {
+        "native_status": {
+          "accessibility": true,
+          "accessibility_only": false,
+          "available": true,
+          "domain_observable": false,
+          "hook": {
+            "conflict": false,
+            "enabled": false,
+            "message": "",
+            "stopped": false
+          },
+          "message": "Linux AT-SPI/X11 ready. Inline requires explicit inactive IME state and matching Pango/native metrics. Browser domain metadata is unavailable.",
+          "platform": "linux"
+        },
+        "stage": "conflicted"
+      },
+      "event": "native_status_observed"
+    },
+    {
+      "details": {
+        "native_status": {
+          "accessibility": true,
+          "accessibility_only": false,
+          "available": true,
+          "domain_observable": false,
+          "hook": {
+            "conflict": true,
+            "enabled": false,
+            "message": "An X11 shortcut is already owned; all interception disabled. Release conflicts and pause/resume.",
+            "stopped": false
+          },
+          "message": "Linux AT-SPI/X11 ready. Inline requires explicit inactive IME state and matching Pango/native metrics. Browser domain metadata is unavailable.",
+          "platform": "linux"
+        },
+        "stage": "conflicted"
+      },
+      "event": "native_status_observed"
+    },
+    {
+      "details": {
+        "attempts": 1,
+        "chord": "Ctrl+Shift+T",
+        "conflicting_chord_still_independently_owned": "Ctrl+Shift+Y",
+        "independent_grab_succeeded": true,
+        "keycode": 28
+      },
+      "event": "rollback_grab_observed"
+    },
+    {
+      "details": {
+        "checked_ungrab": true,
+        "chord": "Ctrl+Shift+Y"
+      },
+      "event": "external_conflict_released"
+    },
+    {
+      "details": {
+        "native_status": {
+          "accessibility": true,
+          "accessibility_only": false,
+          "available": true,
+          "domain_observable": false,
+          "hook": {
+            "conflict": true,
+            "enabled": false,
+            "message": "An X11 shortcut is already owned; all interception disabled. Release conflicts and pause/resume.",
+            "stopped": false
+          },
+          "message": "Linux AT-SPI/X11 ready. Inline requires explicit inactive IME state and matching Pango/native metrics. Browser domain metadata is unavailable.",
+          "platform": "linux"
+        },
+        "owner_queue_acknowledged": true
+      },
+      "event": "recovery_disabled"
+    },
+    {
+      "details": {
+        "native_status": {
+          "accessibility": true,
+          "accessibility_only": false,
+          "available": true,
+          "domain_observable": false,
+          "hook": {
+            "conflict": true,
+            "enabled": false,
+            "message": "An X11 shortcut is already owned; all interception disabled. Release conflicts and pause/resume.",
+            "stopped": false
+          },
+          "message": "Linux AT-SPI/X11 ready. Inline requires explicit inactive IME state and matching Pango/native metrics. Browser domain metadata is unavailable.",
+          "platform": "linux"
+        },
+        "stage": "recovered"
+      },
+      "event": "native_status_observed"
+    },
+    {
+      "details": {
+        "native_status": {
+          "accessibility": true,
+          "accessibility_only": false,
+          "available": true,
+          "domain_observable": false,
+          "hook": {
+            "conflict": false,
+            "enabled": true,
+            "message": "",
+            "stopped": false
+          },
+          "message": "Linux AT-SPI/X11 ready. Inline requires explicit inactive IME state and matching Pango/native metrics. Browser domain metadata is unavailable.",
+          "platform": "linux"
+        },
+        "stage": "recovered"
+      },
+      "event": "native_status_observed"
+    },
+    {
+      "details": {
+        "actual_x11_bad_access": true,
+        "attempts": 1,
+        "chord": "Ctrl+Shift+T",
+        "independent_grab_succeeded": false,
+        "keycode": 28
+      },
+      "event": "recovered_grab_ownership"
+    },
+    {
+      "details": {
+        "actual_x11_bad_access": true,
+        "attempts": 1,
+        "chord": "Ctrl+Shift+Y",
+        "independent_grab_succeeded": false,
+        "keycode": 29
+      },
+      "event": "recovered_grab_ownership"
+    },
+    {
+      "details": {
+        "native_status": {
+          "accessibility": true,
+          "accessibility_only": false,
+          "available": false,
+          "domain_observable": false,
+          "hook": null,
+          "message": "Linux AT-SPI/X11 ready. Inline requires explicit inactive IME state and matching Pango/native metrics. Browser domain metadata is unavailable.",
+          "platform": "linux"
+        }
+      },
+      "event": "bridge_stopped"
+    },
+    {
+      "details": {
+        "attempts": 1,
+        "chord": "Ctrl+Shift+T",
+        "independent_grab_succeeded": true,
+        "keycode": 28
+      },
+      "event": "stopped_grab_release"
+    },
+    {
+      "details": {
+        "attempts": 1,
+        "chord": "Ctrl+Shift+Y",
+        "independent_grab_succeeded": true,
+        "keycode": 29
+      },
+      "event": "stopped_grab_release"
+    },
+    {
+      "details": {
+        "bridge_stop_ok": true,
+        "independent_ungrab_t_ok": true,
+        "independent_ungrab_y_ok": true,
+        "shortcut_callback_count": 0
+      },
+      "event": "worker_resource_cleanup"
+    },
+    {
+      "details": {
+        "closed": true
+      },
+      "event": "worker_connections_closed"
+    },
+    {
+      "details": {
+        "error": null,
+        "passed": true
+      },
+      "event": "worker_result"
+    },
+    {
+      "details": {
+        "worker_pid": "<owned-x11-worker-process>",
+        "worker_reaped": true,
+        "xvfb_exit": "signal: 9 (SIGKILL)",
+        "xvfb_pid": "<owned-x11-xvfb-process>",
+        "xvfb_reaped": true
+      },
+      "event": "owned_process_cleanup"
+    },
+    {
+      "details": {
+        "coverage": "Actual private X11 passive-grab conflict/recovery/release only; not physical replay or full Settings UI proof",
+        "error": null,
+        "passed": true
+      },
+      "event": "final_result"
+    }
+  ],
+  "raw_receipt_sha256": "95560bde611d907de5b03fafdb74517636214cd5b0db344275f90aad7927bb04",
+  "limits": [
+    "No injected or physical keys and no text capture/model work.",
+    "Passive-grab rollback/recovery/release is not a physical-key replay or Settings-UI conflict demonstration.",
+    "Owned Xvfb was terminated and reaped after bridge/connection cleanup; this is not natural application Quit."
+  ]
+}

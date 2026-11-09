@@ -1,17 +1,449 @@
 # BroTypist: feature-preserving Rust conversion
 
-Status: **[0.5.4 is the published Latest macOS-only stable release](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.4) (release `436391301`, source `cdf10e5b442e6ea1ac33043d504e2a3d1e4c72c2`); Windows and Linux remain ALPHA.** Final signed DMG/ZIP verification, real Gemma worker/public CLI, disposable installer copy, Tiny worker, background launch, normal Quit and data-preserving removal passed. All six public downloads match sealed bytes and SHA256SUMS; the update signature verifies against the pinned publisher. The packaged updater resolves the public release as current. [Publication evidence](../../evidence/rust-migration/macos-0.5.4-release-verification.json). Source CI passed macOS and Linux; Windows passed tests, real inference and native desktop but failed its pre-existing MSI machine-registration gate. A genuine previous-version upgrade was not exercised for this build; semantic quality and useful-visible-offer latency targets remain unresolved.
+Status: **[0.5.4 is the published Latest macOS-only stable release](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.4) (release `436391301`, original build source `cdf10e5b442e6ea1ac33043d504e2a3d1e4c72c2`); Windows and Linux remain ALPHA.** Final signed DMG/ZIP verification, real Gemma worker/public CLI, disposable installer copy, Tiny worker, background launch, normal Quit and data-preserving removal passed for that published build. All six public downloads matched sealed bytes and SHA256SUMS; the update signature verified against the pinned publisher. The packaged updater resolved the public release as current. [Publication evidence](../../evidence/rust-migration/macos-0.5.4-release-verification.json). Source CI passed macOS and Linux; Windows passed tests, real inference and native desktop but failed its pre-existing MSI machine-registration gate. A genuine previous-version upgrade was not exercised for this build; semantic quality and useful-visible-offer latency targets remained unresolved.
+
+This publication record is not acceptance of the unreleased working candidate.
+Original build hashes identify signed-release provenance, not rewritten tag
+identities. Verification remains bound to the documented source and artifacts.
+
+Historical **0.5.3**, release `433791567`, original build source `f7e80cfddaa69ca03e237cd7689cf2dd0f7d34c7`, was the Settings-polish patch. It passed 542 local test results, formatting, 43 native captures, 67 geometry observations, four retained Unicode-draft resize observations, and source-bound signed DMG/ZIP installer/launch/Quit and real Tiny-worker checks. All six public assets matched sealed local bytes and SHA256SUMS; the update signature verified against the pinned publisher. [0.5.3 publication and capture evidence](../../evidence/rust-migration/macos-0.5.3-release-verification.json). Tagged-source Actions were still pending during the GitHub incident at publication and are not counted as passing. No new full prior-version upgrade matrix or physical typing acceptance is claimed.
 
 Historical 0.5.2 release `431641010`, source `730cb78cec9b9bb7032bf6634a3b215342c4aafa`, separately verified retained primary/battery models, visible owned-field predictions, genuine 0.4.13/0.5.0 upgrades, delayed-start rollback and held-lock refusal. Section 24 retains earlier 0.5.1 observations; Section 23 preserves the 0.5.0 prerelease history. macOS packages remain Apple Development-signed, **not notarized**; model-quality, application-geometry/security and Windows/Linux acceptance limits remain open. This is not full three-platform parity.
 Baseline: `6eaeed5fe56e1ea8dcf878b1b7498f922c26fd59`, version 0.4.13.
 
-Requested outcome: convert the application to Rust for macOS, Windows and Linux while retaining all existing functionality. The current explicit release priority is **macOS-only 0.5.4 stable**, then continued Windows/Linux **ALPHA** work. Missing Windows/Linux evidence is not a pass and those platforms are not included in the Mac stable publication. This does not authorize reduced functionality, cloud features, security-policy changes or consent changes. Local replacements require explicit host authorization and preserve rollback copies and external user data.
+Requested outcome: convert the application to Rust for macOS, Windows and Linux while retaining all existing functionality. The current published channel is **macOS-only 0.5.4 stable**, with continued Windows/Linux **ALPHA** work and a separate Unreleased working candidate. Missing Windows/Linux evidence is not a pass and those platforms are not included in the Mac stable publication. This does not authorize reduced functionality, cloud features, security-policy changes or consent changes. Local replacements require explicit host authorization and preserve rollback copies and external user data.
 
 Read only the section/artifact needed:
 
 - [Review and observed baseline](review.md): current findings, baseline tests/runtime checks, known CI failures.
 - [Feature acceptance register](parity.md): P01-P32, platform limitations and exact data/identity contracts.
 - This file: proposed boundaries, dependency-ordered packages, bounded subagent protocol and release gates.
+- [Current settings/platform contracts](contracts.md#native-settings-and-platform-contracts):
+  canonical model memory/license metadata, ordinary cap, Mac substring exclusions,
+  Windows collision/capability preservation, appended instructions and consent,
+  year/month/estimated statistics and actual X11 diagnostics.
+- [Seven completed, unadopted prompt/cache decisions](../../evidence/rust-migration/prompt-cache-ablation-observations.json):
+  conditional work/quality reasons; original v19/v22 full-prefill remains production.
+
+### Current Unreleased evidence, not release approval
+
+The [clean 0.5.4-based integration](../../evidence/rust-migration/pr-integration-current.json)
+passes 800 reported Mac test invocations across 26 summaries (one ignored),
+binaries/examples and formatting. Actual CLI startup in an isolated paused
+profile confirms 0.5.4 and no shortcut thread; the word-tools executable passes
+80 deterministic public-seam checks. The existing pinned engine was reused
+read-only while Rust and the C shim were rebuilt separately. No new model-corpus,
+native Windows/Linux, physical host or release result is implied.
+
+The [remaining-Tab follow-up](../../evidence/rust-migration/tab-followup-current/receipt.json)
+records user-confirmed success for the reported native WhatsApp Tab and emoji
+bugs. The final Tab run retained seven exact edits, two genuine no-offers and
+zero hook timeouts; no validated gap failure was recorded. Source gates,
+historical owned component proof and the manual host result remain distinct.
+The complete host/security/IME/release matrix is still open.
+
+The earlier [Tab/emoji source and owned-native receipt](../../evidence/rust-migration/tab-emoji-current/receipt.json)
+records **743 reported macOS passes: 738 parent-suite plus five child-invocation
+passes, across 26 result summaries, one ignored**. Locked/offline workspace/
+all-targets tests with `native-smoke`, binaries/examples and formatting passed.
+These totals count reported passes, not distinct scenarios. No new native
+Windows/Linux execution, model-quality, latency or power result follows.
+
+Earlier [RAM-unit source gates](../../evidence/rust-migration/ram-units-current/receipt.json)
+passed with **735 reported macOS test passes across 26 result summaries**
+(730 parent-suite passes plus five child-invocation passes; one ignored), plus binaries/examples,
+and Linux ARM64 locked/offline workspace/all-target tests (**569 library passes,
+one ignored**, plus other suites)
+and binaries/examples.
+The [portable Windows decision receipt](../../evidence/rust-migration/portable-windows-decisions-current.json)
+retains commands, results and source hashes. Rust 1.99.1 was resolved through
+`PATH`; commands were
+`cargo test --offline --locked --workspace --all-targets --features brotypist/native-smoke`
+and `cargo build --offline --locked --workspace --bins --examples --features brotypist/native-smoke`.
+The prior integrated-NFC **721 Mac tests/26 suites, one ignored**, and Linux
+**556 library tests plus other suites** remain historical source checkpoints.
+These are local uncommitted-source checks, not native Windows/MSVC/SDK
+typechecking, signing or release attestations.
+
+### Integration with published 0.5.4
+
+The contribution is based on current `main` and preserves the published
+0.5.4 package identities and release records.
+
+- The canonical `WakeSignal`/`set_wakeup` chain replaces `OwnerWake`, retaining
+  ready-only owner turns, coalescing, native transport and teardown guarantees.
+  AppKit's existing transport is reconciled in place; Linux and Windows use their
+  native wake mechanisms. There is no parallel old wake implementation.
+- Bounded request/session work and actual-draw attribution replace the separate
+  native-smoke stage recorder. This is not a lossless preservation of its child
+  preparation phases or synchronized prefill/generation/sampling timings.
+  Call-boundary decode accounting is not GPU or input-to-compositor timing.
+- Published grammar-shortlist behavior, cheap clipboard liveness with fresh
+  authorization, first-row TextEdit geometry, context-prefetch race coverage,
+  isolated-model test independence and useful preview-deadline evidence remain.
+- The candidate intentionally keeps its evidenced contiguous v19/v22 prompting,
+  64/32 batching, full SWA and flash-off policy instead of the published
+  incremental/128/auto policy. Short-clause language evidence can include the
+  nearest prior authored sentence; it is not the published completed-final-word
+  retry. These are explicit semantic differences, not merge accidents.
+- Direct benchmark cases use canonical SHA-256 v2 case/round seeds, including a
+  declared default hash root. The reserved native random-seed sentinel is never
+  submitted as a derived exact seed. Explicit paired roots remain supported;
+  production sampling is unchanged. Historical FNV schedules and model receipts
+  are not reclassified as equivalent runs under the new default.
+
+### Tab renewal and native WhatsApp emoji: bounded follow-up (2026-11-08)
+
+Verified completion exhaustion now clears the old attempt and starts ordinary
+debounce for a fresh offer. A retained remainder stays receipt-bound; genuine
+no-offer results stay quiet. Native WhatsApp now reserves the accept-word key
+after verified completion acceptance for the exact writing scope, including
+idle/no-offer, until input/caret/focus/Escape or policy/safety revocation.
+Other apps retain the maximum two-second guard. Neither policy edits unseen
+text, queues future acceptance or generates extra work. The separate pending
+native-readback deadline and native lease remain strictly two seconds.
+Permanent Word/All regressions cover six word accepts across two generations,
+exact text/caret, fresh paint, single use, debounce/pass-through and no retry of
+an empty result. Corrected red evidence was 110 runtime passes/two new failures;
+green was 112 runtime passes. That historical checkpoint was not physical acceptance;
+the final manual WhatsApp result is recorded separately above.
+
+Approved **nonmutating WhatsApp metadata** identified a focused native AXTextArea
+with read-only selected text but writable value/selected range, no Chromium
+node, trusted AX and Secure Input clear. Ordinary replacement gating blocked the
+chooser despite enabled emoji preferences. The new default-false
+`Snapshot.can_replace_emoji` and `NativeBridge::replace_emoji_range` are
+emoji-only: ordinary `can_replace`, generic replacement, synonyms and typo
+corrections remain unchanged. The native WhatsApp-only fallback preflights input,
+selects the checked scalar-to-UTF-16 range, independently recaptures unchanged
+text/exact selection/authority/capabilities, then revalidates before one
+PID-targeted key event pair. No whole-message rewrite, clipboard, Backspace or
+session-global fallback is used. Possible mutation after selection is
+`Indeterminate`, never a no-mutation rejection or replay. Only an already
+dispatched dedicated emoji edit may retain the exact selected-only intermediate
+under unchanged deadline/revision/privacy gates; exact final text/glyph/caret
+alone confirms success. [Full transaction contract](contracts.md#tab-renewal-and-emoji-only-native-transactions).
+
+The [new receipt](../../evidence/rust-migration/tab-emoji-current/receipt.json)
+separates two actual controlled native proofs: expanded `--owned-choices`
+passed eight acceptance cases with real WorkerClient/Controller/OverlayOwner,
+including ZWJ, alias and singleton emoticon, native draw/typed receipt before
+actual NSButton row 1 → choice 0, exact readback, one edit and duplicate refusal;
+the two singleton images were inspected. New explicit `--owned-emoji` used real
+MacBridge and an authenticated AppKit child with genuinely read-only selected
+text, proving two PID-targeted Unicode replacements with preserved astral/NFD
+prefix/suffix and exact independent UTF-8/UTF-16 text/caret. Original
+`--owned-ax` still posts no keyboard events. The first choice attempt stopped on
+physical input with zero edits/requests; the first dedicated attempt failed on
+a fixture typed-CGEvent ABI mismatch before completion. Both negative attempts
+remain recorded; fresh corrected runs passed without weakening guards/deadlines.
+
+These are component proofs, **not actual WhatsApp mutation, physical typing/
+clicks, undo, the full host matrix or platform release acceptance**. Existing
+178/192 model quality, 14 no-offers and all 15 held acceptance gates are unchanged;
+earlier receipts/counts remain historical checkpoints.
+
+Durable evidence:
+[277 Python/Rust storage checks](../../evidence/rust-migration/storage-interoperability-current.json),
+[18 learning-store scenarios](../../evidence/rust-migration/learning-store-current.json),
+[22 native dictionary checks](../../evidence/rust-migration/native-dictionary-current.json)
+(en-GB/pt-BR exercised; en-US unavailable), and
+[historical Mac render-only Settings](../../evidence/rust-migration/native-settings-current/receipt.json)
+(78 captures, 107 geometry observations, four Unicode editor/selection resize
+observations and six retained reviewed images). The [current RAM-unit
+receipt and images](../../evidence/rust-migration/ram-units-current/receipt.json)
+record **86 Mac captures / 117 geometry observations**, retaining existing panes
+and Unicode scenarios. Balanced's zero minimum omits the memory line; Gemma 4
+E2B's 8,589,934,592 bytes display as **8.00 GiB**. The [historical catalogue-memory
+receipt](../../evidence/rust-migration/catalog-memory-current/receipt.json) preserves
+its pre-unit-fix **8.6 GB** Mac observation; earlier raw-byte labels and the
+733-pass checkpoint remain historical. These native NSView
+bitmaps use explicit catalogue/availability render fixtures without Controller/
+services or dispatched actions; they do not prove installed models, model
+loading, physical input or compositor presentation.
+
+Zero minimum-memory metadata means **unspecified**, not zero consumption.
+Mac omits it like missing data, GTK uses its existing unavailable fallback,
+and Windows displays `Unavailable` without a static bytes suffix. The common
+allocation-free `ram_label` formatter uses two-decimal binary GiB for catalogue/
+detected RAM labels and insufficient-memory availability warnings. Positive fractions
+are not integer-truncated (8.50 GiB, 0.50 GiB; 1,000,000,000 bytes → 0.93 GiB).
+Byte-exact eligibility, recommendations and capacity detection are unchanged:
+only a positive minimum threshold rejects insufficient physical memory in
+`model_availability`. Physical RAM stays separate and unknown hardware stays unknown;
+unspecified metadata promises no hardware fit. Download/transfer formatting is
+unchanged (Gemma's download still shows 2.8 GB). Windows presentation remains
+source-reviewed/unexecuted.
+
+The current RAM-unit receipt also records the actual Linux native
+shell's **99 assertions**, stage 45, `clean_exit=true`, `error=null`. Its previous
+96 checks remain: EN word/PT full preview, real model selection success/failure/
+cancellation, instructions save/cancel, dirty Unicode retention, external/live
+refresh and concurrent updates, independent consent dialogs, guarded close/Quit
+Cancel, persistence failure/recovery and owner cleanup. The same three actual-dialog
+assertions cover two real runtime catalogue states (Balanced zero → unavailable;
+Gemma 4 E2B 8,589,934,592 bytes → **8.00 GiB**, binary) and unchanged runtime/saved
+configuration and Settings draft after browsing. No installation fixture,
+download, license consent or model-selection save occurred. First-open readiness
+requires the mapped window, populated complete catalogue and active row within
+the existing five-second deadline, not a fixed sleep.
+Commands and raw/source digests are durable provenance; post-run source capture
+is not a frozen prelaunch identity. The [historical integrated-NFC 96-assertion/
+stage-42 receipt](../../evidence/rust-migration/linux-native-shell-latest/receipt.json)
+retains its intermediate identity; the [pre-wave receipt](../../evidence/rust-migration/linux-native-shell-current/receipt.json)
+also remains historical. Controlled GTK widget interaction passed separately.
+Full Mac persistence/interaction, physical typing and native Windows acceptance
+remain unexecuted. Owned-widget dispatch is not real IME, KWin or release proof.
+
+**Ordinary calibrated reuse passes; whole-memory checkpoints remain unadopted.**
+[Post-NFC ordinary calibration](../../evidence/rust-migration/nfc-cache-calibration-current.json)
+passes all 55 exact/calibrated-numerical/calibrated-decision rows across 330
+trajectories: 99,954 prompt decoded, 2,610 generation decoded and 2,940 sampled
+tokens, zero trim failures. The [earlier calibration](../../evidence/rust-migration/cache-schedule-calibration-current.json)
+and [earlier live reuse](../../evidence/rust-migration/live-cache-reuse-calibrated-current.json)
+retain their original scope; live reuse
+passes production exact/numerical/decision gates and compact exact safety/
+eviction recovery (compact numerical/decision calibration is not applicable).
+Matched gates remain exact; unmatched schedules use independent fresh/fresh
+floors, not relaxed epsilon or universal batch invariance. Historical negative
+artifacts remain intact.
+
+The [whole-state policy evaluation](../../evidence/rust-migration/cache-policy-calibrated-current.json)
+completed all 80 admitted cases with 23 exact/numerical failures: 9 full/off,
+3 compact/off, 8 full/on and 3 compact/on. Each arm passes bounded decision
+agreement but fails adoption gates; the three independent live controls are
+bit-exact. This is not an ordinary KV-reuse defect. The historical sequence-state
+missing-history explanation does not apply to whole-state `seq_id=-1`.
+Whole restore packs occupied cells and resets its head; attributing drift to
+physical layout remains **[INFERENCE]**, not proved causation.
+
+[Real-grammar wrapper parity](../../evidence/rust-migration/grammar-shortlist-parity-current.json)
+passes 114 units / 456 trajectories, bounded to this model/backend and fixed
+seeds; no universal sampler/semantic, diverse alternatives-search or shortlist
+fast-path coverage claim follows. [Ten utility grammar admission fixtures](../../evidence/rust-migration/utility-grammar-admission-current.json)
+include `[]`, not evidence that the model chooses abstention.
+[Pre-fix full64 parity](../../evidence/rust-migration/writing-full-corpus-parity-current.json)
+retains the historical 175/192 result. The [integrated NFC correction](../../evidence/rust-migration/nfc-healing-current.json)
+now passes **178/192** across 64 cases × three rounds. All three missing-`o`
+NFD joins are fixed, with zero regressions; the remaining 189 text/mechanical/
+native-raw/seed/non-timing-work samples are unchanged. All twelve literal
+checks remain observed without contradiction/missing facts. Assistant semantic
+labels are now attached, not human-validated or calibrated; see the follow-up register below.
+
+The exact authored healing suffix is removed **before** normalizing model replay
+to NFC; authored NFD text, references and suffix bytes are never rewritten.
+Already-NFC replay stays borrowed. Prompt tokenization, production/diagnostic
+grammar, replay metadata, tokenizer-derived allowance and output stripping all
+share the same returned NFC bytes. The existing 64-scalar/CJK limits, cleaner,
+utility/server scopes, cancellation and stable publication remain unchanged.
+Completed NFD word spacing remains valid. All 24 structural NFC–NFD twin
+streams match projections, tokens, grammar, insertions, raw outputs, seeds and
+non-timing work: 12 English completed-`café`/Japanese positive observations and
+12 explicit Portuguese completed-`café`/different partial-word no-offers.
+This is not a fix for every prompt or proof of native host editing.
+
+The remaining 14 absolute failures are ten replay-only and four replay-plus-comma
+raw stops: no useful continuation, no execution error, ample capacity, and no
+useful insertion lost to cleanup. They are not external blockers or proof of
+unfixability. EOG specifically remains **[INFERENCE]** without terminal token
+IDs; no additional production bug was justified by that investigation.
+Full64 still exits 1; do not force output or weaken fixtures.
+
+All 52 named long-control inputs, final outputs, native non-timing work, observed
+seeds and failure/no-offer/cancellation states match the earlier baseline, with
+four callback-count changes. `completed_run=true`, `failed_requests=0`.
+`contract_matched=false` in both reports means `--match-report` was omitted,
+not failed comparison; the parent independently compared all rows and contract
+fields. This explicit `context_chars=8000` workload is not canonical production
+allocation or an automatic strict preflight pass. Earlier baseline native C/Rust
+hashes differ; only current pre/post-NFC full64 isolates this correction. No
+latency claim follows.
+
+The [historical short-probe canonical-worker receipt](../../evidence/rust-migration/nfc-worker-healing-current.json)
+records three target passes returning `o preventiva é crucial `, protocol
+completion, no errors and acknowledged release/shutdown. Its **command exit 1**
+and three `inconclusive_request_already_completed` after-result probes remain
+unchanged historical evidence; before-proceed cancellation passed three rounds.
+Raw child exit codes were null/unobserved. The corrected-clock, longer-probe
+receipt below supersedes this as current cancellation evidence, not as a rewrite.
+
+### Current follow-up evidence register (2026-11-07)
+
+These four tracks supplement the preserved receipts; **all 15 acceptance gates
+remain held**. Source tests, emulated native UI, model mechanical outcomes and
+assistant semantic judgments are separate evidence classes.
+
+- **Cancellation and observation clock:** [current canonical receipt](../../evidence/rust-migration/canonical-cancellation-current.json)
+  records parent command exit 0, three sessions, both probes passing each session,
+  three NFD target passes and acknowledged release/shutdown. The after-result
+  probe alone uses a fixed ordinary garden-handover continuation at 128 tokens /
+  32 words; ordinary cases retain 24 tokens / medium length. Each probe observes
+  a nonempty nonfinal IPC result while the matching supervisor request is active.
+  Matching terminal accounting, quiescence, revoked-consumer silence and retirement
+  pass; this is **not native interruption acknowledgement**. Both native
+  acknowledgement/interruption fields remain null; poll suppression does not prove
+  the producer stopped. Diagnostic timestamps now record actual observation and
+  retention after lock waits, not operational step-entry time. Grace/idle policy,
+  accounting and ownership are unchanged. Both clock regressions passed in the
+  Mac source gate: 732 parent-suite passes plus five child invocations =
+  737 reported passes, 26 summaries, one ignored; binaries/examples built.
+- **Boundary/replay candidate rejected:** [controlled experiment](../../evidence/rust-migration/no-offer-boundary-replay-current.json)
+  compares current NFC healing with full authored prefill and no healing tail:
+  replay metadata, grammar, stripping and reservation change together, not grammar
+  alone. Each arm completed 54 requests (11 cases, 18 boundary variants × three
+  matched-seed rounds), without stream/projection errors. Both have 19/54 no-offers.
+  Original problem boundaries improve 14/15 → 1/15 no-offers and owned English
+  controls 5/6 → 0/6, but trailing-space cases regress 0/21 → 18/21. All three
+  protective partial-word requests split `feedback` into `feed back`. No-healing
+  is rejected and **not adopted in production**; no full64, long or per-keystroke
+  adoption gate is claimed. Every request uses the 8,000-byte reference selector;
+  explicit synthetic context wrapping and cold KV-cleared scheduling differ from
+  retained full64. Japanese ASCII space is a diagnostic perturbation, not a fix.
+- **Semantic review attached, not calibrated:** [review receipt](../../evidence/rust-migration/semantic-review-current.json)
+  covers 89 unique input/output IDs representing all 192 occurrences. The canonical
+  offline CLI attached 337 assistant dimension labels: 277 acceptable,
+  25 unacceptable, 11 uncertain and 24 not applicable, without changing generated,
+  mechanical, native or timing fields. A blind second review of all 29 flagged IDs
+  plus six controls yields 143 agreements and **13 unadjudicated disagreements**
+  across 156 dimensions. Both review sets remain; no majority vote or silent
+  replacement. This selection-biased same-model assistant audit is not human
+  validation or population calibration. Agreed defects include Portuguese `sala`
+  leaking into English, unsupported `next week`, and `ágiles` instead of Portuguese
+  `ágeis`; defect attribution and contextual utility remain disputed. The original
+  **178/192 mechanical result and 14 no-offer failures remain unchanged**, not an
+  overall semantic score or quality pass.
+- **Actual Linux AMD64 emulation:** [current execution receipt](../../evidence/rust-migration/emulated-linux-current/receipt.json)
+  records real x86-64 Linux userspace/native application execution, not just a
+  cross-build. Locked/offline serial workspace/all-target tests plus bins/examples
+  passed: 693 parent-suite passes plus six child invocations = 699 reported passes,
+  27 summaries, two ignored. The first concurrent library run retains 568 passes,
+  three EAGAIN / eight-second UnixStream fixture read timeouts and one ignored;
+  no assertion/deadline was weakened, and zero cgroup PID/memory/OOM events do not
+  support a spawn/PID/OOM explanation. Actual Xvfb/Openbox/Picom full-shell execution
+  passed 99 assertions, stage 45, `clean_exit=true`, `error=null`, with read-only
+  existing E4B weights. Emulation is not native Windows, physical typing, installer,
+  release, or ordinary compositor/IME acceptance. Those holds remain; ordinary
+  Wayland inline/preedit remains disabled.
+
+
+[All seven isolated decisions](../../evidence/rust-migration/prompt-cache-ablation-observations.json)
+remain complete and unadopted. Reference freezing regresses grounding/work;
+learned freezing preserves decoded work/output and reduces API calls without
+measured CPU-time benefit. Production retains original v19/v22 full-prefill,
+full-SWA/flash-off. No speed, energy, physical latency or full-quality claim follows.
+
+The source wave is implemented with completed bounded evidence:
+
+- [AX transaction-local frame reuse](../../evidence/rust-migration/ax-read-reuse-current.json):
+  three requests use two native acquisitions/one hit instead of three, with
+  identical captures and independent native widget readback. Content/security/
+  authority checks remain fresh; reuse ends before appearance/focus/anchor
+  barriers. Owned-child/hookless proof is not Controller/global-hook or host-matrix
+  acceptance.
+- [Historical pre-NFC publication frontier](../../evidence/rust-migration/publication-frontier-current.json):
+  stable canonical output precedes native return/teardown, preserving that wave's
+  192 text/mechanical/error outcomes and 269 native raw-output/seed/non-timing-work
+  records against its pre-wave control. Cancellation and clean owner close pass
+  three rounds in that scope; its absolute result was 175/192 before the NFC fix.
+  Current NFC full64 still records 269 corpus native calls, 117 nonempty
+  known-terminal emissions before native return, 211 exact nonempty final-offer
+  agreements and zero mismatches (58 unavailable comparisons). Ordering is not
+  compositor/worker/GPU improvement or universal semantics; current full64
+  remains an absolute quality failure at 178/192.
+- [Current target-owned clients](../../evidence/rust-migration/target-owned-client-current.json):
+  canonical GTK3/Qt6 compact ordinals, pre-paint refusal and selected/collapsed
+  Unicode/NFD replacement/readback/undo pass. Native UTF-16 active caret/length
+  are not broker scalar replacement ranges. Synthetic dispatch/private XTest
+  is not physical typing, ordinary Wayland inline or arbitrary-host proof.
+- [Word-tools public APIs](../../evidence/rust-migration/word-tools-current.json):
+  80 deterministic boundary/emoji/choice/acceptance checks pass, not model
+  semantics, next-word fallback or native insertion. No new trigger preset.
+- [Actual generated Unicode notices](../../evidence/rust-migration/emoji-notice-current.json):
+  embedded emoji data 17.0, source and full Unicode License V3 are included;
+  Cargo/native notices remain. No packaging/install or legal certification.
+
+Selected UIA replacement remains capability-bound: generic UIA may replace
+only its exact existing selection, while a collapsed caret permits insertion
+and native Edit retains checked range selection. Fresh content/selection/
+authority checks precede effects; independent readback must preserve surrounding
+text and confirm collapsed selection/exact scalar caret for the requested
+insertion or a nonempty scalar prefix. Selection-derived capability changes
+after replacement do not change authority. The [portable decision receipt](../../evidence/rust-migration/portable-windows-decisions-current.json)
+records the canonical `platform::windows_decisions` module now enabled under
+`cfg(any(target_os = "windows", test))` and shared with native Windows hooks.
+All **12 pure decision tests executed and passed on both Mac and Linux**.
+Previously the module was nested only under the Windows platform gate;
+generic Runtime selected-replacement/readback tests already ran, and
+`selected_replacement_capability_loss_counts_once_only_for_exact_readback`
+also passes in the current gates. This does not typecheck native Win32/MSVC/SDK
+code or establish Windows desktop execution or hook-lifecycle acceptance.
+
+[Stock AT-SPI capture/refusal](../../evidence/rust-migration/stock-atspi-current.json)
+adds four exact native snapshots against independent GTK readback and eight
+unchanged rejected mutation attempts. Inactive composition is not established,
+inline/range geometry is unavailable and zero insertions were attempted or
+confirmed; this does not grant positive insertion capability.
+
+The [public acceptance register](parity.md#remaining-prerequisites-and-authority)
+separates implemented/evaluation-complete work from unmet exits. The three NFD
+failures are fixed, but 14 raw-stop/no-useful-continuation quality failures remain.
+There is no accepted decoded-work candidate or demonstrated learning relevance
+gain; power/energy and input-to-compositor improvement remain unmeasured. GPUI
+evaluation is closed with its candidate rejected and native presentation retained;
+missing IME/assistive/resource/all-platform proof is not a product pass. Current
+Windows/MSVC desktop, full KWin manual acceptance, physical/mixed-display/Spaces,
+assistive/permission-revocation matrix, full disposable Mac shell and release
+prerequisites remain unmet. Genuine KWin execution is now observed, but partial:
+the [emulated receipt](../../evidence/rust-migration/emulated-linux-current/receipt.json)
+records KWin 5.27.11 nested X11/software Mesa and a mapped native GTK Wayland
+editor with exact NFD/non-BMP readback, focus property true but window inactive.
+A genuine compositor-inherited connected AF_UNIX stream peer was validated;
+product logs contain `zwp_input_method_v1` / `zwp_input_panel_v1` bind requests
+and an activate event. The final post-fix strict probe exits **2 / partial**,
+with **10/13 gates passing**. D-Bus `ListNames` returned no `org.kde.KWin*` names;
+executable observations identified the Rosetta interpreter despite matching
+process start ticks, not the required product executable. These two identity
+gates and identity-qualified product binding remain false. Raw protocol
+requests are not qualified native acceptance. Logs also record missing EGLImage
+pixmap support/compositing disabled and missing KDE decoration/QML modules.
+An owned screenshot was captured; no model loaded or inference ran. Processes
+were forcibly cleaned, not closed through canonical Quit/release. The historical
+helper refusal on down tunnel interfaces remains; corrected UP-interface and
+no-IPv4/IPv6-route guards passed. Full manual commit, physical IME and normal KDE
+input-method selection remain unproved; all 15 gates stay held.
+
+The real probe exposed a production teardown bug before cleanup:
+`grab_keyboard` → input-method deactivate → `keyboard.release` caused
+`wl_display.error` (invalid object 11). `wayland_wire.rs::drop_keyboard` now
+destroys only the local version-1 keyboard proxy, retaining owning-context
+teardown. The actual post-fix probe observes grab → deactivate → context destroy,
+no `keyboard.release`, and no protocol error. Product and KWin logs each change
+from one pre-cleanup/zero during-cleanup errors to zero/zero; the complete product
+log is retained. The new no-pre-cleanup-protocol-error gate passes, not an
+exception suppression or broader KWin acceptance. Post-fix Linux locked/offline
+serial all-target tests plus bins/examples again passed (693 parent + six child =
+699 reported, 27 summaries, two ignored); formatting passed in the parent run.
+The X11 full-shell 99-assertion pass preceded this Wayland-only correction;
+unchanged X11/UI source does not turn that receipt into a post-fix rerun.
+
+[Linux loader evidence](../../evidence/rust-migration/linux-dbus-linkage-current.json)
+records the system-D-Bus cutover without package upgrades (CI already provides
+development libraries); exports/system bindings fall 536/126 → 0/0. Showing GTK
+children before pane selection fixes the separate first-open Models bug.
+[Actual source-bound CLI receipt and reviewed image](../../evidence/rust-migration/linux-cli-models-current/receipt.json)
+prove AI Models navigation, natural native Quit/exit 0, no lingering children and
+byte-identical settings with memory-only paused override, not inference or full
+Settings acceptance. Canonical owned Welcome aborted on input interruption before
+model requests/edits, with empty cases and clean Controller shutdown: no positive
+bilingual pass or permission/model failure and no automatic retry.
+Physical/Windows/KWin/installer/TCC and full Mac-shell gates remain open.
+
+Wayland source cutover is manual-only: no ordinary inline/preedit or popup
+fallback. Explicit KDE input-method selection does not change this. Independent
+target-owned GTK3/Qt6 clients and their acceptance remain separate; their proof
+does not establish Wayland placement, full Settings acceptance or release parity.
+No version bump or new publication is implied by this candidate evidence.
+
 
 ## 1. Decision and non-negotiables
 
@@ -19,7 +451,7 @@ Read only the section/artifact needed:
 
 This removes Python from the **final shipped application**, not every non-Rust dependency: llama.cpp remains C/C++, and OS frameworks/toolkits remain native dependencies. Replacing it with Candle/MLX or translating every upstream C/C++ dependency is not required and would add model-compatibility risk.
 
-The user selected Rust-owned native UI over the presented Swift-shell and webview-settings alternatives. The candidate checkout now selects Rust exclusively: obsolete Python runtime, tests, packaging launchers, build/evaluation scripts and dependency manifests were removed after the Rust candidate ran. The complete unchanged Python baseline remains in an external detached worktree and Git history for remaining comparisons, never a shipped fallback. Language-neutral corpus/assets and historical evidence are preserved. This branch source cutover is not production rollout or closure of the remaining native gates. Rust 1.99.1 is installed and pinned in `rust-toolchain.toml`.
+The user selected Rust-owned native UI over the presented Swift-shell and webview-settings alternatives. The candidate checkout now selects Rust exclusively: obsolete Python runtime, tests, packaging launchers, build/evaluation scripts and dependency manifests were removed after the Rust candidate ran. The unchanged Python baseline remains an external private comparison reference, never a shipped fallback or a reason to merge old history into rewritten origin. Language-neutral corpus/assets and public historical evidence are preserved. This branch source cutover is not production rollout or closure of the remaining native gates. Rust 1.99.1 is installed and pinned in `rust-toolchain.toml`.
 
 Performance is measured, not assumed from language: avoid tick-by-tick full-draft copies, repeated scalar indexing, synchronous keychain/AX/model/power work in hooks, or a universal mutex across OS/UI/inference. Reuse immutable text buffers and checked offset maps when text changes; bound caches and queues according to actual lifecycle safety. Do not drop user input to satisfy a memory limit during an issued uncertain mutation.
 
@@ -109,7 +541,7 @@ For each integrated packet, one independent reviewer checks semantic/data/securi
 
 ## 6. Current verification evidence and gates
 
-The table retains source-bound historical observations. Sections 23–24 record the 0.5.0 deployment and earlier local 0.5.1 correction; earlier passes do not automatically apply to the final 0.5.2 stable candidate. The current channel boundary is macOS stable, Windows/Linux ALPHA.
+The table retains source-bound historical observations, including gates recorded before the 0.5.2 stable release. Sections 23–24 record the 0.5.0 deployment and earlier local 0.5.1 correction. Earlier passes do not automatically apply to published 0.5.4 or the current working candidate; the separate release record above defines the published boundary. The current channel is macOS 0.5.4 stable, Windows/Linux ALPHA.
 
 | Boundary | Observed evidence | Limits / next gate |
 | --- | --- | --- |
@@ -117,11 +549,11 @@ The table retains source-bound historical observations. Sections 23–24 record 
 | macOS native CI | Complete tests/build/CLI/worker/twelve-pane settings/Welcome/EN-PT owned-preview acceptance/clean Quit/development bundle passed again in [41119387237](https://github.com/renan-brasilio/brotypist/actions/runs/41119387237), head `2f4f1f0` (14m40s). | Owned NSView captures are not external-screen, signed-host or live TCC proof. Authorized installation is recorded separately below. |
 | Linux native CI | The same run passed the full Linux job (17m37s), including actual DEB install/replacement, owned X11/AT-SPI Quit, installed Tiny worker/public CLI, data-preserving purge and relocated portable diagnostics. The earlier inspected installer receipt explicitly records successful cleanup and `full_installer_matrix_passed=false`. | Previous-release upgrade and KWin manual transport remain unverified. |
 | Windows native CI | Native [41236356500](https://github.com/renan-brasilio/brotypist/actions/runs/41236356500), package merge `1e105adc`: compile/checks, 278 tests plus two child invocations, all 14 owned-UI checks, PE/DLL closure and exact ZIP payload passed. Relocated canonical ZIP now passes real Tiny worker/public inference and visible Settings/Quit with unchanged synthetic data/autostart. [Current proof](../../evidence/rust-migration/windows-build-completion.json); delivery details in section 18. | MSI still reports exclusive per-user context 2/State 5/AssignmentType 0 but creates machine ARP64. Strict gate and overall installer failure remain; repair/installed runtime were not reached. External-app physical typing, upgrade, rollback, signing/publication are not certified. |
-| Signed Mac distribution | Candidate `a278b6b` matched the installed designated requirement. Actual DMG/ZIP extraction/copy, bundled CLI/Tiny inference, nonactivating launch, OS Quit/exit 0, removal/data-fixture preservation and ZIP traversal refusal passed. Receipt: `/private/tmp/brotypist-rust-source-a278b6b/installer-smoke/macos-installer-smoke.json`. | Receipt is explicitly `full_matrix=false`: no previous-version/OTA, notarization or physical-host typing claim. |
+| Signed Mac distribution | Candidate `a278b6b` matched the installed designated requirement. Actual DMG/ZIP extraction/copy, bundled CLI/Tiny inference, nonactivating launch, OS Quit/exit 0, removal/data-fixture preservation and ZIP traversal refusal passed. Historical local receipt: `macos-installer-smoke.json` (not a durable public link). | Receipt is explicitly `full_matrix=false`: no previous-version/OTA, notarization or physical-host typing claim. |
 | Data/tool contracts | Synthetic AES-GCM and startup-ACK interoperability; relocated independent offline review CLI, source-hash/raw-output/private-file/no-overwrite behavior; authentic locked-source dependency notices passed. | Notices do not grant a first-party license. No app/model/profile access was needed by offline review. |
 | Unicode | Shared allocation-free casefold matches all 1,112,064 valid scalars against immutable Python Unicode 15, correcting 129 dependency-table differences. Rules/history/choices/utilities/archive collision/MSI identity regressions passed. [Mapping proof](../../evidence/rust-migration/unicode15-casefold.json). | No normalization/category/regex equivalence claim. |
 
-The full 51-case Gemma corpus matched every insertion/decoded-choice value and prompt-token count between Rust and immutable Python. Forty-eight raw strings were byte-identical; three differed only in alternatives JSON whitespace. Both retained the same three safe-empty availability failures (`language-en-locale-preference`, `grammar-fr-agreement`, `suffix-ja-unspaced`): **48/51 each**, not a full pass or semantic-quality approval. Reports: `/private/tmp/brotypist-rust-full-corpus-z95szwqa/report.json` and `/private/tmp/brotypist-oracle-full-corpus-iy2tsw_d/report.json`.
+The full 51-case Gemma corpus matched every insertion/decoded-choice value and prompt-token count between Rust and immutable Python. Forty-eight raw strings were byte-identical; three differed only in alternatives JSON whitespace. Both retained the same three safe-empty availability failures (`language-en-locale-preference`, `grammar-fr-agreement`, `suffix-ja-unspaced`): **48/51 each**, not a full pass or semantic-quality approval. The historical Rust and Python oracle reports were retained locally; their ephemeral paths are not durable public evidence links.
 
 Six selected direct/worker benchmark cases passed mechanical checks. Separate direct EN/PT diagnostics exercised the 256-token cap, sampler/BOS/token budgets and process-lifetime RSS. Direct cancellation passed; one after-result worker cancellation was explicitly inconclusive because the producer had already finished. These are not physical-typing latency or universal stochastic-output claims.
 
@@ -191,7 +623,7 @@ The selected sidebar row must contain its icon with visible inset padding, and t
 
 After the fourth rejected visual attempt, the user approved task-scoped reference use of [macos-design-guidelines](https://github.com/ehmo/platform-design-skills/tree/dc2be825d8b439caea78e9eaa8fb3ac23b0ff3e9/skills/macos), pinned at `dc2be825d8b439caea78e9eaa8fb3ac23b0ff3e9` (SKILL.md SHA-256 `9fa44a38eee0138d6aaf41b7f34223bcd9b25099e4706846b8773124fc5b6ecc`). Static review found MIT-licensed text/metadata with no bundled executable hooks. Only relevant sidebar/visual guidance is used; broad pack mandates do not expand the utility's scope. No persistent skill installation or behavior-quality guarantee is claimed.
 
-The handoff was initially blocked by macOS Downloads permissions. The user subsequently supplied the accessible copy at `/Users/renanrocha/tmp/brotypist-handoff.zip` (SHA-256 `b0b7ffcad8f363024fa9347e306c484d0eef7d5730ee1eba5b4c11bd6d678211`). No permission bypass was used.
+The handoff was initially blocked by macOS Downloads permissions. The user subsequently supplied an accessible private copy. No permission bypass was used; private archive locations and digests are not public navigation dependencies.
 
 Icon cutover must cover both `design/icons/BroTypist.icon` (modern macOS `Assets.car`) and committed `crates/brotypist/assets/app.icns` (classic/source-launch Mac), `app.ico` (Windows embedded and sidecar), `app-24.png`/`app-24@2x.png` (Linux runtime/Wayland), and all nine `assets/icons/app-{size}.png` desktop exports. Existing tooling compiles Composer and copies these exports; it does not regenerate the committed ICNS/ICO/PNG files. About/Welcome use the actual application icon. Category tiles, native monochrome Mac menu/accessory marks and text wordmark are separate, not arbitrary app-icon replacement targets.
 
@@ -338,7 +770,7 @@ The subsequent [direct-client probe `41301762511`](https://github.com/renan-bras
 
 **Explicit user disposition:** keep Windows held. No new CI account, alternate credentials, additional security changes or Windows MSI publication are authorized. The genuine-user ownership/upgrade/rollback gate remains intentionally unaccepted; the Mac prerelease delivery is complete and this decision does not turn the failed Windows check into a pass.
 
-The approved **[Mac-only prerelease is published](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.0)** as release `430525839`, with `draft=false`, `prerelease=true` and the immutable `v0.5.0` tag resolving to Mac source `52604fc`. After CLI creation was denied with 403, the existing authenticated browser workflow uploaded exactly six authorized Mac assets without changing credentials or permissions. The integration owner independently downloaded all six server responses both before and after publication, verified every size/SHA-256 and the exact SHA256SUMS membership, and verified the downloaded update manifest/signature against the existing publisher pin. Post-publication API inspection confirmed the same uploaded asset identities and stable **`v0.4.13` still Latest** (`427862094`). Windows/Linux publication and acceptance remain held; Mac model-quality, notarization and external personal-message limits stay explicit. These bounded passes do not complete the full migration matrix.
+At the time of the historical **[Mac-only 0.5.0 prerelease publication](https://github.com/renan-brasilio/brotypist/releases/tag/v0.5.0)**, release `430525839` had `draft=false`, `prerelease=true`, and the original `v0.5.0` tag resolved to Mac source `52604fc`; this does not describe the rewritten tag's source identity today. After CLI creation was denied with 403, the existing authenticated browser workflow uploaded exactly six authorized Mac assets without changing credentials or permissions. The integration owner independently downloaded all six server responses both before and after publication, verified every size/SHA-256 and the exact SHA256SUMS membership, and verified the downloaded update manifest/signature against the existing publisher pin. Post-publication API inspection at that time confirmed the same uploaded asset identities and stable **`v0.4.13` still Latest** (`427862094`); the current published Latest is 0.5.4, as recorded above. Windows/Linux publication and acceptance remained held; Mac model-quality, notarization and external personal-message limits stayed explicit. These bounded passes did not complete the full migration matrix.
 
 ## 24. macOS 0.5.1 responsiveness, Monaco support and clean Setup
 
@@ -383,6 +815,11 @@ The observer sampled WindowServer at 16 ms; actual [warm prediction glyphs](../.
 The signed app was atomically replaced, its real GUI loop and eight-second startup liveness observed, and the exact previous signed 0.5.0 app plus opaque profile retained privately. The original Code settings also have a verified private rollback copy. History database bytes remained unchanged; normal BroTypist settings differ only by the approved Code rule. This is preservation/retained rollback evidence, not a new updater downgrade matrix. The app remains Apple Development-signed, **not notarized**.
 
 No usable Cursor bundle was present; the user chose installed Code instead of a Cursor download. The shared Monaco path is exercised, **direct Cursor support is unverified**. Code-editor completions remain a per-app opt-in; the VS Code settings above are explicit prerequisites, not silent preference changes. BroTypist does not disable Copilot or Cursor Tab; use one automatic inline provider per editor. WordCraft 0.13.2's owned document reported writable AXValue but its setter returned success without changing text; the user chose BroTypist-only changes, so no upstream WordCraft edit or unsafe document-role fallback was made. Reliable field identity, caret/glyph geometry and insertion authority remain mandatory; protected fields, active composition and unsafe/unobservable targets stay excluded. **Windows and Linux remain ALPHA; Windows MSI distribution remains held and ordinary Wayland inline completion remains unavailable.**
+
+**Published 0.5.4 investigation history:** sections 25–29 below retain the
+source-bound observations and choices that led to that release. They are not
+the current Unreleased candidate's configuration or diagnostic API; see the
+[integration differences](#integration-with-published-054) above.
 
 ## 25. Native prediction latency investigation
 
